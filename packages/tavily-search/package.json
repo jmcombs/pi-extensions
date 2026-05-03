@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-tavily-search",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Pi extension that performs real-time web search via the Tavily API.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/tavily-search",
   "repository": {
