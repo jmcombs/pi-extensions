@@ -5,5 +5,14 @@
   "include-component-in-tag": true,
   "include-v-in-tag": true,
   "bump-minor-pre-major": true,
-  "packages": {}
+  "packages": {
+    "packages/tavily-search": {
+      "release-type": "node",
+      "component": "tavily-search",
+      "package-name": "@jmcombs/pi-tavily-search",
+      "changelog-path": "CHANGELOG.md",
+      "pull-request-title-pattern": "chore(${component}): release ${version}",
+      "pull-request-header": "Release Please created this PR. Merging it will tag `${component}/v${version}`, create a GitHub Release, and publish `@jmcombs/pi-tavily-search@${version}` to npm via Trusted Publishing."
+    }
+  }
 }

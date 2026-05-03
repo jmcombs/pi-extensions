@@ -10,22 +10,61 @@ permissions:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────
-  # Open / update release PRs and (when one is merged) create tags +
-  # GitHub Releases for any packages with releasable commits.
-  #
-  # Per-package npm publish jobs are added beneath this one as packages
-  # are registered. See packages/_template/TEMPLATE.md and CONTRIBUTING.md
-  # for the per-package onboarding flow (Trusted Publishing setup +
-  # adding a publish-<slug> job that gates on
-  # `needs.release-please.outputs.<slug>--release_created == 'true'`).
+  # 1. Open / update release PRs and (when one is merged) create tags +
+  #    GitHub Releases for any packages with releasable commits.
   # ────────────────────────────────────────────────────────────────────
   release-please:
     runs-on: ubuntu-latest
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
+
+      # Per-package outputs. Add a new pair when registering a new package
+      # in release-please-config.json.
+      tavily-search--release_created: ${{ steps.release.outputs['packages/tavily-search--release_created'] }}
+      tavily-search--tag_name: ${{ steps.release.outputs['packages/tavily-search--tag_name'] }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # ────────────────────────────────────────────────────────────────────
+  # 2. Per-package npm publish jobs.
+  #
+  # Publishing uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret
+  # is required. Each package must have a Trusted Publisher configured
+  # on npmjs.com pointing at this repo and this workflow file. See
+  # CONTRIBUTING.md → "Adding a New Extension" for the one-time setup.
+  # ────────────────────────────────────────────────────────────────────
+
+  publish-tavily-search:
+    name: Publish @jmcombs/pi-tavily-search
+    needs: release-please
+    if: needs.release-please.outputs.tavily-search--release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm OIDC publishing + provenance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tavily-search--tag_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      # OIDC + provenance require npm >= 11.5.1. Node 22 LTS ships with
+      # npm 10, so upgrade explicitly. Pin a known-good version rather
+      # than tracking @latest to keep CI deterministic.
+      - name: Upgrade npm for OIDC support
+        run: npm install -g npm@^11.6.0
+
+      - name: Install workspaces
+        run: npm ci
+
+      - name: Publish to npm with provenance (OIDC)
+        run: npm publish --workspace=packages/tavily-search --provenance --access public
