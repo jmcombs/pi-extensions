@@ -1,0 +1,15 @@
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+coverage/
+**/coverage/
+package-lock.json
+**/CHANGELOG.md
+packages/_template/
+
+# User-authored source-of-truth docs (do not auto-format)
+PLAN.md
+PROMPT.md

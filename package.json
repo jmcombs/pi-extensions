@@ -1,0 +1,54 @@
+{
+  "name": "pi-extensions",
+  "private": false,
+  "type": "module",
+  "description": "Monorepo of high-quality Pi coding agent extensions published to npm and the pi.dev gallery.",
+  "homepage": "https://github.com/jmcombs/pi-extensions",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "eslint --no-error-on-unmatched-pattern \"packages/**/*.ts\"",
+    "lint:fix": "eslint --fix --no-error-on-unmatched-pattern \"packages/**/*.ts\"",
+    "format": "prettier --write \"**/*.{ts,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,json,md,yml,yaml}\"",
+    "typecheck": "node scripts/typecheck.mjs",
+    "test": "vitest run",
+    "security:secrets": "secretlint \"**/*\"",
+    "security:audit": "npm audit --omit=dev",
+    "security": "npm run security:secrets && npm run security:audit",
+    "sync-versions": "node scripts/sync-versions.mjs",
+    "check:versions": "node scripts/sync-versions.mjs --check",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run test && npm run check:versions && npm run security",
+    "prepare": "husky"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.5.3",
+    "@commitlint/config-conventional": "^20.5.3",
+    "@mariozechner/pi-coding-agent": "^0.72.1",
+    "@secretlint/secretlint-rule-preset-recommend": "^12.3.1",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-security": "^4.0.0",
+    "husky": "^9.1.7",
+    "prettier": "^3.8.3",
+    "secretlint": "^12.3.1",
+    "typebox": "^1.1.37",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.1",
+    "vitest": "^4.1.5"
+  }
+}

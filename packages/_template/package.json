@@ -1,0 +1,33 @@
+{
+  "name": "@jmcombs/pi-EXTENSION_NAME",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TODO: One-sentence description of what this extension does.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/EXTENSION_NAME",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/EXTENSION_NAME"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": ["index.ts", "README.md", "LICENSE"],
+  "keywords": ["pi-package", "pi-extension", "TODO-add-topical-keywords"],
+  "pi": {
+    "extensions": ["./index.ts"],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/EXTENSION_NAME/preview.png"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

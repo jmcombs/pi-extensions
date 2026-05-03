@@ -1,0 +1,31 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # Open / update release PRs and (when one is merged) create tags +
+  # GitHub Releases for any packages with releasable commits.
+  #
+  # Per-package npm publish jobs are added beneath this one as packages
+  # are registered. See packages/_template/TEMPLATE.md and CONTRIBUTING.md
+  # for the per-package onboarding flow (Trusted Publishing setup +
+  # adding a publish-<slug> job that gates on
+  # `needs.release-please.outputs.<slug>--release_created == 'true'`).
+  # ────────────────────────────────────────────────────────────────────
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
