@@ -57,11 +57,13 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           cache: npm
 
-      # OIDC + provenance require npm >= 11.5.1. Node 22 LTS ships with
-      # npm 10, so upgrade explicitly. Pin a known-good version rather
-      # than tracking @latest to keep CI deterministic.
-      - name: Upgrade npm for OIDC support
-        run: npm install -g npm@^11.6.0
+      # Node 24 LTS ships with npm ≥ 11.6 natively, which satisfies the
+      # >= 11.5.1 requirement for npm Trusted Publishing + provenance. We
+      # deliberately don't `npm install -g npm@latest` because in-place
+      # npm upgrades from older npm versions can corrupt the running
+      # npm's module tree (MODULE_NOT_FOUND on `promise-retry` etc.).
+      - name: Verify npm version
+        run: npm --version
 
       - name: Install workspaces
         run: npm ci
