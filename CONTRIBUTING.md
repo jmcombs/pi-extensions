@@ -58,8 +58,9 @@ All steps must pass on Node 20 and Node 22 in CI.
    at the repo root.
 5. Register the package in `release-please-config.json` and `.release-please-manifest.json`.
    Set the manifest value to `0.0.0` and the package's `package.json` `version`
-   to `0.0.0`. The first `feat:` commit will then bump it to `0.1.0` thanks to
-   `bump-minor-pre-major`.
+   to `0.0.0`. The first releasable commit will then trigger a `1.0.0` release
+   (Release Please's default for the first release of a `release-type: node`
+   package; see `VERSIONING.md`).
 6. Add a per-package npm publish job to `.github/workflows/release-please.yml`
    (mirror the `publish-tavily-search` job; rename outputs and the workspace path).
 7. **Configure npm Trusted Publishing** for the new npm package (see below).

@@ -120,11 +120,12 @@ Add an entry to **both** files at the repo root:
 `.release-please-manifest.json`:
 
 ```json
-"packages/EXTENSION_NAME": "0.1.0"
+"packages/EXTENSION_NAME": "0.0.0"
 ```
 
-Then bump the package's `package.json` `"version"` to `"0.1.0"` and remove
-`"private": true`.
+Keep the package's `package.json` `"version"` at `"0.0.0"` and remove
+`"private": true`. The first releasable commit (`feat:`, `fix:`, etc.) will
+trigger a `1.0.0` release — see `VERSIONING.md` for the rationale.
 
 ## 7. Add the npm publish job
 
@@ -150,4 +151,4 @@ feat(EXTENSION_NAME): initial release
 ```
 
 After merge, Release Please will open a release PR for the package. Merging
-that release PR tags `EXTENSION_NAME/0.1.0` and triggers the npm publish.
+that release PR tags `EXTENSION_NAME/v1.0.0` and triggers the npm publish.

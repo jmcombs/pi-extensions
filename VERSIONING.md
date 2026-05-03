@@ -12,16 +12,18 @@ published to npm via [Trusted Publishing (OIDC)](https://docs.npmjs.com/trusted-
 - **Patch (x.y.Z)** — a backwards-compatible bug fix or internal change visible to users. Use
   `fix:` (or `perf:`, `refactor:` when user-visible).
 
-While a package is at `0.x`, the policy is conservative:
+## First Release
 
-- `feat:` bumps the **minor** version (`bump-minor-pre-major: true`)
-- `fix:` bumps the **patch** version
-- `feat!:` / `BREAKING CHANGE:` bumps to the next minor as well; we wait for the package to
-  reach `1.0.0` before honoring breaking changes as major bumps. Until then, treat the README
-  as the contract and document breaking changes in CHANGELOG entries.
+Each package's first release is **`1.0.0`**. This matches Release Please's default behavior for
+`release-type: "node"` when there is no prior release recorded in the manifest, and it commits
+us to SemVer discipline from day one. From `1.0.0` onward:
 
-A package goes to `1.0.0` when it has been exercised by real users, has a stable API, and is
-ready to commit to semver discipline.
+- `feat:` → `1.x → 1.(x+1).0`
+- `fix:` → `1.x.y → 1.x.(y+1)`
+- `feat!:` / `BREAKING CHANGE:` → `1.y → 2.0.0`
+
+(`bump-minor-pre-major: true` remains set in `release-please-config.json` as a safety net for
+any in-development work that lands while a package is still pre-release.)
 
 ## What Is "Public API"?
 
@@ -34,8 +36,9 @@ For a Pi extension, the public API is everything a Pi user or another extension 
 - Required environment variables and `auth.json` keys
 - The `package.json` `pi` manifest shape
 
-Renaming a tool or removing a command is a **breaking change**. Adding new optional parameters
-or new tools is **not** breaking.
+Renaming a tool, removing a command, or removing a parameter is a **breaking change**. Adding
+new optional parameters, adding new tools, or making error messages more helpful is **not**
+breaking.
 
 ## Release Flow
 
@@ -44,20 +47,21 @@ or new tools is **not** breaking.
    release contains release-relevant commits.
 3. Each release PR bumps `package.json`, updates `CHANGELOG.md`, and updates
    `.release-please-manifest.json`.
-4. Merging the release PR creates a git tag of the form `<name>/<version>` (e.g.
-   `tavily-search/1.2.0`), publishes a GitHub Release, and triggers the npm publish job for that
-   package.
+4. Merging the release PR creates a git tag of the form `<name>/v<version>` (e.g.
+   `tavily-search/v1.2.0`), publishes a GitHub Release, and triggers the npm publish job for
+   that package.
 5. The publish job uses npm's Trusted Publishing (OIDC). No long-lived `NPM_TOKEN` is stored.
 
 ## Tagging Convention
 
-`<package-dir-name>/<version>` (matches `tag-separator: "/"` and `include-component-in-tag: true`
-in `release-please-config.json`).
+`<package-dir-name>/v<version>` (matches `tag-separator: "/"`,
+`include-component-in-tag: true`, and `include-v-in-tag: true` in `release-please-config.json`).
 
 Examples:
 
-- `tavily-search/1.0.0`
-- `prompt-enhancer/0.2.1`
+- `tavily-search/v1.0.0`
+- `tavily-search/v1.2.0`
+- `prompt-enhancer/v1.0.0`
 
 ## Manual Release
 
