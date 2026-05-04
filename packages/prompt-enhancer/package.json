@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-prompt-enhancer",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Codebase-aware prompt enhancer for the Pi coding agent — rewrites rough prompts into precise ones, with project tree, git context, and referenced file contents, before they reach the model.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/prompt-enhancer",
   "repository": {
