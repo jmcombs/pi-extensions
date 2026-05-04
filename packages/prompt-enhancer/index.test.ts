@@ -72,13 +72,18 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     expect(log.tools).toEqual([]);
   });
 
-  it("subscribes to the events needed for footer-chip lifecycle", () => {
+  it("subscribes to all events needed for footer + widget lifecycle", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    // session_start sets the always-on enhance hint chip; input clears the
-    // revert chip when the user submits a non-command prompt.
+    // session_start sets the always-on enhance hint chip and the persistent
+    // widget. session_shutdown cancels the pending auto-clear timer.
+    // model_select refreshes the widget's Model line when the user changes
+    // pi models. input clears the revert chip when the user submits a
+    // non-command prompt.
     expect(log.events).toContain("session_start");
+    expect(log.events).toContain("session_shutdown");
+    expect(log.events).toContain("model_select");
     expect(log.events).toContain("input");
   });
 });

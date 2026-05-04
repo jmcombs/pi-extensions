@@ -85,8 +85,12 @@ const STATUS_KEY_ENHANCE_HINT = "pe-enhance";
 const STATUS_KEY_REVERT_HINT = "pe-revert";
 const STATUS_KEY_PROGRESS = "pe-progress";
 
-const ENHANCE_HINT_TEXT = "Ctrl+Shift+P enhance";
-const REVERT_HINT_TEXT = "Ctrl+Shift+Z revert";
+const ENHANCE_HINT_TEXT = "Ctrl+Shift+P to enhance prompt";
+const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert to previous prompt";
+
+// Widget rendered above the editor with persistent enhancer state.
+const WIDGET_KEY = "prompt-enhancer";
+const TRANSIENT_STATUS_MS = 4000;
 
 // ── Session-scoped state ────────────────────────────────────────────────
 
@@ -100,6 +104,17 @@ let enhancerModelOverride: Model<Api> | undefined;
  * relevant.
  */
 let lastOriginalPrompt: string | undefined;
+
+/**
+ * Latest known interactive ExtensionContext. Captured on session_start (and
+ * other events with a fresh ctx) so that deferred work — specifically the
+ * auto-clearing transient widget status — can update the UI without holding
+ * a stale ctx from a previous handler invocation.
+ */
+let activeCtx: ExtensionContext | undefined;
+
+/** Active auto-clear timer for the transient widget status line. */
+let transientStatusTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -337,6 +352,56 @@ function modelLabel(model: Model<Api>): string {
   return `${model.provider}/${model.id}`;
 }
 
+// ── Persistent widget ────────────────────────────────────────
+//
+// A 2- or 3-line panel rendered above the editor:
+//   1. "Prompt Enhancer"
+//   2. "  Model: <provider/id>"          (or "  Model: — (no model)")
+//   3. "  · <transient status>"          (only when a status is active)
+//
+// The widget is the canonical place for soft messages (cancelled, reverted,
+// nothing-to-enhance, etc.) so they don't pile up as Pi notifications. Hard
+// errors still go through ctx.ui.notify.
+
+function renderWidgetLines(ctx: ExtensionContext, transientStatus?: string): string[] {
+  const model = resolveEnhancerModel(ctx);
+  const lines: string[] = [
+    "Prompt Enhancer",
+    `  Model: ${model ? modelLabel(model) : "— (no model)"}`,
+  ];
+  if (transientStatus !== undefined) lines.push(`  · ${transientStatus}`);
+  return lines;
+}
+
+function updateWidget(ctx: ExtensionContext, transientStatus?: string): void {
+  if (!ctx.hasUI) return;
+  ctx.ui.setWidget(WIDGET_KEY, renderWidgetLines(ctx, transientStatus), {
+    placement: "aboveEditor",
+  });
+}
+
+function clearTransientStatusTimer(): void {
+  if (transientStatusTimer !== undefined) {
+    clearTimeout(transientStatusTimer);
+    transientStatusTimer = undefined;
+  }
+}
+
+/**
+ * Show a status line in the widget that auto-clears after TRANSIENT_STATUS_MS.
+ * Used in place of `ctx.ui.notify` for non-error feedback so messages don't
+ * stack up in Pi's notification area.
+ */
+function showTransientStatus(ctx: ExtensionContext, status: string): void {
+  if (!ctx.hasUI) return;
+  clearTransientStatusTimer();
+  updateWidget(ctx, status);
+  transientStatusTimer = setTimeout(() => {
+    transientStatusTimer = undefined;
+    if (activeCtx?.hasUI) updateWidget(activeCtx);
+  }, TRANSIENT_STATUS_MS);
+}
+
 // ── Main flow ───────────────────────────────────────────────────────────
 
 async function runEnhancer(ctx: ExtensionContext, providedText: string | undefined): Promise<void> {
@@ -357,7 +422,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   const originalPrompt = (providedText ?? editorText).trim();
 
   if (!originalPrompt) {
-    ctx.ui.notify("Prompt enhancer: nothing to enhance (editor is empty).", "warning");
+    showTransientStatus(ctx, "Nothing to enhance (editor is empty).");
     return;
   }
 
@@ -452,15 +517,16 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     ctx.ui.setEditorText(result.enhanced);
     lastOriginalPrompt = originalPrompt;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, REVERT_HINT_TEXT);
-    ctx.ui.notify("Prompt enhanced. Review the editor; press Ctrl+Shift+Z to revert.", "info");
+    showTransientStatus(ctx, "Enhanced — Ctrl+Shift+Z to revert.");
     return;
   }
 
   // Restore whatever was in the editor before we touched it.
   ctx.ui.setEditorText(editorBeforeReplace);
   if (result.reason === "cancelled") {
-    ctx.ui.notify("Prompt enhancement cancelled.", "info");
+    showTransientStatus(ctx, "Cancelled.");
   } else {
+    // Hard failures stay as notifications — the user needs to see them loud.
     ctx.ui.notify(`Prompt enhancement failed: ${result.message ?? "unknown error"}`, "error");
   }
 }
@@ -471,26 +537,44 @@ function runRevert(ctx: ExtensionContext): void {
     return;
   }
   if (lastOriginalPrompt === undefined) {
-    ctx.ui.notify("Prompt enhancer: nothing to revert.", "info");
+    showTransientStatus(ctx, "Nothing to revert.");
     return;
   }
   const restored = lastOriginalPrompt;
   lastOriginalPrompt = undefined;
   ctx.ui.setEditorText(restored);
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
-  ctx.ui.notify("Reverted to your original prompt.", "info");
+  showTransientStatus(ctx, "Reverted to your original prompt.");
 }
 
 // ── Extension factory ───────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  // Show the enhance-shortcut hint chip from session_start onward. The revert
-  // chip is set/cleared dynamically by the enhance/revert flows.
+  // session_start sets up the always-on enhance hint chip, the persistent
+  // widget above the editor, and clears any stale state from a previous
+  // session.
   pi.on("session_start", (_event, ctx) => {
+    activeCtx = ctx;
     lastOriginalPrompt = undefined;
+    clearTransientStatusTimer();
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(STATUS_KEY_ENHANCE_HINT, ENHANCE_HINT_TEXT);
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
+    updateWidget(ctx);
+  });
+
+  // Clear the pending auto-clear timer on session shutdown so it doesn't fire
+  // against a stale ctx after the session ends.
+  pi.on("session_shutdown", (_event, _ctx) => {
+    clearTransientStatusTimer();
+    activeCtx = undefined;
+  });
+
+  // The user changed the active Pi model. If we don't have a /enhance-model
+  // override in place, the widget's Model line should reflect the change.
+  pi.on("model_select", (_event, ctx) => {
+    activeCtx = ctx;
+    if (enhancerModelOverride === undefined) updateWidget(ctx);
   });
 
   // When the user submits a non-command prompt, the previous "original" is no
@@ -498,6 +582,7 @@ export default function (pi: ExtensionAPI): void {
   // (Slash-command submissions do not fire input; they go through their own
   // command handlers, so the chip persists across other commands as expected.)
   pi.on("input", (_event, ctx) => {
+    activeCtx = ctx;
     if (lastOriginalPrompt !== undefined) {
       lastOriginalPrompt = undefined;
       if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
@@ -525,20 +610,30 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
 
-      const choices = available.map((m) => {
+      // Order so the currently-active model appears first. Pi's selector
+      // scrolls to the matching item; if the active model happens to fall
+      // alphabetically near the bottom, the picker would otherwise open
+      // already scrolled to the bottom of a long list.
+      const isActive = (m: Model<Api>): boolean => {
+        if (enhancerModelOverride !== undefined) {
+          return enhancerModelOverride.provider === m.provider && enhancerModelOverride.id === m.id;
+        }
+        return ctx.model?.provider === m.provider && ctx.model.id === m.id;
+      };
+      const sortedAvailable = [...available].sort((a, b) => {
+        const aActive = isActive(a);
+        const bActive = isActive(b);
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return modelLabel(a).localeCompare(modelLabel(b));
+      });
+      const choices = sortedAvailable.map((m) => {
         const base = modelLabel(m);
-        const isOverride =
-          enhancerModelOverride?.provider === m.provider && enhancerModelOverride.id === m.id;
-        const isSessionDefault =
-          enhancerModelOverride === undefined &&
-          ctx.model?.provider === m.provider &&
-          ctx.model.id === m.id;
-        const label = isOverride
-          ? `${base} (current)`
-          : isSessionDefault
-            ? `${base} (session default)`
-            : base;
-        return { label, model: m };
+        const tag = isActive(m)
+          ? enhancerModelOverride !== undefined
+            ? " (current)"
+            : " (session default)"
+          : "";
+        return { label: `${base}${tag}`, model: m };
       });
 
       const choice = await ctx.ui.select(
@@ -549,7 +644,8 @@ export default function (pi: ExtensionAPI): void {
       const picked = choices.find((c) => c.label === choice)?.model;
       if (!picked) return;
       enhancerModelOverride = picked;
-      ctx.ui.notify(`Prompt enhancer: now using ${modelLabel(picked)} for this session.`, "info");
+      updateWidget(ctx);
+      showTransientStatus(ctx, `Now using ${modelLabel(picked)}.`);
     },
   });
 

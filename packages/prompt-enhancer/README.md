@@ -29,10 +29,15 @@ active in your session (or one you pick interactively via `/enhance-model`).
   non-command prompt.
 - **Command** `/enhance-model` — interactively pick which model to use as the
   enhancer for the current session. Choice is held in memory and resets on restart.
-- **Footer hints** — a `Ctrl+Shift+P enhance` chip is always visible from the
-  start of every session. After a successful `/enhance`, a second
-  `Ctrl+Shift+Z revert` chip appears next to it, and disappears once you
-  revert or submit a new prompt.
+- **Persistent widget above the editor** — a two-line panel showing
+  `Prompt Enhancer` and the model the enhancer will use. Soft messages
+  (cancelled, reverted, nothing-to-enhance, model-changed, etc.) appear as a
+  third line for ~4 seconds and then auto-clear. Hard errors still surface as
+  Pi notifications.
+- **Footer hint chips** — a `Ctrl+Shift+P to enhance prompt` chip is always
+  visible from the start of every session. After a successful `/enhance`, a
+  second `Ctrl+Shift+Z to revert to previous prompt` chip appears next to it,
+  and disappears once you revert or submit a new prompt.
 
 ## How It Works
 
