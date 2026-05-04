@@ -6,7 +6,7 @@ build, lint, test, type-check, format, and version-validation tooling** by
 virtue of its `_`-prefix; you can copy it freely without breaking the
 quality gate.
 
-> Read `PLAN.md` and `CONTRIBUTING.md` at the repo root before starting.
+> Read `CONTRIBUTING.md` and `VERSIONING.md` at the repo root before starting.
 
 ## 0. Decide on a name
 
@@ -85,13 +85,14 @@ claims. Update the expectations to match your real tool/command names.
 
 If your extension does end-to-end work that you want to test against the real
 service, prefer a manual `pi -e` workflow over network mocks. Coverage theater
-is explicitly discouraged (see `PLAN.md` § 9).
+is explicitly discouraged (see `CONTRIBUTING.md` → Testing Philosophy).
 
 ## 5. Add an asset for the gallery
 
 Assets live at **the repo root** under `assets/<slug>/`, not inside the
-package. This keeps the npm tarball small and matches the layout documented
-in `PLAN.md` § 8.
+package. This keeps the npm tarball small (assets aren't bundled in the
+tarball) and lets the pi.dev gallery card pick them up via the `pi.image`
+raw-GitHub URL in `package.json`.
 
 ```bash
 mkdir -p assets/EXTENSION_NAME

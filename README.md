@@ -59,7 +59,7 @@ This runs lint, format check, type check, tests, version validation, and securit
 
 ## Adding a New Extension
 
-1. Read `PLAN.md` and `CONTRIBUTING.md`.
+1. Read `CONTRIBUTING.md`.
 2. Copy `packages/_template/` and follow `TEMPLATE.md`.
 3. Open a PR. Release Please will produce a per-package release PR after merge.
 

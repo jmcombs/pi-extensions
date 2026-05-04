@@ -1,7 +1,8 @@
 # Contributing
 
-Thanks for your interest in contributing! This repo follows the conventions documented in `PLAN.md`.
-Please skim that file before opening a PR.
+Thanks for your interest in contributing! This file is the source of truth for project
+conventions; `VERSIONING.md` covers the semver + release-automation policy. Please skim
+both before opening a PR.
 
 ## Quick Start
 
@@ -50,7 +51,7 @@ All steps must pass on Node 20 and Node 22 in CI.
 
 ## Adding a New Extension
 
-1. Read `PLAN.md`.
+1. Skim this file and `VERSIONING.md` if you haven't.
 2. Copy `packages/_template/` to `packages/<your-extension-name>/`.
 3. Follow `TEMPLATE.md` (at the repo root) to fill in `package.json`, `index.ts`,
    `README.md`, and the LICENSE copy.

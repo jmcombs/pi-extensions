@@ -9,8 +9,8 @@
  * shortcuts, and event handlers.
  *
  * See:
- *   - PLAN.md (project conventions)
- *   - packages/_template/TEMPLATE.md (how to adapt this scaffold)
+ *   - CONTRIBUTING.md (project conventions)
+ *   - TEMPLATE.md at the repo root (how to adapt this scaffold)
  *   - https://pi.dev/docs/extensions
  */
 

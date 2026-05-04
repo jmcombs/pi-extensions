@@ -86,7 +86,7 @@ const apiKey = (await auth.getApiKey("example")) ?? process.env.EXAMPLE_API_KEY;
 ## Development
 
 This package lives in the [pi-extensions monorepo](https://github.com/jmcombs/pi-extensions).
-See `CONTRIBUTING.md` and `PLAN.md` at the repo root for project conventions.
+See `CONTRIBUTING.md` at the repo root for project conventions.
 
 ```bash
 # From the repo root

@@ -3,12 +3,18 @@
 This file is loaded automatically by Claude Code (and respected by the Pi coding agent) as
 project context. It is for AI assistants working in this repository.
 
-## Source of Truth
+## Sources of Truth
 
-`PLAN.md` is the single source of truth for project structure, standards, and roadmap.
-**Always read `PLAN.md` before making non-trivial changes.**
+The project's conventions live in the public docs at the repo root:
 
-The `PROMPT.md` file at the repo root is the canonical onboarding prompt for AI agents.
+| Doc               | Covers                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `README.md`       | Project overview, install, package list                                               |
+| `CONTRIBUTING.md` | Quality gate, commit format, testing philosophy, **adding a new extension**           |
+| `VERSIONING.md`   | Semver policy, first-release-is-1.0.0 rationale, release flow, npm Trusted Publishing |
+| `TEMPLATE.md`     | Step-by-step guide for creating a new package from `packages/_template/`              |
+
+Read those (especially `CONTRIBUTING.md` + `TEMPLATE.md`) before making non-trivial changes.
 
 ## Architecture in One Paragraph
 
@@ -22,31 +28,33 @@ npm via OIDC Trusted Publishing.
 
 ## Conventions You Must Follow
 
-- Node `>= 20.6.0`. CI tests on Node 20 and Node 22.
+- Node `>= 20.6.0`. CI tests on Node 20 and Node 22; the release pipeline runs on Node 24
+  (see `.nvmrc`).
 - Conventional Commits, scoped to the package directory name when relevant
-  (e.g. `feat(tavily-search): add result truncation flag`).
+  (e.g. `feat(tavily-search): add result truncation flag`). Use `chore(<scope>):` for
+  changes that should _not_ appear in the package's CHANGELOG (e.g. scaffolding,
+  internal refactors that don't affect users).
 - All work must pass `npm run check` (lint, format, typecheck, test, version validation,
   security audit + secretlint).
 - **No mocking external APIs in tests.** Smoke tests that load the extension and verify
   registration are the preferred shape.
 - Each package's `package.json` must include: `keywords: ["pi-package"]`, a `pi` manifest
   with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=20.6.0"`,
-  and `image`/`video` URLs for the gallery card.
+  and an `image` URL for the gallery card.
 
 ## When Adding a New Extension
 
-1. Copy `packages/_template/` to `packages/<new-name>/`.
-2. Follow `TEMPLATE.md`.
-3. Register the package in `release-please-config.json` and `.release-please-manifest.json`.
-4. Add a per-package npm publish job to `.github/workflows/release-please.yml`.
-5. Verify `npm run check` passes locally.
+Follow `TEMPLATE.md`. The full flow (including the one-time npm Trusted Publisher setup
+that must happen before the first release) is in `CONTRIBUTING.md` → "Adding a New Extension".
 
-## Files You Should Never Edit Without Discussion
+## Files You Should Not Edit Without Discussion
 
-- `PLAN.md` — discuss with the maintainer before changing.
 - `release-please-config.json` and `.release-please-manifest.json` — only edit when adding
   a new package or fixing a clear bug. Do not retroactively edit version numbers; let
   Release Please own them after the first release.
+- `.github/workflows/release-please.yml` — adding a publish job for a new package follows
+  the existing pattern; other changes warrant a maintainer discussion because they affect
+  the release pipeline.
 
 ## Useful Commands
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * sync-versions.mjs — Validate that every published package follows the pi-extensions
- * conventions documented in PLAN.md and CONTRIBUTING.md.
+ * conventions documented in CONTRIBUTING.md.
  *
  * Because Release Please uses release-type: "node" for each package, the canonical
  * version source is each package's own `package.json`. This script does not rewrite
