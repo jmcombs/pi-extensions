@@ -25,6 +25,7 @@ import { promisify } from "node:util";
 import { complete, type Api, type Message, type Model } from "@mariozechner/pi-ai";
 import {
   BorderedLoader,
+  ExtensionSelectorComponent,
   type ExtensionAPI,
   type ExtensionContext,
 } from "@mariozechner/pi-coding-agent";
@@ -636,9 +637,34 @@ export default function (pi: ExtensionAPI): void {
         return { label: `${base}${tag}`, model: m };
       });
 
-      const choice = await ctx.ui.select(
-        "Pick enhancer model",
-        choices.map((c) => c.label),
+      // Use ctx.ui.custom (which supports overlayOptions) instead of
+      // ctx.ui.select (which has no sizing knobs). Wraps the same selector
+      // component pi uses for /model so the look-and-feel matches, but
+      // constrains the overlay to a fraction of the terminal so the picker
+      // doesn't overflow short windows.
+      const labels = choices.map((c) => c.label);
+      const choice = await ctx.ui.custom<string | undefined>(
+        (tui, _theme, _kb, done) => {
+          return new ExtensionSelectorComponent(
+            "Pick enhancer model",
+            labels,
+            (option) => {
+              done(option);
+            },
+            () => {
+              done(undefined);
+            },
+            { tui },
+          );
+        },
+        {
+          overlay: true,
+          overlayOptions: {
+            maxHeight: "70%",
+            width: "70%",
+            minWidth: 60,
+          },
+        },
       );
       if (choice === undefined) return;
       const picked = choices.find((c) => c.label === choice)?.model;
