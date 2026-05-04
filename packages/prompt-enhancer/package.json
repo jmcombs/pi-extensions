@@ -1,0 +1,47 @@
+{
+  "name": "@jmcombs/pi-prompt-enhancer",
+  "version": "0.0.0",
+  "description": "Codebase-aware prompt enhancer for the Pi coding agent — rewrites rough prompts into precise ones, with project tree, git context, and referenced file contents, before they reach the model.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/prompt-enhancer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/prompt-enhancer"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "prompt-engineering",
+    "prompt-enhancement",
+    "context-aware",
+    "coding-agent"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/preview.png"
+  },
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
+  }
+}
