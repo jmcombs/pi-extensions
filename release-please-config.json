@@ -11,6 +11,12 @@
       "component": "tavily-search",
       "package-name": "@jmcombs/pi-tavily-search",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/prompt-enhancer": {
+      "release-type": "node",
+      "component": "prompt-enhancer",
+      "package-name": "@jmcombs/pi-prompt-enhancer",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

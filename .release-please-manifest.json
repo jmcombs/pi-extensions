@@ -1,3 +1,4 @@
 {
-  "packages/tavily-search": "1.0.0"
+  "packages/tavily-search": "1.0.0",
+  "packages/prompt-enhancer": "0.0.0"
 }
