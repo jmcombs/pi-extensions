@@ -57,6 +57,14 @@ npm run check
 This runs lint, format check, type check, tests, version validation, and security checks
 (`secretlint` + `npm audit --omit=dev`). All packages must pass.
 
+## Branch Protection
+
+The `main` branch is protected by a GitHub Repository Ruleset that requires PR review from
+`@jmcombs`, all CI checks green on Node 20 and Node 22, Conventional Commits, and a linear
+history. The maintainer can push directly to `main` via the admin bypass; outside contributors
+must go through PR review. See [CONTRIBUTING.md → Branch Protection](CONTRIBUTING.md#branch-protection)
+for the full rule list and rationale.
+
 ## Adding a New Extension
 
 1. Read `CONTRIBUTING.md`.

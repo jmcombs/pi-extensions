@@ -1,0 +1,9 @@
+# Code owners for pi-extensions.
+#
+# Backs the "Require review from Code Owners" rule in the "Protect main"
+# Repository Ruleset. PRs from anyone other than the maintainer cannot merge
+# until an owner listed here approves.
+#
+# See CONTRIBUTING.md → Branch Protection for details.
+
+* @jmcombs
