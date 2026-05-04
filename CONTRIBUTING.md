@@ -52,7 +52,7 @@ All steps must pass on Node 20 and Node 22 in CI.
 
 1. Read `PLAN.md`.
 2. Copy `packages/_template/` to `packages/<your-extension-name>/`.
-3. Follow `packages/_template/TEMPLATE.md` to fill in `package.json`, `index.ts`,
+3. Follow `TEMPLATE.md` (at the repo root) to fill in `package.json`, `index.ts`,
    `README.md`, and the LICENSE copy.
 4. Drop a `preview.png` (and optional `preview.mp4`) into `assets/<your-extension-name>/`
    at the repo root.

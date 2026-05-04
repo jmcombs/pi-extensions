@@ -1,9 +1,10 @@
 # Extension Template — Step-by-Step
 
-This directory is the canonical scaffold for a new pi-extensions package. It is
-**excluded from all build, lint, test, type-check, format, and version-validation
-tooling** by virtue of its `_`-prefix; you can copy it freely without breaking
-the quality gate.
+This is the canonical guide for creating a new pi-extensions package. The
+scaffold itself lives at `packages/_template/` and is **excluded from all
+build, lint, test, type-check, format, and version-validation tooling** by
+virtue of its `_`-prefix; you can copy it freely without breaking the
+quality gate.
 
 > Read `PLAN.md` and `CONTRIBUTING.md` at the repo root before starting.
 
