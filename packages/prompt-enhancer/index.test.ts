@@ -63,13 +63,23 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     expect(typeof factory).toBe("function");
   });
 
-  it("registers exactly the documented commands and shortcut", () => {
+  it("registers exactly the documented commands and shortcuts", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    expect(log.commands.sort()).toEqual(["enhance", "enhance-model"]);
-    expect(log.shortcuts).toEqual(["ctrl+shift+e"]);
+    expect(log.commands.sort()).toEqual(["enhance", "enhance-model", "enhance-revert"]);
+    expect(log.shortcuts.sort()).toEqual(["ctrl+shift+p", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);
+  });
+
+  it("subscribes to the events needed for footer-chip lifecycle", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    // session_start sets the always-on enhance hint chip; input clears the
+    // revert chip when the user submits a non-command prompt.
+    expect(log.events).toContain("session_start");
+    expect(log.events).toContain("input");
   });
 });
 

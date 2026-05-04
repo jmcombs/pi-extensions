@@ -22,9 +22,17 @@ active in your session (or one you pick interactively via `/enhance-model`).
 
 - **Command** `/enhance [text]` — enhance the provided text, or the editor's current
   contents if no argument is given.
-- **Shortcut** `Ctrl+Shift+E` — enhance the editor's current contents in place.
+- **Shortcut** `Ctrl+Shift+P` — enhance the editor's current contents in place.
+- **Command** `/enhance-revert` and **Shortcut** `Ctrl+Shift+Z` — restore the editor
+  to the prompt that was there immediately before the most recent `/enhance`.
+  Cleared after one revert (single-step undo) and also when you submit a
+  non-command prompt.
 - **Command** `/enhance-model` — interactively pick which model to use as the
   enhancer for the current session. Choice is held in memory and resets on restart.
+- **Footer hints** — a `Ctrl+Shift+P enhance` chip is always visible from the
+  start of every session. After a successful `/enhance`, a second
+  `Ctrl+Shift+Z revert` chip appears next to it, and disappears once you
+  revert or submit a new prompt.
 
 ## How It Works
 
@@ -45,8 +53,14 @@ While the request is in flight, a `BorderedLoader` covers the editor; pressing
 **Esc** cancels at any point and restores your original text.
 
 On success the enhanced prompt is loaded into the editor and you receive a notification
-to review it before submitting. The editor's standard **Ctrl+Z** undo reverts to the
-original prompt.
+to review it before submitting. Press **Ctrl+Shift+Z** (or run `/enhance-revert`) to
+restore your original prompt; the revert affordance is single-step and clears
+automatically once you submit a new prompt.
+
+> Note: Pi's terminal `Ctrl+Z` is bound to `app.suspend` (it sends `SIGTSTP` to
+> the OS and suspends Pi to the background — you can resume with `fg` in the
+> shell). The extension uses `Ctrl+Shift+Z` instead for revert, which doesn't
+> collide.
 
 ## Model Selection
 

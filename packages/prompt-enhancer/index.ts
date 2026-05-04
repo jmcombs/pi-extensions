@@ -79,13 +79,27 @@ Rules:
 
 Return only the enhanced prompt as plain text.`;
 
-// Status keys used with ctx.ui.setStatus so multiple enhancement triggers
-// don't fight over the same footer slot.
-const STATUS_KEY = "prompt-enhancer";
+// Status keys for ctx.ui.setStatus footer chips. Distinct keys so we can
+// independently set/clear them.
+const STATUS_KEY_ENHANCE_HINT = "pe-enhance";
+const STATUS_KEY_REVERT_HINT = "pe-revert";
+const STATUS_KEY_PROGRESS = "pe-progress";
+
+const ENHANCE_HINT_TEXT = "Ctrl+Shift+P enhance";
+const REVERT_HINT_TEXT = "Ctrl+Shift+Z revert";
 
 // ── Session-scoped state ────────────────────────────────────────────────
 
 let enhancerModelOverride: Model<Api> | undefined;
+
+/**
+ * The text that was in the editor (or supplied as args) immediately before
+ * the most recent successful /enhance. /enhance-revert restores this and
+ * clears the slot. Cleared also when the user submits a non-command prompt
+ * (input event), since at that point the previous "original" is no longer
+ * relevant.
+ */
+let lastOriginalPrompt: string | undefined;
 
 // ── Public types ────────────────────────────────────────────────────────
 
@@ -369,7 +383,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // takes them back to what they typed before invoking the enhancer.
   if (providedText !== undefined) ctx.ui.setEditorText(originalPrompt);
 
-  ctx.ui.setStatus(STATUS_KEY, `enhancing via ${modelLabel(model)}`);
+  ctx.ui.setStatus(STATUS_KEY_PROGRESS, `enhancing via ${modelLabel(model)}`);
 
   const result = await ctx.ui.custom<
     { ok: true; enhanced: string } | { ok: false; reason: "cancelled" | "error"; message?: string }
@@ -432,14 +446,13 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     return loader;
   });
 
-  ctx.ui.setStatus(STATUS_KEY, undefined);
+  ctx.ui.setStatus(STATUS_KEY_PROGRESS, undefined);
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
-    ctx.ui.notify(
-      "Prompt enhanced. Review the editor and submit when ready (Ctrl+Z to revert).",
-      "info",
-    );
+    lastOriginalPrompt = originalPrompt;
+    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, REVERT_HINT_TEXT);
+    ctx.ui.notify("Prompt enhanced. Review the editor; press Ctrl+Shift+Z to revert.", "info");
     return;
   }
 
@@ -452,9 +465,46 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   }
 }
 
+function runRevert(ctx: ExtensionContext): void {
+  if (!ctx.hasUI) {
+    ctx.ui.notify("Prompt enhancer revert requires interactive mode.", "warning");
+    return;
+  }
+  if (lastOriginalPrompt === undefined) {
+    ctx.ui.notify("Prompt enhancer: nothing to revert.", "info");
+    return;
+  }
+  const restored = lastOriginalPrompt;
+  lastOriginalPrompt = undefined;
+  ctx.ui.setEditorText(restored);
+  ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
+  ctx.ui.notify("Reverted to your original prompt.", "info");
+}
+
 // ── Extension factory ───────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
+  // Show the enhance-shortcut hint chip from session_start onward. The revert
+  // chip is set/cleared dynamically by the enhance/revert flows.
+  pi.on("session_start", (_event, ctx) => {
+    lastOriginalPrompt = undefined;
+    if (!ctx.hasUI) return;
+    ctx.ui.setStatus(STATUS_KEY_ENHANCE_HINT, ENHANCE_HINT_TEXT);
+    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
+  });
+
+  // When the user submits a non-command prompt, the previous "original" is no
+  // longer relevant. Clear the revert state so the chip reflects reality.
+  // (Slash-command submissions do not fire input; they go through their own
+  // command handlers, so the chip persists across other commands as expected.)
+  pi.on("input", (_event, ctx) => {
+    if (lastOriginalPrompt !== undefined) {
+      lastOriginalPrompt = undefined;
+      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
+    }
+    return { action: "continue" };
+  });
+
   pi.registerCommand("enhance", {
     description: "Rewrite the editor's prompt into a precise, codebase-aware one.",
     handler: async (args, ctx) => {
@@ -503,10 +553,26 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("ctrl+shift+e", {
+  pi.registerCommand("enhance-revert", {
+    description: "Restore the editor to the prompt before the most recent /enhance.",
+    handler: (_args, ctx) => {
+      runRevert(ctx);
+      return Promise.resolve();
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+p", {
     description: "Enhance the editor's prompt in place.",
     handler: async (ctx) => {
       await runEnhancer(ctx, undefined);
+    },
+  });
+
+  pi.registerShortcut("ctrl+shift+z", {
+    description: "Revert the editor to the prompt before the most recent /enhance.",
+    handler: (ctx) => {
+      runRevert(ctx);
+      return Promise.resolve();
     },
   });
 }
