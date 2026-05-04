@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v1.0.0...prompt-enhancer/v1.1.0) (2026-05-04)
+
+
+### Features
+
+* **prompt-enhancer:** add gallery preview screenshot and video ([d2c380e](https://github.com/jmcombs/pi-extensions/commit/d2c380eabdef47d76c7a68eb2fd5b0d44efbd4b6))
+
 ## 1.0.0 (2026-05-04)
 
 
