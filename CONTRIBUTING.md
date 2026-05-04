@@ -40,6 +40,66 @@ npm run check
 
 All steps must pass on Node 20 and Node 22 in CI.
 
+## Branch Protection
+
+The `main` branch is protected by a GitHub **Repository Ruleset** named
+**Protect main**. The ruleset is configured in the GitHub UI
+(Settings → Rules → Rulesets) rather than in a checked-in file. This section
+is the source of truth for what that ruleset enforces and why.
+
+### Rules
+
+| Rule                                                               | Setting | Purpose                                                                                                                |
+| ------------------------------------------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Restrict deletions                                                 | ✅      | Prevent accidental deletion of `main`.                                                                                 |
+| Block force pushes                                                 | ✅      | Preserve linear history that Release Please relies on for changelog generation and tag stability.                      |
+| Require linear history                                             | ✅      | Keeps `git log --oneline` aligned with Conventional Commits and tag boundaries.                                        |
+| Require a pull request before merging                              | ✅      | Forces non-maintainer changes through review.                                                                          |
+| ↳ Required approvals                                               | `1`     | At least one human approval per PR (see Code Owners below).                                                            |
+| ↳ Dismiss stale pull request approvals when new commits are pushed | ✅      | Approvals re-validate after any new push.                                                                              |
+| ↳ Require review from Code Owners                                  | ✅      | The approval must come from an owner listed in `.github/CODEOWNERS` (currently `@jmcombs`), not just any collaborator. |
+| ↳ Require approval of the most recent reviewable push              | ✅      | Mitigates approve-then-sneak-in-changes attacks.                                                                       |
+| Require status checks to pass                                      | ✅      | All required checks must be green before merge.                                                                        |
+| ↳ Require branches to be up to date before merging                 | ✅      | Avoids "green at merge, red on `main`" surprises with the Release Please manifest.                                     |
+| ↳ Required check: `Quality Gate (Node 20)`                         | ✅      | Same `npm run check` gate as local development, on Node 20.                                                            |
+| ↳ Required check: `Quality Gate (Node 22)`                         | ✅      | Same gate on Node 22.                                                                                                  |
+| ↳ Required check: `Commit Messages`                                | ✅      | Conventional Commits enforcement (commitlint).                                                                         |
+
+### Bypass: maintainer direct push
+
+`Repository admin` is in the ruleset's bypass list with mode **Always**. In
+practice this means `@jmcombs` (the sole maintainer) can:
+
+- `git push origin main` directly without opening a PR, and
+- self-merge their own PRs without a second human approval.
+
+This is intentional for a sole-maintainer repo. Note that **CI only runs on
+pull requests** (`ci.yml` triggers on `pull_request: [main]`), so a direct
+push to `main` skips the quality gate. Always run `npm run check` locally
+before pushing directly.
+
+### Release Please PRs
+
+Release Please opens per-package release PRs authored by `github-actions[bot]`.
+The maintainer **approves and merges these manually** — the bot is _not_ in the
+ruleset's bypass list. This is deliberate: every npm publish is gated by an
+explicit human approval.
+
+### Outside contributors
+
+For anyone other than the maintainer, the resulting flow is:
+
+1. Fork → feature branch → PR against `main`.
+2. CI must be green on both Node 20 and Node 22, and `Commit Messages` must pass.
+3. `@jmcombs` (Code Owner) must approve the PR.
+4. Merge (squash or rebase) — must keep linear history.
+
+### Changing the ruleset
+
+Do not weaken the ruleset, add bypass actors, or alter `.github/CODEOWNERS`
+without maintainer discussion. Update this section in the same PR as any
+intentional change so the doc and the ruleset stay in sync.
+
 ## Testing Philosophy
 
 - Only meaningful tests. No tests written purely to inflate coverage.
