@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v1.0.0...tavily-search/v2.0.0) (2026-05-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tavily-search:** Consumers running Node 20 must upgrade to Node 22 or later before installing this version.
+
+### Features
+
+* **tavily-search:** require Node &gt;=22.0.0 ([416bb91](https://github.com/jmcombs/pi-extensions/commit/416bb9140d40b48494308e4256df7c6f35c5dc2e))
+
 ## 1.0.0 (2026-05-03)
 
 
