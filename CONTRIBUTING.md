@@ -8,7 +8,7 @@ both before opening a PR.
 
 ```bash
 # Use the repo's pinned Node version
-nvm use   # reads .nvmrc → Node 22
+nvm use   # reads .nvmrc → Node 24
 
 # Install
 npm ci
@@ -16,6 +16,11 @@ npm ci
 # Run the full quality gate
 npm run check
 ```
+
+> **Node version policy.** This project requires **Node ≥ 22.0.0**. CI runs the
+> quality gate on **Node 22 and Node 24**. The release pipeline (and `.nvmrc`) is
+> pinned to **Node 24**, which ships npm 11+ — required for npm Trusted Publishing
+> with provenance. Node 20 is no longer supported.
 
 ## Branching & Commits
 
@@ -38,7 +43,7 @@ npm run check
 | Versions | `npm run check:versions` | Validates each package follows project conventions                                       |
 | Security | `npm run security`       | `secretlint` + `npm audit --omit=dev`                                                    |
 
-All steps must pass on Node 20 and Node 22 in CI.
+All steps must pass on Node 22 and Node 24 in CI.
 
 ## Branch Protection
 
@@ -61,8 +66,8 @@ is the source of truth for what that ruleset enforces and why.
 | ↳ Require approval of the most recent reviewable push              | ✅      | Mitigates approve-then-sneak-in-changes attacks.                                                                       |
 | Require status checks to pass                                      | ✅      | All required checks must be green before merge.                                                                        |
 | ↳ Require branches to be up to date before merging                 | ✅      | Avoids "green at merge, red on `main`" surprises with the Release Please manifest.                                     |
-| ↳ Required check: `Quality Gate (Node 20)`                         | ✅      | Same `npm run check` gate as local development, on Node 20.                                                            |
-| ↳ Required check: `Quality Gate (Node 22)`                         | ✅      | Same gate on Node 22.                                                                                                  |
+| ↳ Required check: `Quality Gate (Node 22)`                         | ✅      | Same `npm run check` gate as local development, on Node 22.                                                            |
+| ↳ Required check: `Quality Gate (Node 24)`                         | ✅      | Same gate on Node 24 (matches the release pipeline runtime).                                                           |
 | ↳ Required check: `Commit Messages`                                | ✅      | Conventional Commits enforcement (commitlint).                                                                         |
 
 ### Bypass: maintainer direct push
@@ -90,7 +95,7 @@ explicit human approval.
 For anyone other than the maintainer, the resulting flow is:
 
 1. Fork → feature branch → PR against `main`.
-2. CI must be green on both Node 20 and Node 22, and `Commit Messages` must pass.
+2. CI must be green on both Node 22 and Node 24, and `Commit Messages` must pass.
 3. `@jmcombs` (Code Owner) must approve the PR.
 4. Merge (squash or rebase) — must keep linear history.
 
@@ -164,7 +169,7 @@ Each package must have:
 - `name`: scoped under `@jmcombs/`, prefixed with `pi-` (e.g. `@jmcombs/pi-foo`)
 - `version`: semver (Release Please manages bumps after the first release)
 - `description`, `license: "MIT"`, `author: "Jeremy Combs"`
-- `engines.node: ">=20.6.0"`
+- `engines.node: ">=22.0.0"`
 - `keywords` containing `"pi-package"`
 - `pi.extensions`: array of paths to extension entry points
 - `image` and/or `video`: raw GitHub URLs from `packages/<name>/assets/` (or root `assets/<name>/`)

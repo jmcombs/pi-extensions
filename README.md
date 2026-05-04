@@ -43,8 +43,8 @@ pi-extensions/
 
 ## Requirements
 
-- Node.js `>= 20.6.0` (matches Pi's runtime requirement; CI tests on Node 20 and 22)
-- npm 10+
+- Node.js `>= 22.0.0` (CI tests on Node 22 and Node 24; the release pipeline runs on Node 24)
+- npm 10+ (Node 24 ships npm 11+, required for npm Trusted Publishing)
 
 ## Quality Gate
 
@@ -60,7 +60,7 @@ This runs lint, format check, type check, tests, version validation, and securit
 ## Branch Protection
 
 The `main` branch is protected by a GitHub Repository Ruleset that requires PR review from
-`@jmcombs`, all CI checks green on Node 20 and Node 22, Conventional Commits, and a linear
+`@jmcombs`, all CI checks green on Node 22 and Node 24, Conventional Commits, and a linear
 history. The maintainer can push directly to `main` via the admin bypass; outside contributors
 must go through PR review. See [CONTRIBUTING.md → Branch Protection](CONTRIBUTING.md#branch-protection)
 for the full rule list and rationale.

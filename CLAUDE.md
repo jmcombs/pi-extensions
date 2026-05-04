@@ -29,8 +29,9 @@ npm via OIDC Trusted Publishing.
 
 ## Conventions You Must Follow
 
-- Node `>= 20.6.0`. CI tests on Node 20 and Node 22; the release pipeline runs on Node 24
-  (see `.nvmrc`).
+- Node `>= 22.0.0`. CI tests on Node 22 and Node 24; the release pipeline (and `.nvmrc`)
+  is pinned to Node 24, which ships npm 11+ — required for npm Trusted Publishing.
+  Node 20 is no longer supported.
 - Conventional Commits, scoped to the package directory name when relevant
   (e.g. `feat(tavily-search): add result truncation flag`). Use `chore(<scope>):` for
   changes that should _not_ appear in the package's CHANGELOG (e.g. scaffolding,
@@ -40,7 +41,7 @@ npm via OIDC Trusted Publishing.
 - **No mocking external APIs in tests.** Smoke tests that load the extension and verify
   registration are the preferred shape.
 - Each package's `package.json` must include: `keywords: ["pi-package"]`, a `pi` manifest
-  with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=20.6.0"`,
+  with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=22.0.0"`,
   and an `image` URL for the gallery card.
 
 ## When Adding a New Extension
@@ -57,8 +58,8 @@ this repo must follow these operational rules:
 - **Always work on a feature branch and open a PR**, even though the maintainer has
   admin bypass. CI only runs on pull requests, so direct pushes to `main` skip the
   quality gate — agents must not rely on that bypass.
-- **All three required checks must be green** before handing back: `Quality Gate (Node 20)`,
-  `Quality Gate (Node 22)`, and `Commit Messages`. If a change you make would fail any of
+- **All three required checks must be green** before handing back: `Quality Gate (Node 22)`,
+  `Quality Gate (Node 24)`, and `Commit Messages`. If a change you make would fail any of
   them, fix it before declaring the task done.
 - **Conventional Commits are enforced** by the `Commit Messages` check (commitlint). Use
   `chore(<scope>):` for changes that should not appear in a package CHANGELOG.
@@ -77,9 +78,10 @@ this repo must follow these operational rules:
 - `.github/workflows/release-please.yml` — adding a publish job for a new package follows
   the existing pattern; other changes warrant a maintainer discussion because they affect
   the release pipeline.
-- `.github/workflows/ci.yml` — the job names (`Quality Gate (Node 20)`, `Quality Gate
-(Node 22)`, `Commit Messages`) are referenced by the **Protect main** ruleset as required
-  status checks. Renaming or removing a job will silently break branch protection.
+- `.github/workflows/ci.yml` — the job names (`Quality Gate (Node 22)`, `Quality Gate
+(Node 24)`, `Commit Messages`) are referenced by the **Protect main** ruleset as required
+  status checks. Renaming or removing a job (or changing the matrix versions) will silently
+  break branch protection.
 - `.github/CODEOWNERS` — backs the ruleset's "Require review from Code Owners" rule.
   Editing it changes who can approve outside-contributor PRs.
 

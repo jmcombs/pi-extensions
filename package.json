@@ -32,7 +32,7 @@
     "prepare": "husky"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": ">=22.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",

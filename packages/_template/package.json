@@ -24,7 +24,7 @@
     "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/EXTENSION_NAME/preview.png"
   },
   "engines": {
-    "node": ">=20.6.0"
+    "node": ">=22.0.0"
   },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*",
