@@ -15,7 +15,7 @@
  * Behavior:
  *   - Discovers every directory under packages/ except `_template/`
  *   - Verifies each package.json has: name, version (semver), description,
- *     license=MIT, author, engines.node, the `pi-package` keyword, and a `pi`
+ *     license=MIT, author, engines.node (>=22.0.0), the `pi-package` keyword, and a `pi`
  *     manifest with at least one `extensions` entry.
  *   - Verifies the package's name+version is registered in
  *     `.release-please-manifest.json` and `release-please-config.json`.
@@ -89,11 +89,12 @@ function validatePackage(pkgName, manifest, rpConfig) {
   if (pkg.license !== "MIT") issues.push(`license must be "MIT" (got ${JSON.stringify(pkg.license)})`);
   if (!pkg.author) issues.push("author missing");
 
-  // Engines
+  // Engines — Node >=22 is the project floor (Node 20 dropped after secretlint 12.x
+  // raised its engines and Node 24 LTS became the publish runtime).
   const node = pkg.engines?.node;
   if (!node) issues.push("engines.node missing");
-  else if (!/>=\s*20\.6/.test(node) && !/>=\s*2[0-9]/.test(node))
-    issues.push(`engines.node should require >=20.6.0 (got ${JSON.stringify(node)})`);
+  else if (!/>=\s*(2[2-9]|[3-9][0-9])(\.|$|\s)/.test(node))
+    issues.push(`engines.node should require >=22.0.0 (got ${JSON.stringify(node)})`);
 
   // Keywords + pi-package
   const keywords = Array.isArray(pkg.keywords) ? pkg.keywords : [];
