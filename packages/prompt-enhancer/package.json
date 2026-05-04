@@ -33,7 +33,8 @@
     "extensions": [
       "./index.ts"
     ],
-    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/preview.png"
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/preview.png",
+    "video": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/preview.mp4"
   },
   "engines": {
     "node": ">=20.6.0"
