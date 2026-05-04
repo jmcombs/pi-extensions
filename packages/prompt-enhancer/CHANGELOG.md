@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v1.1.0...prompt-enhancer/v2.0.0) (2026-05-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* **prompt-enhancer:** Consumers running Node 20 must upgrade to Node 22 or later before installing this version.
+
+### Features
+
+* **prompt-enhancer:** require Node &gt;=22.0.0 ([e255a02](https://github.com/jmcombs/pi-extensions/commit/e255a02251a70ebaa71cc79160198627415444bb))
+
 ## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v1.0.0...prompt-enhancer/v1.1.0) (2026-05-04)
 
 
