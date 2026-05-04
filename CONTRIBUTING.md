@@ -63,12 +63,19 @@ is the source of truth for what that ruleset enforces and why.
 | ↳ Required approvals                                               | `1`     | At least one human approval per PR (see Code Owners below).                                                            |
 | ↳ Dismiss stale pull request approvals when new commits are pushed | ✅      | Approvals re-validate after any new push.                                                                              |
 | ↳ Require review from Code Owners                                  | ✅      | The approval must come from an owner listed in `.github/CODEOWNERS` (currently `@jmcombs`), not just any collaborator. |
-| ↳ Require approval of the most recent reviewable push              | ✅      | Mitigates approve-then-sneak-in-changes attacks.                                                                       |
 | Require status checks to pass                                      | ✅      | All required checks must be green before merge.                                                                        |
 | ↳ Require branches to be up to date before merging                 | ✅      | Avoids "green at merge, red on `main`" surprises with the Release Please manifest.                                     |
 | ↳ Required check: `Quality Gate (Node 22)`                         | ✅      | Same `npm run check` gate as local development, on Node 22.                                                            |
 | ↳ Required check: `Quality Gate (Node 24)`                         | ✅      | Same gate on Node 24 (matches the release pipeline runtime).                                                           |
 | ↳ Required check: `Commit Messages`                                | ✅      | Conventional Commits enforcement (commitlint).                                                                         |
+
+> **Why "Require approval of the most recent reviewable push" is intentionally
+> off.** With a sole maintainer who is also the only Code Owner, that rule turns
+> every routine rebase of a bot-authored PR (e.g. a Release Please PR that
+> conflicts after another release lands) into an admin-bypass merge, because the
+> maintainer becomes "the last pusher" and cannot satisfy the rule themselves.
+> Code Owner review is still required for outside contributions, so the
+> protection that matters — only an owner can land changes — remains.
 
 ### Bypass: maintainer direct push
 

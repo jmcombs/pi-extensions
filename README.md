@@ -7,11 +7,10 @@ with the `pi-package` keyword so they appear in the [pi.dev gallery](https://pi.
 
 ## Packages
 
-<!-- Updated as packages land. -->
-
-| Package    | npm | Description |
-| ---------- | --- | ----------- |
-| _none yet_ | —   | —           |
+| Package                                                     | npm                                                                                                                               | Description                                                                                                                                |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`@jmcombs/pi-tavily-search`](./packages/tavily-search)     | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-tavily-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-tavily-search)     | Real-time web search via the [Tavily](https://tavily.com) API.                                                                             |
+| [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt enhancer that rewrites rough prompts into precise ones with project tree, git context, and referenced file contents. |
 
 ## Install an Extension
 
