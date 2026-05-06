@@ -17,6 +17,12 @@
       "component": "prompt-enhancer",
       "package-name": "@jmcombs/pi-prompt-enhancer",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/notify": {
+      "release-type": "node",
+      "component": "notify",
+      "package-name": "@jmcombs/pi-notify",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

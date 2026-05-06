@@ -1,0 +1,47 @@
+{
+  "name": "@jmcombs/pi-notify",
+  "version": "0.0.0",
+  "description": "OS-level desktop notifications for the Pi coding agent — alerts you when Pi finishes a turn and is waiting for input.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/notify",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/notify"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "notifications",
+    "desktop-notifications",
+    "macos",
+    "linux",
+    "osascript",
+    "notify-send"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/notify/preview.png"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
