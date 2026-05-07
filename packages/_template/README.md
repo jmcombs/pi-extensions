@@ -73,7 +73,7 @@ export EXAMPLE_API_KEY="…"
 The extension reads the key with:
 
 ```ts
-import { AuthStorage } from "@mariozechner/pi-coding-agent";
+import { AuthStorage } from "@earendil-works/pi-coding-agent";
 const auth = AuthStorage.create();
 const apiKey = (await auth.getApiKey("example")) ?? process.env.EXAMPLE_API_KEY;
 ```

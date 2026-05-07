@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import factory, { buildEnhancerUserMessage, type EnhancerContext } from "./index.js";
 
 interface RegistrationLog {

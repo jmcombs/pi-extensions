@@ -71,8 +71,8 @@ Conventions:
 - Return objects of shape `{ content, details }` from tools.
 - For secrets, **always** read through `AuthStorage` with a `process.env`
   fallback (see `README.md` template).
-- Pi-runtime packages (`@mariozechner/pi-coding-agent`, `@mariozechner/pi-ai`,
-  `@mariozechner/pi-agent-core`, `@mariozechner/pi-tui`, `typebox`) go in
+- Pi-runtime packages (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`,
+  `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui`, `typebox`) go in
   `peerDependencies` with `"*"`. **Do not bundle them.**
 - Other npm runtime deps go in `dependencies`. They are installed automatically
   when a user runs `pi install`.
