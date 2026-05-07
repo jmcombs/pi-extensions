@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ToolDefinition } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import factory, { type TavilySearchInput } from "./index.js";
 
 interface CapturedTool {

@@ -22,12 +22,12 @@ import { type Dirent, promises as fs } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { complete, type Api, type Message, type Model } from "@mariozechner/pi-ai";
+import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai";
 import {
   BorderedLoader,
   type ExtensionAPI,
   type ExtensionContext,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 
 // `execFile` (not `exec`) avoids passing args through a shell, so we don't
 // need to escape user-derived `cwd` paths.
