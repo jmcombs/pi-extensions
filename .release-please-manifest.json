@@ -1,5 +1,5 @@
 {
-  "packages/tavily-search": "2.0.0",
+  "packages/tavily-search": "2.0.1",
   "packages/prompt-enhancer": "2.0.1",
   "packages/notify": "1.0.1"
 }
