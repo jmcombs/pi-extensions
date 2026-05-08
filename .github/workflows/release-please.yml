@@ -3,6 +3,11 @@ name: Release Please
 on:
   push:
     branches: [main]
+    paths:
+      - "packages/**"
+      - "release-please-config.json"
+      - ".release-please-manifest.json"
+      - ".github/workflows/release-please.yml"
 
 permissions:
   contents: write
