@@ -17,8 +17,8 @@
     "packages/*"
   ],
   "scripts": {
-    "lint": "eslint --no-error-on-unmatched-pattern \"packages/**/*.ts\"",
-    "lint:fix": "eslint --fix --no-error-on-unmatched-pattern \"packages/**/*.ts\"",
+    "lint": "eslint --no-error-on-unmatched-pattern \"packages/*/**/*.ts\"",
+    "lint:fix": "eslint --fix --no-error-on-unmatched-pattern \"packages/*/**/*.ts\"",
     "format": "prettier --write \"**/*.{ts,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,json,md,yml,yaml}\"",
     "typecheck": "node scripts/typecheck.mjs",
