@@ -75,9 +75,7 @@ this repo must follow these operational rules:
 - `release-please-config.json` and `.release-please-manifest.json` — only edit when adding
   a new package or fixing a clear bug. Do not retroactively edit version numbers; let
   Release Please own them after the first release.
-- `.github/workflows/release-please.yml` — adding a publish job for a new package follows
-  the existing pattern; other changes warrant a maintainer discussion because they affect
-  the release pipeline.
+- `.github/workflows/release-please.yml` — is now fully automated via a dynamic matrix; only the configuration files (`release-please-config.json` and `.release-please-manifest.json`) require updates.
 - `.github/workflows/ci.yml` — the job names (`Quality Gate (Node 22)`, `Quality Gate
 (Node 24)`, `Commit Messages`) are referenced by the **Protect main** ruleset as required
   status checks. Renaming or removing a job (or changing the matrix versions) will silently

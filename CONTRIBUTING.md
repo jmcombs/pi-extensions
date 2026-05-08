@@ -134,12 +134,10 @@ intentional change so the doc and the ruleset stay in sync.
    to `0.0.0`. The first releasable commit will then trigger a `1.0.0` release
    (Release Please's default for the first release of a `release-type: node`
    package; see `VERSIONING.md`).
-6. Add a per-package npm publish job to `.github/workflows/release-please.yml`
-   (mirror the `publish-tavily-search` job; rename outputs and the workspace path).
-7. **Configure npm Trusted Publishing** for the new npm package (see below).
+6. Configure npm Trusted Publishing for the new npm package (see below).
    This is a one-time per-package step on npmjs.com.
-8. Run `npm run check`. It must pass.
-9. Open a PR using a Conventional Commits title scoped to the new package, e.g.
+7. Run `npm run check`. It must pass.
+8. Open a PR using a Conventional Commits title scoped to the new package, e.g.
    `feat(my-extension): initial release`.
 
 ### One-time: configure npm Trusted Publishing
