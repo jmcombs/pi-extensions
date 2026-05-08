@@ -179,7 +179,7 @@ Each package must have:
 - `pi.extensions`: array of paths to extension entry points
 - `image` and/or `video`: raw GitHub URLs from `packages/<name>/assets/` (or root `assets/<name>/`)
   for the pi.dev gallery preview card
-- `peerDependencies` for `@mariozechner/pi-coding-agent`, `typebox`, etc. (do not bundle
+- `peerDependencies` for `@earendil-works/pi-coding-agent`, `typebox`, etc. (do not bundle
   Pi-provided runtime packages)
 
 `scripts/sync-versions.mjs` validates these conventions; it runs as part of `npm run check`.

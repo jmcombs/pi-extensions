@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.1](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.0...prompt-enhancer/v2.0.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* migrate @mariozechner/* peer deps to @earendil-works/* ([8621f46](https://github.com/jmcombs/pi-extensions/commit/8621f46498add5b871ac206e17ceb78f28657038)), closes [#13](https://github.com/jmcombs/pi-extensions/issues/13)
+
 ## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v1.1.0...prompt-enhancer/v2.0.0) (2026-05-04)
 
 

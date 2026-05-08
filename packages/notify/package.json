@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-notify",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OS-level desktop notifications for the Pi coding agent — alerts you when Pi finishes a turn and is waiting for input.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/notify",
   "repository": {
@@ -41,7 +41,7 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   }
 }

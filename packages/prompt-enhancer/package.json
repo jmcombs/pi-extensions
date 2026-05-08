@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-prompt-enhancer",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Codebase-aware prompt enhancer for the Pi coding agent — rewrites rough prompts into precise ones, with project tree, git context, and referenced file contents, before they reach the model.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/prompt-enhancer",
   "repository": {
@@ -40,9 +40,8 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-ai": "*",
-    "@mariozechner/pi-tui": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*",
     "typebox": "*"
   }
 }

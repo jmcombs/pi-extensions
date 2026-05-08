@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-tavily-search",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Pi extension that performs real-time web search via the Tavily API.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/tavily-search",
   "repository": {
@@ -39,7 +39,7 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"
   }
 }

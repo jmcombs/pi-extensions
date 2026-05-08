@@ -10,7 +10,7 @@
  * patterns (env var, plain auth.json, or shell-resolved 1Password / Keychain).
  */
 
-import { AuthStorage, type ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
 const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
