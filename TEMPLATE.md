@@ -129,13 +129,7 @@ Keep the package's `package.json` `"version"` at `"0.0.0"` and remove
 `"private": true`. The first releasable commit (`feat:`, `fix:`, etc.) will
 trigger a `1.0.0` release — see `VERSIONING.md` for the rationale.
 
-## 7. Add the npm publish job
-
-In `.github/workflows/release-please.yml`, add a per-package output and a
-publish job following the existing pattern. The publish job uses npm's Trusted
-Publishing (OIDC); it does not need an `NPM_TOKEN` secret.
-
-## 8. Verify locally
+## 7. Verify locally
 
 ```bash
 # From the repo root
@@ -144,7 +138,7 @@ npm run check          # must be green
 pi -e ./packages/EXTENSION_NAME    # smoke test against a real pi session
 ```
 
-## 9. Open a PR
+## 8. Open a PR
 
 Use a Conventional Commit title scoped to your package, for example:
 
