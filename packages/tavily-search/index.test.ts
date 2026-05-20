@@ -11,6 +11,11 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import factory, { type TavilySearchInput } from "./index.js";
 
+interface CapturedCommand {
+  name: string;
+  description?: string;
+}
+
 interface CapturedTool {
   name: string;
   label?: string;
@@ -18,8 +23,13 @@ interface CapturedTool {
   parameters: unknown;
 }
 
-function createApiStub(): { api: ExtensionAPI; tools: CapturedTool[] } {
+function createApiStub(): {
+  api: ExtensionAPI;
+  tools: CapturedTool[];
+  commands: CapturedCommand[];
+} {
   const tools: CapturedTool[] = [];
+  const commands: CapturedCommand[] = [];
   const notImplemented = (method: string) => () => {
     throw new Error(`ExtensionAPI.${method} not implemented in test stub`);
   };
@@ -36,7 +46,9 @@ function createApiStub(): { api: ExtensionAPI; tools: CapturedTool[] } {
         parameters: tool.parameters,
       });
     }) as unknown as ExtensionAPI["registerTool"],
-    registerCommand: notImplemented("registerCommand"),
+    registerCommand: ((name: string, opts: { description?: string }) => {
+      commands.push({ name, description: opts.description });
+    }) as unknown as ExtensionAPI["registerCommand"],
     registerShortcut: notImplemented("registerShortcut"),
     registerFlag: notImplemented("registerFlag"),
     getFlag: notImplemented("getFlag"),
@@ -55,7 +67,7 @@ function createApiStub(): { api: ExtensionAPI; tools: CapturedTool[] } {
     setModel: notImplemented("setModel"),
   } as unknown as ExtensionAPI;
 
-  return { api, tools };
+  return { api, tools, commands };
 }
 
 describe("@jmcombs/pi-tavily-search", () => {
@@ -63,14 +75,18 @@ describe("@jmcombs/pi-tavily-search", () => {
     expect(typeof factory).toBe("function");
   });
 
-  it("registers exactly one tool, named tavily_search", () => {
-    const { api, tools } = createApiStub();
+  it("registers exactly one tool and one authentication command", () => {
+    const { api, commands, tools } = createApiStub();
     factory(api);
 
     expect(tools).toHaveLength(1);
     expect(tools[0]?.name).toBe("tavily_search");
     expect(tools[0]?.label).toBe("Tavily Web Search");
     expect(tools[0]?.description).toMatch(/tavily/i);
+
+    expect(commands).toHaveLength(1);
+    expect(commands[0]?.name).toBe("tavily_authenticate");
+    expect(commands[0]?.description).toMatch(/tavily/i);
   });
 
   it("declares a TypeBox schema requiring a non-empty query string", () => {

@@ -2,12 +2,13 @@
  * @jmcombs/pi-tavily-search — Real-time web search for the Pi coding agent.
  *
  * Registers a `tavily_search` tool that the LLM can call to perform a Tavily
- * web search. The Tavily API key is resolved from (in order):
- *   1. `AuthStorage` under the "tavily" key (`~/.pi/agent/auth.json`)
- *   2. The `TAVILY_API_KEY` environment variable
+ * web search. If no Tavily API key is configured, the tool prompts the user
+ * interactively via the TUI (never leaking the key into the agent's context).
+ * The key can also be set manually by running `/tavily_authenticate`.
  *
- * See README.md for configuration details and recommended secret-storage
- * patterns (env var, plain auth.json, or shell-resolved 1Password / Keychain).
+ * Supported configuration (if not using interactive prompt):
+ *    1. `AuthStorage` under the "tavily" key (`~/.pi/agent/auth.json`)
+ *    2. The `TAVILY_API_KEY` environment variable
  */
 
 import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -48,16 +49,6 @@ interface TavilySearchResponse {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-const MISSING_KEY_MESSAGE = [
-  "Error: No Tavily API key configured.",
-  "",
-  "Configure one of the following:",
-  "  • Environment variable: export TAVILY_API_KEY=<your-key>",
-  '  • ~/.pi/agent/auth.json: { "tavily": { "type": "api_key", "key": "<your-key>" } }',
-  '  • Shell-resolved: { "tavily": { "type": "api_key", "key": "!security find-generic-password -ws tavily" } }',
-  '  • 1Password: { "tavily": { "type": "api_key", "key": "!op read \'op://Personal/tavily/credential\'" } }',
-].join("\n");
-
 function formatResults(data: TavilySearchResponse, query: string): string {
   const results = data.results ?? [];
   if (results.length === 0) {
@@ -77,20 +68,54 @@ function formatResults(data: TavilySearchResponse, query: string): string {
 export default function (pi: ExtensionAPI): void {
   const authStorage = AuthStorage.create();
 
+  // Register /tavily_authenticate command for manual key entry.
+  // The input is captured by the TUI and never enters the LLM's context.
+  pi.registerCommand("tavily_authenticate", {
+    description: "Securely save your Tavily API key (input never visible to LLM).",
+    handler: async (_args, ctx) => {
+      const apiKey = await ctx.ui.input("Enter your Tavily API key:");
+      if (apiKey) {
+        authStorage.set("tavily", { type: "api_key" as const, key: apiKey });
+        ctx.ui.notify("Tavily API key saved successfully.", "info");
+      } else {
+        ctx.ui.notify("Authentication cancelled.", "warning");
+      }
+    },
+  });
+
   pi.registerTool({
     name: "tavily_search",
     label: "Tavily Web Search",
     description:
       "Performs a web search using the Tavily API to get real-time information from the internet.",
     parameters: tavilySearchSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
-      const apiKey = (await authStorage.getApiKey("tavily")) ?? process.env.TAVILY_API_KEY;
+    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+      let apiKey = (await authStorage.getApiKey("tavily")) ?? process.env.TAVILY_API_KEY;
+
+      // Auto-authenticate: prompt for key if none is configured
       if (!apiKey) {
-        return {
-          content: [{ type: "text", text: MISSING_KEY_MESSAGE }],
-          details: { error: "missing_api_key" },
-          isError: true,
-        };
+        const newKey = await ctx.ui.input("Enter your Tavily API key:");
+        if (!newKey) {
+          return {
+            content: [{ type: "text", text: "Search cancelled: no Tavily API key provided." }],
+            details: { error: "missing_api_key" },
+            isError: true,
+          };
+        }
+        authStorage.set("tavily", { type: "api_key" as const, key: newKey });
+        apiKey = await authStorage.getApiKey("tavily");
+        if (!apiKey) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Failed to resolve Tavily API key. Check your shell configuration.",
+              },
+            ],
+            details: { error: "missing_api_key" },
+            isError: true,
+          };
+        }
       }
 
       try {
