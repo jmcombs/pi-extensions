@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v2.0.1...tavily-search/v2.1.0) (2026-05-20)
+
+
+### Features
+
+* **tavily-search:** add auto-auth prompt and /tavily_authenticate command ([#24](https://github.com/jmcombs/pi-extensions/issues/24)) ([4b227b1](https://github.com/jmcombs/pi-extensions/commit/4b227b1e3e6d62ba269f323025161c76183c9776))
+
 ## [2.0.1](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v2.0.0...tavily-search/v2.0.1) (2026-05-08)
 
 
