@@ -17,10 +17,23 @@
   "type": "module",
   "main": "./index.ts",
   "types": "./index.ts",
-  "files": ["index.ts", "README.md", "LICENSE"],
-  "keywords": ["pi-package", "pi-extension", "grok", "xai", "web-search", "search"],
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "grok",
+    "xai",
+    "web-search",
+    "search"
+  ],
   "pi": {
-    "extensions": ["./index.ts"],
+    "extensions": [
+      "./index.ts"
+    ],
     "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/grok-search/preview.png"
   },
   "engines": {

@@ -72,7 +72,10 @@ export default function (pi: ExtensionAPI): void {
       "Performs a web search using the xAI Grok API to get real-time information from the internet.",
     parameters: grokSearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      let apiKey = (await authStorage.getApiKey("xai_search")) ?? (await authStorage.getApiKey("xai")) ?? process.env.XAI_API_KEY;
+      let apiKey =
+        (await authStorage.getApiKey("xai_search")) ??
+        (await authStorage.getApiKey("xai")) ??
+        process.env.XAI_API_KEY;
 
       // Auto-authenticate: prompt for key if none is configured
       if (!apiKey) {
@@ -129,9 +132,11 @@ export default function (pi: ExtensionAPI): void {
           };
         }
 
-        const data = (await response.json()) as any;
-        const messageItem = data.output?.find((o: any) => o.type === "message");
-        const content = messageItem?.content?.[0]?.text || "";
+        const data: unknown = await response.json();
+        const output =
+          (data as { output?: { type?: string; content?: { text?: string }[] }[] }).output ?? [];
+        const messageItem = output.find((o) => o.type === "message");
+        const content = messageItem?.content?.[0]?.text ?? "";
         return {
           content: [{ type: "text", text: formatResults(content, params.query) }],
           details: { raw: data },
