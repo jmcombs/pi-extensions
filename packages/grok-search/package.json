@@ -1,0 +1,33 @@
+{
+  "name": "@jmcombs/pi-grok-search",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pi extension that performs real-time web search via the xAI Grok API.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/grok-search",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/grok-search"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": ["index.ts", "README.md", "LICENSE"],
+  "keywords": ["pi-package", "pi-extension", "grok", "xai", "web-search", "search"],
+  "pi": {
+    "extensions": ["./index.ts"],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/grok-search/preview.png"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
