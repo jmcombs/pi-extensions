@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v1.0.0...grok-search/v1.1.0) (2026-05-23)
+
+
+### Features
+
+* **grok-search:** center logo + shields and size image in README ([#30](https://github.com/jmcombs/pi-extensions/issues/30)) ([761185f](https://github.com/jmcombs/pi-extensions/commit/761185f4a39c3e5dd12b396a275906078fe709ac))
+
 ## 1.0.0 (2026-05-23)
 
 
