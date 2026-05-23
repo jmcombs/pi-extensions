@@ -23,6 +23,12 @@
       "component": "notify",
       "package-name": "@jmcombs/pi-notify",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/grok-search": {
+      "release-type": "node",
+      "component": "grok-search",
+      "package-name": "@jmcombs/pi-grok-search",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
