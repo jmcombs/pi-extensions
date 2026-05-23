@@ -2,5 +2,5 @@
   "packages/tavily-search": "2.1.0",
   "packages/prompt-enhancer": "2.0.1",
   "packages/notify": "1.0.1",
-  "packages/grok-search": "0.0.0"
+  "packages/grok-search": "1.0.0"
 }

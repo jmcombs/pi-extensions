@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-grok-search",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Pi extension that performs real-time web search via the xAI Grok API.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/grok-search",
   "repository": {
