@@ -1,10 +1,12 @@
 # @jmcombs/pi-grok-search
 
-![Grok Search](https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/grok-search/preview.png)
-
-[![npm version](https://img.shields.io/npm/v/@jmcombs/pi-grok-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-grok-search)
-[![npm downloads](https://img.shields.io/npm/dm/@jmcombs/pi-grok-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-grok-search)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/grok-search/preview.png" width="250" alt="Grok Search">
+  <br>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-grok-search"><img src="https://img.shields.io/npm/v/@jmcombs/pi-grok-search.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-grok-search"><img src="https://img.shields.io/npm/dm/@jmcombs/pi-grok-search.svg" alt="npm downloads"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</div>
 
 A [Pi coding agent](https://pi.dev) extension that adds real-time web search via the
 [xAI Grok Agent Tools API](https://docs.x.ai/docs/guides/tools/overview).
