@@ -77,6 +77,51 @@ Conventions:
 - Other npm runtime deps go in `dependencies`. They are installed automatically
   when a user runs `pi install`.
 
+### 3b. Optional: Rich Bordered Popups (Custom TUI)
+
+If your extension needs more polished multi-step flows than the basic
+`ctx.ui.select / input / confirm` provide (e.g. long filterable lists,
+wizards, or consistent visual style), copy the helpers from
+`packages/_template/ui/bordered-popups.ts`.
+
+This file contains four reusable functions developed during the 1Password
+extension work:
+
+- `renderBorderedBox(...)` — low-level consistent 4-sided border renderer
+- `selectInBorderedPopup(ctx, { title, items, ... })` — filterable list with live search
+- `confirmInBorderedPopup(ctx, { title, message?, ... })` — Yes/No inside a popup
+- `inputInBorderedPopup(ctx, { title, prompt?, defaultValue?, ... })` — text input powered by Pi's Editor
+
+**Usage pattern** (inside any command handler):
+
+```ts
+import {
+  selectInBorderedPopup,
+  confirmInBorderedPopup,
+  inputInBorderedPopup,
+} from "./ui/bordered-popups.js";
+
+// Example
+const choice = await selectInBorderedPopup(ctx, {
+  title: "Select an option (type to filter)",
+  items: myItems,
+});
+
+const name = await inputInBorderedPopup(ctx, {
+  title: "Enter name",
+  prompt: "What should we call this?",
+});
+```
+
+These helpers:
+
+- Use `ctx.ui.custom({ overlay: true })`
+- Maintain stable borders even with ANSI highlighting and variable-length status lines
+- Support "← Go back" items and Esc-to-cancel consistently
+- Are fully self-contained (no external dependencies beyond Pi's peer modules)
+
+See the source in `packages/_template/ui/bordered-popups.ts` for full JSDoc and implementation notes.
+
 ## 4. Add a smoke test
 
 The template's `index.test.ts` is a real, non-mocking smoke test that builds a

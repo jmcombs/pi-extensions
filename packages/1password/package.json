@@ -1,0 +1,51 @@
+{
+  "name": "@jmcombs/pi-1password",
+  "version": "0.0.0",
+  "private": true,
+  "description": "1Password integration for the Pi coding agent. Read secrets and run commands with 1Password credential injection via the op CLI.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/1password",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/1password"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "data/",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "1password",
+    "op",
+    "credentials",
+    "secrets"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/1password/preview.png"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.75.4",
+    "typebox": "^1.1.37"
+  }
+}

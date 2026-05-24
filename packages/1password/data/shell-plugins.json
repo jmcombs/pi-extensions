@@ -1,0 +1,450 @@
+[
+  {
+    "name": "Akamai",
+    "slug": "akamai",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/akamai/"
+  },
+  {
+    "name": "Argo CD",
+    "slug": "argo-cd",
+    "envVars": ["ARGOCD_AUTH_TOKEN", "ARGOCD_SERVER"],
+    "primaryEnvVar": "ARGOCD_AUTH_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/argo-cd/"
+  },
+  {
+    "name": "AWS",
+    "slug": "aws",
+    "envVars": ["AWS_ACCESS_KEY_ID", "AWS_DEFAULT_REGION", "AWS_SECRET_ACCESS_KEY"],
+    "primaryEnvVar": "AWS_ACCESS_KEY_ID",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/aws/"
+  },
+  {
+    "name": "AWS CDK Toolkit",
+    "slug": "aws-cdk-toolkit",
+    "envVars": ["AWS_ACCESS_KEY_ID", "AWS_DEFAULT_REGION", "AWS_SECRET_ACCESS_KEY"],
+    "primaryEnvVar": "AWS_ACCESS_KEY_ID",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/aws-cdk-toolkit/"
+  },
+  {
+    "name": "Axiom",
+    "slug": "axiom",
+    "envVars": ["AXIOM_DEPLOYMENT", "AXIOM_ORG_ID", "AXIOM_TOKEN"],
+    "primaryEnvVar": "AXIOM_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/axiom/"
+  },
+  {
+    "name": "Binance",
+    "slug": "binance",
+    "envVars": ["BINANCE_API_KEY", "BINANCE_API_SECRET"],
+    "primaryEnvVar": "BINANCE_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/binance/"
+  },
+  {
+    "name": "brew",
+    "slug": "homebrew",
+    "envVars": ["HOMEBREW_GITHUB_API_TOKEN"],
+    "primaryEnvVar": "HOMEBREW_GITHUB_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/homebrew/"
+  },
+  {
+    "name": "Cachix",
+    "slug": "cachix",
+    "envVars": ["CACHIX_AUTH_TOKEN"],
+    "primaryEnvVar": "CACHIX_AUTH_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/cachix/"
+  },
+  {
+    "name": "Cargo",
+    "slug": "cargo",
+    "envVars": ["CARGO_REGISTRY_TOKEN"],
+    "primaryEnvVar": "CARGO_REGISTRY_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/cargo/"
+  },
+  {
+    "name": "CircleCI",
+    "slug": "circleci",
+    "envVars": ["CIRCLECI_CLI_TOKEN"],
+    "primaryEnvVar": "CIRCLECI_CLI_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/circleci/"
+  },
+  {
+    "name": "Civo",
+    "slug": "civo",
+    "envVars": ["CIVO_API_KEY", "CIVO_API_KEY_NAME"],
+    "primaryEnvVar": "CIVO_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/civo/"
+  },
+  {
+    "name": "Claude Code",
+    "slug": "claude-code",
+    "envVars": ["ANTHROPIC_API_KEY"],
+    "primaryEnvVar": "ANTHROPIC_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/claude-code/"
+  },
+  {
+    "name": "Cloudflare Workers",
+    "slug": "cloudflare-workers",
+    "envVars": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
+    "primaryEnvVar": "CLOUDFLARE_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/cloudflare-workers/"
+  },
+  {
+    "name": "Crowdin",
+    "slug": "crowdin",
+    "envVars": ["CROWDIN_BASE_URL", "CROWDIN_PERSONAL_TOKEN", "CROWDIN_PROJECT_ID"],
+    "primaryEnvVar": "CROWDIN_PERSONAL_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/crowdin/"
+  },
+  {
+    "name": "Databricks",
+    "slug": "databricks",
+    "envVars": ["DATABRICKS_HOST", "DATABRICKS_TOKEN"],
+    "primaryEnvVar": "DATABRICKS_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/databricks/"
+  },
+  {
+    "name": "DigitalOcean",
+    "slug": "digitalocean",
+    "envVars": ["DIGITALOCEAN_ACCESS_TOKEN"],
+    "primaryEnvVar": "DIGITALOCEAN_ACCESS_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/digitalocean/"
+  },
+  {
+    "name": "Dogshell",
+    "slug": "datadog",
+    "envVars": ["DATADOG_API_KEY", "DATADOG_APP_KEY"],
+    "primaryEnvVar": "DATADOG_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/datadog/"
+  },
+  {
+    "name": "Fastly",
+    "slug": "fastly",
+    "envVars": ["FASTLY_API_TOKEN"],
+    "primaryEnvVar": "FASTLY_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/fastly/"
+  },
+  {
+    "name": "Flyctl",
+    "slug": "flyctl",
+    "envVars": ["FLY_ACCESS_TOKEN"],
+    "primaryEnvVar": "FLY_ACCESS_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/flyctl/"
+  },
+  {
+    "name": "FOSSA",
+    "slug": "fossa",
+    "envVars": ["FOSSA_API_KEY"],
+    "primaryEnvVar": "FOSSA_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/fossa/"
+  },
+  {
+    "name": "Gitea",
+    "slug": "gitea",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/gitea/"
+  },
+  {
+    "name": "GitHub",
+    "slug": "github",
+    "envVars": ["GH_HOST", "GH_TOKEN"],
+    "primaryEnvVar": "GH_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/github/"
+  },
+  {
+    "name": "GitLab",
+    "slug": "gitlab",
+    "envVars": ["GITLAB_API_HOST", "GITLAB_HOST", "GITLAB_TOKEN"],
+    "primaryEnvVar": "GITLAB_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/gitlab/"
+  },
+  {
+    "name": "HashiCorp Vault",
+    "slug": "hashicorp-vault",
+    "envVars": ["VAULT_ADDR", "VAULT_NAMESPACE", "VAULT_TOKEN"],
+    "primaryEnvVar": "VAULT_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/hashicorp-vault/"
+  },
+  {
+    "name": "Heroku",
+    "slug": "heroku",
+    "envVars": ["HEROKU_API_KEY"],
+    "primaryEnvVar": "HEROKU_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/heroku/"
+  },
+  {
+    "name": "Hetzner Cloud",
+    "slug": "hetzner-cloud",
+    "envVars": ["HCLOUD_TOKEN"],
+    "primaryEnvVar": "HCLOUD_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/hetzner-cloud/"
+  },
+  {
+    "name": "HuggingFace",
+    "slug": "huggingface",
+    "envVars": ["HF_ENDPOINT", "HF_INFERENCE_ENDPOINT", "HUGGING_FACE_HUB_TOKEN"],
+    "primaryEnvVar": "HUGGING_FACE_HUB_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/huggingface/"
+  },
+  {
+    "name": "InfluxDB",
+    "slug": "influxdb",
+    "envVars": ["INFLUX_HOST", "INFLUX_ORG", "INFLUX_TOKEN"],
+    "primaryEnvVar": "INFLUX_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/influxdb/"
+  },
+  {
+    "name": "Kaggle",
+    "slug": "kaggle",
+    "envVars": ["KAGGLE_KEY", "KAGGLE_USERNAME"],
+    "primaryEnvVar": "KAGGLE_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/kaggle/"
+  },
+  {
+    "name": "Lacework",
+    "slug": "lacework",
+    "envVars": ["LW_ACCOUNT", "LW_API_KEY", "LW_API_SECRET"],
+    "primaryEnvVar": "LW_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/lacework/"
+  },
+  {
+    "name": "Laravel Forge",
+    "slug": "laravel-forge",
+    "envVars": ["FORGE_API_TOKEN"],
+    "primaryEnvVar": "FORGE_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/laravel-forge/"
+  },
+  {
+    "name": "Laravel Vapor",
+    "slug": "laravel-vapor",
+    "envVars": ["VAPOR_API_TOKEN"],
+    "primaryEnvVar": "VAPOR_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/laravel-vapor/"
+  },
+  {
+    "name": "Linode",
+    "slug": "linode",
+    "envVars": ["LINODE_CLI_TOKEN"],
+    "primaryEnvVar": "LINODE_CLI_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/linode/"
+  },
+  {
+    "name": "LocalStack",
+    "slug": "localstack",
+    "envVars": ["LOCALSTACK_API_KEY"],
+    "primaryEnvVar": "LOCALSTACK_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/localstack/"
+  },
+  {
+    "name": "MongoDB Atlas",
+    "slug": "mongodb-atlas",
+    "envVars": ["MONGODB_ATLAS_PRIVATE_API_KEY", "MONGODB_ATLAS_PUBLIC_API_KEY"],
+    "primaryEnvVar": "MONGODB_ATLAS_PRIVATE_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/mongodb-atlas/"
+  },
+  {
+    "name": "MySQL",
+    "slug": "mysql",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/mysql/"
+  },
+  {
+    "name": "ngrok",
+    "slug": "ngrok",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/ngrok/"
+  },
+  {
+    "name": "Oh Dear",
+    "slug": "oh-dear",
+    "envVars": ["OHDEAR_API_TOKEN"],
+    "primaryEnvVar": "OHDEAR_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/oh-dear/"
+  },
+  {
+    "name": "Okta",
+    "slug": "okta",
+    "envVars": ["OKTA_CLIENT_ORGURL", "OKTA_CLIENT_TOKEN"],
+    "primaryEnvVar": "OKTA_CLIENT_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/okta/"
+  },
+  {
+    "name": "OpenAI",
+    "slug": "openai",
+    "envVars": ["OPENAI_API_KEY"],
+    "primaryEnvVar": "OPENAI_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/openai/"
+  },
+  {
+    "name": "OpenAI Evals",
+    "slug": "openai-evals",
+    "envVars": ["OPENAI_API_KEY"],
+    "primaryEnvVar": "OPENAI_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/openai-evals/"
+  },
+  {
+    "name": "Pipedream",
+    "slug": "pipedream",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/pipedream/"
+  },
+  {
+    "name": "PostgreSQL",
+    "slug": "postgresql",
+    "envVars": ["PGDATABASE", "PGHOST", "PGPASSWORD", "PGPORT", "PGUSER"],
+    "primaryEnvVar": "PGPASSWORD",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/postgresql/"
+  },
+  {
+    "name": "Pulumi",
+    "slug": "pulumi",
+    "envVars": ["PULUMI_ACCESS_TOKEN", "PULUMI_BACKEND_URL"],
+    "primaryEnvVar": "PULUMI_ACCESS_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/pulumi/"
+  },
+  {
+    "name": "ReadMe",
+    "slug": "readme",
+    "envVars": ["RDME_API_KEY", "RDME_EMAIL", "RDME_PROJECT"],
+    "primaryEnvVar": "RDME_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/readme/"
+  },
+  {
+    "name": "Scaleway",
+    "slug": "scaleway",
+    "envVars": [
+      "SCW_ACCESS_KEY",
+      "SCW_DEFAULT_ORGANIZATION_ID",
+      "SCW_DEFAULT_PROJECT_ID",
+      "SCW_DEFAULT_REGION",
+      "SCW_DEFAULT_ZONE",
+      "SCW_SECRET_KEY"
+    ],
+    "primaryEnvVar": "SCW_ACCESS_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/scaleway/"
+  },
+  {
+    "name": "Sentry",
+    "slug": "sentry",
+    "envVars": ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT", "SENTRY_URL"],
+    "primaryEnvVar": "SENTRY_AUTH_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/sentry/"
+  },
+  {
+    "name": "Snowflake",
+    "slug": "snowflake",
+    "envVars": ["SNOWSQL_ACCOUNT", "SNOWSQL_PWD", "SNOWSQL_USER"],
+    "primaryEnvVar": "SNOWSQL_ACCOUNT",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/snowflake/"
+  },
+  {
+    "name": "Snyk",
+    "slug": "snyk",
+    "envVars": ["SNYK_TOKEN"],
+    "primaryEnvVar": "SNYK_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/snyk/"
+  },
+  {
+    "name": "Sourcegraph",
+    "slug": "sourcegraph",
+    "envVars": ["SRC_ACCESS_TOKEN", "SRC_ENDPOINT"],
+    "primaryEnvVar": "SRC_ACCESS_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/sourcegraph/"
+  },
+  {
+    "name": "Stripe",
+    "slug": "stripe",
+    "envVars": ["STRIPE_API_KEY"],
+    "primaryEnvVar": "STRIPE_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/stripe/"
+  },
+  {
+    "name": "Terraform",
+    "slug": "terraform",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/terraform/"
+  },
+  {
+    "name": "Todoist",
+    "slug": "todoist",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/todoist/"
+  },
+  {
+    "name": "Treasure Data",
+    "slug": "treasure-data",
+    "envVars": ["TD_API_KEY"],
+    "primaryEnvVar": "TD_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/treasure-data/"
+  },
+  {
+    "name": "Tugboat",
+    "slug": "tugboat",
+    "envVars": ["TUGBOAT_API_TOKEN"],
+    "primaryEnvVar": "TUGBOAT_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/tugboat/"
+  },
+  {
+    "name": "Twilio",
+    "slug": "twilio",
+    "envVars": ["TWILIO_ACCOUNT_SID", "TWILIO_API_KEY", "TWILIO_API_SECRET", "TWILIO_REGION"],
+    "primaryEnvVar": "TWILIO_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/twilio/"
+  },
+  {
+    "name": "Upstash",
+    "slug": "upstash",
+    "envVars": ["UPSTASH_API_KEY", "UPSTASH_EMAIL"],
+    "primaryEnvVar": "UPSTASH_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/upstash/"
+  },
+  {
+    "name": "Vercel",
+    "slug": "vercel",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/vercel/"
+  },
+  {
+    "name": "Vertica",
+    "slug": "vertica",
+    "envVars": ["VSQL_DATABASE", "VSQL_HOST", "VSQL_PASSWORD", "VSQL_PORT", "VSQL_USER"],
+    "primaryEnvVar": "VSQL_PASSWORD",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/vertica/"
+  },
+  {
+    "name": "Vultr",
+    "slug": "vultr",
+    "envVars": ["VULTR_API_KEY"],
+    "primaryEnvVar": "VULTR_API_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/vultr/"
+  },
+  {
+    "name": "YugabyteDB SQL Shell",
+    "slug": "yugabytedb",
+    "envVars": ["PGHOST", "PGPASSWORD", "PGPORT", "PGUSER"],
+    "primaryEnvVar": "PGPASSWORD",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/yugabytedb/"
+  },
+  {
+    "name": "Zapier",
+    "slug": "zapier",
+    "envVars": ["ZAPIER_DEPLOY_KEY"],
+    "primaryEnvVar": "ZAPIER_DEPLOY_KEY",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/zapier/"
+  },
+  {
+    "name": "Zendesk",
+    "slug": "zendesk",
+    "envVars": ["ZENDESK_API_TOKEN", "ZENDESK_EMAIL", "ZENDESK_SUBDOMAIN"],
+    "primaryEnvVar": "ZENDESK_API_TOKEN",
+    "pageUrl": "https://www.1password.dev/cli/shell-plugins/zendesk/"
+  }
+]

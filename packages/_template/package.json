@@ -17,7 +17,7 @@
   "type": "module",
   "main": "./index.ts",
   "types": "./index.ts",
-  "files": ["index.ts", "README.md", "LICENSE"],
+  "files": ["index.ts", "ui/", "README.md", "LICENSE"],
   "keywords": ["pi-package", "pi-extension", "TODO-add-topical-keywords"],
   "pi": {
     "extensions": ["./index.ts"],
