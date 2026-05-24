@@ -1,7 +1,7 @@
 {
   "name": "@jmcombs/pi-notify",
   "version": "1.0.1",
-  "description": "OS-level desktop notifications for the Pi coding agent — alerts you when Pi finishes a turn and is waiting for input.",
+  "description": "Terminal-emulator notifications (OSC 777/9/99) for the Pi coding agent — alerts you when Pi finishes a turn. Works in Ghostty, iTerm2, WezTerm, Kitty, etc. Zero OS binaries or dependencies.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/notify",
   "repository": {
     "type": "git",
@@ -25,11 +25,12 @@
     "pi-package",
     "pi-extension",
     "notifications",
-    "desktop-notifications",
-    "macos",
-    "linux",
-    "osascript",
-    "notify-send"
+    "terminal-notifications",
+    "osc",
+    "ghostty",
+    "iterm2",
+    "wezterm",
+    "kitty"
   ],
   "pi": {
     "extensions": [
