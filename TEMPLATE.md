@@ -118,7 +118,22 @@ These helpers:
 - Use `ctx.ui.custom({ overlay: true })`
 - Maintain stable borders even with ANSI highlighting and variable-length status lines
 - Support "← Go back" items and Esc-to-cancel consistently
-- Are fully self-contained (no external dependencies beyond Pi's peer modules)
+- Are fully self-contained once the required Pi runtime peers are declared
+
+**Required `package.json` updates when using the helpers** (add to your package):
+
+```json
+{
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "files": ["index.ts", "ui/", "README.md", "LICENSE"]
+}
+```
+
+The `ui/` directory (and the peer for `@earendil-works/pi-tui`) are only needed if you copy the bordered helpers. See `packages/_template/package.json` for the exact shape.
 
 See the source in `packages/_template/ui/bordered-popups.ts` for full JSDoc and implementation notes.
 

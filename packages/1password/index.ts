@@ -24,6 +24,12 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 
+import {
+  confirmInBorderedPopup,
+  inputInBorderedPopup,
+  selectInBorderedPopup,
+} from "./ui/bordered-popups.js";
+
 const execAsync = promisify(exec);
 
 // ── Internal helpers for diagnostics (properly typed) ──────────────────
@@ -530,8 +536,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // This should be revisited when better support exists or a different pattern
   // is found. Tracked as a follow-up issue.
 
-  // Local helper: simple vault→item→field picker using only native typed UI.
-  // (Back navigation is limited to cancel; user can re-run the command for a different choice.)
+  // Local helper: vault → item → field picker using the custom bordered TUI.
+  // Long lists benefit from live filtering. Esc (or picking Cancel) backs out.
   async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promise<string | null> {
     ctx.ui.setStatus("1p-onboard", "Loading vaults...");
     let vaultNames: string[] = [];
@@ -549,9 +555,22 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     }
     ctx.ui.setStatus("1p-onboard", undefined);
 
-    const vaultOptions = [...vaultNames, "Cancel"];
-    const chosenVault = await ctx.ui.select("Select 1Password vault:", vaultOptions);
-    if (!chosenVault || chosenVault === "Cancel") return null;
+    if (vaultNames.length === 0) {
+      ctx.ui.notify("No vaults found in 1Password.", "warning");
+      return null;
+    }
+
+    const vaultItems = [
+      ...vaultNames.map((name) => ({ value: name, label: name })),
+      { value: "__cancel", label: "Cancel" },
+    ];
+    const chosenVault = await selectInBorderedPopup(ctx, {
+      title: "Select 1Password vault",
+      items: vaultItems,
+      helpText: "↑↓ • Enter • Esc = cancel • Type to filter",
+      maxVisible: 14,
+    });
+    if (!chosenVault || chosenVault === "__cancel") return null;
 
     ctx.ui.setStatus("1p-onboard", `Loading items from ${chosenVault}...`);
     let items: OpItem[] = [];
@@ -576,12 +595,22 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       return null;
     }
 
-    const itemLabels = items.map((it) => `${it.title}${it.category ? " — " + it.category : ""}`);
-    const itemOptions = [...itemLabels, "Cancel"];
-    const chosenLabel = await ctx.ui.select(`Select item in ${chosenVault}:`, itemOptions);
-    if (!chosenLabel || chosenLabel === "Cancel") return null;
+    const itemItems = [
+      ...items.map((it) => ({
+        value: it.id,
+        label: `${it.title}${it.category ? " — " + it.category : ""}`,
+      })),
+      { value: "__cancel", label: "Cancel" },
+    ];
+    const chosenItemId = await selectInBorderedPopup(ctx, {
+      title: `Select item in ${chosenVault}`,
+      items: itemItems,
+      helpText: "↑↓ • Enter • Esc = cancel • Type to filter (can be long)",
+      maxVisible: 16,
+    });
+    if (!chosenItemId || chosenItemId === "__cancel") return null;
 
-    const chosenItem = items[itemLabels.indexOf(chosenLabel)];
+    const chosenItem = items.find((it) => it.id === chosenItemId);
     if (!chosenItem) return null;
 
     ctx.ui.setStatus("1p-onboard", "Loading fields...");
@@ -605,19 +634,25 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       return null;
     }
 
-    const fieldLabels = fields.map((f) => `${f.label} (${f.type ?? "text"})`);
-    const fieldOptions = [...fieldLabels, "Cancel"];
-    const chosenFieldLabel = await ctx.ui.select(
-      `Select field for "${chosenItem.title}":`,
-      fieldOptions,
-    );
-    if (!chosenFieldLabel || chosenFieldLabel === "Cancel") return null;
+    const fieldItems = [
+      ...fields.map((f) => ({
+        value: f.label,
+        label: `${f.label} (${f.type ?? "text"})`,
+      })),
+      { value: "__cancel", label: "Cancel" },
+    ];
+    const chosenFieldLabel = await selectInBorderedPopup(ctx, {
+      title: `Select field for "${chosenItem.title}"`,
+      items: fieldItems,
+      helpText: "↑↓ • Enter • Esc = cancel",
+      maxVisible: 12,
+    });
+    if (!chosenFieldLabel || chosenFieldLabel === "__cancel") return null;
 
-    const chosenField = chosenFieldLabel.split(" (")[0] ?? "";
-    return `op://${chosenVault}/${chosenItem.title}/${chosenField}`;
+    return `op://${chosenVault}/${chosenItem.title}/${chosenFieldLabel}`;
   }
 
-  // ── /1password_onboard — guided onboarding (uses native Pi dialogs for lint-cleanliness) ─
+  // ── /1password_onboard — fully custom bordered TUI onboarding (curated + manual + vault/item/field)
   pi.registerCommand("1password_onboard", {
     description:
       "Guided setup: pick from supported tools or enter a custom op:// reference, write '!op read ...' entry to ~/.pi/agent/auth.json for transparent injection.",
@@ -633,10 +668,13 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         "Cancel",
       ].filter(Boolean);
 
-      const mode = await ctx.ui.select(
-        "1Password Onboard — How would you like to start?",
-        firstChoices,
-      );
+      const firstItems = firstChoices.map((c) => ({ value: c, label: c }));
+      const mode = await selectInBorderedPopup(ctx, {
+        title: "1Password Onboard — How would you like to start?",
+        items: firstItems,
+        helpText: "↑↓ • Enter • Esc = cancel",
+        maxVisible: 5,
+      });
       if (!mode || mode === "Cancel") {
         ctx.ui.notify("Onboarding cancelled.", "info");
         return;
@@ -646,26 +684,67 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       let opRef: string | null = null;
 
       if (mode.startsWith("Pick from a list of supported tools")) {
-        // For the native-UI path we only offer single-env-var tools (multi-env ones
-        // can still be added via the manual entry flow below).
-        const eligible = curatedPlugins.filter((p) => p.primaryEnvVar && p.envVars.length === 1);
-        if (eligible.length === 0) {
-          ctx.ui.notify("No curated single-env tools available right now.", "warning");
+        // Rich bordered two-step picker for curated tools (supports multi-env tools
+        // such as AWS, Argo CD, etc.). Uses the polished custom TUI (filterable lists,
+        // consistent ╭─╮ borders, stable right-edge alignment, live filtering, Esc cancel).
+        if (curatedPlugins.length === 0) {
+          ctx.ui.notify("No curated tools available right now.", "warning");
           return;
         }
-        const toolNames = eligible.map((p) => p.name);
-        const chosenName = await ctx.ui.select("Select tool:", toolNames);
-        if (!chosenName) {
+
+        const toolItems = curatedPlugins.map((p) => ({
+          value: p.name,
+          label: p.name,
+          description:
+            p.envVars.length > 0
+              ? `${p.primaryEnvVar ?? p.envVars[0] ?? ""} (+${String(p.envVars.length - 1)} more)`
+              : "custom / no standard env var",
+        }));
+
+        const chosenToolName = await selectInBorderedPopup(ctx, {
+          title: "Select tool (type to filter)",
+          items: toolItems,
+          helpText: "↑↓ • Enter • Esc = cancel • Type to filter curated 1P shell plugins",
+          maxVisible: 16,
+        });
+        if (!chosenToolName) {
           ctx.ui.notify("Onboarding cancelled.", "info");
           return;
         }
-        const tool = eligible.find((p) => p.name === chosenName);
-        const envVar = tool?.primaryEnvVar;
-        if (!envVar) {
+
+        const tool = curatedPlugins.find((p) => p.name === chosenToolName);
+        if (!tool) {
           ctx.ui.notify("Selected tool is no longer available.", "error");
           return;
         }
-        finalEnv = envVar;
+
+        // Two-step: if the chosen tool declares multiple env vars, let the user pick which one.
+        if (tool.envVars.length > 1) {
+          const envItems = tool.envVars.map((v) => ({
+            value: v,
+            label: v,
+            description: v === tool.primaryEnvVar ? "primary / recommended" : undefined,
+          }));
+
+          const chosenEnv = await selectInBorderedPopup(ctx, {
+            title: `Environment variable for ${tool.name}`,
+            items: envItems,
+            helpText: "↑↓ • Enter to choose which var to inject • Esc = back",
+            maxVisible: Math.min(12, tool.envVars.length + 2),
+          });
+          if (!chosenEnv) {
+            ctx.ui.notify("Onboarding cancelled.", "info");
+            return;
+          }
+          finalEnv = chosenEnv;
+        } else {
+          finalEnv = tool.primaryEnvVar ?? tool.envVars[0] ?? null;
+        }
+
+        if (!finalEnv) {
+          ctx.ui.notify("Selected tool has no declared environment variable.", "error");
+          return;
+        }
 
         opRef = await pickOpReferenceSimple(ctx);
         if (!opRef) {
@@ -673,11 +752,12 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           return;
         }
       } else {
-        // Manual path
-        const envVar = await ctx.ui.input(
-          "Environment variable name",
-          // Leave placeholder as a hint only; do not prefill per prior UX feedback
-        );
+        // Manual path — also using the custom bordered UI for consistency
+        const envVar = await inputInBorderedPopup(ctx, {
+          title: "Environment variable name",
+          prompt: "Enter the UPPER_SNAKE_CASE name for the secret (e.g. GH_TOKEN)",
+          helpText: "Enter to confirm • Esc = cancel",
+        });
         if (!envVar) {
           ctx.ui.notify("Onboarding cancelled.", "info");
           return;
@@ -688,17 +768,27 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         }
         finalEnv = envVar;
 
-        const refMethod = await ctx.ui.select("How do you want to provide the secret location?", [
-          "Type the op:// reference manually",
-          "Look it up in 1Password",
-        ]);
+        const refMethod = await selectInBorderedPopup(ctx, {
+          title: "How do you want to provide the secret location?",
+          items: [
+            { value: "manual", label: "Type the op:// reference manually" },
+            { value: "lookup", label: "Look it up in 1Password" },
+          ],
+          helpText: "↑↓ • Enter • Esc = cancel",
+          maxVisible: 5,
+        });
         if (!refMethod) {
           ctx.ui.notify("Onboarding cancelled.", "info");
           return;
         }
 
-        if (refMethod.startsWith("Type the op")) {
-          const manualRef = await ctx.ui.input("op:// Reference", "op://Vault/Item/field");
+        if (refMethod === "manual") {
+          const manualRef = await inputInBorderedPopup(ctx, {
+            title: "op:// Reference",
+            prompt: "Enter the full 1Password reference",
+            defaultValue: "op://Vault/Item/field",
+            helpText: "Must start with op:// • Enter to confirm • Esc = cancel",
+          });
           if (!manualRef?.startsWith("op://")) {
             ctx.ui.notify("Invalid reference (must start with op://) or cancelled.", "error");
             return;
@@ -720,7 +810,10 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         "After write: run /reload (or restart Pi). The spawn hook will inject the variable into bash/! commands.\n" +
         "Use /1password_diagnose to verify (names only; values never leave the host).";
 
-      const confirmed = await ctx.ui.confirm("Add this to auth.json?", previewMsg);
+      const confirmed = await confirmInBorderedPopup(ctx, {
+        title: "Add this to auth.json?",
+        message: previewMsg,
+      });
       if (!confirmed) {
         ctx.ui.notify("Cancelled — nothing written.", "info");
         return;
@@ -729,10 +822,10 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       let writeRes = await addAuthEntry(finalEnv, opRef);
 
       if (!writeRes.success && writeRes.message.includes("already exists")) {
-        const overwrite = await ctx.ui.confirm(
-          `Key "${finalEnv}" already exists, overwrite?`,
-          "Replace the current value in auth.json?",
-        );
+        const overwrite = await confirmInBorderedPopup(ctx, {
+          title: `Key "${finalEnv}" already exists, overwrite?`,
+          message: "Replace the current value in auth.json?",
+        });
         if (overwrite) {
           writeRes = await addAuthEntry(finalEnv, opRef, { overwrite: true });
         } else {
@@ -743,10 +836,10 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
       if (writeRes.success) {
         ctx.ui.notify(`✅ Success! ${finalEnv} added to auth.json (0600).`, "info");
-        const doReload = await ctx.ui.confirm(
-          "Activate now?",
-          "Run /reload so the spawn hook starts injecting it this session?",
-        );
+        const doReload = await confirmInBorderedPopup(ctx, {
+          title: "Activate now?",
+          message: "Run /reload so the spawn hook starts injecting it this session?",
+        });
         if (doReload) {
           await ctx.reload();
         } else {

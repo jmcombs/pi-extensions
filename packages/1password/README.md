@@ -4,126 +4,127 @@
   <a href="https://www.npmjs.com/package/@jmcombs/pi-1password"><img src="https://img.shields.io/npm/v/@jmcombs/pi-1password.svg" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@jmcombs/pi-1password"><img src="https://img.shields.io/npm/dm/@jmcombs/pi-1password.svg" alt="npm downloads"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/stargazers"><img src="https://img.shields.io/github/stars/jmcombs/pi-extensions?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/issues"><img src="https://img.shields.io/github/issues/jmcombs/pi-extensions" alt="Open issues"></a>
+  <a href="https://github.com/sponsors/jmcombs"><img src="https://img.shields.io/badge/Sponsor-30363D?style=flat&logo=GitHub-Sponsors&logoColor=EA4AAA" alt="Sponsor"></a>
 </div>
 
 # @jmcombs/pi-1password
 
 1Password integration for the Pi coding agent — with a focus on **secure, transparent credential injection** so bare `gh`, `aws`, `heroku`, and other 1P-protected CLIs "just work" inside Pi without the LLM ever seeing tokens.
 
-## The Recommended Pattern (auth.json + `!op read`)
+## Quick Start
 
-The extension is specifically designed so you do **not** need a 1Password Service Account for normal use.
+Get transparent credential injection in under a minute:
 
-Stop fighting non-persistent shells and 1Password shell plugin limitations (biometric flows + "interactive IO not available" errors in agent tools).
+1. Make sure you have the **1Password CLI** (`op`) installed and signed in (the desktop app + biometric unlock is recommended on macOS).
 
-1. Create a dedicated, least-privilege credential in 1Password (e.g. a fine-grained GitHub PAT).
+2. Install the extension:
 
-2. Store it as a normal item in 1Password (e.g. "Agent GitHub Token" in an "Automation" vault).
+   ```bash
+   pi install @jmcombs/pi-1password
+   ```
 
-3. Reference it in your existing `~/.pi/agent/auth.json` using the `!op read` syntax:
+3. In any Pi chat, type:
+   ```
+   /1password_onboard
+   ```
+
+The command opens a beautiful guided interface (with live filtering and consistent styling) that lets you:
+
+- Pick from 60+ popular tools (gh, aws, npm, heroku, Stripe, Fly.io, …)
+- Search your 1Password vaults and pick the exact item + field
+- Safely write a `!op read …` entry to `~/.pi/agent/auth.json`
+
+After that, just use the CLIs normally inside Pi — the secrets are injected automatically at the host level.
+
+Run `/1password_diagnose` anytime to see which variables are currently active.
+
+## How It Works
+
+This extension works by storing **references** (never the raw secrets) in `~/.pi/agent/auth.json` using the `!op read` syntax.
+
+The easiest way to create these entries is with the guided `/1password_onboard` command shown above.
+
+You can also manage entries manually if you prefer:
 
 ```json
 {
-  "anthropic": { "type": "api_key", "key": "!op read 'op://Personal/Anthropic/credential'" },
-  "xai": { "type": "api_key", "key": "!op read 'op://Personal/xAI/credential'" },
-
   "GH_TOKEN": "!op read 'op://Automation/Agent GitHub Token/credential'",
-  "GITHUB_TOKEN": "!op read 'op://Automation/Agent GitHub Token/credential'"
+  "AWS_ACCESS_KEY_ID": "!op read 'op://Automation/AWS/credential'"
 }
 ```
 
-4. Install this extension. On every Pi start (and `/reload`), the extension:
-   - Reads the top-level keys from `auth.json`
-   - Securely resolves any `!op read ...` values in the privileged host process (using your normal `op` CLI + desktop app)
-   - Injects the final values as real environment variables into **every** agent `bash` tool call **and** your `!` / `!!` commands via Pi's spawn hook.
+On every Pi start (and `/reload`), the extension:
+
+- Reads the top-level keys from `auth.json`
+- Securely resolves any `!op read ...` values in the privileged host process (using your normal `op` CLI + desktop app)
+- Injects the final values as real environment variables into **every** agent `bash` tool call **and** your `!` / `!!` commands via Pi's spawn hook.
 
 Result: the agent can run `gh auth status`, `gh repo view ...`, `aws sts get-caller-identity`, etc. with **bare commands**. No shell plugin hacks or `shellCommandPrefix` required, and no tokens ever reach the LLM or terminal output.
 
 `/1password_diagnose` will show exactly which vars are active (names only).
 
-## What It Adds
+## /1password_onboard
 
-- **Transparent injection** (the main feature): any top-level `UPPER_SNAKE_CASE` key in `~/.pi/agent/auth.json` whose value is a `!op read` (or literal) becomes a real env var for all bash executions.
-- **Command**: `/1password_onboard` — Guided UI to discover supported integrations (from our CI-maintained list of 60+ tools), search your vault, pick the field, preview, and safely write the `!op read` entry (recommended way to add new CLIs).
+Run this command for a polished, guided setup experience:
 
-- **Command**: `/1password_diagnose` — Gathers the full diagnostics (op status, plugin configuration for common tools, and active shell-injected variables) directly and presents a clean report. No extra prompting required. `1p_run` remains available as a tool for manual injected command execution.
-- **Tool**: `1p_run` — Run commands with 1Password injection + diagnostics (used by the LLM when running `/1password_diagnose` to produce clean, well-formatted plugin inspection output).
-
-## Security Model (Why This Is Safer for Agents)
-
-- Resolution happens only in the privileged Pi host process (same context that already handles your LLM provider keys).
-- The spawn hook injects values **only** into the child environment of the bash execution. The LLM sees only the clean command it requested (`gh ...`) and the command's stdout/stderr.
-- `/1password_diagnose` (and the underlying `1p_diagnose` tool) never return secret _values_ (only names for the injection layer).
-
-**Best practice**: Use dedicated least-privilege items or fine-grained PATs rather than your personal high-privilege credentials.
-
-## Requirements & Setup
-
-You need a working 1Password CLI that the Pi process can talk to:
-
-1. **Install the 1Password desktop app** and sign in (this is required for the `op` CLI to work with biometric unlock on macOS).
-
-2. **Install the 1Password CLI** (`op`):
-   - macOS: `brew install --cask 1password-cli` (or download from 1password.com)
-   - Make sure `op --version` works from your terminal.
-
-3. **Authenticate** so `op` can read items:
-   - For normal use (recommended): Just unlock the 1Password desktop app. Biometric unlock is sufficient. No service account token is required.
-
-4. **Install this extension** (see below).
-
-> **Note on the desktop app**: The 1Password desktop app + biometric unlock is only needed when Pi (or the extension) resolves the `!op read` references at startup or `/reload`. Once resolved, the actual secret values are injected directly into the child processes via Pi's spawn hook and never touch the LLM.
-
-### Weekly Maintenance of Supported Tools
-
-This extension maintains a curated list of 60+ 1Password shell plugins (AWS, GitHub, npm, Heroku, Stripe, Fly.io, etc.).
-
-We run a GitHub Actions workflow every week that:
-
-- Fetches the official list from https://www.1password.dev/
-- Parses the reference tables in each plugin's documentation
-- Updates `data/shell-plugins.json` with the latest env var mappings and primary variables
-- Opens a PR for human review before merging
-
-This keeps `/1password_onboard` up-to-date without manual maintenance.
-
-## Usage
-
-After adding the entries to `~/.pi/agent/auth.json`:
-
-```bash
-pi -e ./packages/1password   # during development
-# or
-pi install npm:@jmcombs/pi-1password
+```
+/1password_onboard
 ```
 
-Then just ask the agent to use the CLIs normally:
+It provides a filterable, bordered interface that walks you through:
+
+- Choosing from a curated list of 60+ popular 1Password shell plugins (maintained weekly via CI)
+- Searching your vaults for the right item
+- Selecting the exact field
+- Reviewing the exact line that will be written to `auth.json`
+- Optional immediate `/reload`
+
+The command creates `~/.pi/agent/auth.json` with proper `0600` permissions if needed and never overwrites existing keys without confirmation.
+
+## After Setup
+
+Once you have entries in `auth.json`, just ask the agent to use the tools normally:
 
 - "Run `gh auth status` and show the output."
 - "Use the terminal to view this repo: `gh repo view jmcombs/pi-extensions`"
 - "Run `aws sts get-caller-identity`"
 
-Run `/1password_diagnose` anytime to see:
+The injection happens transparently via Pi’s spawn hook.
 
-- op sign-in state
-- Configured plugins (gh, aws, ...)
-- **Active shell env injection** (the vars coming from your auth.json)
+## Checking Status
 
-## /1password_onboard
+Run `/1password_diagnose` at any time to see:
 
-Type `/1password_onboard` (or just start typing `/1p`) for a guided, interactive flow that:
+- Your `op` sign-in state
+- Detected shell plugins
+- Currently active injected environment variables (names only)
 
-1. Optionally picks from the curated list of 63+ supported 1Password shell plugins (maintained weekly via CI from official docs) to get the recommended env var name (e.g. `GH_TOKEN`, `AWS_ACCESS_KEY_ID`).
-2. Live-searches your 1Password vault (`op item list`) for API Credential / Login / Secure Note items.
-3. Lets you pick the exact item and field.
-4. Suggests / lets you edit the env var name.
-5. Shows the exact JSON line that will be written.
-6. Safely appends it to `~/.pi/agent/auth.json` (creates the file with 0600 permissions if needed; refuses to overwrite existing keys).
-7. Offers to `/reload` immediately so the spawn hook picks it up for the current session.
+## Security Model
 
-After the entry is active, bare commands just work and `/1password_diagnose` will list the var name (never the value).
+- All secret resolution happens in the privileged Pi host process.
+- Values are only injected into the child environment of bash executions.
+- The LLM never sees the actual secret values — only the clean commands it requested.
+- `/1password_diagnose` (and the underlying tools) never return secret values, only variable names.
 
-This is the recommended way to onboard new CLIs (gh, aws, npm, heroku, fly, stripe, etc.) without ever exposing secrets to the LLM or relying on fragile rc sourcing.
+**Best practice**: Use dedicated, least-privilege items or fine-grained PATs rather than personal high-privilege credentials.
+
+## Requirements & Setup
+
+You need a working 1Password CLI that Pi can talk to:
+
+1. **Install the 1Password desktop app** and sign in (required for biometric unlock on macOS).
+2. **Install the 1Password CLI** (`op`):
+   - macOS: `brew install --cask 1password-cli`
+   - Verify with `op --version`
+3. **Install this extension** (see Quick Start).
+
+> The desktop app is only needed when Pi resolves the `!op read` references. The actual secret values are injected directly into child processes and never touch the LLM.
+
+### Weekly Maintenance of Supported Tools
+
+This extension maintains a curated list of 60+ 1Password shell plugins. A weekly GitHub Actions workflow fetches the latest data from 1password.dev, updates `data/shell-plugins.json`, and opens a PR for review. This keeps `/1password_onboard` current without manual maintenance.
 
 ## Development / Local Testing
 

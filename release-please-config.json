@@ -6,6 +6,12 @@
   "include-v-in-tag": true,
   "bump-minor-pre-major": true,
   "packages": {
+    "packages/1password": {
+      "release-type": "node",
+      "component": "1password",
+      "package-name": "@jmcombs/pi-1password",
+      "changelog-path": "CHANGELOG.md"
+    },
     "packages/tavily-search": {
       "release-type": "node",
       "component": "tavily-search",
