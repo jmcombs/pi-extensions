@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/notify/v1.0.1...notify/v1.1.0) (2026-05-24)
+
+
+### Features
+
+* **notify:** support Ghostty OSC 9 with contextual run notifications ([#32](https://github.com/jmcombs/pi-extensions/issues/32)) ([fd3e8d7](https://github.com/jmcombs/pi-extensions/commit/fd3e8d7b8e3f974797dfd3c05f66aaabd2ef6cff))
+
 ## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/notify/v1.0.0...notify/v1.0.1) (2026-05-07)
 
 
