@@ -1,13 +1,13 @@
 {
-  "name": "@jmcombs/pi-EXTENSION_NAME",
+  "name": "@jmcombs/pi-context7",
   "version": "0.0.0",
   "private": true,
-  "description": "TODO: One-sentence description of what this extension does.",
-  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/EXTENSION_NAME",
+  "description": "Real-time documentation for the Pi coding agent via Context7.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/context7",
   "repository": {
     "type": "git",
     "url": "https://github.com/jmcombs/pi-extensions.git",
-    "directory": "packages/EXTENSION_NAME"
+    "directory": "packages/context7"
   },
   "bugs": {
     "url": "https://github.com/jmcombs/pi-extensions/issues"
@@ -25,14 +25,14 @@
   ],
   "keywords": [
     "pi-package",
-    "pi-extension",
-    "TODO-add-topical-keywords"
+    "context7",
+    "documentation"
   ],
   "pi": {
     "extensions": [
       "./index.ts"
     ],
-    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/EXTENSION_NAME/preview.png"
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/context7/preview.png"
   },
   "engines": {
     "node": ">=22.0.0"
