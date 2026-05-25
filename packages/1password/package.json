@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-1password",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "1Password integration for the Pi coding agent. Read secrets and run commands with 1Password credential injection via the op CLI.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/1password",
   "repository": {
