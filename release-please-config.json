@@ -35,6 +35,12 @@
       "component": "grok-search",
       "package-name": "@jmcombs/pi-grok-search",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/context7": {
+      "release-type": "node",
+      "component": "context7",
+      "package-name": "@jmcombs/pi-context7",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
