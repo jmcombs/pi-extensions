@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/context7/v1.0.0...context7/v1.0.1) (2026-05-25)
+
+
+### Bug Fixes
+
+* **grok-search:** improve tool description for better intent matching ([3dcd4b9](https://github.com/jmcombs/pi-extensions/commit/3dcd4b9e2acf40ab09d7ad2146fddfa0e85cef7c))
+
 ## [1.0.0](https://github.com/jmcombs/pi-extensions/compare/context7/v0.2.0...context7/v1.0.0) (2026-05-25)
 
 
