@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/grok-search/v1.1.0...grok-search/v1.1.1) (2026-05-25)
+
+
+### Bug Fixes
+
+* **grok-search:** improve tool description for better intent matching ([3b50c5d](https://github.com/jmcombs/pi-extensions/commit/3b50c5ddbe963ebcd3ffb0ed1cad14bb505aa578))
+
 ## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v1.0.0...grok-search/v1.1.0) (2026-05-23)
 
 
