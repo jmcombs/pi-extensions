@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.1...prompt-enhancer/v2.0.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* **grok-search:** improve tool description for better intent matching ([3dcd4b9](https://github.com/jmcombs/pi-extensions/commit/3dcd4b9e2acf40ab09d7ad2146fddfa0e85cef7c))
+
 ## [2.0.1](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.0...prompt-enhancer/v2.0.1) (2026-05-07)
 
 
