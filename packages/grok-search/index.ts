@@ -69,7 +69,7 @@ export default function (pi: ExtensionAPI): void {
     name: "grok_search",
     label: "Grok Web Search",
     description:
-      "Performs a web search using the xAI Grok API to get real-time information from the internet.",
+      "Performs real-time web research using xAI Grok. Call this to get up-to-date information on topics beyond your training cutoff, verify facts, or perform complex synthesis of live web data when reasoning and multi-source analysis are required.",
     parameters: grokSearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let apiKey =
