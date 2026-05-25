@@ -121,11 +121,12 @@ export default function (pi: ExtensionAPI): void {
 
       const existing = await authStorage.getApiKey("context7");
       if (existing) {
-        const reuse = await confirmInBorderedPopup(ctx, {
-          title: "Existing Key Found",
-          message: "Found an existing Context7 API key. Overwrite it?",
+        const overwrite = await confirmInBorderedPopup(ctx, {
+          title: "Context7 API key already exists, overwrite?",
+          message: "A Context7 API key is already saved. Overwrite it?",
         });
-        if (!reuse) {
+        if (!overwrite) {
+          ctx.ui.notify("Context7 onboarding cancelled.", "warning");
           return;
         }
       }
@@ -145,6 +146,11 @@ export default function (pi: ExtensionAPI): void {
         type: "api_key" as const,
         key: apiKey,
       });
+      authStorage.removeRuntimeApiKey("context7");
+      const errs = authStorage.drainErrors();
+      if (errs.length > 0) {
+        ctx.ui.notify(`onboard ERRORS: ${errs.map((e) => e.message).join("; ")}`, "warning");
+      }
       ctx.ui.notify("Context7 API key saved successfully.", "info");
     },
   });
@@ -154,15 +160,21 @@ export default function (pi: ExtensionAPI): void {
     name: "context7_search",
     label: "Context7: Find Library ID",
     description:
-      "Search for a specific library and its ID to provide up-to-date documentation. " +
-      "Use this when you need to find the correct Library ID for a framework or language.",
+      "Use this tool to search Context7 for the correct library ID of a programming language, framework, or library. " +
+      "Call this when the user needs up-to-date documentation, code examples, configuration guidance, or implementation details for something like Supabase, React, Rust, Tailwind, Prisma, or any other programming language, framework, or library. " +
+      "Always prefer this tool over general web search when you need accurate, version-aware information for coding or development tasks.",
     parameters: context7SearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let apiKey = await authStorage.getApiKey("context7");
 
       if (!apiKey) {
-        const newKey = await ctx.ui.input("Enter your Context7 API key:");
-        if (!newKey) {
+        const entered = await inputInBorderedPopup(ctx, {
+          title: "Context7 Authentication",
+          prompt: "Enter your Context7 API key:",
+          helpText: "Enter to confirm • Esc = cancel",
+        });
+        if (!entered) {
+          ctx.ui.notify("Context7 search cancelled.", "warning");
           return {
             content: [
               {
@@ -174,11 +186,63 @@ export default function (pi: ExtensionAPI): void {
             isError: true,
           };
         }
-        authStorage.set("context7", {
-          type: "api_key" as const,
-          key: newKey,
+
+        // Always use the entered value for this request (supports raw keys and !op read)
+        apiKey = entered;
+
+        const savePermanently = await confirmInBorderedPopup(ctx, {
+          title: "Save API Key?",
+          message:
+            "Save this value permanently in auth.json?\n\n" +
+            "Note: 1Password references (!op read ...) only resolve when saved permanently. " +
+            "Choosing No will store the resolved secret for this session only.",
         });
-        apiKey = (await authStorage.getApiKey("context7")) ?? newKey;
+
+        if (savePermanently === null) {
+          // User cancelled the confirmation dialog — abort the entire key entry
+          ctx.ui.notify("Context7 authentication cancelled.", "warning");
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  "The user explicitly cancelled Context7 authentication. " +
+                  "Do not attempt to use context7_search or context7_get_docs again in this session " +
+                  "without the user re-initiating the flow.",
+              },
+            ],
+            details: { error: "cancelled" },
+            isError: true,
+          };
+        }
+
+        if (savePermanently) {
+          authStorage.set("context7", {
+            type: "api_key" as const,
+            key: entered,
+          });
+          authStorage.removeRuntimeApiKey("context7");
+          const errs = authStorage.drainErrors();
+          if (errs.length > 0) {
+            ctx.ui.notify(
+              `[context7] search save ERRORS: ${errs.map((e) => e.message).join("; ")}`,
+              "warning",
+            );
+          }
+        } else {
+          let keyForRuntime = entered;
+          if (entered.trim().startsWith("!op read")) {
+            // Temporarily store the reference so AuthStorage resolves it via the normal path (1Password, etc.)
+            authStorage.set("context7", { type: "api_key" as const, key: entered });
+            const resolved = await authStorage.getApiKey("context7");
+            authStorage.remove("context7");
+            if (resolved) {
+              keyForRuntime = resolved;
+            }
+          }
+          authStorage.setRuntimeApiKey("context7", keyForRuntime);
+        }
+        apiKey = (await authStorage.getApiKey("context7")) ?? entered;
         if (!apiKey) {
           return {
             content: [
@@ -310,15 +374,21 @@ export default function (pi: ExtensionAPI): void {
     name: "context7_get_docs",
     label: "Context7: Query Documentation",
     description:
-      "Retrieve version-specific documentation and real code snippets for a library. " +
-      "Use this when you need to see how to implement specific patterns or APIs in a given library.",
+      "Use this tool to retrieve detailed, version-specific documentation and real code examples from Context7 for a programming language, framework, or library. " +
+      "Call this when the user needs implementation details, code snippets, configuration examples, best practices, or answers to technical questions about a specific language, framework, or library. " +
+      "You should usually call context7_search first to obtain the correct Library ID. Prefer this tool when you need reliable, current technical documentation rather than general explanations.",
     parameters: context7GetDocsSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let apiKey = await authStorage.getApiKey("context7");
 
       if (!apiKey) {
-        const newKey = await ctx.ui.input("Enter your Context7 API key:");
-        if (!newKey) {
+        const entered = await inputInBorderedPopup(ctx, {
+          title: "Context7 Authentication",
+          prompt: "Enter your Context7 API key:",
+          helpText: "Enter to confirm • Esc = cancel",
+        });
+        if (!entered) {
+          ctx.ui.notify("Context7 documentation retrieval cancelled.", "warning");
           return {
             content: [
               {
@@ -330,11 +400,63 @@ export default function (pi: ExtensionAPI): void {
             isError: true,
           };
         }
-        authStorage.set("context7", {
-          type: "api_key" as const,
-          key: newKey,
+
+        // Always use the entered value for this request (supports raw keys and !op read)
+        apiKey = entered;
+
+        const savePermanently = await confirmInBorderedPopup(ctx, {
+          title: "Save API Key?",
+          message:
+            "Save this value permanently in auth.json?\n\n" +
+            "Note: 1Password references (!op read ...) only resolve when saved permanently. " +
+            "Choosing No will store the resolved secret for this session only.",
         });
-        apiKey = (await authStorage.getApiKey("context7")) ?? newKey;
+
+        if (savePermanently === null) {
+          // User cancelled the confirmation dialog — abort the entire key entry
+          ctx.ui.notify("Context7 authentication cancelled.", "warning");
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  "The user explicitly cancelled Context7 authentication. " +
+                  "Do not attempt to use context7_search or context7_get_docs again in this session " +
+                  "without the user re-initiating the flow.",
+              },
+            ],
+            details: { error: "cancelled" },
+            isError: true,
+          };
+        }
+
+        if (savePermanently) {
+          authStorage.set("context7", {
+            type: "api_key" as const,
+            key: entered,
+          });
+          authStorage.removeRuntimeApiKey("context7");
+          const errs = authStorage.drainErrors();
+          if (errs.length > 0) {
+            ctx.ui.notify(
+              `get_docs save ERRORS: ${errs.map((e) => e.message).join("; ")}`,
+              "warning",
+            );
+          }
+        } else {
+          let keyForRuntime = entered;
+          if (entered.trim().startsWith("!op read")) {
+            // Temporarily store the reference so AuthStorage resolves it via the normal path (1Password, etc.)
+            authStorage.set("context7", { type: "api_key" as const, key: entered });
+            const resolved = await authStorage.getApiKey("context7");
+            authStorage.remove("context7");
+            if (resolved) {
+              keyForRuntime = resolved;
+            }
+          }
+          authStorage.setRuntimeApiKey("context7", keyForRuntime);
+        }
+        apiKey = (await authStorage.getApiKey("context7")) ?? entered;
         if (!apiKey) {
           return {
             content: [

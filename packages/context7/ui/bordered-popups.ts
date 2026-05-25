@@ -51,7 +51,7 @@
  * are still perfectly acceptable and require less code.
  */
 
-import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 
 // No static imports from @earendil-works/pi-tui are used for types.
 // We rely on inference for ctx.ui.custom callback parameters (sourced via the
@@ -99,7 +99,7 @@ export function renderBorderedBox(
  * Returns the chosen `.value` or `null` (on cancel / Esc).
  */
 export async function selectInBorderedPopup<T = string>(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   opts: {
     title: string;
     items: { value: T; label: string; description?: string }[];
@@ -197,14 +197,14 @@ export async function selectInBorderedPopup<T = string>(
 
 /** Yes/No (or custom labels) confirmation inside a bordered popup. */
 export async function confirmInBorderedPopup(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   opts: {
     title: string;
     message?: string;
     confirmLabel?: string;
     cancelLabel?: string;
   },
-): Promise<boolean> {
+): Promise<boolean | null> {
   const yes = opts.confirmLabel ?? "Yes";
   const no = opts.cancelLabel ?? "No";
   const items = [
@@ -219,7 +219,8 @@ export async function confirmInBorderedPopup(
     maxVisible: 5,
   });
 
-  return choice === true;
+  if (choice === null) return null; // user cancelled the dialog
+  return choice;
 }
 
 /**
@@ -227,7 +228,7 @@ export async function confirmInBorderedPopup(
  * Good for free-text entry while staying inside the custom popup aesthetic.
  */
 export async function inputInBorderedPopup(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   opts: {
     title: string;
     prompt?: string;

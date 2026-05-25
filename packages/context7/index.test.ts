@@ -77,7 +77,7 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
   return { api, log };
 }
 
-describe("@jmcombs/pi-EXTENSION_NAME", () => {
+describe("@jmcombs/pi-context7", () => {
   it("exports a default factory function", () => {
     expect(typeof factory).toBe("function");
   });
@@ -86,9 +86,8 @@ describe("@jmcombs/pi-EXTENSION_NAME", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    // TODO: replace these expectations with the names this extension actually
-    // registers.
-    expect(log.tools).toContain("example_echo");
-    expect(log.commands).toContain("example-hello");
+    expect(log.tools).toContain("context7_search");
+    expect(log.tools).toContain("context7_get_docs");
+    expect(log.commands).toContain("context7_onboard");
   });
 });
