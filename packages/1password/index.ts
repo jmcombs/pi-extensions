@@ -235,7 +235,7 @@ async function resolveShellValue(raw: unknown): Promise<string | null> {
 async function loadShellEnvMap(): Promise<Record<string, string>> {
   const home = homedir() || "/tmp";
   const authPath = join(home, ".pi", "agent", "auth.json");
-  const map: Record<string, string> = {};
+  const map = new Map<string, string>();
 
   try {
     // eslint-disable-next-line security/detect-non-literal-fs-filename
@@ -248,15 +248,14 @@ async function loadShellEnvMap(): Promise<Record<string, string>> {
 
       const resolved = await resolveShellValue(val);
       if (resolved !== null) {
-        // eslint-disable-next-line security/detect-object-injection
-        map[key] = resolved;
+        map.set(key, resolved);
       }
     }
   } catch {
     // File missing or unreadable — no shell env injection this session
   }
 
-  return map;
+  return Object.fromEntries(map);
 }
 
 // In-memory map for the current session (populated on session_start)
@@ -302,16 +301,21 @@ async function addAuthEntry(
   // eslint-disable-next-line security/detect-non-literal-fs-filename
   await mkdir(authDir, { recursive: true });
 
-  let existing: Record<string, unknown> = {};
+  const existing = new Map<string, unknown>();
   try {
     // eslint-disable-next-line security/detect-non-literal-fs-filename
     const raw = await readFile(authPath, "utf8");
-    existing = JSON.parse(raw) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        existing.set(k, v);
+      }
+    }
   } catch {
     // File missing or invalid JSON → start fresh
   }
 
-  const alreadyExists = existing[envVar] !== undefined;
+  const alreadyExists = existing.has(envVar);
 
   if (alreadyExists && !options.overwrite) {
     return {
@@ -322,10 +326,9 @@ async function addAuthEntry(
   }
 
   // Convention: single quotes around the op:// ref
-  // eslint-disable-next-line security/detect-object-injection
-  existing[envVar] = `!op read '${opRef}'`;
+  existing.set(envVar, `!op read '${opRef}'`);
 
-  const content = JSON.stringify(existing, null, 2) + "\n";
+  const content = JSON.stringify(Object.fromEntries(existing), null, 2) + "\n";
   // eslint-disable-next-line security/detect-non-literal-fs-filename
   await writeFile(authPath, content, "utf8");
   // eslint-disable-next-line security/detect-non-literal-fs-filename
