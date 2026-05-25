@@ -1,106 +1,101 @@
-# @jmcombs/pi-EXTENSION_NAME
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/context7/preview.png" width="250" alt="Context7 for Pi">
+  <br>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-context7"><img src="https://img.shields.io/npm/v/@jmcombs/pi-context7.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-context7"><img src="https://img.shields.io/npm/dm/@jmcombs/pi-context7.svg" alt="npm downloads"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/stargazers"><img src="https://img.shields.io/github/stars/jmcombs/pi-extensions?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/issues"><img src="https://img.shields.io/github/issues/jmcombs/pi-extensions" alt="Open issues"></a>
+  <a href="https://github.com/sponsors/jmcombs"><img src="https://img.shields.io/badge/Sponsor-30363D?style=flat&logo=GitHub-Sponsors&logoColor=EA4AAA" alt="Sponsor"></a>
+</div>
 
-> TODO: One-paragraph description of what this extension does and who it is
-> for. Mention the tools and/or commands it provides.
+# @jmcombs/pi-context7
 
-## Install
+Real-time documentation for the Pi coding agent via [Context7](https://context7.com). Gives the agent access to up-to-date, version-aware docs and code examples without polluting context with outdated information.
 
-```bash
-# Globally (recommended)
-pi install npm:@jmcombs/pi-EXTENSION_NAME
+## Quick Start
 
-# For a single session, without installing
-pi -e npm:@jmcombs/pi-EXTENSION_NAME
+Get better library documentation in your agent in under a minute.
+
+1. Install the extension:
+
+   ```bash
+   pi install @jmcombs/pi-context7
+   ```
+
+2. Configure your Context7 API key:
+
+   ```
+   /context7_onboard
+   ```
+
+   The command opens a clean, bordered prompt where you can securely enter your key. You can choose to save it permanently or use it only for the current session.
+
+After setup, just ask the agent for documentation normally:
+
+- "How do I set up Row Level Security in Supabase?"
+- "Show me how to use server actions in Next.js 15"
+- "What's the current recommended way to do authentication in tRPC?"
+
+The agent will automatically use the Context7 tools to fetch fresh, high-quality documentation and code snippets.
+
+## How It Works
+
+This extension registers two tools:
+
+- `context7_search` — Finds the correct Context7 library ID for a programming language, framework, or library.
+- `context7_get_docs` — Retrieves detailed, version-specific documentation and real code examples for that library.
+
+The tools support two authentication modes:
+
+- **Persisted keys** — Saved via `/context7_onboard` into `~/.pi/agent/auth.json` (supports plain keys and `!op read` references).
+- **Runtime-only keys** — Entered ad-hoc when a tool is called and kept only for the current session (also supports `!op read` references).
+
+This design lets you use Context7 without ever leaking keys into the LLM context.
+
+## /context7_onboard
+
+Run this command to securely configure your Context7 API key:
+
+```
+/context7_onboard
 ```
 
-See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
-path, project-scoped install, and filtering options.
+It supports:
 
-## What It Adds
+- Entering keys directly or via `!op read` references
+- Overwriting an existing key (with confirmation)
+- Choosing between permanent storage and runtime-only for the current session
 
-- **Tool**: `example_echo` — TODO: describe the tool, its parameters, and what
-  the LLM uses it for.
-- **Command**: `/example-hello [name]` — TODO: describe the command and any
-  arguments.
+The command never exposes the actual key to the model.
 
-## Configuration
+## After Setup
 
-<!-- Delete this section if your extension does not need any configuration. -->
+Just talk to the agent naturally. It will use Context7 automatically when it needs current documentation for a library.
 
-### API Keys / Secrets
+Examples of good prompts:
 
-If this extension calls a third-party service, store the credential using one
-of Pi's recommended auth storage methods. **Never** hard-code API keys or commit
-them to source control.
+- "Find the Context7 library for Prisma and show me how to do relations"
+- "What's the recommended way to handle file uploads in Supabase right now?"
+- "Give me examples of using the new React 19 use() hook"
 
-#### Option 1 — Environment variable
+## Checking Status
 
-```bash
-export EXAMPLE_API_KEY="…"
-```
-
-#### Option 2 — `~/.pi/agent/auth.json`
-
-```json
-{
-  "example": {
-    "type": "api_key",
-    "key": "EXAMPLE_API_KEY"
-  }
-}
-```
-
-#### Option 3 — Shell-resolved secret (macOS Keychain, 1Password, pass, etc.)
-
-```json
-{
-  "example": {
-    "type": "api_key",
-    "key": "!security find-generic-password -ws 'example'"
-  }
-}
-```
-
-```json
-{
-  "example": {
-    "type": "api_key",
-    "key": "!op read 'op://Personal/example/credential'"
-  }
-}
-```
-
-The extension reads the key with:
-
-```ts
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
-const auth = AuthStorage.create();
-const apiKey = (await auth.getApiKey("example")) ?? process.env.EXAMPLE_API_KEY;
-```
-
-## Requirements
-
-- Pi `>= TODO: minimum tested pi version`
-- Node `>= 20.6.0`
+If you ever need to update or rotate your key, just run `/context7_onboard` again. It will detect the existing key and offer to overwrite it.
 
 ## Development
 
 This package lives in the [pi-extensions monorepo](https://github.com/jmcombs/pi-extensions).
-See `CONTRIBUTING.md` at the repo root for project conventions.
 
 ```bash
 # From the repo root
 npm ci
-npm run check       # full quality gate
-npm run test        # this package's smoke test
+npm run check
+npm run test -- --run packages/context7
 ```
 
-To try local changes against a real Pi session:
+To test changes locally:
 
 ```bash
-pi -e ./packages/EXTENSION_NAME
+pi -e ./packages/context7
 ```
-
-## License
-
-[MIT](./LICENSE) © Jeremy Combs
