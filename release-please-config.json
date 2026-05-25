@@ -40,7 +40,8 @@
       "release-type": "node",
       "component": "context7",
       "package-name": "@jmcombs/pi-context7",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "release-as": "1.0.0"
     }
   }
 }
