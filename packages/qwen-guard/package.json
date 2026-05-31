@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-qwen-guard",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Auto-enables strict incremental mode for Qwen 3.6 (Ollama) to prevent 'terminated' and streaming errors.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/qwen-guard",
   "repository": {

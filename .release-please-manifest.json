@@ -5,5 +5,5 @@
   "packages/notify": "1.1.0",
   "packages/grok-search": "1.1.1",
   "packages/context7": "1.0.0",
-  "packages/qwen-guard": "0.0.0"
+  "packages/qwen-guard": "1.0.0"
 }
