@@ -1,7 +1,7 @@
 {
   "name": "@jmcombs/pi-better-toolsy",
   "version": "0.0.0",
-  "description": "Replace noisy bash commands (ls, cat, grep, sed, find) with compact, cross-platform Node.js file tools for the Pi coding agent.",
+  "description": "Drop-in replacements for Pi's built-in ls, read, grep, find, edit, and write tools — adds .gitignore awareness, path-traversal protection, and $ injection-safe edits.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/better-toolsy",
   "repository": {
     "type": "git",
