@@ -4,5 +4,7 @@
   "packages/prompt-enhancer": "2.0.1",
   "packages/notify": "1.1.0",
   "packages/grok-search": "1.1.1",
-  "packages/context7": "1.0.0"
+  "packages/context7": "1.0.0",
+  "packages/better-toolsy": "0.0.0",
+  "packages/qwen-guard": "0.0.0"
 }

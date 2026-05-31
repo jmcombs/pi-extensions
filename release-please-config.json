@@ -41,6 +41,18 @@
       "component": "context7",
       "package-name": "@jmcombs/pi-context7",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/better-toolsy": {
+      "release-type": "node",
+      "component": "better-toolsy",
+      "package-name": "@jmcombs/pi-better-toolsy",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "packages/qwen-guard": {
+      "release-type": "node",
+      "component": "qwen-guard",
+      "package-name": "@jmcombs/pi-qwen-guard",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
