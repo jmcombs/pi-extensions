@@ -5,7 +5,7 @@
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/qwen-guard",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "url": "git+https://github.com/jmcombs/pi-extensions.git",
     "directory": "packages/qwen-guard"
   },
   "bugs": {
