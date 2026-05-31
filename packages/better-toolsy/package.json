@@ -1,0 +1,44 @@
+{
+  "name": "@jmcombs/pi-better-toolsy",
+  "version": "0.0.0",
+  "description": "Drop-in replacements for Pi's built-in ls, read, grep, find, edit, and write tools — adds .gitignore awareness, path-traversal protection, and $ injection-safe edits.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/better-toolsy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/better-toolsy"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "file-tools",
+    "fs",
+    "search"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/better-toolsy/preview.png"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
