@@ -1,17 +1,38 @@
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/EXTENSION_NAME/preview.png" width="250" alt="@jmcombs/pi-EXTENSION_NAME">
+  <br>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-EXTENSION_NAME"><img src="https://img.shields.io/npm/v/@jmcombs/pi-EXTENSION_NAME.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-EXTENSION_NAME"><img src="https://img.shields.io/npm/dm/@jmcombs/pi-EXTENSION_NAME.svg" alt="npm downloads"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/stargazers"><img src="https://img.shields.io/github/stars/jmcombs/pi-extensions?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/issues"><img src="https://img.shields.io/github/issues/jmcombs/pi-extensions" alt="Open issues"></a>
+  <a href="https://github.com/sponsors/jmcombs"><img src="https://img.shields.io/badge/Sponsor-30363D?style=flat&logo=GitHub-Sponsors&logoColor=EA4AAA" alt="Sponsor"></a>
+</div>
+
 # @jmcombs/pi-EXTENSION_NAME
 
 > TODO: One-paragraph description of what this extension does and who it is
 > for. Mention the tools and/or commands it provides.
 
-## Install
+## Quick Start
 
-```bash
-# Globally (recommended)
-pi install npm:@jmcombs/pi-EXTENSION_NAME
+Get the extension in under a minute:
 
-# For a single session, without installing
-pi -e npm:@jmcombs/pi-EXTENSION_NAME
-```
+1. Install:
+
+   ```bash
+   pi install @jmcombs/pi-EXTENSION_NAME
+   ```
+
+2. (Optional) Try without installing:
+
+   ```bash
+   pi -e ./packages/EXTENSION_NAME
+   ```
+
+See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local path, project-scoped install, and filtering options.
+
+## What It Adds
 
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 path, project-scoped install, and filtering options.
