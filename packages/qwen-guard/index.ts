@@ -1,14 +1,21 @@
 /**
  * @jmcombs/pi-qwen-guard
  *
- * Automatically detects Qwen 3.6 (or any Qwen model via Ollama) and injects
- * strict incremental-mode rules at the start of every agent turn. This prevents
- * "error: terminated" and "Stream ended without finish_reason" errors caused by
- * Ollama streaming limits when the model tries to output very large responses.
+ * Automatically detects when a Qwen model (via Ollama) is active inside Pi and
+ * injects strict incremental-mode rules into the system prompt. The rules are
+ * only active while a Qwen model is selected and are removed when you switch
+ * to a different model.
  *
- * Just install and forget — the guard activates silently for Qwen sessions only.
+ * The guard provides:
+ * - Automatic activation notice when a Qwen model is selected
+ * - Strong behavioral constraints to reduce streaming terminations
+ * - Consistent `🛡️ pi-qwen-guard:` signaling (✅ for progress, ❌ for self-correction)
+ *
+ * Works with or without a separate plan-first / TODO workflow (though results
+ * are generally better when combined with one).
  *
  * See:
+ *   - packages/qwen-guard/TESTING.md
  *   - CONTRIBUTING.md and TEMPLATE.md at the repo root
  *   - https://pi.dev/docs/extensions
  */
@@ -16,34 +23,55 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const QWEN_INSTRUCTIONS = `
-CRITICAL QWEN3.6 / OLLAMA INCREMENTAL MODE (enforced every turn):
+Qwen-safe incremental mode is now active.
 
-You MUST follow these rules strictly for the rest of this session:
-- Never output more than ~70–80 lines of code in any single response.
-- Prefer the edit tool over write for any file that already exists.
-- Build large files in tiny logical chunks (imports → helpers → one tool → next tool).
-- After every successful edit/write, reply with exactly: "✅ Chunk complete. File is now X lines. Ready for next?"
-- Do NOT continue until the user replies.
+Hard rules (these exist to prevent your responses from being killed by Ollama streaming limits):
 
-This prevents "error: terminated" and "Stream ended without finish_reason".
-Only ignore this if the user explicitly says "write the whole file at once".
+- Never output more than ~60 lines of code or changes in a single response.
+- After completing any meaningful piece of work (a function, a logical change, a file section, etc.), you must immediately output a single line that starts with exactly "🛡️ pi-qwen-guard: " followed by either ✅ (successful small chunk) or ❌ (you had to stop or self-correct because you were approaching limits).
+- Prefer the edit tool over write for any existing file.
+- Work in small, focused increments. Do not attempt large refactors, multiple files, or broad architectural changes in one response.
+- You may continue to the next small chunk after signaling. You do **not** need explicit user approval after every signal.
+
+For best results with Qwen models on Ollama, strongly consider using a plan-first workflow: create or maintain a TODO.md (or task_plan.md) with small atomic tasks, get the user's explicit approval on the plan before starting major work, and execute one task at a time while keeping the plan updated. This guard will still enforce the size limits and signaling even if you are not using a plan, but combining both is significantly more reliable and prevents streaming failures.
+
+Violating the response size limit or failing to use the required signaling prefix will cause "Stream ended without finish_reason" or similar fatal errors.
 `;
 
 export default function (pi: ExtensionAPI): void {
-  let isQwen = false;
+  let isQwenModel = false;
+
+  const updateQwenStatus = (modelId: string | undefined) => {
+    isQwenModel = (modelId?.toLowerCase() ?? "").includes("qwen");
+  };
 
   pi.on("session_start", (_event, ctx) => {
-    const modelId = (ctx.model?.id ?? "").toLowerCase();
-    if (modelId.includes("qwen")) {
-      isQwen = true;
-      ctx.ui.notify("🛡️ pi-qwen-guard activated — Qwen3.6 incremental mode enabled", "success");
+    updateQwenStatus(ctx.model?.id);
+
+    if (isQwenModel) {
+      ctx.ui.notify("🛡️ pi-qwen-guard: Qwen3.6 incremental mode enabled", "success");
     }
   });
 
+  pi.on("model_select", (event: unknown) => {
+    // event shape is typically { model: { id: string } }
+    const e = event as { model?: { id?: string }; id?: string };
+    const modelId = e.model?.id ?? e.id;
+    updateQwenStatus(modelId);
+  });
+
   pi.on("before_agent_start", (event) => {
-    if (!isQwen) return;
+    if (!isQwenModel) return;
+
+    const instructions = QWEN_INSTRUCTIONS.trim();
+
+    // Avoid appending multiple times if the prompt is rebuilt
+    if ((event.systemPrompt || "").includes("🛡️ pi-qwen-guard")) {
+      return;
+    }
+
     return {
-      systemPrompt: (event.systemPrompt || "") + "\n\n" + QWEN_INSTRUCTIONS.trim(),
+      systemPrompt: (event.systemPrompt || "") + "\n\n" + instructions,
     };
   });
 }

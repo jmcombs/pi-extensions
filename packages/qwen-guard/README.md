@@ -29,7 +29,7 @@ On `session_start`:
 
 - Inspects `ctx.model.id`.
 - If it contains "qwen", sets an internal flag and shows a one-time success notification:
-  > 🛡️ pi-qwen-guard activated — Qwen3.6 incremental mode enabled
+  > 🛡️ pi-qwen-guard: Qwen3.6 incremental mode enabled
 
 On every `before_agent_start` (i.e. before each agent turn):
 
@@ -41,9 +41,10 @@ The injected rules (abridged):
 >
 > - Never output more than ~70–80 lines of code in any single response.
 > - Prefer the edit tool over write for any file that already exists.
-> - Build large files in tiny logical chunks...
-> - After every successful edit/write, reply with exactly: "✅ Chunk complete. File is now X lines. Ready for next?"
-> - Do NOT continue until the user replies.
+> - Work in small logical chunks.
+> - After completing a chunk, emit a progress signal that starts with exactly:
+>   `🛡️ pi-qwen-guard: ✅ Chunk complete. File is now X lines.`
+> - You may then continue directly to the next chunk (no need to wait for user approval).
 
 This forces the model to stay within Ollama's streaming limits and eliminates the two fatal errors.
 
