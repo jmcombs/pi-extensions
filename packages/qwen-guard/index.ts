@@ -49,7 +49,7 @@ export default function (pi: ExtensionAPI): void {
     updateQwenStatus(ctx.model?.id);
 
     if (isQwenModel) {
-      ctx.ui.notify("🛡️ pi-qwen-guard: Qwen3.6 incremental mode enabled", "success");
+      ctx.ui.notify("🛡️ pi-qwen-guard: Qwen3.6 incremental mode enabled", "info");
     }
   });
 
