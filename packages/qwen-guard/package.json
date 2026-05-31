@@ -1,0 +1,44 @@
+{
+  "name": "@jmcombs/pi-qwen-guard",
+  "version": "0.0.0",
+  "description": "Auto-enables strict incremental mode for Qwen 3.6 (Ollama) to prevent 'terminated' and streaming errors.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/qwen-guard",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/qwen-guard"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "qwen",
+    "ollama",
+    "guardrails"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/qwen-guard/preview.png"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}
