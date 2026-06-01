@@ -1,0 +1,18 @@
+# Changelog
+
+## 1.0.0 (2026-06-01)
+
+
+### Features
+
+* **better-toolsy:** complete six file tools and bash interception ([3fa4d12](https://github.com/jmcombs/pi-extensions/commit/3fa4d12dddcaa8c2e6f3d29a9026d6f33b8b424a))
+* **better-toolsy:** initial release ([48e2803](https://github.com/jmcombs/pi-extensions/commit/48e2803e740d1109a5afcedb327b0d40b01280eb))
+* **better-toolsy:** initial release ([48e2803](https://github.com/jmcombs/pi-extensions/commit/48e2803e740d1109a5afcedb327b0d40b01280eb))
+* **better-toolsy:** replace custom tool names with built-in Pi tool overrides ([a553244](https://github.com/jmcombs/pi-extensions/commit/a55324419d93743bc75b80f68aa86746fb606c2a))
+
+
+### Bug Fixes
+
+* **better-toolsy:** correct traversal bypass, edit_file injection, bash interception, line numbering ([3ad08cd](https://github.com/jmcombs/pi-extensions/commit/3ad08cda46ec1799df5718a2623bdcae20f87bc4))
+* **better-toolsy:** gitignore path patterns, path normalization, find cap, overwrite guard ([83e9405](https://github.com/jmcombs/pi-extensions/commit/83e9405c5ce73f77e208325725842e2f785ece86))
+* **better-toolsy:** replace list_dir emoji/indent with minimal token-efficient format ([6edfc16](https://github.com/jmcombs/pi-extensions/commit/6edfc168c8e7eade375baeae9bf27989c27f804b))
