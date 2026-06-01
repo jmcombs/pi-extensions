@@ -11,12 +11,12 @@
  *    - https://pi.dev/docs/extensions
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
-import { promises as fs } from "node:fs";
-import { sep, join, resolve, relative, dirname, basename } from "node:path";
 import { execFile } from "node:child_process";
+import { promises as fs } from "node:fs";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 
 const execFileAsync = promisify(execFile);
 
@@ -137,18 +137,26 @@ const findSchema = Type.Object({
 });
 export type FindInput = Static<typeof findSchema>;
 
+const editItemSchema = Type.Object({
+  oldText: Type.String({ description: "Exact text to replace (must appear exactly once)." }),
+  newText: Type.String({ description: "Replacement text." }),
+});
+type EditItem = Static<typeof editItemSchema>;
+
 const editSchema = Type.Object({
   path: Type.String({ description: "File path to edit (relative or absolute)." }),
-  edits: Type.Array(
-    Type.Object({
-      oldText: Type.String({ description: "Exact text to replace (must appear exactly once)." }),
-      newText: Type.String({ description: "Replacement text." }),
-    }),
-    {
+  // Accept either a native array or a JSON-encoded string so the tool recovers
+  // gracefully when a model accidentally double-encodes the array as a string.
+  edits: Type.Union([
+    Type.Array(editItemSchema, {
       description:
-        "Edits to apply in sequence. Each oldText must be unique in the file at the time it is applied.",
-    },
-  ),
+        "Edits to apply in sequence. Each oldText must be unique in the file at the time it is applied. Pass this as a JSON array — do not stringify it.",
+    }),
+    Type.String({
+      description:
+        "JSON-encoded array of {oldText, newText} objects. Prefer passing the array directly.",
+    }),
+  ]),
 });
 export type EditInput = Static<typeof editSchema>;
 
@@ -446,15 +454,47 @@ async function findRecursive(
 
 // ── edit ───────────────────────────────────────────────────────────────
 
+type NormalizeResult = { ok: true; edits: EditItem[] } | { ok: false; error: string };
+
+function normalizeEdits(raw: EditItem[] | string): NormalizeResult {
+  if (Array.isArray(raw)) return { ok: true, edits: raw };
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error:
+          "edits must be an array of {oldText, newText} objects — received a non-array JSON value. Pass the array directly.",
+      };
+    }
+    return { ok: true, edits: parsed as EditItem[] };
+  } catch {
+    return {
+      ok: false,
+      error:
+        "edits could not be parsed — pass the array directly as a JSON array, do not stringify it first.",
+    };
+  }
+}
+
 export async function editTool(_toolCallId: string, params: EditInput): Promise<ToolResult> {
   const filePath = safeResolve(params.path);
+
+  const normalized = normalizeEdits(params.edits);
+  if (!normalized.ok) {
+    return {
+      content: [{ type: "text", text: `Edit failed: ${normalized.error}` }],
+      details: { error: true, path: params.path },
+    };
+  }
+  const edits = normalized.edits;
 
   try {
     let content = await fs.readFile(filePath, "utf-8");
 
     // Validate uniqueness and apply each edit in sequence so later edits see
     // earlier ones (allows dependent edits in one call).
-    for (const edit of params.edits) {
+    for (const edit of edits) {
       const firstIdx = content.indexOf(edit.oldText);
       if (firstIdx === -1) {
         return {
@@ -491,10 +531,10 @@ export async function editTool(_toolCallId: string, params: EditInput): Promise<
       content: [
         {
           type: "text",
-          text: `Edited ${relative(process.cwd(), filePath)} — applied ${String(params.edits.length)} edit${params.edits.length === 1 ? "" : "s"}.`,
+          text: `Edited ${relative(process.cwd(), filePath)} — applied ${String(edits.length)} edit${edits.length === 1 ? "" : "s"}.`,
         },
       ],
-      details: { path: params.path, edits: params.edits.length },
+      details: { path: params.path, edits: edits.length },
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

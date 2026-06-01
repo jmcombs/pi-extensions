@@ -6,11 +6,11 @@
  * temp files.
  */
 
-import { describe, expect, it } from "vitest";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { promises as fsPromises } from "node:fs";
 import { join } from "node:path";
-import factory, { safeResolve, readTool, editTool } from "./index.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
+import factory, { editTool, readTool, safeResolve } from "./index.js";
 
 interface RegistrationLog {
   tools: string[];
