@@ -13,16 +13,19 @@
  *   - https://pi.dev/docs/extensions
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { createBashTool, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
-import { promisify } from "node:util";
 import { exec } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import {
+  createBashTool,
+  createLocalBashOperations,
+  getAgentDir,
+} from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 
 import {
   confirmInBorderedPopup,
@@ -133,7 +136,6 @@ async function inspectPluginIfRelevant(command: string): Promise<PluginInspectio
     return { plugin: firstWord, output: (stdout || "").trim() };
   } catch (e: unknown) {
     const error = e as { stderr?: string; message?: string };
-    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     const msg = (error.stderr?.trim() ?? error.message) || "Unknown error";
     return { plugin: firstWord, error: msg };
   }
@@ -238,7 +240,6 @@ async function loadShellEnvMap(): Promise<Record<string, string>> {
   const map = new Map<string, string>();
 
   try {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     const raw = await readFile(authPath, "utf8");
     const parsed = JSON.parse(raw) as AuthJson;
 
@@ -298,12 +299,10 @@ async function addAuthEntry(
   const authDir = getAgentDir();
   const authPath = join(authDir, "auth.json");
 
-  // eslint-disable-next-line security/detect-non-literal-fs-filename
   await mkdir(authDir, { recursive: true });
 
   const existing = new Map<string, unknown>();
   try {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename
     const raw = await readFile(authPath, "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -328,10 +327,8 @@ async function addAuthEntry(
   // Convention: single quotes around the op:// ref
   existing.set(envVar, `!op read '${opRef}'`);
 
-  const content = JSON.stringify(Object.fromEntries(existing), null, 2) + "\n";
-  // eslint-disable-next-line security/detect-non-literal-fs-filename
+  const content = `${JSON.stringify(Object.fromEntries(existing), null, 2)}\n`;
   await writeFile(authPath, content, "utf8");
-  // eslint-disable-next-line security/detect-non-literal-fs-filename
   await chmod(authPath, 0o600);
 
   return { success: true, message: "Entry added.", path: authPath };
@@ -467,7 +464,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       if (info) inspections.push(info);
     }
 
-    let report = formatOpStatus(status) + "\n\n";
+    let report = `${formatOpStatus(status)}\n\n`;
 
     if (inspections.length > 0) {
       report += "Plugin configuration:\n";
@@ -601,7 +598,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     const itemItems = [
       ...items.map((it) => ({
         value: it.id,
-        label: `${it.title}${it.category ? " — " + it.category : ""}`,
+        label: `${it.title}${it.category ? ` — ${it.category}` : ""}`,
       })),
       { value: "__cancel", label: "Cancel" },
     ];

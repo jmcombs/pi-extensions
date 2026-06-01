@@ -18,11 +18,11 @@
  */
 
 import { execFile } from "node:child_process";
-import { type Dirent, promises as fs } from "node:fs";
+import { type Dirent, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { complete, type Api, type Message, type Model } from "@earendil-works/pi-ai";
+import { type Api, complete, type Message, type Model } from "@earendil-works/pi-ai";
 import {
   BorderedLoader,
   type ExtensionAPI,
@@ -151,7 +151,6 @@ async function buildProjectTree(cwd: string, signal: AbortSignal): Promise<strin
     }
     let dirents: Dirent[];
     try {
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- dir is derived from cwd, not user input
       dirents = await fs.readdir(dir, { withFileTypes: true });
     } catch {
       return;
@@ -161,11 +160,9 @@ async function buildProjectTree(cwd: string, signal: AbortSignal): Promise<strin
       return a.name.localeCompare(b.name);
     });
     for (const dirent of dirents) {
-      // typescript-eslint narrows `signal.aborted` to false from the earlier
-      // check at the top of walk() and doesn't re-widen across the await above.
-      // It can become true while we were awaiting fs.readdir, so the re-check
-      // is real, not redundant.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      // `signal.aborted` was checked at the top of walk(), but it can flip to
+      // true while we were awaiting fs.readdir above, so this re-check is real,
+      // not redundant.
       if (signal.aborted) return;
       if (entries.length >= TREE_MAX_ENTRIES) {
         truncated = true;
@@ -186,9 +183,8 @@ async function buildProjectTree(cwd: string, signal: AbortSignal): Promise<strin
   if (entries.length === 0) return undefined;
 
   const lines = entries.map((e) => `${"  ".repeat(e.depth - 1)}${e.relPath}${e.isDir ? "/" : ""}`);
-  // `truncated` is set inside recursive walk() calls; the analyzer doesn't see
-  // that and would otherwise flag this as always-falsy.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // `truncated` is initialized to false but set inside recursive walk() calls,
+  // so it may be true by the time we reach here.
   if (truncated) lines.push(`  … (truncated at ${String(TREE_MAX_ENTRIES)} entries)`);
   return lines.join("\n");
 }
@@ -245,14 +241,14 @@ async function buildGitContext(cwd: string, signal: AbortSignal): Promise<string
 function extractFileMentions(prompt: string): string[] {
   // Tokens with at least one path separator OR a recognizable file extension.
   // Trimmed of common surrounding punctuation.
-  const tokenRe = /[A-Za-z0-9_./@\-]+/g;
+  const tokenRe = /[A-Za-z0-9_./@-]+/g;
   const extRe =
     /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|mdx|yml|yaml|toml|css|scss|html|py|rb|go|rs|java|kt|swift|c|cc|cpp|h|hpp|sh|bash|sql|prisma|tf|dockerfile)$/i;
   const matches = prompt.match(tokenRe) ?? [];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of matches) {
-    const cleaned = raw.replace(/^[.,;:!?'"`(){}\[\]]+|[.,;:!?'"`(){}\[\]]+$/g, "");
+    const cleaned = raw.replace(/^[.,;:!?'"`(){}[\]]+|[.,;:!?'"`(){}[\]]+$/g, "");
     if (!cleaned) continue;
     if (cleaned.length > 256) continue;
     if (!cleaned.includes("/") && !extRe.test(cleaned)) continue;
@@ -273,9 +269,8 @@ async function readMentionedFile(
   const rel = path.relative(cwd, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
 
-  let stat;
+  let stat: Stats;
   try {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is verified above to be inside cwd
     stat = await fs.stat(resolved);
   } catch {
     return undefined;
@@ -285,7 +280,6 @@ async function readMentionedFile(
 
   let raw: string;
   try {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- same as above
     raw = await fs.readFile(resolved, "utf-8");
   } catch {
     return undefined;

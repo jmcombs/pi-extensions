@@ -70,8 +70,8 @@ export function renderBorderedBox(
   truncateToWidthFn: (s: string, w: number, e?: string, pad?: boolean) => string,
 ): string[] {
   const innerWidth = Math.max(20, width - 4);
-  const top = theme.fg("accent", "╭" + "─".repeat(width - 2) + "╮");
-  const bottom = theme.fg("accent", "╰" + "─".repeat(width - 2) + "╯");
+  const top = theme.fg("accent", `╭${"─".repeat(width - 2)}╮`);
+  const bottom = theme.fg("accent", `╰${"─".repeat(width - 2)}╯`);
 
   const rawTitle = theme.fg("accent", theme.bold(title));
   const titlePadded = truncateToWidthFn(rawTitle, innerWidth, "", true);

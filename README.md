@@ -37,7 +37,7 @@ pi-extensions/
 ├── .github/workflows/      # CI + Release Please
 ├── release-please-config.json
 ├── .release-please-manifest.json
-└── …shared tooling (eslint, prettier, vitest, husky, commitlint, secretlint)
+└── …shared tooling (biome, vitest, husky, commitlint, secretlint)
 ```
 
 ## Requirements

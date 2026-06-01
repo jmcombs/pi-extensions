@@ -1,0 +1,55 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  // Honor .gitignore so generated/vendored files are never touched.
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true,
+    // Mirrors the old .prettierignore / eslint ignores. CHANGELOGs are owned by
+    // Release Please; _template/ is scaffold that should not be linted/formatted.
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/build",
+      "!**/coverage",
+      "!**/package-lock.json",
+      "!**/CHANGELOG.md",
+      "!packages/_template"
+    ]
+  },
+  // Match the previous Prettier config: 2-space indent, 100 col, double quotes,
+  // semicolons, trailing commas everywhere JS/TS allows them.
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  // package.json / tsconfig.json are standard JSON without trailing commas, just
+  // as Prettier left them (it never adds trailing commas to .json).
+  "json": {
+    "parser": {
+      "allowComments": true,
+      "allowTrailingCommas": true
+    },
+    "formatter": {
+      "trailingCommas": "none"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    }
+  }
+}

@@ -88,8 +88,8 @@ this repo must follow these operational rules:
 ```bash
 npm ci                  # install
 npm run check           # full quality gate
-npm run lint            # ESLint only
-npm run format          # Prettier write
+npm run lint            # Biome: lint + format + import-sort check
+npm run format          # Biome format (write)
 npm run test            # Vitest
 npm run check:versions  # validate per-package conventions
 ```

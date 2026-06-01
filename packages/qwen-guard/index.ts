@@ -71,7 +71,7 @@ export default function (pi: ExtensionAPI): void {
     }
 
     return {
-      systemPrompt: (event.systemPrompt || "") + "\n\n" + instructions,
+      systemPrompt: `${event.systemPrompt || ""}\n\n${instructions}`,
     };
   });
 }
