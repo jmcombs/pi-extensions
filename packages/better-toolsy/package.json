@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-better-toolsy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Drop-in replacements for Pi's built-in ls, read, grep, find, edit, and write tools — adds .gitignore awareness, path-traversal protection, and $ injection-safe edits.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/better-toolsy",
   "repository": {

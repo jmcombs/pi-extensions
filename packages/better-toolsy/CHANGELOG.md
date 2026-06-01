@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.0.0...better-toolsy/v1.0.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **better-toolsy:** handle double-encoded edits array from model ([#60](https://github.com/jmcombs/pi-extensions/issues/60)) ([eac3e31](https://github.com/jmcombs/pi-extensions/commit/eac3e3129bd647ce8a5f8511d71824e925be42aa))
+
 ## 1.0.0 (2026-06-01)
 
 
