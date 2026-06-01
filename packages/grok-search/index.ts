@@ -12,7 +12,7 @@
  */
 
 import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 
 const XAI_RESPONSES_ENDPOINT = "https://api.x.ai/v1/responses";
 

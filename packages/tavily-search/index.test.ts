@@ -7,8 +7,8 @@
  * a real Tavily key (see README).
  */
 
-import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
 import factory, { type TavilySearchInput } from "./index.js";
 
 interface CapturedCommand {

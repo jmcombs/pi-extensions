@@ -86,7 +86,8 @@ function validatePackage(pkgName, manifest, rpConfig) {
   if (!pkg.version || !SEMVER_RE.test(pkg.version))
     issues.push(`version missing or not semver (got ${JSON.stringify(pkg.version)})`);
   if (!pkg.description) issues.push("description missing");
-  if (pkg.license !== "MIT") issues.push(`license must be "MIT" (got ${JSON.stringify(pkg.license)})`);
+  if (pkg.license !== "MIT")
+    issues.push(`license must be "MIT" (got ${JSON.stringify(pkg.license)})`);
   if (!pkg.author) issues.push("author missing");
 
   // Engines — Node >=22 is the project floor (Node 20 dropped after secretlint 12.x
@@ -161,14 +162,15 @@ if (packages.length === 0) {
 let hasErrors = false;
 for (const pkgName of packages) {
   const relKey = `packages/${pkgName}`;
-  const registered =
-    manifest[relKey] !== undefined && rpConfig.packages?.[relKey] !== undefined;
+  const registered = manifest[relKey] !== undefined && rpConfig.packages?.[relKey] !== undefined;
 
   // Only fully validate packages registered with Release Please. Unregistered
   // packages are treated as in-development scratch work — they don't gate CI,
   // but they're flagged so it's obvious they haven't been promoted to release.
   if (!registered) {
-    console.log(`  · ${pkgName} (in development; not yet registered with Release Please — skipped)`);
+    console.log(
+      `  · ${pkgName} (in development; not yet registered with Release Please — skipped)`,
+    );
     continue;
   }
 
@@ -189,9 +191,7 @@ for (const key of Object.keys(manifest)) {
   const pkgName = key.slice("packages/".length);
   if (!packages.includes(pkgName)) {
     hasErrors = true;
-    console.log(
-      `  ✗ ${key} listed in .release-please-manifest.json but no such package exists`,
-    );
+    console.log(`  ✗ ${key} listed in .release-please-manifest.json but no such package exists`);
   }
 }
 

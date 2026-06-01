@@ -13,7 +13,7 @@
  */
 
 import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 import { confirmInBorderedPopup, inputInBorderedPopup } from "./ui/bordered-popups.js";
 
 const CONTEXT7_API_BASE = "https://context7.com/api/v2";
@@ -75,7 +75,7 @@ function formatDocs(data: Context7DocsResponse, query: string): string {
   const { codeSnippets = [], infoSnippets = [] } = data;
 
   if (codeSnippets.length === 0 && infoSnippets.length === 0) {
-    return "No documentation snippets found for " + query + ".";
+    return `No documentation snippets found for ${query}.`;
   }
 
   const parts: string[] = [];
@@ -84,13 +84,13 @@ function formatDocs(data: Context7DocsResponse, query: string): string {
     parts.push("--- CODE SNIPPETS ---");
     for (const snippet of codeSnippets) {
       if (snippet.codeTitle) {
-        parts.push("\n## " + snippet.codeTitle);
+        parts.push(`\n## ${snippet.codeTitle}`);
       }
       if (snippet.codeList && snippet.codeList.length > 0) {
         for (const item of snippet.codeList) {
           if (item.code) {
             const lang = item.language ?? "typescript";
-            parts.push("```" + lang + "\n" + item.code + "\n```\n");
+            parts.push(`\`\`\`${lang}\n${item.code}\n\`\`\`\n`);
           }
         }
       }
@@ -101,12 +101,12 @@ function formatDocs(data: Context7DocsResponse, query: string): string {
     parts.push("\n--- INFO SNIPPETS ---");
     for (const snippet of infoSnippets) {
       if (snippet.content) {
-        parts.push("\n" + snippet.content);
+        parts.push(`\n${snippet.content}`);
       }
     }
   }
 
-  return "Documentation for " + query + ":" + "\n\n" + parts.join("\n");
+  return `Documentation for ${query}:\n\n${parts.join("\n")}`;
 }
 
 // -- Extension factory
@@ -266,7 +266,7 @@ export default function (pi: ExtensionAPI): void {
 
         const response = await fetch(url.toString(), {
           signal,
-          headers: { Authorization: "Bearer " + apiKey },
+          headers: { Authorization: `Bearer ${apiKey}` },
         });
 
         if (!response.ok) {
@@ -326,7 +326,7 @@ export default function (pi: ExtensionAPI): void {
             content: [
               {
                 type: "text",
-                text: "No libraries found matching " + params.libraryName + ".",
+                text: `No libraries found matching ${params.libraryName}.`,
               },
             ],
             details: { libraryName: params.libraryName, raw: data },
@@ -334,9 +334,7 @@ export default function (pi: ExtensionAPI): void {
         }
 
         const formatted = libs
-          .map(function (lib, i) {
-            return String(i + 1) + ". " + lib.title + " (ID: " + lib.id + ")";
-          })
+          .map((lib, i) => `${String(i + 1)}. ${lib.title} (ID: ${lib.id})`)
           .join("\n");
 
         return {
@@ -359,7 +357,7 @@ export default function (pi: ExtensionAPI): void {
           content: [
             {
               type: "text",
-              text: "Error performing Context7 search: " + message,
+              text: `Error performing Context7 search: ${message}`,
             },
           ],
           details: { error: message },
@@ -479,7 +477,7 @@ export default function (pi: ExtensionAPI): void {
 
         const response = await fetch(url.toString(), {
           signal,
-          headers: { Authorization: "Bearer " + apiKey },
+          headers: { Authorization: `Bearer ${apiKey}` },
         });
 
         if (!response.ok) {
@@ -542,7 +540,7 @@ export default function (pi: ExtensionAPI): void {
           content: [
             {
               type: "text",
-              text: "Error fetching Context7 documentation: " + message,
+              text: `Error fetching Context7 documentation: ${message}`,
             },
           ],
           details: { error: message },

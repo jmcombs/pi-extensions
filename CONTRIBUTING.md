@@ -36,8 +36,8 @@ npm run check
 
 | Step     | Command                  | Purpose                                                                                  |
 | -------- | ------------------------ | ---------------------------------------------------------------------------------------- |
-| Lint     | `npm run lint`           | ESLint with type-aware `typescript-eslint` strict + stylistic + `eslint-plugin-security` |
-| Format   | `npm run format:check`   | Prettier check across `**/*.{ts,json,md,yml,yaml}`                                       |
+| Lint     | `npm run lint`           | Biome `check` — linter (recommended rules, incl. security) + formatter + import sorting  |
+| Format   | `npm run format:check`   | Biome formatter check (fix with `npm run format`)                                        |
 | Types    | `npm run typecheck`      | `tsc --noEmit` against the root `tsconfig.json`                                          |
 | Tests    | `npm run test`           | Vitest (only meaningful tests; see "Testing" below)                                      |
 | Versions | `npm run check:versions` | Validates each package follows project conventions                                       |

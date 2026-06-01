@@ -12,7 +12,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { promises as fs } from "node:fs";
+import { type Dirent, promises as fs } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
@@ -61,13 +61,11 @@ function matchesGitignore(relPath: string, patterns: string[]): boolean {
     if (pat.includes("/")) {
       // "dist/**" should also block the "dist" directory entry itself
       if (pat.endsWith("/**") && relPath === pat.slice(0, -3)) return true;
+      // Convert glob wildcards in one pass so "**" → ".*" and a lone "*" →
+      // "[^/]*" without a sentinel: the alternation matches "**" before "*".
       const reSource =
         "^" +
-        pat
-          .replace(/\./g, "\\.")
-          .replace(/\*\*/g, "\x00")
-          .replace(/\*/g, "[^/]*")
-          .replace(/\x00/g, ".*") +
+        pat.replace(/\./g, "\\.").replace(/\*\*|\*/g, (m) => (m === "**" ? ".*" : "[^/]*")) +
         "$";
       try {
         return new RegExp(reSource).test(relPath);
@@ -79,7 +77,7 @@ function matchesGitignore(relPath: string, patterns: string[]): boolean {
     if (dirOnly) return name === pat;
 
     if (pat.includes("*")) {
-      const reSource = "^" + pat.replace(/\./g, "\\.").replace(/\*/g, ".*") + "$";
+      const reSource = `^${pat.replace(/\./g, "\\.").replace(/\*/g, ".*")}$`;
       try {
         return new RegExp(reSource).test(name);
       } catch {
@@ -366,7 +364,7 @@ async function walkDir(
   rootDir: string = dir,
 ): Promise<string[]> {
   const files: string[] = [];
-  let dirEntries;
+  let dirEntries: Dirent[];
   try {
     dirEntries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -397,7 +395,7 @@ function matchesFilePattern(filename: string, pattern: string): boolean {
   if (!pattern.includes("*")) {
     return filename === pattern;
   }
-  const regexSource = "^" + pattern.replace(/\./g, "\\.").replace(/\*/g, ".*") + "$";
+  const regexSource = `^${pattern.replace(/\./g, "\\.").replace(/\*/g, ".*")}$`;
   return new RegExp(regexSource).test(filename);
 }
 
@@ -425,7 +423,7 @@ async function findRecursive(
   rootDir: string = dir,
 ): Promise<string[]> {
   const results: string[] = [];
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
@@ -548,10 +546,10 @@ export async function editTool(_toolCallId: string, params: EditInput): Promise<
 
 function countOccurrences(haystack: string, needle: string): number {
   let count = 0;
-  let idx = 0;
-  while ((idx = haystack.indexOf(needle, idx)) !== -1) {
+  let idx = haystack.indexOf(needle);
+  while (idx !== -1) {
     count++;
-    idx += needle.length;
+    idx = haystack.indexOf(needle, idx + needle.length);
   }
   return count;
 }

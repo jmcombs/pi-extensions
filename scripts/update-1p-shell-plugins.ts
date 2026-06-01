@@ -16,11 +16,9 @@
  * This script is also intended to be called from CI on a weekly schedule.
  */
 
-import { writeFile, mkdir, readFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const LLMS_TXT_URL = "https://www.1password.dev/llms.txt";
-const BASE_URL = "https://www.1password.dev";
 
 const isCheckMode = process.argv.includes("--check") || process.argv.includes("-c");
 
@@ -124,12 +122,13 @@ function parseReferenceTable(markdown: string): string[] {
   // Typical row: | Token | `GH_TOKEN` |
   const rowRegex = /^\s*\|\s*[^|]+\s*\|\s*`([^`]+)`\s*\|/gm;
 
-  let match;
-  while ((match = rowRegex.exec(tableSection)) !== null) {
+  let match = rowRegex.exec(tableSection);
+  while (match !== null) {
     const varName = match[1].trim();
     if (varName && /^[A-Z0-9_]+$/.test(varName)) {
       envVars.add(varName);
     }
+    match = rowRegex.exec(tableSection);
   }
 
   return Array.from(envVars).sort();
@@ -195,7 +194,7 @@ async function main() {
     await runCheckMode(results, outputPath);
   } else {
     await mkdir(outputDir, { recursive: true });
-    await writeFile(outputPath, JSON.stringify(results, null, 2) + "\n", "utf8");
+    await writeFile(outputPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
 
     console.log(`\n✅ Wrote ${results.length} plugins to ${outputPath}`);
     console.log(`   Example: ${results[0]?.name} → ${results[0]?.primaryEnvVar}`);
@@ -230,21 +229,25 @@ async function runCheckMode(freshList: ShellPlugin[], outputPath: string) {
 
   if (diff.added.length > 0) {
     console.log(`➕ Added (${diff.added.length}):`);
-    diff.added.forEach((p) =>
-      console.log(`   • ${p.name} (${p.slug}) — ${p.primaryEnvVar ?? "no primary env var"}`),
-    );
+    diff.added.forEach((p) => {
+      console.log(`   • ${p.name} (${p.slug}) — ${p.primaryEnvVar ?? "no primary env var"}`);
+    });
   }
 
   if (diff.removed.length > 0) {
     console.log(`\n➖ Removed (${diff.removed.length}):`);
-    diff.removed.forEach((p) => console.log(`   • ${p.name} (${p.slug})`));
+    diff.removed.forEach((p) => {
+      console.log(`   • ${p.name} (${p.slug})`);
+    });
   }
 
   if (diff.changed.length > 0) {
     console.log(`\n✏️  Changed (${diff.changed.length}):`);
     diff.changed.forEach((c) => {
       console.log(`   • ${c.slug}`);
-      c.changes.forEach((change) => console.log(`     - ${change}`));
+      c.changes.forEach((change) => {
+        console.log(`     - ${change}`);
+      });
     });
   }
 
@@ -267,12 +270,12 @@ function computeDiff(oldList: ShellPlugin[], newList: ShellPlugin[]): DiffResult
   }
 
   for (const [slug, oldPlugin] of oldMap) {
-    if (!newMap.has(slug)) {
+    const newPlugin = newMap.get(slug);
+    if (newPlugin === undefined) {
       removed.push(oldPlugin);
       continue;
     }
 
-    const newPlugin = newMap.get(slug)!;
     const changes: string[] = [];
 
     if (JSON.stringify(oldPlugin.envVars) !== JSON.stringify(newPlugin.envVars)) {

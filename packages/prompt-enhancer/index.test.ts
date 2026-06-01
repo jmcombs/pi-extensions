@@ -8,8 +8,8 @@
  * exercised manually with `pi -e ./packages/prompt-enhancer`.
  */
 
-import { describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
 import factory, { buildEnhancerUserMessage, type EnhancerContext } from "./index.js";
 
 interface RegistrationLog {

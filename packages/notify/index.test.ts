@@ -6,8 +6,8 @@
  * delivery is exercised manually via `pi -e ./packages/notify`.
  */
 
-import { describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { describe, expect, it } from "vitest";
 import factory from "./index.js";
 
 function createApiStub(): {

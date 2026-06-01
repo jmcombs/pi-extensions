@@ -12,7 +12,7 @@
  */
 
 import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { type Static, Type } from "typebox";
 
 const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
 
