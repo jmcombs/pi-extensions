@@ -15,7 +15,8 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 
 const execFileAsync = promisify(execFile);
@@ -584,6 +585,58 @@ async function writeTool(_toolCallId: string, params: WriteInput): Promise<ToolR
   }
 }
 
+// ── TUI rendering ──────────────────────────────────────────────────────
+// Pi resolves a tool's renderCall/renderResult independently of its execute:
+// overriding a built-in's execution does NOT override its rendering. Without
+// these, Pi falls back to the built-in renderers for edit/write/read — which
+// re-derive their own diff/preview from the call args and hide our output. We
+// supply our own so the TUI reflects what better-toolsy actually did.
+
+const DEFAULT_RESULT_LINES = 20;
+
+// Stamped onto every tool-call header so it is unmistakable — and consistent —
+// that better-toolsy handled the call, regardless of the tool or whether it
+// succeeded or failed. Kept out of execute() output so it never reaches the
+// model's context (and never corrupts file content returned by read).
+const FINGERPRINT = "🔧 bt";
+
+/** Header line for a tool call, e.g. "edit packages/foo.ts   🔧 bt". */
+function renderToolHeader(tool: string, detail: string, theme: Theme): Component {
+  const label = theme.fg("toolTitle", theme.bold(tool));
+  const head = detail ? `${label} ${theme.fg("accent", detail)}` : label;
+  return new Text(`${head}   ${theme.fg("muted", FINGERPRINT)}`, 0, 0);
+}
+
+/** Render our execute() text output, truncated unless the row is expanded. */
+function renderToolResult(
+  result: { content: readonly { type: string; text?: string }[] },
+  isError: boolean,
+  expanded: boolean,
+  theme: Theme,
+): Component {
+  const full = result.content
+    .filter((c) => c.type === "text")
+    .map((c) => c.text ?? "")
+    .join("\n");
+  if (!full) {
+    return new Container();
+  }
+
+  const lines = full.split("\n");
+  const limit = expanded ? lines.length : DEFAULT_RESULT_LINES;
+  const role = isError ? "error" : "toolOutput";
+  let body = theme.fg(role, lines.slice(0, limit).join("\n"));
+
+  const remaining = lines.length - limit;
+  if (remaining > 0) {
+    body += theme.fg(
+      "muted",
+      `\n… ${String(remaining)} more line${remaining === 1 ? "" : "s"} — expand to view`,
+    );
+  }
+  return new Text(body, 0, 0);
+}
+
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
@@ -593,6 +646,7 @@ export default function (pi: ExtensionAPI): void {
     description: "List files and directories. Respects .gitignore, hides dotfiles.",
     parameters: lsSchema,
     execute: lsTool,
+    renderCall: (args: LsInput, theme) => renderToolHeader("ls", args.path ?? ".", theme),
   });
 
   pi.registerTool({
@@ -602,6 +656,9 @@ export default function (pi: ExtensionAPI): void {
       "Read file contents with optional offset/limit. Guards against large files (50 KB cap).",
     parameters: readSchema,
     execute: readTool,
+    renderCall: (args: ReadInput, theme) => renderToolHeader("read", args.path, theme),
+    renderResult: (result, options, theme, context) =>
+      renderToolResult(result, context.isError, options.expanded, theme),
   });
 
   pi.registerTool({
@@ -611,6 +668,8 @@ export default function (pi: ExtensionAPI): void {
       "Search for patterns in code files. Uses ripgrep if available, falls back to Node.js. Respects .gitignore.",
     parameters: grepSchema,
     execute: grepTool,
+    renderCall: (args: GrepInput, theme) =>
+      renderToolHeader("grep", args.path ? `${args.pattern} in ${args.path}` : args.pattern, theme),
   });
 
   pi.registerTool({
@@ -619,6 +678,8 @@ export default function (pi: ExtensionAPI): void {
     description: "Find files by name pattern. Respects .gitignore.",
     parameters: findSchema,
     execute: findTool,
+    renderCall: (args: FindInput, theme) =>
+      renderToolHeader("find", args.path ? `${args.pattern} in ${args.path}` : args.pattern, theme),
   });
 
   pi.registerTool({
@@ -628,6 +689,9 @@ export default function (pi: ExtensionAPI): void {
       "Edit a file by replacing exact text. Each oldText must be unique. Supports multiple edits in one call.",
     parameters: editSchema,
     execute: editTool,
+    renderCall: (args: EditInput, theme) => renderToolHeader("edit", args.path, theme),
+    renderResult: (result, options, theme, context) =>
+      renderToolResult(result, context.isError, options.expanded, theme),
   });
 
   pi.registerTool({
@@ -636,5 +700,8 @@ export default function (pi: ExtensionAPI): void {
     description: "Write content to a file. Creates parent directories automatically.",
     parameters: writeSchema,
     execute: writeTool,
+    renderCall: (args: WriteInput, theme) => renderToolHeader("write", args.path, theme),
+    renderResult: (result, options, theme, context) =>
+      renderToolResult(result, context.isError, options.expanded, theme),
   });
 }
