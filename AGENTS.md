@@ -1,7 +1,8 @@
-# CLAUDE.md / Agent Notes
+# AGENTS.md / Agent Notes
 
-This file is loaded automatically by Claude Code (and respected by the Pi coding agent) as
-project context. It is for AI assistants working in this repository.
+This file is loaded automatically by AI coding agents that follow the AGENTS.md convention
+(Claude Code, the Pi coding agent, and others) as project context. It is for AI assistants
+working in this repository.
 
 ## Sources of Truth
 
