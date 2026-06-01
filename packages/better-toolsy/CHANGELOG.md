@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.0.1...better-toolsy/v1.1.0) (2026-06-01)
+
+
+### Features
+
+* **better-toolsy:** render tool calls so overrides show their own output ([#62](https://github.com/jmcombs/pi-extensions/issues/62)) ([a639ca8](https://github.com/jmcombs/pi-extensions/commit/a639ca875864013c992a0ef077d72ff5cf646d0b))
+
 ## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.0.0...better-toolsy/v1.0.1) (2026-06-01)
 
 
