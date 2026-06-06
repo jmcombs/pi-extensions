@@ -13,7 +13,7 @@
 
 import { execFile } from "node:child_process";
 import { type Dirent, promises as fs } from "node:fs";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
@@ -27,6 +27,11 @@ const execFileAsync = promisify(execFile);
 // passed (not exposed to LLM).
 
 export function safeResolve(inputPath: string, root: string = process.cwd()): string {
+  // Absolute paths are explicitly specified — path traversal attacks use relative
+  // sequences like ../../etc/passwd, not absolute paths, so skip the check.
+  if (isAbsolute(inputPath)) {
+    return resolve(inputPath);
+  }
   const resolved = resolve(root, inputPath);
   if (resolved !== root && !resolved.startsWith(root + sep)) {
     throw new Error(`Path traversal blocked: ${inputPath}`);
