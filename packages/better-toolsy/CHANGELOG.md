@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.0...better-toolsy/v1.1.1) (2026-06-06)
+
+
+### Bug Fixes
+
+* **better-toolsy:** allow absolute paths in safeResolve ([#67](https://github.com/jmcombs/pi-extensions/issues/67)) ([df2df2d](https://github.com/jmcombs/pi-extensions/commit/df2df2dd840445f9a7a241d4752d14e0ad33f72f)), closes [#66](https://github.com/jmcombs/pi-extensions/issues/66)
+
 ## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.0.1...better-toolsy/v1.1.0) (2026-06-01)
 
 
