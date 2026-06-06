@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.1...better-toolsy/v1.1.2) (2026-06-06)
+
+
+### Bug Fixes
+
+* **better-toolsy:** restore [skill] display when reading SKILL.md files ([#70](https://github.com/jmcombs/pi-extensions/issues/70)) ([9f6720e](https://github.com/jmcombs/pi-extensions/commit/9f6720e57a5e4e6fff079b282ade2add680a4498)), closes [#69](https://github.com/jmcombs/pi-extensions/issues/69)
+
 ## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.0...better-toolsy/v1.1.1) (2026-06-06)
 
 
