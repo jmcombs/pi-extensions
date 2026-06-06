@@ -659,9 +659,25 @@ export default function (pi: ExtensionAPI): void {
       "Read file contents with optional offset/limit. Guards against large files (50 KB cap).",
     parameters: readSchema,
     execute: readTool,
-    renderCall: (args: ReadInput, theme) => renderToolHeader("read", args.path, theme),
-    renderResult: (result, options, theme, context) =>
-      renderToolResult(result, context.isError, options.expanded, theme),
+    renderCall: (args: ReadInput, theme, context) => {
+      if (basename(args.path) === "SKILL.md" && !context.expanded) {
+        const skillName = basename(dirname(args.path)) || basename(args.path);
+        return new Text(
+          theme.fg("customMessageLabel", "\x1b[1m[skill]\x1b[22m ") +
+            theme.fg("customMessageText", skillName) +
+            theme.fg("dim", " (ctrl+o to expand)"),
+          0,
+          0,
+        );
+      }
+      return renderToolHeader("read", args.path, theme);
+    },
+    renderResult: (result, options, theme, context) => {
+      if (basename(context.args.path) === "SKILL.md" && !options.expanded) {
+        return new Container();
+      }
+      return renderToolResult(result, context.isError, options.expanded, theme);
+    },
   });
 
   pi.registerTool({
