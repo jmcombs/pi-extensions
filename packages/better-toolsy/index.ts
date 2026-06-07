@@ -237,15 +237,18 @@ export async function readTool(_toolCallId: string, params: ReadInput): Promise<
 
   try {
     const stat = await fs.stat(filePath);
-    if (stat.size > maxBytes) {
+    const wantsSlice = params.offset != null || params.limit != null;
+
+    if (stat.size > maxBytes && !wantsSlice) {
+      const totalLines = (await fs.readFile(filePath, "utf-8")).split("\n").length;
       return {
         content: [
           {
             type: "text",
-            text: `File is ${String(stat.size)} bytes. Use offset/limit to read portions.`,
+            text: `File is ${String(stat.size)} bytes (${String(totalLines)} lines). Use offset/limit to read it in chunks, e.g. {offset: 1, limit: 400}.`,
           },
         ],
-        details: { path: params.path, size: stat.size },
+        details: { path: params.path, size: stat.size, totalLines },
       };
     }
 
@@ -259,10 +262,21 @@ export async function readTool(_toolCallId: string, params: ReadInput): Promise<
         params.limit != null ? lines.slice(start, start + params.limit) : lines.slice(start);
     }
 
-    const output =
-      params.offset != null || params.limit != null
-        ? selected.map((line, i) => `${String(i + (params.offset ?? 1))}|${line}`).join("\n")
-        : raw;
+    const output = wantsSlice
+      ? selected.map((line, i) => `${String(i + (params.offset ?? 1))}|${line}`).join("\n")
+      : raw;
+
+    if (Buffer.byteLength(output, "utf-8") > maxBytes) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Requested slice is ${String(Buffer.byteLength(output, "utf-8"))} bytes, over the ${String(maxBytes)}-byte cap. Narrow the range — try a smaller limit, e.g. {offset: ${String(params.offset ?? 1)}, limit: ${String(Math.max(1, Math.floor((selected.length * maxBytes) / Buffer.byteLength(output, "utf-8"))))}}.`,
+          },
+        ],
+        details: { path: params.path, totalLines: lines.length, requestedLines: selected.length },
+      };
+    }
 
     return {
       content: [{ type: "text", text: output || "(empty file)" }],
@@ -656,7 +670,7 @@ export default function (pi: ExtensionAPI): void {
     name: "read",
     label: "Read File",
     description:
-      "Read file contents with optional offset/limit. Guards against large files (50 KB cap).",
+      "Read file contents with optional offset/limit. Files over the 50 KB cap must be read in chunks via offset/limit.",
     parameters: readSchema,
     execute: readTool,
     renderCall: (args: ReadInput, theme, context) => {
