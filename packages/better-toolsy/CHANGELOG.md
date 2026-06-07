@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.2...better-toolsy/v1.1.3) (2026-06-07)
+
+
+### Bug Fixes
+
+* **better-toolsy:** allow chunked reads of large files via offset/limit ([#73](https://github.com/jmcombs/pi-extensions/issues/73)) ([992081d](https://github.com/jmcombs/pi-extensions/commit/992081d57605015f0d742a111660779cd901586d)), closes [#72](https://github.com/jmcombs/pi-extensions/issues/72)
+
 ## [1.1.2](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.1...better-toolsy/v1.1.2) (2026-06-06)
 
 
