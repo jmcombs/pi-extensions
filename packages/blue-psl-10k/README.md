@@ -29,33 +29,27 @@ Then apply the theme:
 
 The footer renders two lines pinned to the bottom of the terminal.
 
-**Line 1**
+![Footer screenshot](https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/blue-psl-10k/footer-screenshot.png)
 
-```
-...Projects/pi-extensions ▶ main +!? ▶          ◀ 💰 $0.042 ◀ 🧠 high ◀ 🤖 claude-sonnet-4-6
-```
+**Line 1** — left: path and git status; right: cost, thinking level, model
 
 | Segment | What it shows |
 | ------- | ------------- |
 | Path | Truncated CWD (`…/parent/leaf`) |
-| Git | Branch name with OMP-style dirty indicators (`+` staged, `!` unstaged, `?` untracked) and ahead/behind counts (`↓2/↑1`) |
+| Git | Branch name with OMP-style dirty indicators (`+` staged, `!` unstaged, `?` untracked) and ahead/behind counts (`↓2/↑1`) — background color: green (clean), yellow (dirty), sky (ahead only), red (diverged) |
 | Cost | Accumulated session cost — hidden when $0 (local/free models) |
-| Thinking | Active thinking level (`min` `low` `med` `high` `max`) — hidden when off; color-coded from muted → blue → teal → sky → mauve |
+| Thinking | Active thinking level (`min` `low` `med` `high` `max`) — hidden when off; color-coded muted → blue → teal → sky → mauve |
 | Model | Active model ID |
 
-**Line 2**
-
-```
-                                                    ◀ 📊 ↓12.3K ↑4.5K ◀ cache 34% ◀ ctx 6%
-```
+**Line 2** — right-aligned: token I/O, cache efficiency, context fill
 
 | Segment | What it shows |
 | ------- | ------------- |
-| Tokens | `↓` read (input + cache-read) and `↑` write (output + cache-write) token counts — hidden at session start |
-| Cache | Cache hit rate as a percentage of total input — works for both Anthropic server-side prompt cache and llama.cpp KV cache; hidden when 0% |
-| Context | Context window fill percentage — color-coded green (<50%) → yellow (≥50%) → orange (≥80%) → red (≥90%) |
+| Tokens | `↓` read (input + cache-read) and `↑` write (output + cache-write) counts — hidden at session start |
+| Cache | Cache hit rate — works for Anthropic server-side prompt cache and llama.cpp KV cache; hidden when 0% |
+| Context | Context window fill — green (<50%) → yellow (≥50%) → orange (≥80%) → red (≥90%) |
 
-Line 2 is omitted entirely at session start before the first model response.
+Line 2 is omitted entirely before the first model response.
 
 ## Theme
 
