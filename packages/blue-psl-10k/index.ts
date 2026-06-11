@@ -14,7 +14,8 @@
  */
 
 import { execSync } from "node:child_process";
-import { cwd } from "node:process";
+import { homedir } from "node:os";
+import { cwd, platform } from "node:process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 
@@ -87,14 +88,20 @@ function reset(): string {
 
 // ── Data Gathering ─────────────────────────────────────────────────────
 
-function truncateCwd(cwdPath: string): string {
-  const parts = cwdPath.split("/").filter(Boolean);
-  if (parts.length <= 2) {
-    return cwdPath;
-  }
-  const leaf = parts.at(-1) ?? "";
-  const parent = parts.at(-2) ?? "";
-  return `.../${parent}/${leaf}`;
+const OS_ICON: string =
+  platform === "darwin"
+    ? "" //
+    : platform === "linux"
+      ? "" //
+      : platform === "win32"
+        ? "" //
+        : "";
+
+function tildeCwd(cwdPath: string): string {
+  const home = homedir();
+  if (cwdPath === home) return "~";
+  if (cwdPath.startsWith(`${home}/`)) return `~${cwdPath.slice(home.length)}`;
+  return cwdPath;
 }
 
 interface GitStatus {
@@ -307,7 +314,8 @@ function createFooter(session: ExtensionContext) {
     const line1Left: Segment[] = [];
     const line1Right: Segment[] = [];
 
-    line1Left.push({ text: truncateCwd(cwdPath || "."), fg: COLORS.PATH_FG, bg: COLORS.PATH_BG });
+    const pathText = OS_ICON ? `${OS_ICON} ${tildeCwd(cwdPath || ".")}` : tildeCwd(cwdPath || ".");
+    line1Left.push({ text: pathText, fg: COLORS.PATH_FG, bg: COLORS.PATH_BG });
 
     if (gitStatus) {
       const { text: gitText, bg: gitBg } = formatGitStatus(gitStatus);
