@@ -73,7 +73,7 @@ describe("@jmcombs/pi-blue-psl-10k", () => {
     factory(api);
 
     // Simulate session_start event firing
-    const sessionStartHandler = (api.on as any)("session_start");
+    const _sessionStartHandler = (api.on as any)("session_start");
     // We need to trigger the handler. Since on() registers handlers,
     // we simulate by calling the handler directly.
     // The factory calls pi.on("session_start", handler) so the handler is registered.
