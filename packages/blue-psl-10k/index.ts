@@ -287,8 +287,6 @@ function buildLine(left: Segment[], right: Segment[], width: number): string {
 }
 
 function createFooter(session: ExtensionContext) {
-  let invalidate: () => void = () => {};
-
   // getThinkingLevel() lives on ExtensionCommandContext, not ExtensionContext.
   // Seed from branch history then track via thinking_level_select events.
   let currentThinkingLevel = "off";
@@ -386,11 +384,8 @@ function createFooter(session: ExtensionContext) {
     return lines;
   }
 
-  invalidate = () => {};
-
   return {
     render,
-    invalidate,
     setThinkingLevel(level: string) {
       currentThinkingLevel = level;
     },
@@ -425,23 +420,36 @@ function visibleWidth(str: string): number {
 // ── Extension Factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
+  let currentTui: { invalidate(): void } | null = null;
+  let currentFooter: ReturnType<typeof createFooter> | null = null;
+
+  function triggerRedraw(): void {
+    currentTui?.invalidate();
+  }
+
   pi.on("session_start", (_event, ctx) => {
-    const footer = createFooter(ctx);
-    ctx.ui.setFooter((_tui, _theme) => footer);
-
-    // Invalidate on relevant events
-    pi.on("model_select", () => {
-      footer.invalidate();
+    currentFooter = createFooter(ctx);
+    const footer = currentFooter;
+    ctx.ui.setFooter((tui, _theme) => {
+      currentTui = tui;
+      return {
+        render: (width: number) => footer.render(width),
+        invalidate: () => {},
+        dispose: () => {
+          currentTui = null;
+        },
+      };
     });
+  });
 
-    pi.on("turn_end", () => {
-      footer.invalidate();
-    });
-
-    pi.on("thinking_level_select", (event) => {
-      footer.setThinkingLevel(event.level);
-      footer.invalidate();
-    });
+  // Registered once at the top level — not inside session_start — so they
+  // do not accumulate on every session start and do not keep extra event-loop
+  // references alive during pi install / pi update.
+  pi.on("model_select", () => triggerRedraw());
+  pi.on("turn_end", () => triggerRedraw());
+  pi.on("thinking_level_select", (event) => {
+    currentFooter?.setThinkingLevel(event.level);
+    triggerRedraw();
   });
 
   pi.registerCommand("blue-psl-restore-footer", {
