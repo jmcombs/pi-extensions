@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-blue-psl-10k",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Powerline-styled footer extension with the Blue PSL 10K theme — single-line status bar with git, context usage, token counts, and cost.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/blue-psl-10k",
   "repository": {
