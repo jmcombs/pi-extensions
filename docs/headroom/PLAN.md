@@ -74,7 +74,7 @@ manages its lifecycle.
   any proxy-side config (that would require relaunching the proxy → LD4 violation). It only **reads
   and reports** proxy settings via `client.proxyStats()` (`mode` + the `config` block) and tells the
   user how to change them on their own. Per-request `mode` control is deferred to the upstream track
-  (Phase 7).
+  (Phase 8).
 
 ---
 
@@ -147,7 +147,7 @@ LD7. The `session_start` notice must be non-fatal and fire at most once per sess
 2. `packages/headroom/package.json`: name `@jmcombs/pi-headroom`; `dependencies` includes
    `"headroom-ai"`; `peerDependencies` keep `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`,
    `typebox` at `"*"`; `keywords` include `pi-package`; `version` `0.0.0`; `private` removed only in
-   Phase 6 (stays for Phase 1).
+   Phase 7 (stays for Phase 1).
 3. `packages/headroom/client.ts`: exports `resolveConfig()` (arg → `AuthStorage("headroom")` →
    `HEADROOM_BASE_URL`/`HEADROOM_API_KEY` → default `http://127.0.0.1:8787`), a memoized
    `getClient()` returning a `HeadroomClient`, and `isHealthy(): Promise<boolean>` (short-TTL cached
@@ -209,7 +209,7 @@ exercised HEADLESS.
    create a GitHub issue in **this** repo (`jmcombs/pi-extensions`) titled e.g. *"Remove in-extension
    Pi↔OpenAI shim once Headroom SDK supports Pi format"*, describing LD8/Path A as a temporary
    workaround, and **link it to the upstream issue/PR** filed against `headroomlabs-ai/headroom`
-   (Phase 7). This TODO **stays unchecked** until that upstream issue/PR exists and is cross-linked —
+   (Phase 8). This TODO **stays unchecked** until that upstream issue/PR exists and is cross-linked —
    the verifier does **not** tick it and does **not** block the phase on it (it is tracked under the
    Upstream follow-up section, not a Phase 2 gate). The validated upstream fix is already documented
    in `~/Projects/headroom/PI-FORMAT-NOTE.md`.
@@ -267,7 +267,7 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 > `compress_user_messages`, …). So Phase 4 is redefined to **detect and display** proxy state rather
 > than set it — the user changes proxy settings on their own. **LD9:** the extension only ever
 > **reads/reports** proxy settings; it never sets `mode` or any proxy-side config (LD4 preserved).
-> Per-request `mode` control is deferred to the upstream track (Phase 7).
+> Per-request `mode` control is deferred to the upstream track (Phase 8).
 
 **Objectives:** A persistent, **read-only** status display — modeled on `packages/prompt-enhancer/`'s
 footer-chip/widget pattern (`ctx.ui.setStatus` / `ctx.ui.setWidget`, guarded by `ctx.hasUI`) — that
@@ -348,7 +348,58 @@ pass); the **proxy** savings summary is an HTTP call, so refresh it at sensible 
 
 ---
 
-## Phase 6 — Release wiring
+## Phase 6 — Recall-reliability defect remediation: query-aware auto-retrieve
+
+> **Origin — a defect found in real-environment testing, not a planned feature.** This phase was
+> **not** in the original plan; it was added after **live cross-model testing** of the already-built
+> Phases 2–3 (compression + `headroom_retrieve`) exposed a real-environment defect: the retrieve
+> **tool** alone does not guarantee recall. Whole-conversation compression crushes a bulky tool
+> result to `[N lines compressed to 0. … hash=<hash>]` — the salient line does not survive — so
+> recovering it then depends on the **model** choosing to call `headroom_retrieve`. Empirically only
+> opus-4-8 did so reliably; grok-4.3, haiku-4-5, and sonnet-4-5 did **not**, so a later recall
+> question failed even though the original sat intact in the CCR store (`compress()` crushes the
+> needle to `compressed to 0`; `retrieve(hash)` returns it). The LD2 reversibility guarantee held at
+> the API level but broke at the agent level. **This phase is the remediation** — appended as Phase 6
+> (Release wiring → Phase 7, Upstream → Phase 8) rather than inserted as a "4.5".
+
+**Objectives:** Make recall **model-independent** by removing the dependence on the model invoking
+the retrieve tool. The `context` hook already sees the user's newest turn (the recall question), so
+when the latest turn is a user question against compressed content carrying a CCR marker, the hook
+proactively retrieves the original and re-injects only the line(s) that **lexically match** the
+question — next to their marker. The model then answers from context with no tool call. The
+`headroom_retrieve` tool stays (LD2) as the manual fallback for what auto-retrieve doesn't cover.
+
+**Actionable TODOs:**
+1. `packages/headroom/query.ts` (new): shared deterministic `filterByQuery` lexical line scorer
+   (+ `MAX_FILTERED_LINES`), extracted so the retrieve tool and auto-retrieve use **one** matcher
+   (more reliable than the proxy's semantic search, which misses ordinary substrings).
+2. `packages/headroom/autoretrieve.ts` (new): `augmentWithAutoRetrieve` — fires **only** on a user
+   turn, **only** on a real lexical match (a non-matching query injects nothing → savings untouched),
+   ≤25 lines/marker, ≤3 markers (`collectMarkers` gated on the CCR `compressed to` signature so a
+   stray `hash=` in prose is never mistaken for a marker), never throws (LD3), copy-on-write
+   injection (LD8 — originals never mutated).
+3. `packages/headroom/index.ts`: wire auto-retrieve into the `context` hook **after** compression;
+   on by default, flag `--headroom-no-autoretrieve` reverts to retrieve-on-demand.
+4. `packages/headroom/pi-format.ts`: `rewriteRetrieveMarker` rewrites the inline CCR marker into a
+   **directive** that names the `headroom_retrieve` tool (strengthens the manual fallback path).
+
+**Architectural Constraints:** LD1 (context hook), LD2 (`headroom_retrieve` unchanged, always on),
+LD3 (never throw; bounded; early-return cheaply when there are no markers/no user query — no added
+latency on no-op turns), LD8 (copy-on-write; input array and message objects never mutated), LD9
+(read-only — `client.retrieve` only).
+
+**Testing Gates:**
+
+| # | Method | Command | Expected |
+| - | ------ | ------- | -------- |
+| 6.1 | AUTO | `npm run check` | exit 0 |
+| 6.2 | AUTO | `npm run test -- packages/headroom` | auto-retrieve helper + context-hook wiring + `--headroom-no-autoretrieve` bypass + marker-signature gating + copy-on-write all covered; suite green |
+| 6.3 | HEADLESS | live `compressMessages` → `augmentWithAutoRetrieve` against the proxy on a crushed bulky log | needle (node+build+region) absent after compress, **present** after auto-retrieve; ~99% of compression savings retained (≈1 line re-injected) |
+| 6.4 | HEADLESS-RPC | cross-model matrix (grok-4.3, haiku-4-5, sonnet-4-5, opus-4-8, GLM-5.2) via `--mode rpc -e ./packages/headroom` | T4 recall correct for every model **without** a model-issued `headroom_retrieve` call |
+
+---
+
+## Phase 7 — Release wiring
 
 **Objectives:** Register the package with Release Please.
 
@@ -357,21 +408,24 @@ pass); the **proxy** savings summary is an HTTP call, so refresh it at sensible 
    `component: headroom`, `package-name: @jmcombs/pi-headroom`).
 2. `.release-please-manifest.json`: add `"packages/headroom": "0.0.0"`.
 3. `packages/headroom/package.json`: remove `"private": true`; keep `version` `0.0.0`.
-4. Root `README.md`: add `@jmcombs/pi-headroom` to the package table.
+4. `packages/headroom/package.json`: ensure the `files` array ships **every** runtime source — add
+   `status.ts` (Phase 4), `query.ts` and `autoretrieve.ts` (Phase 6); currently missing, so the
+   published package would be incomplete.
+5. Root `README.md`: add `@jmcombs/pi-headroom` to the package table.
 
 **Testing Gates:**
 
 | # | Method | Command | Expected |
 | - | ------ | ------- | -------- |
-| 6.1 | AUTO | `npm run check` | exit 0 (incl. `check:versions`) |
-| 6.2 | AUTO | `node -e "JSON.parse(require('fs').readFileSync('release-please-config.json'));JSON.parse(require('fs').readFileSync('.release-please-manifest.json'))"` | both parse; `headroom` present in each |
-| 6.3 | AUTO | `node -e "const p=require('./packages/headroom/package.json'); if(p.private)process.exit(1); if(p.version!=='0.0.0')process.exit(1)"` | exit 0 |
+| 7.1 | AUTO | `npm run check` | exit 0 (incl. `check:versions`) |
+| 7.2 | AUTO | `node -e "JSON.parse(require('fs').readFileSync('release-please-config.json'));JSON.parse(require('fs').readFileSync('.release-please-manifest.json'))"` | both parse; `headroom` present in each |
+| 7.3 | AUTO | `node -e "const p=require('./packages/headroom/package.json'); if(p.private)process.exit(1); if(p.version!=='0.0.0')process.exit(1); for(const f of ['status.ts','query.ts','autoretrieve.ts']) if(!p.files.includes(f))process.exit(1)"` | exit 0 (not private; 0.0.0; all runtime sources in `files`) |
 
 ---
 
-## Phase 7 — Upstream Headroom Pi-format contribution (follow-up — do **last**)
+## Phase 8 — Upstream Headroom Pi-format contribution (follow-up — do **last**)
 
-**Do this only after Phases 1–6 are merged and the extension ships.** This removes the need for the
+**Do this only after Phases 1–7 are merged and the extension ships.** This removes the need for the
 in-extension Path A shim (LD8) by teaching Headroom's own SDK the Pi format. It is a contribution to
 a **third-party repo**, handled by its **own dedicated agent**, and is **not** gated by this repo's
 build/verify loop.
@@ -392,13 +446,13 @@ known fidelity gaps, and a per-step checklist — lives in **`~/Projects/headroo
    reference the upstream issue/PR URLs. Only then can that tracking TODO be considered resolved.
 4. Once upstream merges and releases, follow up to **remove the Path A shim (LD8)** —
    `packages/headroom/pi-format.ts` and its use in `compress.ts` — behind a version bump of
-   `headroom-ai`. (Separate future change; not part of this PLAN's Phases 1–6.)
+   `headroom-ai`. (Separate future change; not part of this PLAN's Phases 1–7.)
 5. **Per-request `mode` (LD9 follow-up):** file an upstream request for a **per-request token/cache
    `mode` on `/v1/compress`** (and a typed SDK `CompressOptions.mode`). Today mode is server-launch-
    only, so the extension can only *display* it (Phase 4 / LD9). If upstream adds per-request mode,
    the extension could then offer a real settable mode without violating LD4.
 
-There are **no committed Testing Gates** for Phase 7 in this repo — its acceptance is the upstream
+There are **no committed Testing Gates** for Phase 8 in this repo — its acceptance is the upstream
 PR's own CI and review. Record the issue/PR URLs in Appendix C when they exist.
 
 ---
@@ -429,13 +483,17 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 
 ## Appendix C — Completion tracking (verifier ticks on PASS)
 
+> Legend: `[x]` = verified PASS **and merged**; `[~]` = built + verified PASS but **not yet merged**;
+> `[ ]` = not started.
+
 - [x] Phase 1 — Scaffold + proxy client + status commands — merged in #86; all gates 1.1–1.6 verified (1.5/1.6 via HEADLESS-RPC)
 - [x] Phase 2 — Whole-conversation compression via `context` — verified in #92; gates 2.1–2.6 re-derived green (2.3/2.4/2.5 HEADLESS, 2.6 HEADLESS-RPC + registered-surface accumulation)
 - [x] Phase 3 — `headroom_retrieve` tool — verified in #93; gates 3.1–3.4 re-derived green (3.3 HEADLESS, 3.4 via registered `headroom_retrieve.execute` against live proxy — RPC has no tool-invoke command); LD2/LD3 confirmed empirically
 - [x] Phase 4 — Status display: extension state + proxy reachability + proxy settings — verified in #95; gates 4.1–4.5 re-derived green (4.3/4.4 HEADLESS against live proxy v0.27.0, 4.5 HEADLESS-RPC); 4.6 widget CONTENT proven via captured `setWidget` RPC event (pixel render UNVERIFIED, visual-only per gate wording); LD3-no-latency/LD4/LD9 read-only confirmed empirically (proxy untouched after down-path)
-- [x] Phase 5 — UX, metrics, docs, asset — verified in #96; gates 5.1–5.4 re-derived green (5.3 both halves: asset present + no template residue; 5.4 HEADLESS-RPC: stats emits real proxyStats breakdown, simulate emits real dry-run projection 7.1k→855 tokens / 88% / log transform against live proxy v0.27.0); LD3 (no-throw, graceful unreachable), LD4/LD9 (read-only proxyStats/simulate), LD5 (headroom-ai in deps, peers "*") confirmed; no Phase 6 wiring pulled forward (private:true, 0.0.0)
-- [ ] Phase 6 — Release wiring
-- [ ] Phase 7 — Upstream Headroom Pi-format contribution (follow-up; do last). Tracking issue: _TBD_;
+- [x] Phase 5 — UX, metrics, docs, asset — verified in #96; gates 5.1–5.4 re-derived green (5.3 both halves: asset present + no template residue; 5.4 HEADLESS-RPC: stats emits real proxyStats breakdown, simulate emits real dry-run projection 7.1k→855 tokens / 88% / log transform against live proxy v0.27.0); LD3 (no-throw, graceful unreachable), LD4/LD9 (read-only proxyStats/simulate), LD5 (headroom-ai in deps, peers "*") confirmed; no release wiring pulled forward (private:true, 0.0.0). **UX revisions pending** — the user was not ready to merge the Phase 5 UX; follow-up UX changes to be folded in.
+- [~] Phase 6 — Recall-reliability defect remediation (query-aware auto-retrieve) — **built + adversarially verified PASS, NOT yet merged**. Defect found in live cross-model testing of Phases 2–3 (weaker models don't call `headroom_retrieve`, so recall failed). Commits `b8e0e46` (feat) + `8a6ba3a` (test/harden) on branch `fix/headroom-retrieve-marker-directive`; 55 headroom tests green, full `npm run check` green; gates 6.1–6.4 satisfied empirically (T4 flipped ❌→✅ for grok-4.3/haiku-4-5/sonnet-4-5, opus-4-8 stayed ✅, GLM-5.2 ✅, all without a model-issued retrieve). Awaiting PR + merge.
+- [ ] Phase 7 — Release wiring (was Phase 6). Note: `package.json` `files` array currently omits `status.ts`, `query.ts`, `autoretrieve.ts` — fix here (gate 7.3).
+- [ ] Phase 8 — Upstream Headroom Pi-format contribution (was Phase 7; follow-up; do last). Tracking issue: _TBD_;
       upstream issue: _TBD_; upstream PR: _TBD_. Stays unchecked until upstream issue/PR exist and the
       Phase 2 tracking issue back-links them.
 

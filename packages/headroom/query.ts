@@ -2,7 +2,7 @@
  * @jmcombs/pi-headroom — deterministic query → line matching.
  *
  * Shared by the `headroom_retrieve` tool (Phase 3) and the query-aware
- * auto-retrieve step (Phase 4.5): given the recovered original text and a few
+ * auto-retrieve step (Phase 6): given the recovered original text and a few
  * query words, return the line(s) that best match. This is deliberately a
  * **lexical** matcher, not the proxy's semantic search — the proxy's search
  * misses ordinary substrings (e.g. `txn 147`), whereas this is exact,

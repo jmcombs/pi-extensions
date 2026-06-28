@@ -1,5 +1,5 @@
 /**
- * @jmcombs/pi-headroom — query-aware auto-retrieve (Phase 4.5).
+ * @jmcombs/pi-headroom — query-aware auto-retrieve (Phase 6).
  *
  * Whole-conversation compression crushes bulky tool results to near-zero and
  * leaves an inline CCR marker (`… hash=<hash>`). Recovering the elided detail

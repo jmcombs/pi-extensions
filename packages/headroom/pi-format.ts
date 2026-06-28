@@ -6,7 +6,7 @@
  * `detectFormat()` falls through to `"openai"` and returns the messages
  * unchanged, so compression never fires on real Pi sessions (~0% savings).
  *
- * Until the upstream SDK learns the Pi format (Phase 7), this module performs
+ * Until the upstream SDK learns the Pi format (Phase 8), this module performs
  * the conversion **in-process**:
  *
  *   Pi `AgentMessage[]`  →  `piToOpenAI`  →  OpenAI messages

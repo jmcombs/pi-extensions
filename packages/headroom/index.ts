@@ -702,7 +702,7 @@ export default function (pi: ExtensionAPI): void {
     default: false,
   });
 
-  // Query-aware auto-retrieve (Phase 4.5): on by default so recall works across
+  // Query-aware auto-retrieve (Phase 6): on by default so recall works across
   // models without the model having to call `headroom_retrieve`. The flag turns
   // it off, reverting to retrieve-on-demand.
   pi.registerFlag(AUTORETRIEVE_DISABLE_FLAG, {
@@ -839,7 +839,7 @@ export default function (pi: ExtensionAPI): void {
       // the proxy snapshot — never an extra blocking HTTP call here (LD3).
       updateDisplay(ctx);
 
-      // Query-aware auto-retrieve (Phase 4.5): when the latest turn is a user
+      // Query-aware auto-retrieve (Phase 6): when the latest turn is a user
       // question against compressed content, re-inject the line(s) that match it
       // so recall is model-independent. Only touches messages on a real match;
       // never throws (the helper swallows retrieve errors, LD3).

@@ -168,14 +168,14 @@ describe("@jmcombs/pi-headroom", () => {
     expect(log.flags).toContain("headroom-no-compress");
   });
 
-  it("registers the auto-retrieve disable flag (Phase 4.5)", () => {
+  it("registers the auto-retrieve disable flag (Phase 6)", () => {
     const { api, log } = createApiStub();
     factory(api);
 
     expect(log.flags).toContain("headroom-no-autoretrieve");
   });
 
-  describe("context hook auto-retrieve wiring (Phase 4.5)", () => {
+  describe("context hook auto-retrieve wiring (Phase 6)", () => {
     const baseMessages = [{ role: "user", content: "hi" }];
 
     it("runs auto-retrieve after compression when the flag is unset", async () => {
