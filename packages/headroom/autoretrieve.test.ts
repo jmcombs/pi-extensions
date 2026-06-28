@@ -5,7 +5,7 @@ import {
   collectMarkers,
   latestUserQuery,
 } from "./autoretrieve.js";
-import type { PiMessage } from "./pi-format.js";
+import { type PiMessage, rewriteRetrieveMarker } from "./pi-format.js";
 
 const LOG = [
   "2026-06-28 11:00:01 INFO  gateway routed alice /api/x -> 200 in 5ms",
@@ -67,6 +67,25 @@ describe("collectMarkers", () => {
   it("returns [] when no markers present", () => {
     expect(collectMarkers([userMsg("a"), userMsg("b")])).toEqual([]);
   });
+
+  it("ignores a stray hash= that is not a CCR marker (no 'compressed to')", () => {
+    // A user mentioning a git hash must not be mistaken for a marker (F2).
+    expect(collectMarkers([userMsg("what does commit hash=abcdef1234 mean?")])).toEqual([]);
+  });
+
+  it("matches the rewritten directive marker form (post rewriteRetrieveMarker)", () => {
+    // Production text reaching collectMarkers is the rewritten directive, not
+    // the raw "Retrieve more: hash=" phrasing.
+    const rewritten = rewriteRetrieveMarker(
+      "[300 lines compressed to 0. Retrieve more: hash=1b55ac35e8690d5a78a3afa1]",
+    );
+    expect(rewritten).toContain("headroom_retrieve");
+    const markers = collectMarkers([
+      { role: "toolResult", toolCallId: "tc1", content: rewritten } as unknown as PiMessage,
+      userMsg("q"),
+    ]);
+    expect(markers).toEqual([{ index: 0, hash: "1b55ac35e8690d5a78a3afa1" }]);
+  });
 });
 
 describe("augmentWithAutoRetrieve", () => {
@@ -89,6 +108,12 @@ describe("augmentWithAutoRetrieve", () => {
     expect(injected).toContain("hash=deadbeef");
     // The user message is untouched.
     expect(res.messages[1]).toBe(messages[1]);
+    // Copy-on-write (LD8): the injected slot is a NEW object and the original
+    // marker message is not mutated.
+    expect(res.messages[0]).not.toBe(messages[0]);
+    expect(String((messages[0] as { content: unknown }).content)).toBe(
+      "[300 lines compressed to 0. Retrieve more: hash=deadbeef]",
+    );
   });
 
   it("is a no-op when the latest turn is not a user question", async () => {

@@ -41,6 +41,16 @@ const DEFAULT_MAX_MARKERS = 3;
 /** Extract a CCR hash from text (after `hash=`); hex, ≥ 6 chars. */
 const HASH_RE = /hash=([0-9a-fA-F]{6,})/;
 
+/**
+ * Signature of a Headroom CCR marker, present in both the raw
+ * (`[N lines compressed to M. Retrieve more: hash=…]`) and the rewritten
+ * directive form (which keeps the leading `[N … compressed to M.` summary).
+ * Requiring it stops an unrelated `hash=<hex>` in ordinary prose from being
+ * mistaken for a marker (which would waste a retrieve and, worse, could crowd
+ * out genuine markers under the per-turn cap).
+ */
+const MARKER_HINT = /compressed to/i;
+
 function roleOf(message: unknown): unknown {
   return (message as { role?: unknown } | null)?.role;
 }
@@ -83,7 +93,9 @@ export function collectMarkers(messages: readonly PiMessage[]): Marker[] {
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index];
     if (message === undefined) continue;
-    const match = HASH_RE.exec(textOf(message));
+    const text = textOf(message);
+    if (!MARKER_HINT.test(text)) continue;
+    const match = HASH_RE.exec(text);
     if (match?.[1]) markers.push({ index, hash: match[1] });
   }
   return markers;

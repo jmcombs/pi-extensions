@@ -13,7 +13,32 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Mock the heavy collaborators so the `context` hook can be exercised with no
+// network. The pure-helper and registration tests in this file don't touch
+// these, so file-level mocks are safe.
+vi.mock("./compress.js", () => ({
+  compressMessages: vi.fn(async (messages: unknown) => ({ messages, tokensSaved: 0 })),
+}));
+vi.mock("./client.js", () => ({
+  isHealthy: vi.fn(async () => true),
+  getClient: vi.fn(async () => ({ retrieve: vi.fn() })),
+  resolveConfig: vi.fn(async () => ({ baseUrl: "http://127.0.0.1:8787", apiKey: undefined })),
+}));
+vi.mock("./autoretrieve.js", () => ({
+  augmentWithAutoRetrieve: vi.fn(async (messages: unknown) => ({
+    messages,
+    injectedLines: 0,
+    injectedMarkers: 0,
+  })),
+}));
+vi.mock("./status.js", async () => {
+  const actual = await vi.importActual<typeof import("./status.js")>("./status.js");
+  return { ...actual, getProxyStatus: vi.fn(async () => ({ reachable: false as const })) };
+});
+
+import { augmentWithAutoRetrieve } from "./autoretrieve.js";
 import factory, {
   accumulateSavings,
   buildSimulationMessages,
@@ -41,12 +66,21 @@ interface RegistrationLog {
   events: string[];
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: handler signatures vary per event
+type Handler = (...args: any[]) => unknown;
+
 /**
  * Builds a minimal ExtensionAPI stub that records what the factory registers.
  * Only the surface used by this extension is implemented; other methods
- * throw if called so missing coverage is loud.
+ * throw if called so missing coverage is loud. `flags` configures `getFlag`
+ * return values; `handlers` captures registered event handlers so they can be
+ * invoked directly.
  */
-function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
+function createApiStub(flags: Record<string, unknown> = {}): {
+  api: ExtensionAPI;
+  log: RegistrationLog;
+  handlers: Record<string, Handler>;
+} {
   const log: RegistrationLog = {
     tools: [],
     commands: [],
@@ -54,15 +88,18 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     flags: [],
     events: [],
   };
+  const handlers: Record<string, Handler> = {};
 
   const notImplemented = (method: string) => () => {
     throw new Error(`ExtensionAPI.${method} not implemented in test stub`);
   };
 
   const api = {
-    on: ((event: string) => {
+    on: ((event: string, handler: Handler) => {
       log.events.push(event);
+      handlers[event] = handler;
     }) as unknown as ExtensionAPI["on"],
+    getFlag: ((name: string) => flags[name]) as unknown as ExtensionAPI["getFlag"],
     registerTool: ((tool: { name: string }) => {
       log.tools.push(tool.name);
     }) as unknown as ExtensionAPI["registerTool"],
@@ -75,7 +112,6 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     registerFlag: ((name: string) => {
       log.flags.push(name);
     }) as unknown as ExtensionAPI["registerFlag"],
-    getFlag: notImplemented("getFlag"),
     registerMessageRenderer: notImplemented("registerMessageRenderer"),
     sendMessage: notImplemented("sendMessage"),
     sendUserMessage: notImplemented("sendUserMessage"),
@@ -91,7 +127,23 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     setModel: notImplemented("setModel"),
   } as unknown as ExtensionAPI;
 
-  return { api, log };
+  return { api, log, handlers };
+}
+
+/** Fetch a registered handler, failing loudly (and narrowing the type) if absent. */
+function requireHandler(handlers: Record<string, Handler>, event: string): Handler {
+  const handler = handlers[event];
+  if (!handler) throw new Error(`handler for "${event}" was not registered`);
+  return handler;
+}
+
+/** Minimal ExtensionContext for invoking the `context` hook (no UI). */
+function createCtxStub() {
+  return {
+    hasUI: false,
+    model: { id: "test-model" },
+    ui: {},
+  } as unknown as Parameters<Handler>[1];
 }
 
 describe("@jmcombs/pi-headroom", () => {
@@ -114,6 +166,71 @@ describe("@jmcombs/pi-headroom", () => {
 
     expect(log.events).toContain("context");
     expect(log.flags).toContain("headroom-no-compress");
+  });
+
+  it("registers the auto-retrieve disable flag (Phase 4.5)", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    expect(log.flags).toContain("headroom-no-autoretrieve");
+  });
+
+  describe("context hook auto-retrieve wiring (Phase 4.5)", () => {
+    const baseMessages = [{ role: "user", content: "hi" }];
+
+    it("runs auto-retrieve after compression when the flag is unset", async () => {
+      vi.mocked(augmentWithAutoRetrieve).mockClear();
+      const { api, handlers } = createApiStub({
+        "headroom-no-compress": false,
+        "headroom-no-autoretrieve": false,
+      });
+      factory(api);
+      const context = requireHandler(handlers, "context");
+
+      const result = (await context({ messages: baseMessages }, createCtxStub())) as {
+        messages: unknown;
+      };
+
+      expect(augmentWithAutoRetrieve).toHaveBeenCalledTimes(1);
+      // maxMarkers is threaded through from AUTORETRIEVE_MAX_MARKERS.
+      const call = vi.mocked(augmentWithAutoRetrieve).mock.calls[0];
+      expect(call?.[2]).toEqual({ maxMarkers: 3 });
+      expect(result.messages).toBe(baseMessages);
+    });
+
+    it("bypasses auto-retrieve when --headroom-no-autoretrieve is set", async () => {
+      vi.mocked(augmentWithAutoRetrieve).mockClear();
+      const { api, handlers } = createApiStub({
+        "headroom-no-compress": false,
+        "headroom-no-autoretrieve": true,
+      });
+      factory(api);
+      const context = requireHandler(handlers, "context");
+
+      const result = (await context({ messages: baseMessages }, createCtxStub())) as {
+        messages: unknown;
+      };
+
+      expect(augmentWithAutoRetrieve).not.toHaveBeenCalled();
+      expect(result.messages).toBe(baseMessages);
+    });
+
+    it("does not run auto-retrieve when compression is disabled (passthrough)", async () => {
+      vi.mocked(augmentWithAutoRetrieve).mockClear();
+      const { api, handlers } = createApiStub({
+        "headroom-no-compress": true,
+        "headroom-no-autoretrieve": false,
+      });
+      factory(api);
+      const context = requireHandler(handlers, "context");
+
+      const result = await context({ messages: baseMessages }, createCtxStub());
+
+      // Compression off → the hook returns nothing (leaves messages untouched)
+      // and never reaches auto-retrieve.
+      expect(augmentWithAutoRetrieve).not.toHaveBeenCalled();
+      expect(result).toBeUndefined();
+    });
   });
 
   it("registers the headroom-stats and headroom-simulate commands (Phase 5)", () => {
