@@ -14,7 +14,15 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { accumulateSavings } from "./index.js";
+import factory, {
+  accumulateSavings,
+  buildSimulationMessages,
+  extractDetailedStats,
+  extractSimulation,
+  formatSimulationReport,
+  formatStatsReport,
+  type StatsReportState,
+} from "./index.js";
 import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
 import { formatStatusLine, normalizeProxyStats, type StatusDisplayState } from "./status.js";
 
@@ -99,6 +107,14 @@ describe("@jmcombs/pi-headroom", () => {
 
     expect(log.events).toContain("context");
     expect(log.flags).toContain("headroom-no-compress");
+  });
+
+  it("registers the headroom-stats and headroom-simulate commands (Phase 5)", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    expect(log.commands).toContain("headroom-stats");
+    expect(log.commands).toContain("headroom-simulate");
   });
 
   it("registers the headroom_retrieve tool (Phase 3, always enabled — LD2)", () => {
@@ -372,5 +388,171 @@ describe("formatStatusLine", () => {
     expect(formatStatusLine({ ...reachable, proxyTokensSaved: 950 }, 950)).toContain(
       "saved 950 this session",
     );
+  });
+});
+
+// ── Phase 5: detailed stats + dry-run simulate (no network) ─────────────
+
+describe("extractDetailedStats", () => {
+  it("maps the live proxyStats() runtime onto DetailedStats (no network)", () => {
+    // Stub mirrors the real (camelCased) proxyStats() runtime verified against
+    // the live proxy v0.27.0: mode/requests under `summary`, lifetime savings
+    // under `tokens`, tuning under `config`, per-strategy maps at top level.
+    const stub = {
+      summary: {
+        mode: "token",
+        apiRequests: 12,
+        compression: { requestsCompressed: 6, avgCompressionPct: 41 },
+      },
+      tokens: { saved: 31200, savingsPercent: 29 },
+      config: {
+        targetRatio: null,
+        protectRecent: null,
+        compressUserMessages: false,
+        minTokensToCrush: 500,
+        maxItemsAfterCrush: 50,
+      },
+      tokensSavedByStrategy: { smartCrusher: 19297, search: 7532, kompress: 2978 },
+      compressionsByStrategy: { smartCrusher: 7, search: 4, kompress: 4 },
+    };
+
+    expect(extractDetailedStats(stub)).toEqual({
+      mode: "token",
+      lifetimeTokensSaved: 31200,
+      savingsPercent: 29,
+      apiRequests: 12,
+      requestsCompressed: 6,
+      avgCompressionPct: 41,
+      targetRatio: undefined,
+      protectRecent: undefined,
+      compressUserMessages: false,
+      minTokensToCrush: 500,
+      maxItemsAfterCrush: 50,
+      tokensSavedByStrategy: { smartCrusher: 19297, search: 7532, kompress: 2978 },
+      compressionsByStrategy: { smartCrusher: 7, search: 4, kompress: 4 },
+    });
+  });
+
+  it("returns all-undefined fields for an empty/garbage object (never throws)", () => {
+    expect(() => extractDetailedStats(undefined)).not.toThrow();
+    const empty = extractDetailedStats({});
+    expect(empty.mode).toBeUndefined();
+    expect(empty.lifetimeTokensSaved).toBeUndefined();
+    expect(empty.tokensSavedByStrategy).toBeUndefined();
+  });
+});
+
+describe("formatStatsReport", () => {
+  const reachable: StatsReportState = {
+    reachable: true,
+    version: "0.27.0",
+    baseUrl: "http://127.0.0.1:8787",
+    detail: {
+      mode: "token",
+      lifetimeTokensSaved: 31200,
+      savingsPercent: 29,
+      apiRequests: 12,
+      requestsCompressed: 6,
+      avgCompressionPct: 41,
+      minTokensToCrush: 500,
+      maxItemsAfterCrush: 50,
+      tokensSavedByStrategy: { smartCrusher: 19297, search: 7532 },
+      compressionsByStrategy: { smartCrusher: 7, search: 4 },
+    },
+  };
+
+  it("renders a multi-line detailed report with session + lifetime + strategy breakdown", () => {
+    const report = formatStatsReport(reachable, 8800);
+    expect(report).toContain("Headroom stats — proxy 0.27.0 · mode token");
+    expect(report).toContain("Session: saved 8.8k tokens this session");
+    expect(report).toContain("Lifetime: saved 31.2k tokens (29% compression)");
+    expect(report).toContain("Requests: 12 requests · 6 compressed · avg 41%");
+    expect(report).toContain("min-crush 500");
+    // Richest strategy first.
+    expect(report).toContain("By strategy: smartCrusher 19.3k (7) · search 7.5k (4)");
+  });
+
+  it("shows a single unreachable report that keeps the session figure (LD3)", () => {
+    const down: StatsReportState = {
+      reachable: false,
+      baseUrl: "http://127.0.0.1:8787",
+    };
+    const report = formatStatsReport(down, 8800);
+    expect(report).toContain("proxy unreachable at http://127.0.0.1:8787");
+    expect(report).toContain("Session: saved 8.8k tokens this session");
+    expect(report).not.toContain("Lifetime");
+  });
+
+  it("treats non-finite session savings as 0", () => {
+    expect(formatStatsReport(reachable, Number.NaN)).toContain("saved 0 tokens this session");
+  });
+});
+
+describe("buildSimulationMessages", () => {
+  it("wraps the blob as a stale read_file tool result with a trailing user turn (recency-aware)", () => {
+    const messages = buildSimulationMessages("a heavy log blob");
+    expect(messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user"]);
+    const tool = messages[2] as { role: string; content: unknown; tool_call_id?: string };
+    expect(tool.content).toBe("a heavy log blob");
+    expect(tool.tool_call_id).toBe("headroom_sim");
+    const assistant = messages[1] as { tool_calls?: { function?: { name?: string } }[] };
+    expect(assistant.tool_calls?.[0]?.function?.name).toBe("read_file");
+  });
+});
+
+describe("extractSimulation", () => {
+  it("maps the live simulate() runtime onto SimulationSummary (no network)", () => {
+    // Stub mirrors the real dry-run runtime verified against the live proxy
+    // v0.27.0 — the published SimulationResult type is stale.
+    const stub = {
+      messages: [],
+      tokensBefore: 27322,
+      tokensAfter: 7958,
+      tokensSaved: 19364,
+      compressionRatio: 0.28,
+      transformsApplied: ["router:smartCrusher:0.28", "router:protected:userMessage"],
+      transformsSummary: { "router:smartCrusher:0.28": 1, "router:protected:userMessage": 2 },
+      ccrHashes: [],
+    };
+    expect(extractSimulation(stub)).toEqual({
+      tokensBefore: 27322,
+      tokensAfter: 7958,
+      tokensSaved: 19364,
+      compressionRatio: 0.28,
+      transformsSummary: { "router:smartCrusher:0.28": 1, "router:protected:userMessage": 2 },
+    });
+  });
+
+  it("never throws on an empty/garbage object", () => {
+    expect(() => extractSimulation(undefined)).not.toThrow();
+    expect(extractSimulation({}).tokensSaved).toBeUndefined();
+  });
+});
+
+describe("formatSimulationReport", () => {
+  it("renders projected savings + transforms with a percent", () => {
+    const report = formatSimulationReport(
+      {
+        tokensBefore: 27322,
+        tokensAfter: 7958,
+        tokensSaved: 19364,
+        compressionRatio: 0.28,
+        transformsSummary: { "router:smartCrusher:0.28": 1, "router:protected:userMessage": 2 },
+      },
+      18360,
+    );
+    expect(report).toContain("dry-run, no LLM call");
+    expect(report).toContain("18,360 chars in");
+    expect(report).toContain("Projected: 27.3k → 8k tokens · saved 19.4k (71%)");
+    // `router:` prefix stripped; richest transform first.
+    expect(report).toContain("Transforms: protected:userMessage ×2 · smartCrusher:0.28 ×1");
+  });
+
+  it("is honest about a non-compressible blob (saved 0)", () => {
+    const report = formatSimulationReport(
+      { tokensBefore: 100, tokensAfter: 100, tokensSaved: 0 },
+      400,
+    );
+    expect(report).toContain("saved 0 (0%) — this content would not compress");
   });
 });

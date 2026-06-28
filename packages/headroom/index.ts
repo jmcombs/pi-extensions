@@ -50,12 +50,14 @@ import {
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
+import { HeadroomClient, type OpenAIMessage, simulate } from "headroom-ai";
 import { type Static, Type } from "typebox";
 import { getClient, isHealthy, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
 import {
   formatStatusLine,
   getProxyStatus,
+  humanizeTokens,
   type ProxyStatusState,
   type StatusDisplayState,
 } from "./status.js";
@@ -85,6 +87,331 @@ const PROXY_SNAPSHOT_TTL_MS = 30_000;
 export function accumulateSavings(previous: number, tokensSaved: number): number {
   if (!Number.isFinite(tokensSaved) || tokensSaved <= 0) return previous;
   return previous + tokensSaved;
+}
+
+const STATS_TIMEOUT_MS = 3_000;
+
+/** Coerce to a finite number, or `undefined`. */
+function asNum(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+/** Coerce to a non-empty string, or `undefined`. */
+function asStr(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** Coerce to a `Record<string, number>` (drops non-numeric entries), or `undefined`. */
+function asNumMap(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    const n = asNum(v);
+    if (n !== undefined) out[k] = n;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+// ── headroom-stats: detailed on-demand statistics (LD9 read-only) ───────
+// The DETAILED counterpart to the Phase 4 at-a-glance status display. It reads
+// the FULL `client.proxyStats()` runtime object — richer than `formatStatusLine`
+// — surfacing lifetime savings + compression %, request counts, the proxy's
+// effective tuning, and a per-strategy savings breakdown. It only READS proxy
+// state (LD9) and never throws into the loop (LD3).
+
+/**
+ * The detailed fields this extension reads from the live `proxyStats()` runtime
+ * object. Field provenance was verified empirically against the live proxy
+ * (v0.27.0) — the SDK's published `ProxyStats` type omits most of these:
+ *   - `mode`                  ← `summary.mode`
+ *   - `lifetimeTokensSaved`   ← `tokens.saved`
+ *   - `savingsPercent`        ← `tokens.savingsPercent`
+ *   - `apiRequests`           ← `summary.apiRequests`
+ *   - `requestsCompressed`    ← `summary.compression.requestsCompressed`
+ *   - `avgCompressionPct`     ← `summary.compression.avgCompressionPct`
+ *   - `targetRatio`           ← `config.targetRatio`
+ *   - `protectRecent`         ← `config.protectRecent`
+ *   - `compressUserMessages`  ← `config.compressUserMessages`
+ *   - `minTokensToCrush`      ← `config.minTokensToCrush`
+ *   - `maxItemsAfterCrush`    ← `config.maxItemsAfterCrush`
+ *   - `tokensSavedByStrategy` ← `tokensSavedByStrategy`
+ *   - `compressionsByStrategy`← `compressionsByStrategy`
+ */
+export interface DetailedStats {
+  mode?: string;
+  lifetimeTokensSaved?: number;
+  savingsPercent?: number;
+  apiRequests?: number;
+  requestsCompressed?: number;
+  avgCompressionPct?: number;
+  targetRatio?: number;
+  protectRecent?: number;
+  compressUserMessages?: boolean;
+  minTokensToCrush?: number;
+  maxItemsAfterCrush?: number;
+  tokensSavedByStrategy?: Record<string, number>;
+  compressionsByStrategy?: Record<string, number>;
+}
+
+/**
+ * Map a live `proxyStats()` runtime object onto `DetailedStats`. Pure and
+ * exported so the shaping can be unit-tested with an injected stub and **no
+ * network**; tolerates missing/`null` fields (anything absent → `undefined`).
+ */
+export function extractDetailedStats(stats: unknown): DetailedStats {
+  const raw = (stats ?? {}) as {
+    summary?: {
+      mode?: unknown;
+      apiRequests?: unknown;
+      compression?: { requestsCompressed?: unknown; avgCompressionPct?: unknown } | null;
+    } | null;
+    tokens?: { saved?: unknown; savingsPercent?: unknown } | null;
+    config?: {
+      targetRatio?: unknown;
+      protectRecent?: unknown;
+      compressUserMessages?: unknown;
+      minTokensToCrush?: unknown;
+      maxItemsAfterCrush?: unknown;
+    } | null;
+    tokensSavedByStrategy?: unknown;
+    compressionsByStrategy?: unknown;
+  };
+  const summary = raw.summary ?? {};
+  const compression = summary.compression ?? {};
+  const tokens = raw.tokens ?? {};
+  const config = raw.config ?? {};
+
+  return {
+    mode: asStr(summary.mode),
+    lifetimeTokensSaved: asNum(tokens.saved),
+    savingsPercent: asNum(tokens.savingsPercent),
+    apiRequests: asNum(summary.apiRequests),
+    requestsCompressed: asNum(compression.requestsCompressed),
+    avgCompressionPct: asNum(compression.avgCompressionPct),
+    targetRatio: asNum(config.targetRatio),
+    protectRecent: asNum(config.protectRecent),
+    compressUserMessages:
+      typeof config.compressUserMessages === "boolean" ? config.compressUserMessages : undefined,
+    minTokensToCrush: asNum(config.minTokensToCrush),
+    maxItemsAfterCrush: asNum(config.maxItemsAfterCrush),
+    tokensSavedByStrategy: asNumMap(raw.tokensSavedByStrategy),
+    compressionsByStrategy: asNumMap(raw.compressionsByStrategy),
+  };
+}
+
+/** State for the detailed stats report (proxy reachability + detail). */
+export interface StatsReportState {
+  reachable: boolean;
+  version?: string;
+  baseUrl: string;
+  detail?: DetailedStats;
+}
+
+/** Round a 0..1 ratio or a 0..100 percent to a whole percent string. */
+function asPercent(value: number | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const pct = value <= 1 ? value * 100 : value;
+  return `${Math.round(pct)}%`;
+}
+
+/**
+ * Render the multi-line detailed stats report. Pure — no I/O, never throws.
+ * Shows the live session figure plus the proxy's lifetime savings, request
+ * counts, effective tuning, and per-strategy breakdown when reachable; a single
+ * unreachable line (keeping the free session figure) otherwise.
+ */
+export function formatStatsReport(state: StatsReportState, sessionTokensSaved: number): string {
+  const session = Number.isFinite(sessionTokensSaved) ? sessionTokensSaved : 0;
+  const sessionLine = `Session: saved ${humanizeTokens(session)} tokens this session`;
+
+  if (!state.reachable) {
+    return [
+      `Headroom stats — proxy unreachable at ${state.baseUrl}`,
+      sessionLine,
+      PROXY_START_HINT,
+    ].join("\n");
+  }
+
+  const d = state.detail ?? {};
+  const lines: string[] = [];
+  lines.push(
+    `Headroom stats — proxy ${state.version ?? "unknown"}${d.mode ? ` · mode ${d.mode}` : ""}`,
+  );
+  lines.push(sessionLine);
+
+  // Lifetime savings + request counts.
+  if (d.lifetimeTokensSaved !== undefined) {
+    const pct = asPercent(d.savingsPercent);
+    lines.push(
+      `Lifetime: saved ${humanizeTokens(d.lifetimeTokensSaved)} tokens${pct ? ` (${pct} compression)` : ""}`,
+    );
+  }
+  if (d.apiRequests !== undefined || d.requestsCompressed !== undefined) {
+    const reqParts: string[] = [];
+    if (d.apiRequests !== undefined) reqParts.push(`${d.apiRequests} requests`);
+    if (d.requestsCompressed !== undefined) reqParts.push(`${d.requestsCompressed} compressed`);
+    const avg = asPercent(d.avgCompressionPct);
+    if (avg && d.avgCompressionPct) reqParts.push(`avg ${avg}`);
+    if (reqParts.length > 0) lines.push(`Requests: ${reqParts.join(" · ")}`);
+  }
+
+  // Effective proxy tuning (read-only; LD9).
+  const cfg: string[] = [];
+  cfg.push(`target ${d.targetRatio !== undefined ? d.targetRatio : "default"}`);
+  cfg.push(`protect ${d.protectRecent !== undefined ? d.protectRecent : "default"}`);
+  cfg.push(`user-msgs ${d.compressUserMessages ? "on" : "off"}`);
+  if (d.minTokensToCrush !== undefined) cfg.push(`min-crush ${d.minTokensToCrush}`);
+  if (d.maxItemsAfterCrush !== undefined) cfg.push(`max-items ${d.maxItemsAfterCrush}`);
+  lines.push(`Config: ${cfg.join(" · ")}`);
+
+  // Per-strategy breakdown (saved tokens + count), richest strategies first.
+  const byStrategy = d.tokensSavedByStrategy;
+  if (byStrategy && Object.keys(byStrategy).length > 0) {
+    const counts = d.compressionsByStrategy ?? {};
+    const entries = Object.entries(byStrategy)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, saved]) => {
+        const count = counts[name];
+        return `${name} ${humanizeTokens(saved)}${count !== undefined ? ` (${count})` : ""}`;
+      });
+    lines.push(`By strategy: ${entries.join(" · ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Read the proxy's reachability + version + detailed stats. Read-only (LD9),
+ * never manages the proxy (LD4), and **never throws** (LD3) — returns
+ * `{ reachable: false }` on any error.
+ */
+async function getDetailedStats(
+  baseUrl?: string,
+  apiKey?: string,
+): Promise<Omit<StatsReportState, "baseUrl">> {
+  try {
+    const client = new HeadroomClient({
+      baseUrl,
+      apiKey,
+      fallback: true,
+      timeout: STATS_TIMEOUT_MS,
+    });
+    const health = await client.health();
+    if (health?.status !== "healthy") return { reachable: false };
+    let detail: DetailedStats | undefined;
+    try {
+      detail = extractDetailedStats(await client.proxyStats());
+    } catch {
+      detail = undefined;
+    }
+    return { reachable: true, version: asStr(health.version), detail };
+  } catch {
+    return { reachable: false };
+  }
+}
+
+// ── headroom-simulate: dry-run projection (no LLM call) ─────────────────
+// `simulate()` is Headroom's documented **dry-run**: it tokenizes and runs the
+// compression pipeline WITHOUT contacting any LLM, returning the projected token
+// savings and the transforms that would fire. Headroom protects recent user
+// turns (Phase 0), so a pasted blob is presented as a *stale tool result* (with
+// a trailing user turn) — exactly the position compression actually operates on
+// — to show what compression would do to that content.
+
+/**
+ * Wrap a pasted blob as a minimal conversation in which the blob is a stale
+ * `read_file` tool result (not the most-recent, recency-protected message), so
+ * `simulate()` projects the compression Headroom would really apply to it. The
+ * blob is presented as bulky file output — the canonical thing compression
+ * targets; the proxy protects recent turns and excludes its own intercept tools,
+ * so a generic file-read result is the representative crushable case.
+ */
+export function buildSimulationMessages(blob: string): OpenAIMessage[] {
+  return [
+    { role: "user", content: "Please review the following output." },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "headroom_sim",
+          type: "function",
+          function: { name: "read_file", arguments: '{"path":"pasted-input"}' },
+        },
+      ],
+    },
+    { role: "tool", content: blob, tool_call_id: "headroom_sim" },
+    { role: "user", content: "Summarize the key points." },
+  ];
+}
+
+/**
+ * The fields this extension reads from the live `simulate()` runtime object.
+ * Verified empirically against the live proxy (v0.27.0): the published
+ * `SimulationResult` type is stale (it names `transforms`/`estimatedSavings`/
+ * `wasteSignals`, all `undefined` at runtime); the real dry-run returns
+ * `tokensBefore`/`tokensAfter`/`tokensSaved`/`compressionRatio`/
+ * `transformsApplied`/`transformsSummary`/`ccrHashes`.
+ */
+export interface SimulationSummary {
+  tokensBefore?: number;
+  tokensAfter?: number;
+  tokensSaved?: number;
+  compressionRatio?: number;
+  transformsSummary?: Record<string, number>;
+}
+
+/** Map a live `simulate()` runtime object onto `SimulationSummary` (pure). */
+export function extractSimulation(raw: unknown): SimulationSummary {
+  const r = (raw ?? {}) as {
+    tokensBefore?: unknown;
+    tokensAfter?: unknown;
+    tokensSaved?: unknown;
+    compressionRatio?: unknown;
+    transformsSummary?: unknown;
+  };
+  return {
+    tokensBefore: asNum(r.tokensBefore),
+    tokensAfter: asNum(r.tokensAfter),
+    tokensSaved: asNum(r.tokensSaved),
+    compressionRatio: asNum(r.compressionRatio),
+    transformsSummary: asNumMap(r.transformsSummary),
+  };
+}
+
+/**
+ * Render the dry-run projection. Pure — no I/O, never throws. Honest about a
+ * non-compressible blob (`saved 0`). Example:
+ *
+ *   Headroom simulate (dry-run, no LLM call) — 18,360 chars in
+ *   Projected: 27.3k → 8k tokens · saved 19.4k (71%)
+ *   Transforms: smartCrusher ×1 · protected:userMessage ×2
+ */
+export function formatSimulationReport(sim: SimulationSummary, blobChars: number): string {
+  const before = sim.tokensBefore ?? 0;
+  const after = sim.tokensAfter ?? 0;
+  const saved = sim.tokensSaved ?? 0;
+  const pct = before > 0 ? `${Math.round((saved / before) * 100)}%` : "0%";
+
+  const lines: string[] = [];
+  lines.push(
+    `Headroom simulate (dry-run, no LLM call) — ${blobChars.toLocaleString("en-US")} chars in`,
+  );
+  lines.push(
+    `Projected: ${humanizeTokens(before)} → ${humanizeTokens(after)} tokens · saved ${humanizeTokens(saved)} (${pct})${
+      saved <= 0 ? " — this content would not compress" : ""
+    }`,
+  );
+
+  const summary = sim.transformsSummary;
+  if (summary && Object.keys(summary).length > 0) {
+    const entries = Object.entries(summary)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => `${name.replace(/^router:/, "")} ×${count}`);
+    lines.push(`Transforms: ${entries.join(" · ")}`);
+  }
+
+  return lines.join("\n");
 }
 
 // ── headroom_retrieve tool (reversibility — LD2) ───────────────────────
@@ -357,6 +684,54 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify("Headroom API key saved successfully.", "info");
       } else {
         ctx.ui.notify("Authentication cancelled.", "warning");
+      }
+    },
+  });
+
+  // Detailed, on-demand statistics — the richer counterpart to the Phase 4
+  // at-a-glance status display. Reads the FULL proxyStats() runtime (LD9
+  // read-only) and folds in the live in-memory session figure. Never throws
+  // into the loop (LD3).
+  pi.registerCommand("headroom-stats", {
+    description:
+      "Show detailed Headroom statistics: session + lifetime savings, request counts, proxy tuning, and a per-strategy breakdown.",
+    handler: async (_args, ctx) => {
+      const cfg = await resolveConfig({ authStorage });
+      const stats = await getDetailedStats(cfg.baseUrl, cfg.apiKey);
+      const report = formatStatsReport({ ...stats, baseUrl: cfg.baseUrl }, sessionTokensSaved);
+      ctx.ui.notify(report, stats.reachable ? "info" : "warning");
+    },
+  });
+
+  // Dry-run projection of what compression WOULD do to a pasted blob — no LLM
+  // call (`simulate()` only tokenizes + runs the pipeline). Never throws (LD3).
+  pi.registerCommand("headroom-simulate", {
+    description:
+      "Dry-run Headroom compression on pasted text (no LLM call): projected token savings + transforms.",
+    handler: async (args, ctx) => {
+      const blob = (args ?? "").trim();
+      if (!blob) {
+        ctx.ui.notify(
+          "Headroom simulate: paste text after the command, e.g. `/headroom-simulate <blob>`.",
+          "warning",
+        );
+        return;
+      }
+      try {
+        const cfg = await resolveConfig({ authStorage });
+        const raw = await simulate(buildSimulationMessages(blob), {
+          baseUrl: cfg.baseUrl,
+          apiKey: cfg.apiKey,
+          timeout: STATS_TIMEOUT_MS,
+        });
+        const report = formatSimulationReport(extractSimulation(raw), blob.length);
+        ctx.ui.notify(report, "info");
+      } catch {
+        // Dry-run only; a down/unreachable proxy must not throw into the loop (LD3).
+        ctx.ui.notify(
+          `Headroom simulate failed — the proxy may be unreachable. ${PROXY_START_HINT}`,
+          "warning",
+        );
       }
     },
   });
