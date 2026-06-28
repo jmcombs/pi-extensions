@@ -99,6 +99,13 @@ describe("@jmcombs/pi-headroom", () => {
     expect(log.events).toContain("context");
     expect(log.flags).toContain("headroom-no-compress");
   });
+
+  it("registers the headroom_retrieve tool (Phase 3, always enabled — LD2)", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    expect(log.tools).toContain("headroom_retrieve");
+  });
 });
 
 describe("accumulateSavings", () => {

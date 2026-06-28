@@ -16,6 +16,12 @@
  *   - `/headroom-status`       — report proxy health + version + session savings.
  *   - `/headroom-authenticate` — securely store the proxy API key.
  *
+ * Tools:
+ *   - `headroom_retrieve` — recover content that lossy compression elided, via
+ *     the inline CCR marker hash (`… Retrieve more: hash=<hash>`). ALWAYS
+ *     registered — never gated by the disable flag or by compression being off
+ *     (LD2) — and never throws into the agent loop (LD3).
+ *
  * Flags:
  *   - `--headroom-no-compress` — disable compression for the session. Retrieve
  *     (Phase 3) stays enabled (LD2); only compression is turned off.
@@ -26,7 +32,9 @@
  *     unreachable so the session stays usable in passthrough mode.
  */
 
-import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { AuthStorage, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
+import { type Component, Container, Text } from "@earendil-works/pi-tui";
+import { type Static, Type } from "typebox";
 import { getClient, isHealthy, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
 
@@ -44,6 +52,144 @@ const DISABLE_FLAG = "headroom-no-compress";
 export function accumulateSavings(previous: number, tokensSaved: number): number {
   if (!Number.isFinite(tokensSaved) || tokensSaved <= 0) return previous;
   return previous + tokensSaved;
+}
+
+// ── headroom_retrieve tool (reversibility — LD2) ───────────────────────
+// Compression is lossy on the surface: bulky tool results are crushed and the
+// proxy embeds an inline CCR marker (`… Retrieve more: hash=<hash>`) into the
+// compressed text. This tool lets the model recover the full original via that
+// hash, so no detail elided by compression is ever truly lost. It is ALWAYS
+// registered — never gated by `--headroom-no-compress` or by compression being
+// off (LD2) — and it never throws into the agent loop (LD3).
+
+/** Tool name the model calls; matches the proxy's CCR retrieval tool. */
+const RETRIEVE_TOOL_NAME = "headroom_retrieve";
+
+const retrieveSchema = Type.Object({
+  hash: Type.String({
+    description:
+      "The CCR hash from a compression marker (the value after `hash=` in `… Retrieve more: hash=<hash>`).",
+  }),
+  query: Type.Optional(
+    Type.String({
+      description:
+        "Optional search query to retrieve only the matching items from the stored original instead of the full content.",
+    }),
+  ),
+});
+type RetrieveInput = Static<typeof retrieveSchema>;
+
+interface RetrieveDetails {
+  hash: string;
+  query?: string;
+  error?: boolean;
+  toolName?: string;
+  originalTokens?: number;
+  originalItemCount?: number;
+  compressedItemCount?: number;
+  retrievalCount?: number;
+  matchCount?: number;
+}
+
+interface RetrieveToolResult {
+  content: { type: "text"; text: string }[];
+  details: RetrieveDetails;
+}
+
+/**
+ * Execute a CCR retrieval against the proxy. Returns the original content as a
+ * text result. An invalid/missing hash, a down proxy, or any other failure
+ * returns a clear **non-throwing** error result (LD3) — never throws into the
+ * agent loop. Retrieve is independent of compression: it works whenever the
+ * proxy is reachable, regardless of the disable flag.
+ */
+async function retrieveExecute(
+  params: RetrieveInput,
+  args: { authStorage?: AuthStorage } = {},
+): Promise<RetrieveToolResult> {
+  const hash = params.hash;
+  try {
+    const client = await getClient({ authStorage: args.authStorage });
+    const result = await client.retrieve(hash, params.query ? { query: params.query } : undefined);
+
+    // Full retrieval (RetrieveResult) → the original content as text.
+    if ("originalContent" in result) {
+      return {
+        content: [{ type: "text", text: result.originalContent }],
+        details: {
+          hash,
+          query: params.query,
+          toolName: result.toolName,
+          originalTokens: result.originalTokens,
+          originalItemCount: result.originalItemCount,
+          compressedItemCount: result.compressedItemCount,
+          retrievalCount: result.retrievalCount,
+        },
+      };
+    }
+
+    // Query retrieval (RetrieveSearchResult) → the matching items as text.
+    const items = Array.isArray(result.results) ? result.results : [];
+    const text = items
+      .map((item) => (typeof item === "string" ? item : JSON.stringify(item, null, 2)))
+      .join("\n");
+    return {
+      content: [
+        {
+          type: "text",
+          text: text || `No items matched query "${result.query}" for hash ${hash}.`,
+        },
+      ],
+      details: { hash, query: result.query, matchCount: result.count },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Headroom retrieve failed for hash ${hash}: ${message}. The hash may be invalid/expired, or the Headroom proxy may be unreachable.`,
+        },
+      ],
+      details: { hash, query: params.query, error: true },
+    };
+  }
+}
+
+/** Header line for a retrieve call, e.g. "headroom_retrieve 3e790a64…". */
+function renderRetrieveCall(args: RetrieveInput, theme: Theme): Component {
+  const shortHash = args.hash.length > 12 ? `${args.hash.slice(0, 12)}…` : args.hash;
+  const detail = args.query ? `${shortHash} (query: ${args.query})` : shortHash;
+  const label = theme.fg("toolTitle", theme.bold(RETRIEVE_TOOL_NAME));
+  return new Text(`${label} ${theme.fg("accent", detail)}`, 0, 0);
+}
+
+/** Render the retrieved original text, truncated unless the row is expanded. */
+function renderRetrieveResult(
+  result: { content: readonly { type: string; text?: string }[] },
+  isError: boolean,
+  expanded: boolean,
+  theme: Theme,
+): Component {
+  const full = result.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text ?? "")
+    .join("\n");
+  if (!full) return new Container();
+
+  const lines = full.split("\n");
+  const limit = expanded ? lines.length : 20;
+  const role = isError ? "error" : "toolOutput";
+  let body = theme.fg(role, lines.slice(0, limit).join("\n"));
+
+  const remaining = lines.length - limit;
+  if (remaining > 0) {
+    body += theme.fg(
+      "muted",
+      `\n… ${String(remaining)} more line${remaining === 1 ? "" : "s"} — expand to view`,
+    );
+  }
+  return new Text(body, 0, 0);
 }
 
 // ── Extension factory ──────────────────────────────────────────────────
@@ -64,6 +210,21 @@ export default function (pi: ExtensionAPI): void {
     description: "Disable Headroom context compression for this session (retrieve stays enabled).",
     type: "boolean",
     default: false,
+  });
+
+  // Reversibility tool (LD2): ALWAYS registered, independent of the disable flag
+  // and of whether compression ran — so any detail elided by lossy compression
+  // is recoverable via its inline CCR hash. Never throws into the loop (LD3).
+  pi.registerTool({
+    name: RETRIEVE_TOOL_NAME,
+    label: "Headroom Retrieve",
+    description:
+      "Recover original content that Headroom's lossy compression elided. When a tool result shows a marker like `… Retrieve more: hash=<hash>`, call this with that hash to get the full original text back. Pass an optional `query` to retrieve only matching items.",
+    parameters: retrieveSchema,
+    execute: (_toolCallId, params) => retrieveExecute(params, { authStorage }),
+    renderCall: (args, theme) => renderRetrieveCall(args, theme),
+    renderResult: (result, options, theme, context) =>
+      renderRetrieveResult(result, context.isError, options.expanded, theme),
   });
 
   pi.registerCommand("headroom-status", {

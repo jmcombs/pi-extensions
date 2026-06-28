@@ -369,7 +369,7 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 
 - [x] Phase 1 — Scaffold + proxy client + status commands — merged in #86; all gates 1.1–1.6 verified (1.5/1.6 via HEADLESS-RPC)
 - [x] Phase 2 — Whole-conversation compression via `context` — verified in #92; gates 2.1–2.6 re-derived green (2.3/2.4/2.5 HEADLESS, 2.6 HEADLESS-RPC + registered-surface accumulation)
-- [ ] Phase 3 — `headroom_retrieve` tool
+- [x] Phase 3 — `headroom_retrieve` tool — verified in #93; gates 3.1–3.4 re-derived green (3.3 HEADLESS, 3.4 via registered `headroom_retrieve.execute` against live proxy — RPC has no tool-invoke command); LD2/LD3 confirmed empirically
 - [ ] Phase 4 — Config surface: mode + tuning
 - [ ] Phase 5 — UX, metrics, docs, asset
 - [ ] Phase 6 — Release wiring
