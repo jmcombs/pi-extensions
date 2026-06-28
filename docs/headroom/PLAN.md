@@ -272,40 +272,57 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 **Objectives:** A persistent, **read-only** status display — modeled on `packages/prompt-enhancer/`'s
 footer-chip/widget pattern (`ctx.ui.setStatus` / `ctx.ui.setWidget`, guarded by `ctx.hasUI`) — that
 makes the integration's state plainly visible: whether compression is **enabled**, whether the
-**proxy is reachable** (+ version), and the proxy's **current settings** (mode + key tuning) read via
-`client.proxyStats()`. Purely informational; the user changes proxy settings themselves.
+**proxy is reachable** (+ version), the proxy's **current settings** (mode + key tuning), and **live
+compression statistics** — the in-memory **session tokens saved** (the Phase 2 accumulator, truly
+realtime and free) plus a **proxy savings summary** from `client.proxyStats()` (e.g. lifetime tokens
+saved / compression ratio). Purely informational; the user changes proxy settings themselves.
+
+> **Relationship to Phase 5.** Phase 5 still ships the on-demand `/headroom-stats` (and
+> `/headroom-simulate`) commands for the **detailed** view. Phase 4 surfaces the **at-a-glance** live
+> numbers continuously in the status display so they're "just known" without running a command — the
+> two are complementary, not duplicative. Keep the heavy/detailed breakdown in Phase 5's command.
 
 **Architectural Constraints:** **LD3** — display gathering never throws; proxy-down shows an
 "unreachable" state, not an error into the loop. **LD4 / LD9** — read-only; never sets proxy config.
 The display is additive and must **not** change Phase 2/3 compression behavior. UI calls are no-ops
 when `!ctx.hasUI`, so the data-gathering must be a **separately exported, headless-testable** function
-(the chip/widget rendering itself is the only MANUAL/visual part).
+(the chip/widget rendering itself is the only MANUAL/visual part). **Stats freshness:** the live
+**session** savings come from the in-memory accumulator (free, update the widget on each compression
+pass); the **proxy** savings summary is an HTTP call, so refresh it at sensible points
+(`session_start`, on the disable-flag toggle, and at most a short-TTL throttle) — never on every
+`context` call (avoid adding latency to the agent loop).
 
 **Actionable TODOs (literal paths):**
-1. `packages/headroom/status.ts` (new): exported `getProxySettings(baseUrl?, apiKey?)` that calls
-   `client.proxyStats()` and returns a normalized, never-throwing snapshot
+1. `packages/headroom/status.ts` (new): exported `getProxyStatus(baseUrl?, apiKey?)` that calls
+   `client.proxyStats()` and returns a normalized, never-throwing snapshot of **settings + stats**
    `{ reachable: boolean, version?: string, mode?: string, targetRatio?: number, protectRecent?: …,
-   compressUserMessages?: … }` (`reachable:false` on any error). Plus a pure `formatStatusLine(state)`
-   helper producing the display string (e.g. `Headroom: on · proxy 0.27.0 · mode token`).
+   compressUserMessages?: …, proxyTokensSaved?: number, proxyCompressionRatio?: number }`
+   (`reachable:false` on any error). Plus a pure `formatStatusLine(state, sessionTokensSaved)` helper
+   producing the display string (e.g. `Headroom: on · proxy 0.27.0 · mode token · saved 8.8k this
+   session · 1.2M lifetime`).
 2. `packages/headroom/index.ts`: a persistent status display via `ctx.ui.setStatus`/`setWidget`
    (pattern from `prompt-enhancer`), guarded by `ctx.hasUI`, showing enabled state + proxy
-   reachability (+ version) + proxy mode (+ key settings). Refreshed on `session_start` (and when the
-   disable flag toggles). No-op safe when headless.
+   reachability (+ version) + proxy mode (+ key settings) + **live stats** (session tokens saved from
+   the accumulator + proxy savings summary). Refresh the **session** figure on each compression pass;
+   refresh the **proxy** snapshot on `session_start`, the disable-flag toggle, and a short-TTL
+   throttle. No-op safe when headless.
 3. `packages/headroom/index.ts`: extend the existing `/headroom-status` command output to include the
-   proxy settings snapshot (mode + key tuning) so the data is assertable HEADLESS / HEADLESS-RPC.
-4. `packages/headroom/index.test.ts`: unit-test `formatStatusLine` + the `getProxySettings` shaping
-   (no network — inject a stub stats object), and assert the status-display wiring is registered.
+   proxy settings + stats snapshot (mode + key tuning + savings) so the data is assertable HEADLESS /
+   HEADLESS-RPC.
+4. `packages/headroom/index.test.ts`: unit-test `formatStatusLine` (incl. session + proxy savings
+   rendering) + the `getProxyStatus` shaping (no network — inject a stub stats object), and assert the
+   status-display wiring is registered.
 
 **Testing Gates:**
 
 | # | Method | Command | Expected |
 | - | ------ | ------- | -------- |
 | 4.1 | AUTO | `npm run check` | exit 0 |
-| 4.2 | AUTO | `npm run test -- packages/headroom` | `formatStatusLine` + `getProxySettings`-shaping unit tests pass (no network); status-display registered |
-| 4.3 | HEADLESS | Node: `getProxySettings()` with proxy **up** | `reachable:true`, `version:"0.27.0"`, `mode:"token"`, key tuning fields populated |
-| 4.4 | HEADLESS | Node: `getProxySettings()` with proxy **down** | `reachable:false`, no throw, no proxy-side mutation |
-| 4.5 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom "/headroom-status"` (proxy up) | status notify now includes proxy **mode** + key settings |
-| 4.6 | MANUAL | `pi -e ./packages/headroom` — observe the persistent status chip/widget | shows `enabled · proxy reachable (vX) · mode …`. Builder captures a transcript/screenshot; if it cannot, the verifier marks **UNVERIFIED** and escalates (the underlying data is still proven by 4.3–4.5). |
+| 4.2 | AUTO | `npm run test -- packages/headroom` | `formatStatusLine` (settings + session/proxy savings) + `getProxyStatus`-shaping unit tests pass (no network); status-display registered |
+| 4.3 | HEADLESS | Node: `getProxyStatus()` with proxy **up** | `reachable:true`, `version:"0.27.0"`, `mode:"token"`, key tuning fields populated, `proxyTokensSaved` present (number) |
+| 4.4 | HEADLESS | Node: `getProxyStatus()` with proxy **down** | `reachable:false`, no throw, no proxy-side mutation |
+| 4.5 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom "/headroom-status"` (proxy up) | status notify now includes proxy **mode** + key settings + **savings** (session + proxy) |
+| 4.6 | MANUAL | `pi -e ./packages/headroom` — observe the persistent status chip/widget | shows `enabled · proxy reachable (vX) · mode … · saved … this session · … lifetime`. Builder captures a transcript/screenshot; if it cannot, the verifier marks **UNVERIFIED** and escalates (the underlying data is still proven by 4.3–4.5). |
 
 ---
 
