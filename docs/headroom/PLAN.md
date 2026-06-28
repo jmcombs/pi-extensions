@@ -368,7 +368,7 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 ## Appendix C — Completion tracking (verifier ticks on PASS)
 
 - [x] Phase 1 — Scaffold + proxy client + status commands — merged in #86; all gates 1.1–1.6 verified (1.5/1.6 via HEADLESS-RPC)
-- [ ] Phase 2 — Whole-conversation compression via `context`
+- [x] Phase 2 — Whole-conversation compression via `context` — verified in #92; gates 2.1–2.6 re-derived green (2.3/2.4/2.5 HEADLESS, 2.6 HEADLESS-RPC + registered-surface accumulation)
 - [ ] Phase 3 — `headroom_retrieve` tool
 - [ ] Phase 4 — Config surface: mode + tuning
 - [ ] Phase 5 — UX, metrics, docs, asset
