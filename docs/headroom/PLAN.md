@@ -95,13 +95,20 @@ Each gate row has a **Method**:
 - **AUTO** — verifier runs the exact committed command; real output must match Expected.
 - **HEADLESS** — verifier runs an ad-hoc Node script (not committed) against the **running proxy**,
   importing the extension's exported functions; real output must match Expected.
-- **MANUAL** — requires an interactive `pi -e` session / TUI. The builder must capture real output
-  (paste/screenshot) in its report. The verifier **cannot** self-run these; if no real evidence is
-  present it marks the gate **UNVERIFIED** and, per the roadblock rule, **pauses and asks the user**
-  — it never passes a MANUAL gate on assertion alone.
+- **HEADLESS-RPC** — verifier drives the extension through Pi's RPC mode and asserts on real events,
+  using the committed driver `docs/headroom/rpc-verify.mjs`. It spawns `pi --mode rpc --no-session
+  --offline -e <ext>` and optionally sends `{type:"prompt",message:"/cmd"}`; extension commands
+  execute immediately with **no LLM call / no API key**, and `ctx.ui.notify(...)` surfaces as
+  `extension_ui_request` / `method:"notify"` events on stdout. This covers status/notice/command/
+  retrieve behavior once thought to need an interactive TUI. Filter notifies for messages starting
+  with `Headroom` (other installed extensions also emit `session_start` notices).
+- **MANUAL** — reserved for genuinely *visual* TUI output RPC cannot assert (e.g. `renderCall`/
+  `renderResult` glyph layout). Builder captures a screenshot/transcript; if absent the verifier
+  marks it **UNVERIFIED** and, per the roadblock rule, **pauses and asks the user** — never passes on
+  assertion alone. Prefer HEADLESS-RPC wherever behavior (not pixels) is what the gate asserts.
 
-**Proxy precondition** for HEADLESS/MANUAL gates: `~/.headroom-venv/bin/headroom proxy --port 8787`
-running, `GET http://127.0.0.1:8787/health` returns `"status":"healthy"`.
+**Proxy precondition** for HEADLESS/HEADLESS-RPC/MANUAL gates: `~/.headroom-venv/bin/headroom proxy
+--port 8787` running, `GET http://127.0.0.1:8787/health` returns `"status":"healthy"`.
 
 ---
 
@@ -138,8 +145,8 @@ LD7. The `session_start` notice must be non-fatal and fire at most once per sess
 | 1.2 | AUTO | `npm run test -- packages/headroom` | smoke test passes; asserts `headroom-status`, `headroom-authenticate`, `session_start` registered |
 | 1.3 | HEADLESS | Node: import `isHealthy` from `client.ts` with proxy **up** | resolves `true` |
 | 1.4 | HEADLESS | Node: import `isHealthy` from `client.ts` with proxy **down** | resolves `false` within ~3s, no throw |
-| 1.5 | MANUAL | `pi -e ./packages/headroom` → `/headroom-status` (proxy up) | reports healthy + proxy version |
-| 1.6 | MANUAL | `pi -e ./packages/headroom` (proxy down) | one-time non-fatal notice; session usable |
+| 1.5 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom "/headroom-status"` (proxy up) | an `info` notify reporting healthy + proxy version |
+| 1.6 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom` (proxy down) | a single `warning` notify at session start; no crash |
 
 ---
 
@@ -171,7 +178,7 @@ exported as a testable function so it can be exercised HEADLESS.
 | 2.2 | AUTO | `npm run test -- packages/headroom` | `context` registered; accumulator unit test passes |
 | 2.3 | HEADLESS | Node: `compressMessages(<stale-heavy convo>)` with proxy up | `tokensSaved > 0`; returns valid messages array same length |
 | 2.4 | HEADLESS | Node: `compressMessages(<convo>)` with proxy **down** | returns original messages unchanged, `tokensSaved === 0`, no throw |
-| 2.5 | MANUAL | `pi -e` multi-turn session (read file, run tests, continue) | model stays coherent; `/headroom-status` (or stats) shows non-zero session savings |
+| 2.5 | HEADLESS-RPC | drive a multi-turn convo via RPC `prompt`s, then `/headroom-status` (or stats command) | session savings notify shows non-zero; no crash. (Full model-coherence over a real session may also be spot-checked MANUAL.) |
 
 ---
 
@@ -197,7 +204,7 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 | 3.1 | AUTO | `npm run check` | exit 0 |
 | 3.2 | AUTO | `npm run test -- packages/headroom` | `headroom_retrieve` registered |
 | 3.3 | HEADLESS | Node: compress a verbose log (proxy up), extract inline `hash=…`, call the tool's execute with that hash | returns original text incl. the lines compression elided |
-| 3.4 | MANUAL | `pi -e`: trigger a lossy compression, have the model call `headroom_retrieve` | original detail returned to the model |
+| 3.4 | HEADLESS-RPC | via RPC, invoke the `headroom_retrieve` tool execute with a real inline hash from a lossy compression | original detail (incl. elided lines) returned in the tool result |
 
 ---
 
@@ -219,7 +226,7 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 | - | ------ | ------- | -------- |
 | 4.1 | AUTO | `npm run check` | exit 0 |
 | 4.2 | AUTO | `npm run test -- packages/headroom` | default-config unit test passes; defaults = Phase 2 behavior |
-| 4.3 | MANUAL | `pi -e` compare `token` vs `cache` mode on a long session | both work; default unchanged from Phase 2 |
+| 4.3 | HEADLESS-RPC | drive compression under `token` vs `cache` config via RPC; assert both run and default is unchanged from Phase 2 | both modes succeed; default behavior identical to Phase 2 |
 
 ---
 
@@ -241,7 +248,7 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 | 5.1 | AUTO | `npm run check` | exit 0 |
 | 5.2 | AUTO | `npm run test -- packages/headroom` | `headroom-stats`, `headroom-simulate` registered |
 | 5.3 | AUTO | `test -f assets/headroom/preview.png && ! grep -ri "EXTENSION_NAME\|TODO:" packages/headroom/README.md` | asset present; no template residue |
-| 5.4 | MANUAL | `pi -e`: `/headroom-stats`, `/headroom-simulate` against live proxy | both render correct data |
+| 5.4 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom "/headroom-stats"` and `"/headroom-simulate …"` | both emit notifies with correct data |
 
 ---
 
@@ -292,7 +299,7 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 
 ## Appendix C — Completion tracking (verifier ticks on PASS)
 
-- [ ] Phase 1 — Scaffold + proxy client + status commands
+- [x] Phase 1 — Scaffold + proxy client + status commands — merged in #86; all gates 1.1–1.6 verified (1.5/1.6 via HEADLESS-RPC)
 - [ ] Phase 2 — Whole-conversation compression via `context`
 - [ ] Phase 3 — `headroom_retrieve` tool
 - [ ] Phase 4 — Config surface: mode + tuning
@@ -301,8 +308,9 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 
 ## Appendix D — Definition of Done (every phase)
 
-- All AUTO + HEADLESS gates re-derived green by the verifier from real output.
-- All MANUAL gates have real builder-captured evidence, or are explicitly escalated to the user.
+- All AUTO + HEADLESS + HEADLESS-RPC gates re-derived green by the verifier from real output.
+- Any remaining MANUAL (visual-only) gates have real builder-captured evidence, or are explicitly
+  escalated to the user.
 - Full quality gate green: `npm run check` exit 0.
 - Literal layout matches this spec (every TODO path exists exactly).
 - No Locked-Decision violation; no unapproved deviation/ADR (Appendix B).

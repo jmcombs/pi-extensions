@@ -53,9 +53,14 @@ code). A gate passes only if real output matches Expected.
 - **HEADLESS** gates: start the proxy (`~/.headroom-venv/bin/headroom proxy --port 8787`; confirm
   `GET http://127.0.0.1:8787/health` → `"status":"healthy"`), then run the ad-hoc Node script that
   imports your exported functions and capture output. Test the proxy-**down** rows too.
-- **MANUAL** gates: run `pi -e ./packages/headroom`, exercise the step, and **capture the real
-  result** (paste the transcript / screenshot). The verifier cannot self-run these; if you do not
-  provide real evidence the verifier will mark the gate UNVERIFIED and the phase will not pass.
+- **HEADLESS-RPC** gates: drive the extension through Pi's RPC mode with the committed driver
+  `docs/headroom/rpc-verify.mjs` (e.g. `node docs/headroom/rpc-verify.mjs ./packages/headroom
+  "/headroom-status"`). Extension commands run with no LLM/API key and `ctx.ui.notify` is captured as
+  JSON notify events — assert on the real output. This is how status/notice/command/retrieve gates
+  are proven; do **not** report them as MANUAL.
+- **MANUAL** gates (visual TUI only): if a gate truly asserts glyph/render layout, run `pi -e
+  ./packages/headroom` and capture a real screenshot/transcript. If you cannot, say so explicitly —
+  the verifier will mark it UNVERIFIED and escalate; do not fabricate evidence.
 
 If the **same** gate fails **3 times**, stop and escalate to the user with the evidence — do not loop
 or redesign the phase.

@@ -35,9 +35,14 @@ For **each** row of Phase [N]'s table, by Method:
   `/health` healthy), run the ad-hoc Node script importing the extension's exported functions, and
   verify Expected. Run the proxy-**down** rows by stopping the proxy. If you genuinely cannot start
   the proxy in this environment, that is a **roadblock** → go to "Roadblock handling".
-- **MANUAL** — you cannot self-run a `pi -e` TUI session. If the builder supplied real captured
-  evidence (transcript/screenshot) that matches Expected, accept it and say so. If evidence is
-  missing or unconvincing, mark the gate **UNVERIFIED** — never PASS it on assertion.
+- **HEADLESS-RPC** — drive the extension yourself via the committed driver
+  `docs/headroom/rpc-verify.mjs` (`node docs/headroom/rpc-verify.mjs ./packages/headroom "/cmd"`).
+  Extension commands run with no LLM/API key; assert on the captured `notify` events (filter messages
+  starting with `Headroom`). These are fully self-verifiable — do not accept them as MANUAL/asserted.
+- **MANUAL** (visual TUI only) — for gates that assert glyph/render layout you cannot reproduce, use
+  the builder's real screenshot/transcript if it matches Expected; otherwise mark **UNVERIFIED** and
+  escalate. Never PASS on assertion. If a gate is labelled MANUAL but actually asserts behavior (not
+  pixels), verify it via HEADLESS-RPC instead.
 
 **Do not stop at the first failure** — collect them all.
 
