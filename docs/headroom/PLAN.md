@@ -56,6 +56,18 @@ manages its lifecycle.
   `author: "Jeremy Combs"`; smoke tests only (**no network mocks** in the committed suite).
 - **LD7 — Layout:** npm name `@jmcombs/pi-headroom`, directory `packages/headroom/`. Asset lives at
   the **repo root** under `assets/headroom/`, never inside the package.
+- **LD8 — Pi-format conversion (Path A, in-extension):** Headroom's `compress()` does **not**
+  recognize Pi's `AgentMessage[]` shape (`role: "toolResult"`, content parts `toolCall`/`thinking`):
+  `detectFormat()` falls through to `"openai"` and returns the messages unchanged → **~0%
+  compression** on real Pi conversations. Until the upstream SDK learns the Pi format (see the
+  Upstream follow-up section), the extension **must convert in-process**: Pi `AgentMessage[]` →
+  OpenAI messages → `compress()` → **swap the compressed content back into the original Pi messages
+  in place** (preserving every Pi field — `toolName`, `toolCallId`/`id` linkage, `usage`, `provider`,
+  `timestamp`, `thinking`). The conversion is **1:1 and count-preserving**; if anything fails to line
+  up (format not Pi, message-count mismatch after `compress()`, any thrown error), the handler
+  returns the **original** `event.messages` untouched (LD3). **Do not** reconstruct Pi messages from
+  scratch (placeholder metadata) when the originals are in hand — the in-place swap is mandatory; the
+  full reconstruction path belongs only to the upstream SDK contribution.
 
 ---
 
@@ -87,6 +99,7 @@ manages its lifecycle.
 | 4 | `feat` | Config surface: mode + tuning | 3 |
 | 5 | `feat` | UX, metrics, docs, asset | 4 |
 | 6 | `chore` | Release wiring | 5 |
+| 7 | — | Upstream Headroom Pi-format contribution (follow-up, do **last**) | 6 |
 
 ### Testing-Gate methods
 
@@ -152,33 +165,58 @@ LD7. The `session_start` notice must be non-fatal and fire at most once per sess
 
 ## Phase 2 — Whole-conversation compression via `context`
 
-**Objectives:** Compress the conversation on each LLM call through the `context` hook; accumulate
-session savings.
+**Objectives:** Compress the conversation on each LLM call through the `context` hook — converting
+Pi's `AgentMessage[]` to a Headroom-recognized format and back (Path A, **LD8**) so compression
+actually fires on real Pi sessions — and accumulate session savings.
 
-**Architectural Constraints:** LD1, LD2, LD3. The handler returns `{ messages }` only; on health-gate
-false or any error it returns the **original** `event.messages` untouched. Core compression logic is
-exported as a testable function so it can be exercised HEADLESS.
+**Architectural Constraints:** LD1, LD2, LD3, **LD8**. The handler returns `{ messages }` only; on
+health-gate false, format-not-Pi, count mismatch, or any error it returns the **original**
+`event.messages` untouched. The Pi↔OpenAI conversion is 1:1 and count-preserving, and the compressed
+content is swapped **in place** back onto the original Pi messages (never reconstructed from
+scratch). Core compression + conversion logic is exported as testable functions so they can be
+exercised HEADLESS.
 
 **Actionable TODOs:**
-1. `packages/headroom/index.ts`: register `pi.on("context", …)` that, when `isHealthy()`, calls the
-   exported `compressMessages(messages, opts)` and returns `{ messages }`; otherwise passthrough.
-2. `packages/headroom/compress.ts` (new): exports `compressMessages(messages, { model, baseUrl })`
-   wrapping `compress({ fallback: true })` in `try/catch`; returns `{ messages, tokensSaved }`,
-   returning the original messages + `tokensSaved: 0` on any failure.
-3. `packages/headroom/index.ts`: a session savings accumulator updated from each call's `tokensSaved`.
-4. A disable mechanism (flag or setting) that turns compression off but **not** retrieve (LD2).
-5. `packages/headroom/index.test.ts`: assert the `context` event is registered; unit-test the pure
-   savings accumulator with no network.
+1. `packages/headroom/pi-format.ts` (new): in-extension converter (LD8). Exports
+   `isPiFormat(messages): boolean` (true when any message has `role: "toolResult"` or a content part
+   of type `toolCall`/`thinking`); `piToOpenAI(messages): OpenAIMessage[]` (1:1 — Pi `user`→OpenAI
+   `user`, Pi `assistant` text+`toolCall` parts→OpenAI `assistant` with `tool_calls`, Pi `toolResult`
+   →OpenAI `tool` with `tool_call_id`); and `applyCompressedText(originalPiMessages,
+   compressedOpenAIMessages): AgentMessage[] | null` that swaps the compressed text **in place** into
+   copies of the original Pi messages (preserving all Pi metadata) and returns `null` when the arrays
+   are not 1:1 alignable (length mismatch / role mismatch) so the caller can passthrough.
+2. `packages/headroom/compress.ts` (new): exports `compressMessages(messages, { model, baseUrl })`.
+   When `isPiFormat(messages)`: convert via `piToOpenAI`, call `compress({ fallback: true })` on the
+   OpenAI form, then `applyCompressedText(messages, result.messages)`; if that returns `null` (or the
+   proxy returned a different count), passthrough the **original** messages. Wrapped in `try/catch`;
+   returns `{ messages, tokensSaved }`, returning the original messages + `tokensSaved: 0` on any
+   failure or passthrough. Non-Pi inputs fall back to plain `compress({ fallback: true })`.
+3. `packages/headroom/index.ts`: register `pi.on("context", …)` that, when `isHealthy()`, calls
+   `compressMessages(messages, opts)` and returns `{ messages }`; otherwise passthrough.
+4. `packages/headroom/index.ts`: a session savings accumulator updated from each call's `tokensSaved`.
+5. A disable mechanism (flag or setting) that turns compression off but **not** retrieve (LD2).
+6. `packages/headroom/index.test.ts`: assert the `context` event is registered; unit-test the pure
+   savings accumulator and the `isPiFormat` / `applyCompressedText` count-preserving + passthrough
+   behavior with **no network**.
+7. **Upstream tracking (cannot be completed in this build — Path A is the interim workaround):**
+   create a GitHub issue in **this** repo (`jmcombs/pi-extensions`) titled e.g. *"Remove in-extension
+   Pi↔OpenAI shim once Headroom SDK supports Pi format"*, describing LD8/Path A as a temporary
+   workaround, and **link it to the upstream issue/PR** filed against `headroomlabs-ai/headroom`
+   (Phase 7). This TODO **stays unchecked** until that upstream issue/PR exists and is cross-linked —
+   the verifier does **not** tick it and does **not** block the phase on it (it is tracked under the
+   Upstream follow-up section, not a Phase 2 gate). The validated upstream fix is already documented
+   in `~/Projects/headroom/PI-FORMAT-NOTE.md`.
 
 **Testing Gates:**
 
 | # | Method | Command | Expected |
 | - | ------ | ------- | -------- |
 | 2.1 | AUTO | `npm run check` | exit 0 |
-| 2.2 | AUTO | `npm run test -- packages/headroom` | `context` registered; accumulator unit test passes |
-| 2.3 | HEADLESS | Node: `compressMessages(<stale-heavy convo>)` with proxy up | `tokensSaved > 0`; returns valid messages array same length |
-| 2.4 | HEADLESS | Node: `compressMessages(<convo>)` with proxy **down** | returns original messages unchanged, `tokensSaved === 0`, no throw |
-| 2.5 | HEADLESS-RPC | drive a multi-turn convo via RPC `prompt`s, then `/headroom-status` (or stats command) | session savings notify shows non-zero; no crash. (Full model-coherence over a real session may also be spot-checked MANUAL.) |
+| 2.2 | AUTO | `npm run test -- packages/headroom` | `context` registered; accumulator + `isPiFormat`/`applyCompressedText` unit tests pass |
+| 2.3 | HEADLESS | Node: `compressMessages(<real Pi `AgentMessage[]` with a stale heavy `toolResult`>)` with proxy up | `tokensSaved > 0`; output is valid **Pi** format — same length, roles `user/assistant/toolResult` preserved, `toolResult.toolCallId` + assistant `toolCall.id` linkage intact, stale `toolResult` text strictly shorter |
+| 2.4 | HEADLESS | Node: `compressMessages(<Pi convo>)` with proxy **down** | returns original messages unchanged, `tokensSaved === 0`, no throw |
+| 2.5 | HEADLESS | Node: `applyCompressedText` on a count-mismatched pair | returns `null` → `compressMessages` passes through original (no partial/garbled swap) |
+| 2.6 | HEADLESS-RPC | drive a multi-turn convo via RPC `prompt`s, then `/headroom-status` (or stats command) | session savings notify shows non-zero; no crash. (Full model-coherence over a real session may also be spot-checked MANUAL.) |
 
 ---
 
@@ -273,6 +311,36 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 
 ---
 
+## Phase 7 — Upstream Headroom Pi-format contribution (follow-up — do **last**)
+
+**Do this only after Phases 1–6 are merged and the extension ships.** This removes the need for the
+in-extension Path A shim (LD8) by teaching Headroom's own SDK the Pi format. It is a contribution to
+a **third-party repo**, handled by its **own dedicated agent**, and is **not** gated by this repo's
+build/verify loop.
+
+**Where:** the fork is already cloned at `~/Projects/headroom` (`origin = jmcombs/headroom`,
+`upstream = headroomlabs-ai/headroom`, Apache-2.0). The complete, validated brief — problem,
+exact change locations (`sdk/typescript/src/utils/format.ts` lines 22/33/463/473), reference
+`piToOpenAI`/`openAIToPi` converters, test evidence (~96% vs 0% compression, round-trip fidelity),
+known fidelity gaps, and a per-step checklist — lives in **`~/Projects/headroom/PI-FORMAT-NOTE.md`**.
+
+**Actionable TODOs (tracked here; executed in the `headroom` clone, not `pi-extensions`):**
+1. File an **issue** on `headroomlabs-ai/headroom` describing the missing Pi (`AgentMessage[]`)
+   format support (use PI-FORMAT-NOTE.md as the basis).
+2. Implement the fix on a branch of the `jmcombs/headroom` fork (add `"pi"` to `MessageFormat`,
+   extend `detectFormat`, add `piToOpenAI`/`openAIToPi`, wire `toOpenAI`/`fromOpenAI`, add tests),
+   and open a **PR** to upstream linked to the issue.
+3. **Back-link in this repo:** update the Phase 2 upstream-tracking GitHub issue (Phase 2 TODO #7) to
+   reference the upstream issue/PR URLs. Only then can that tracking TODO be considered resolved.
+4. Once upstream merges and releases, follow up to **remove the Path A shim (LD8)** —
+   `packages/headroom/pi-format.ts` and its use in `compress.ts` — behind a version bump of
+   `headroom-ai`. (Separate future change; not part of this PLAN's Phases 1–6.)
+
+There are **no committed Testing Gates** for Phase 7 in this repo — its acceptance is the upstream
+PR's own CI and review. Record the issue/PR URLs in Appendix C when they exist.
+
+---
+
 ## Appendix A — Reuse map (do not hand-roll what exists)
 
 - `packages/tavily-search/index.ts` — `AuthStorage` + `process.env` fallback; auth command shape.
@@ -305,6 +373,9 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 - [ ] Phase 4 — Config surface: mode + tuning
 - [ ] Phase 5 — UX, metrics, docs, asset
 - [ ] Phase 6 — Release wiring
+- [ ] Phase 7 — Upstream Headroom Pi-format contribution (follow-up; do last). Tracking issue: _TBD_;
+      upstream issue: _TBD_; upstream PR: _TBD_. Stays unchecked until upstream issue/PR exist and the
+      Phase 2 tracking issue back-links them.
 
 ## Appendix D — Definition of Done (every phase)
 
