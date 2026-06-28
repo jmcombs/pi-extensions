@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 775 144" width="775" height="144">
+  <!-- README banner: short, horizontal — icon + wordmark only (the tagline lives
+       as README text). Path Blue rounded card, tight vertical padding. The ink
+       (icon + "Headroom") is centered by translating the lockup so its measured
+       content bbox [x 15–296.5, y 16.5–53] lands at the banner centre. -->
+  <rect width="775" height="144" rx="20" fill="#3465a4"/>
+
+  <g transform="translate(29.5,-7.95) scale(2.3)">
+    <!-- White mark -->
+    <svg x="0" y="6" width="60" height="60" viewBox="0 0 64 64" fill="none">
+      <rect x="16" y="13.5" width="32" height="5" rx="2.5" fill="#ffffff"/>
+      <rect x="30.25" y="34" width="3.5" height="16.5" rx="1.75" fill="#ffffff"/>
+      <path d="M20.5 39.5 L32 27.5 L43.5 39.5" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <!-- Manrope 800 wordmark -->
+    <text x="74" y="50" font-family="Manrope, sans-serif" font-size="46" font-weight="800" letter-spacing="-1.4" fill="#eff1f5">Headroom</text>
+  </g>
+</svg>

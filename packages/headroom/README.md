@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/headroom/preview.png" width="250" alt="@jmcombs/pi-headroom">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/headroom/banner.png" width="420" alt="@jmcombs/pi-headroom">
   <br>
   <a href="https://www.npmjs.com/package/@jmcombs/pi-headroom"><img src="https://img.shields.io/npm/v/@jmcombs/pi-headroom.svg" alt="npm version"></a>
   <a href="https://www.npmjs.com/package/@jmcombs/pi-headroom"><img src="https://img.shields.io/npm/dm/@jmcombs/pi-headroom.svg" alt="npm downloads"></a>
