@@ -432,7 +432,7 @@ was not explicitly approved by the user. A phase PASSes only when it matches thi
 - [x] Phase 1 — Scaffold + proxy client + status commands — merged in #86; all gates 1.1–1.6 verified (1.5/1.6 via HEADLESS-RPC)
 - [x] Phase 2 — Whole-conversation compression via `context` — verified in #92; gates 2.1–2.6 re-derived green (2.3/2.4/2.5 HEADLESS, 2.6 HEADLESS-RPC + registered-surface accumulation)
 - [x] Phase 3 — `headroom_retrieve` tool — verified in #93; gates 3.1–3.4 re-derived green (3.3 HEADLESS, 3.4 via registered `headroom_retrieve.execute` against live proxy — RPC has no tool-invoke command); LD2/LD3 confirmed empirically
-- [ ] Phase 4 — Config surface: mode + tuning
+- [x] Phase 4 — Status display: extension state + proxy reachability + proxy settings — verified in #95; gates 4.1–4.5 re-derived green (4.3/4.4 HEADLESS against live proxy v0.27.0, 4.5 HEADLESS-RPC); 4.6 widget CONTENT proven via captured `setWidget` RPC event (pixel render UNVERIFIED, visual-only per gate wording); LD3-no-latency/LD4/LD9 read-only confirmed empirically (proxy untouched after down-path)
 - [ ] Phase 5 — UX, metrics, docs, asset
 - [ ] Phase 6 — Release wiring
 - [ ] Phase 7 — Upstream Headroom Pi-format contribution (follow-up; do last). Tracking issue: _TBD_;
