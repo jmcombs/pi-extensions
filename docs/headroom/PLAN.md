@@ -105,8 +105,9 @@ manages its lifecycle.
 | 3 | `feat` | `headroom_retrieve` tool (reversibility) | 2 |
 | 4 | `feat` | Status display: extension state + proxy reachability + proxy settings | 3 |
 | 5 | `feat` | UX, metrics, docs, asset | 4 |
-| 6 | `chore` | Release wiring | 5 |
-| 7 | — | Upstream Headroom Pi-format contribution (follow-up, do **last**) | 6 |
+| 6 | `feat` | Recall-reliability defect remediation (query-aware auto-retrieve) — real-environment defect, not a planned feature | 5 |
+| 7 | `chore` | Release wiring | 6 |
+| 8 | — | Upstream Headroom Pi-format contribution (follow-up, do **last**) | 7 |
 
 ### Testing-Gate methods
 
