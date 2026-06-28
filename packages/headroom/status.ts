@@ -143,7 +143,7 @@ export async function getProxyStatus(baseUrl?: string, apiKey?: string): Promise
 }
 
 /** Render a token count compactly: `0`, `880`, `8.8k`, `1.2M`. */
-function humanizeTokens(value: number): string {
+export function humanizeTokens(value: number): string {
   const n = Math.round(value);
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
