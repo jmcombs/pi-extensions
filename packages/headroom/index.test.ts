@@ -14,7 +14,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory from "./index.js";
+import factory, { accumulateSavings } from "./index.js";
+import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
 
 interface RegistrationLog {
   tools: string[];
@@ -89,5 +90,151 @@ describe("@jmcombs/pi-headroom", () => {
     expect(log.commands).toContain("headroom-status");
     expect(log.commands).toContain("headroom-authenticate");
     expect(log.events).toContain("session_start");
+  });
+
+  it("registers the context hook and the disable flag (Phase 2)", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    expect(log.events).toContain("context");
+    expect(log.flags).toContain("headroom-no-compress");
+  });
+});
+
+describe("accumulateSavings", () => {
+  it("adds positive deltas to the running total", () => {
+    expect(accumulateSavings(0, 100)).toBe(100);
+    expect(accumulateSavings(100, 250)).toBe(350);
+  });
+
+  it("ignores zero, negative, and non-finite deltas (passthrough/fallback)", () => {
+    expect(accumulateSavings(500, 0)).toBe(500);
+    expect(accumulateSavings(500, -42)).toBe(500);
+    expect(accumulateSavings(500, Number.NaN)).toBe(500);
+    expect(accumulateSavings(500, Number.POSITIVE_INFINITY)).toBe(500);
+  });
+});
+
+// A realistic 4-message Pi conversation: user → assistant+toolCall → toolResult → user.
+function samplePiConversation(): PiMessage[] {
+  return [
+    { role: "user", content: [{ type: "text", text: "run the tests" }], timestamp: 1 },
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text: "Running the suite." },
+        { type: "toolCall", id: "call_1", name: "bash", arguments: { command: "npm test" } },
+      ],
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude-3-5-haiku",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "toolUse",
+      timestamp: 2,
+    },
+    {
+      role: "toolResult",
+      toolCallId: "call_1",
+      toolName: "bash",
+      content: [{ type: "text", text: "a very long and verbose test log ".repeat(20) }],
+      isError: false,
+      timestamp: 3,
+    },
+    { role: "user", content: [{ type: "text", text: "thanks" }], timestamp: 4 },
+  ] as unknown as PiMessage[];
+}
+
+describe("isPiFormat", () => {
+  it("detects Pi shape via role:toolResult", () => {
+    expect(isPiFormat(samplePiConversation())).toBe(true);
+  });
+
+  it("detects Pi shape via toolCall/thinking content parts", () => {
+    const onlyAssistant: PiMessage[] = [
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "x", name: "bash", arguments: {} }],
+      },
+    ] as unknown as PiMessage[];
+    expect(isPiFormat(onlyAssistant)).toBe(true);
+  });
+
+  it("returns false for plain OpenAI-shaped messages", () => {
+    const openAI = [
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ] as unknown as PiMessage[];
+    expect(isPiFormat(openAI)).toBe(false);
+  });
+});
+
+describe("applyCompressedText", () => {
+  it("is count-preserving and swaps text in place while keeping Pi metadata + linkage", () => {
+    const original = samplePiConversation();
+    const openAI = piToOpenAI(original);
+    expect(openAI).toHaveLength(original.length);
+
+    // Simulate the proxy compressing the bulky toolResult (index 2) text.
+    const compressed = openAI.map((m, i) => (i === 2 ? { ...m, content: "[compressed log]" } : m));
+
+    const result = applyCompressedText(original, compressed);
+    expect(result).not.toBeNull();
+    const messages = result as PiMessage[];
+
+    // Same length, roles preserved.
+    expect(messages).toHaveLength(original.length);
+    expect(messages.map((m) => (m as { role: string }).role)).toEqual([
+      "user",
+      "assistant",
+      "toolResult",
+      "user",
+    ]);
+
+    // toolResult text swapped, strictly shorter, metadata + linkage intact.
+    const toolResult = messages[2] as {
+      toolCallId: string;
+      toolName: string;
+      isError: boolean;
+      content: { type: string; text: string }[];
+    };
+    expect(toolResult.toolCallId).toBe("call_1");
+    expect(toolResult.toolName).toBe("bash");
+    expect(toolResult.isError).toBe(false);
+    expect(toolResult.content[0]?.text).toBe("[compressed log]");
+    const originalToolResult = original[2] as { content: { text: string }[] };
+    expect(toolResult.content[0]?.text.length).toBeLessThan(
+      originalToolResult.content[0]?.text.length ?? 0,
+    );
+
+    // assistant → toolCall id linkage preserved.
+    const assistant = messages[1] as { content: { type: string; id?: string }[] };
+    const toolCallPart = assistant.content.find((p) => p.type === "toolCall");
+    expect(toolCallPart?.id).toBe("call_1");
+
+    // Original messages untouched (copies, not mutation).
+    expect(originalToolResult.content[0]?.text).not.toBe("[compressed log]");
+  });
+
+  it("returns null on a count-mismatched pair (caller passes through)", () => {
+    const original = samplePiConversation();
+    const tooFew = piToOpenAI(original).slice(0, 2);
+    expect(applyCompressedText(original, tooFew)).toBeNull();
+  });
+
+  it("returns null on a per-index role mismatch", () => {
+    const original = samplePiConversation();
+    const openAI = piToOpenAI(original);
+    // Corrupt the role at index 2 (expected "tool").
+    const mismatched = openAI.map((m, i) =>
+      i === 2 ? ({ role: "user", content: "x" } as (typeof openAI)[number]) : m,
+    );
+    expect(applyCompressedText(original, mismatched)).toBeNull();
   });
 });
