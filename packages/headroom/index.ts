@@ -56,6 +56,7 @@ import { getClient, isHealthy, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
 import {
   formatStatusLine,
+  formatStatusWidget,
   getProxyStatus,
   humanizeTokens,
   type ProxyStatusState,
@@ -632,7 +633,7 @@ export default function (pi: ExtensionAPI): void {
     if (!ctx.hasUI) return;
     const state: StatusDisplayState = { enabled: isEnabled(), ...proxySnapshot };
     try {
-      ctx.ui.setWidget(STATUS_WIDGET_KEY, [formatStatusLine(state, sessionTokensSaved)], {
+      ctx.ui.setWidget(STATUS_WIDGET_KEY, [formatStatusWidget(state, sessionTokensSaved)], {
         placement: "aboveEditor",
       });
     } catch {

@@ -150,6 +150,106 @@ export function humanizeTokens(value: number): string {
   return String(n);
 }
 
+// ── Powerline status widget (Blue PSL 10K look) ─────────────────────────
+// A segmented, Powerline-styled rendering of the same state as
+// `formatStatusLine`, for the persistent above-editor widget. Built from raw
+// 24-bit ANSI like `@jmcombs/pi-blue-psl-10k`'s footer — Pi's TUI wraps each
+// widget line in a `Text` component, which renders ANSI escapes (the same
+// mechanism `theme.fg()` uses), so the colored blocks + Nerd-Font separators
+// display in the terminal. Pure string building — no I/O, never throws.
+
+const ESC = "\x1b";
+/** Powerline solid right-pointing separator (Nerd Font). */
+const ARROW_RIGHT = "";
+/** Brand mark: nf-md-format-vertical-align-top — the Headroom "arrow to ceiling". */
+const HEADROOM_GLYPH = "\u{F0623}";
+/** Emoji shown beside the proxy mode value. */
+const MODE_EMOJI = "⚙️";
+/** Emoji shown beside the session tokens-saved figure. */
+const SAVED_EMOJI = "💾";
+
+/** Block colors (Blue PSL 10K / Catppuccin Latte palette; Path Blue = logo blue). */
+const WIDGET_COLORS = {
+  fg: "#eff1f5", // light text on every block
+  headroom: "#3465a4", // Path Blue (the logo blue) — brand block, always
+  proxyOk: "#40a02b", // green — proxy reachable
+  proxyOff: "#d20f39", // red — proxy unreachable
+  mode: "#1e66f5", // blue — proxy mode block (matches blue-psl's thinking-level blue)
+  saved: "#179299", // teal — session tokens saved (matches blue-psl tokens block)
+} as const;
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.replace("#", ""), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function fgCode(hex: string): string {
+  const [r, g, b] = hexToRgb(hex);
+  return `${ESC}[38;2;${r};${g};${b}m`;
+}
+
+function bgCode(hex: string): string {
+  const [r, g, b] = hexToRgb(hex);
+  return `${ESC}[48;2;${r};${g};${b}m`;
+}
+
+const RESET = `${ESC}[0m`;
+
+interface WidgetSegment {
+  text: string;
+  bg: string;
+}
+
+/**
+ * Join segments into a left-aligned Powerline string: each block is padded
+ * text on its background, followed by a `` separator whose foreground is the
+ * block's color and whose background is the next block's color (so the triangle
+ * fades cleanly into the next block; the final one fades to the terminal bg).
+ */
+function buildPowerline(segments: readonly WidgetSegment[]): string {
+  let out = "";
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg === undefined) continue;
+    out += `${bgCode(seg.bg)}${fgCode(WIDGET_COLORS.fg)} ${seg.text} `;
+    const next = segments[i + 1];
+    out +=
+      next !== undefined
+        ? `${fgCode(seg.bg)}${bgCode(next.bg)}${ARROW_RIGHT}`
+        : `${RESET}${fgCode(seg.bg)}${ARROW_RIGHT}${RESET}`;
+  }
+  return out;
+}
+
+/**
+ * Render the persistent status widget as a Powerline bar. Blocks:
+ *
+ *   ` Headroom │ proxy v<version> │ ⚙ <mode> │ 💾 <saved>`
+ *
+ * The Headroom block is always the logo blue (Path Blue). The proxy block is
+ * **green** with `proxy v<version>` when reachable, or **red** with
+ * `proxy offline` when not — folding proxy health into one block. The mode
+ * block (only when reachable) is the thinking-level blue. Lifetime savings are
+ * intentionally omitted.
+ */
+export function formatStatusWidget(state: StatusDisplayState, sessionTokensSaved: number): string {
+  const saved = Number.isFinite(sessionTokensSaved) ? sessionTokensSaved : 0;
+  const segments: WidgetSegment[] = [
+    { text: `${HEADROOM_GLYPH} Headroom`, bg: WIDGET_COLORS.headroom },
+  ];
+
+  if (state.reachable) {
+    segments.push({ text: `proxy v${state.version ?? "?"}`, bg: WIDGET_COLORS.proxyOk });
+    if (state.mode) segments.push({ text: `${MODE_EMOJI} ${state.mode}`, bg: WIDGET_COLORS.mode });
+  } else {
+    segments.push({ text: "proxy offline", bg: WIDGET_COLORS.proxyOff });
+  }
+
+  segments.push({ text: `${SAVED_EMOJI} ${humanizeTokens(saved)}`, bg: WIDGET_COLORS.saved });
+
+  return buildPowerline(segments);
+}
+
 /**
  * Render the one-line status display from the current display state and the
  * in-memory session savings. Pure — no I/O, never throws. Examples:
