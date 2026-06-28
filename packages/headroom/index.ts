@@ -50,7 +50,7 @@ import {
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
-import { HeadroomClient, type OpenAIMessage, simulate } from "headroom-ai";
+import { HeadroomClient, type OpenAIMessage, type RetrieveResult, simulate } from "headroom-ai";
 import { type Static, Type } from "typebox";
 import { getClient, isHealthy, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
@@ -449,6 +449,31 @@ interface RetrieveDetails {
   compressedItemCount?: number;
   retrievalCount?: number;
   matchCount?: number;
+  /** Set when a query matched nothing and we fell back to the full original. */
+  fellBackToFull?: boolean;
+}
+
+/** Minimal client surface this tool needs — lets tests inject a no-network stub. */
+type RetrieveClient = Pick<HeadroomClient, "retrieve">;
+
+/** Shape a full RetrieveResult into a tool result carrying the original content. */
+function fullRetrieveResult(
+  hash: string,
+  result: RetrieveResult,
+  query: string | undefined,
+): RetrieveToolResult {
+  return {
+    content: [{ type: "text", text: result.originalContent }],
+    details: {
+      hash,
+      query,
+      toolName: result.toolName,
+      originalTokens: result.originalTokens,
+      originalItemCount: result.originalItemCount,
+      compressedItemCount: result.compressedItemCount,
+      retrievalCount: result.retrievalCount,
+    },
+  };
 }
 
 interface RetrieveToolResult {
@@ -463,44 +488,65 @@ interface RetrieveToolResult {
  * agent loop. Retrieve is independent of compression: it works whenever the
  * proxy is reachable, regardless of the disable flag.
  */
-async function retrieveExecute(
+export async function retrieveExecute(
   params: RetrieveInput,
-  args: { authStorage?: AuthStorage } = {},
+  args: { authStorage?: AuthStorage; client?: RetrieveClient } = {},
 ): Promise<RetrieveToolResult> {
   const hash = params.hash;
   try {
-    const client = await getClient({ authStorage: args.authStorage });
+    const client = args.client ?? (await getClient({ authStorage: args.authStorage }));
     const result = await client.retrieve(hash, params.query ? { query: params.query } : undefined);
 
     // Full retrieval (RetrieveResult) → the original content as text.
     if ("originalContent" in result) {
+      return fullRetrieveResult(hash, result, params.query);
+    }
+
+    // Query retrieval (RetrieveSearchResult) with matches → the matched items.
+    const items = Array.isArray(result.results) ? result.results : [];
+    if (items.length > 0) {
+      const text = items
+        .map((item) => (typeof item === "string" ? item : JSON.stringify(item, null, 2)))
+        .join("\n");
       return {
-        content: [{ type: "text", text: result.originalContent }],
+        content: [{ type: "text", text }],
+        details: { hash, query: result.query, matchCount: result.count },
+      };
+    }
+
+    // The proxy's query-search matched nothing — but the elided detail is fully
+    // recoverable. Fall back to a no-query full retrieval and return the original
+    // content, rather than the unhelpful "No items matched" message. The query
+    // stays a best-effort optimization for when it does match.
+    const full = await client.retrieve(hash);
+    if ("originalContent" in full) {
+      const prefix = `(Query "${result.query}" matched no stored items; showing the full original below.)\n\n`;
+      return {
+        content: [{ type: "text", text: prefix + full.originalContent }],
         details: {
           hash,
           query: params.query,
-          toolName: result.toolName,
-          originalTokens: result.originalTokens,
-          originalItemCount: result.originalItemCount,
-          compressedItemCount: result.compressedItemCount,
-          retrievalCount: result.retrievalCount,
+          toolName: full.toolName,
+          originalTokens: full.originalTokens,
+          originalItemCount: full.originalItemCount,
+          compressedItemCount: full.compressedItemCount,
+          retrievalCount: full.retrievalCount,
+          matchCount: result.count,
+          fellBackToFull: true,
         },
       };
     }
 
-    // Query retrieval (RetrieveSearchResult) → the matching items as text.
-    const items = Array.isArray(result.results) ? result.results : [];
-    const text = items
-      .map((item) => (typeof item === "string" ? item : JSON.stringify(item, null, 2)))
-      .join("\n");
+    // Defensive: the fallback also returned no original content (shouldn't
+    // happen). Non-throwing, clear message (LD3).
     return {
       content: [
         {
           type: "text",
-          text: text || `No items matched query "${result.query}" for hash ${hash}.`,
+          text: `No items matched query "${result.query}" for hash ${hash}, and the full original could not be retrieved.`,
         },
       ],
-      details: { hash, query: result.query, matchCount: result.count },
+      details: { hash, query: result.query, matchCount: result.count, fellBackToFull: true },
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
