@@ -21,6 +21,7 @@ import factory, {
   extractSimulation,
   formatSimulationReport,
   formatStatsReport,
+  retrieveExecute,
   type StatsReportState,
 } from "./index.js";
 import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
@@ -271,6 +272,134 @@ describe("applyCompressedText", () => {
       i === 2 ? ({ role: "user", content: "x" } as (typeof openAI)[number]) : m,
     );
     expect(applyCompressedText(original, mismatched)).toBeNull();
+  });
+});
+
+// ── headroom_retrieve: empty-query fallback to full retrieval (no network) ──
+
+/**
+ * A no-network stub of the proxy client's `retrieve`. `retrieve(hash, {query})`
+ * resolves a RetrieveSearchResult; `retrieve(hash)` (no query) resolves the full
+ * RetrieveResult. The query result is configurable so we can exercise both the
+ * empty-match (fallback) and non-empty-match paths.
+ */
+function createRetrieveStub(opts: {
+  full?: Record<string, unknown> | null;
+  search: { results: unknown[]; count: number };
+}) {
+  const calls: { hash: string; query?: string }[] = [];
+  const client = {
+    retrieve: async (hash: string, options?: { query?: string }) => {
+      calls.push({ hash, query: options?.query });
+      if (options?.query) {
+        return { hash, query: options.query, ...opts.search };
+      }
+      if (opts.full === null) return { hash, query: "", results: [], count: 0 };
+      return opts.full;
+    },
+  } as unknown as NonNullable<Parameters<typeof retrieveExecute>[1]>["client"];
+  return { client, calls };
+}
+
+const ORIGINAL_LOG = [
+  "txn 145 ref=aa1 settled $10.00 latency=5ms",
+  "txn 146 ref=bb2 settled $20.00 latency=6ms",
+  "txn 147 ref=abc settled $30.00 latency=7ms",
+  "txn 148 ref=dd4 settled $40.00 latency=8ms",
+].join("\n");
+
+const FULL_RESULT = {
+  hash: "h123",
+  originalContent: ORIGINAL_LOG,
+  originalTokens: 1200,
+  originalItemCount: 4,
+  compressedItemCount: 1,
+  toolName: "read_file",
+  retrievalCount: 1,
+};
+
+describe("retrieveExecute (headroom_retrieve)", () => {
+  it("falls back to the full original when the query matches nothing", async () => {
+    const { client, calls } = createRetrieveStub({
+      full: FULL_RESULT,
+      search: { results: [], count: 0 },
+    });
+
+    const result = await retrieveExecute({ hash: "h123", query: "txn 147" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    // Returns the original content (incl. the deep needle), NOT "No items matched".
+    expect(text).toContain("txn 147 ref=abc settled $30.00");
+    expect(text).not.toContain("No items matched");
+    // Transparency signal: fell back to full + the (zero) match count preserved.
+    expect(result.details.fellBackToFull).toBe(true);
+    expect(result.details.matchCount).toBe(0);
+    expect(result.details.query).toBe("txn 147");
+    expect(result.details.error).toBeUndefined();
+    // Tried the query first, then fell back to a no-query full retrieval.
+    expect(calls).toEqual([
+      { hash: "h123", query: "txn 147" },
+      { hash: "h123", query: undefined },
+    ]);
+  });
+
+  it("returns matched items unchanged when the query matches (no fallback)", async () => {
+    const { client, calls } = createRetrieveStub({
+      full: FULL_RESULT,
+      search: { results: ["txn 147 ref=abc settled $30.00 latency=7ms"], count: 1 },
+    });
+
+    const result = await retrieveExecute({ hash: "h123", query: "txn 147" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    expect(text).toBe("txn 147 ref=abc settled $30.00 latency=7ms");
+    expect(result.details.matchCount).toBe(1);
+    expect(result.details.fellBackToFull).toBeUndefined();
+    // Only one retrieve call — the query path, no fallback.
+    expect(calls).toEqual([{ hash: "h123", query: "txn 147" }]);
+  });
+
+  it("returns the full original on a no-query retrieval (existing path unchanged)", async () => {
+    const { client, calls } = createRetrieveStub({
+      full: FULL_RESULT,
+      search: { results: [], count: 0 },
+    });
+
+    const result = await retrieveExecute({ hash: "h123" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    expect(text).toBe(ORIGINAL_LOG);
+    expect(result.details.fellBackToFull).toBeUndefined();
+    expect(result.details.originalTokens).toBe(1200);
+    expect(calls).toEqual([{ hash: "h123", query: undefined }]);
+  });
+
+  it("returns a clear non-throwing message if the fallback also has no original (LD3)", async () => {
+    const { client } = createRetrieveStub({
+      full: null,
+      search: { results: [], count: 0 },
+    });
+
+    const result = await retrieveExecute({ hash: "h123", query: "nope" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    expect(text).toContain("the full original could not be retrieved");
+    expect(result.details.fellBackToFull).toBe(true);
+    expect(result.details.error).toBeUndefined();
+  });
+
+  it("returns a non-throwing error result when the client throws (LD3)", async () => {
+    const client = {
+      retrieve: async () => {
+        throw new Error("connection refused");
+      },
+    } as unknown as NonNullable<Parameters<typeof retrieveExecute>[1]>["client"];
+
+    const result = await retrieveExecute({ hash: "h123", query: "x" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    expect(text).toContain("Headroom retrieve failed");
+    expect(result.details.error).toBe(true);
   });
 });
 
