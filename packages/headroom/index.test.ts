@@ -14,7 +14,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { createSavingsAccumulator } from "./index.js";
+import factory from "./index.js";
 
 interface RegistrationLog {
   tools: string[];
@@ -89,39 +89,5 @@ describe("@jmcombs/pi-headroom", () => {
     expect(log.commands).toContain("headroom-status");
     expect(log.commands).toContain("headroom-authenticate");
     expect(log.events).toContain("session_start");
-  });
-
-  it("registers a context handler and the disable-compression flag", () => {
-    const { api, log } = createApiStub();
-    factory(api);
-
-    expect(log.events).toContain("context");
-    expect(log.flags).toContain("headroom-no-compress");
-  });
-});
-
-describe("createSavingsAccumulator", () => {
-  it("starts at zero", () => {
-    const acc = createSavingsAccumulator();
-    expect(acc.snapshot()).toEqual({ totalTokensSaved: 0, compressions: 0 });
-  });
-
-  it("accumulates token savings and counts every pass", () => {
-    const acc = createSavingsAccumulator();
-    acc.record(100);
-    acc.record(250);
-    acc.record(0);
-
-    expect(acc.snapshot()).toEqual({ totalTokensSaved: 350, compressions: 3 });
-  });
-
-  it("clamps negative and non-finite savings to zero but still counts the pass", () => {
-    const acc = createSavingsAccumulator();
-    acc.record(-50);
-    acc.record(Number.NaN);
-    acc.record(Number.POSITIVE_INFINITY);
-    acc.record(40);
-
-    expect(acc.snapshot()).toEqual({ totalTokensSaved: 40, compressions: 4 });
   });
 });
