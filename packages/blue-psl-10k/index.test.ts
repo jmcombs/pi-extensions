@@ -3,21 +3,25 @@
  * the footer via setFooter.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+  SessionStartEvent,
+} from "@earendil-works/pi-coding-agent";
+import { describe, expect, it, vi } from "vitest";
 import factory from "./index.js";
 
 interface RegistrationLog {
   events: string[];
   commands: string[];
-  setFooterCalls: unknown[];
+  handlers: Map<string, (event: unknown, ctx: ExtensionContext) => unknown>;
 }
 
 function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
   const log: RegistrationLog = {
     events: [],
     commands: [],
-    setFooterCalls: [],
+    handlers: new Map(),
   };
 
   const notImplemented = (method: string) => () => {
@@ -25,10 +29,9 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
   };
 
   const api = {
-    on: ((event: string) => {
+    on: ((event: string, handler?: (event: unknown, ctx: ExtensionContext) => unknown) => {
       log.events.push(event);
-      // Return a no-op handler for chained events (model_select, turn_end)
-      return () => {};
+      if (handler) log.handlers.set(event, handler);
     }) as unknown as ExtensionAPI["on"],
     registerTool: notImplemented("registerTool"),
     registerCommand: ((name: string) => {
@@ -55,6 +58,23 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
   return { api, log };
 }
 
+function createContextStub(): ExtensionContext {
+  return {
+    ui: {
+      setFooter: vi.fn(),
+      notify: vi.fn(),
+      confirm: vi.fn(),
+      onInput: vi.fn(),
+    },
+    sessionManager: {
+      getBranch: () => [],
+      getCwd: () => "/test",
+    },
+    getContextUsage: () => undefined,
+    model: undefined,
+  } as unknown as ExtensionContext;
+}
+
 describe("@jmcombs/pi-blue-psl-10k", () => {
   it("exports a default factory function", () => {
     expect(typeof factory).toBe("function");
@@ -72,12 +92,12 @@ describe("@jmcombs/pi-blue-psl-10k", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    // Simulate session_start event firing
-    const _sessionStartHandler = (api.on as any)("session_start");
-    // We need to trigger the handler. Since on() registers handlers,
-    // we simulate by calling the handler directly.
-    // The factory calls pi.on("session_start", handler) so the handler is registered.
-    // We verify the handler exists by checking the event was registered.
-    expect(log.events).toContain("session_start");
+    const handler = log.handlers.get("session_start");
+    expect(handler).toBeDefined();
+
+    const ctx = createContextStub();
+    handler?.({ type: "session_start", reason: "startup" } satisfies SessionStartEvent, ctx);
+
+    expect(ctx.ui.setFooter).toHaveBeenCalledOnce();
   });
 });
