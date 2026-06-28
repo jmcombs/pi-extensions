@@ -68,6 +68,13 @@ manages its lifecycle.
   returns the **original** `event.messages` untouched (LD3). **Do not** reconstruct Pi messages from
   scratch (placeholder metadata) when the originals are in hand — the in-place swap is mandatory; the
   full reconstruction path belongs only to the upstream SDK contribution.
+- **LD9 — Proxy settings are read-only (display, not control):** The proxy's `token`/`cache` **mode**
+  and tuning are **server-launch-only** — `/v1/compress` ignores per-request `mode`, and the npm SDK
+  exposes no token/cache mode (proven by the Phase 4 spike). The extension **never** sets `mode` or
+  any proxy-side config (that would require relaunching the proxy → LD4 violation). It only **reads
+  and reports** proxy settings via `client.proxyStats()` (`mode` + the `config` block) and tells the
+  user how to change them on their own. Per-request `mode` control is deferred to the upstream track
+  (Phase 7).
 
 ---
 
@@ -96,7 +103,7 @@ manages its lifecycle.
 | 1 | `feat` | Scaffold + proxy client + status commands | — |
 | 2 | `feat` | Whole-conversation compression via `context` | 1 |
 | 3 | `feat` | `headroom_retrieve` tool (reversibility) | 2 |
-| 4 | `feat` | Config surface: mode + tuning | 3 |
+| 4 | `feat` | Status display: extension state + proxy reachability + proxy settings | 3 |
 | 5 | `feat` | UX, metrics, docs, asset | 4 |
 | 6 | `chore` | Release wiring | 5 |
 | 7 | — | Upstream Headroom Pi-format contribution (follow-up, do **last**) | 6 |
@@ -246,25 +253,76 @@ config so inline markers (`… Retrieve more: hash=<hash>`) reach the model.
 
 ---
 
-## Phase 4 — Config surface: mode + tuning
+## Phase 4 — Status display: extension state + proxy reachability + proxy settings
 
-**Objectives:** Expose a small, documented config surface with conservative defaults.
+> **Why this replaced "Config surface: mode + tuning" (LD9).** The Phase 4 builder proved
+> empirically that the proxy's `token`/`cache` **mode is a server-launch-only setting**: the
+> `/v1/compress` endpoint the extension uses ignores any per-request `mode`/`config.mode` (identical
+> output for every variant, confirmed live), and the npm SDK's `CompressOptions`/`HeadroomClient`
+> expose no token/cache mode. The only lever is relaunching the proxy with `--mode`/`HEADROOM_MODE`,
+> which **violates LD4** (extension never manages the proxy). A settable `mode` could therefore only
+> be a no-op or an LD4 violation — both disallowed (Appendix B). **However, the proxy's mode and
+> effective settings ARE queryable read-only** (`/stats` → `summary.mode`; SDK
+> `client.proxyStats(): ProxyStats` with `mode?` + a `config` block: `target_ratio`, `protect_recent`,
+> `compress_user_messages`, …). So Phase 4 is redefined to **detect and display** proxy state rather
+> than set it — the user changes proxy settings on their own. **LD9:** the extension only ever
+> **reads/reports** proxy settings; it never sets `mode` or any proxy-side config (LD4 preserved).
+> Per-request `mode` control is deferred to the upstream track (Phase 7).
 
-**Architectural Constraints:** Defaults must reproduce Phase 2/3 behavior exactly; LD1–LD3 hold.
+**Objectives:** A persistent, **read-only** status display — modeled on `packages/prompt-enhancer/`'s
+footer-chip/widget pattern (`ctx.ui.setStatus` / `ctx.ui.setWidget`, guarded by `ctx.hasUI`) — that
+makes the integration's state plainly visible: whether compression is **enabled**, whether the
+**proxy is reachable** (+ version), the proxy's **current settings** (mode + key tuning), and **live
+compression statistics** — the in-memory **session tokens saved** (the Phase 2 accumulator, truly
+realtime and free) plus a **proxy savings summary** from `client.proxyStats()` (e.g. lifetime tokens
+saved / compression ratio). Purely informational; the user changes proxy settings themselves.
 
-**Actionable TODOs:**
-1. `packages/headroom/config.ts` (new): typed settings — at minimum `mode: "token" | "cache"`
-   (default `"token"`), `enabled` (default `true`), resolved from settings/env with safe defaults.
-2. Wire the resolved config into `compressMessages` / client construction.
-3. `packages/headroom/index.test.ts`: unit-test default resolution (no network).
+> **Relationship to Phase 5.** Phase 5 still ships the on-demand `/headroom-stats` (and
+> `/headroom-simulate`) commands for the **detailed** view. Phase 4 surfaces the **at-a-glance** live
+> numbers continuously in the status display so they're "just known" without running a command — the
+> two are complementary, not duplicative. Keep the heavy/detailed breakdown in Phase 5's command.
+
+**Architectural Constraints:** **LD3** — display gathering never throws; proxy-down shows an
+"unreachable" state, not an error into the loop. **LD4 / LD9** — read-only; never sets proxy config.
+The display is additive and must **not** change Phase 2/3 compression behavior. UI calls are no-ops
+when `!ctx.hasUI`, so the data-gathering must be a **separately exported, headless-testable** function
+(the chip/widget rendering itself is the only MANUAL/visual part). **Stats freshness:** the live
+**session** savings come from the in-memory accumulator (free, update the widget on each compression
+pass); the **proxy** savings summary is an HTTP call, so refresh it at sensible points
+(`session_start`, on the disable-flag toggle, and at most a short-TTL throttle) — never on every
+`context` call (avoid adding latency to the agent loop).
+
+**Actionable TODOs (literal paths):**
+1. `packages/headroom/status.ts` (new): exported `getProxyStatus(baseUrl?, apiKey?)` that calls
+   `client.proxyStats()` and returns a normalized, never-throwing snapshot of **settings + stats**
+   `{ reachable: boolean, version?: string, mode?: string, targetRatio?: number, protectRecent?: …,
+   compressUserMessages?: …, proxyTokensSaved?: number, proxyCompressionRatio?: number }`
+   (`reachable:false` on any error). Plus a pure `formatStatusLine(state, sessionTokensSaved)` helper
+   producing the display string (e.g. `Headroom: on · proxy 0.27.0 · mode token · saved 8.8k this
+   session · 1.2M lifetime`).
+2. `packages/headroom/index.ts`: a persistent status display via `ctx.ui.setStatus`/`setWidget`
+   (pattern from `prompt-enhancer`), guarded by `ctx.hasUI`, showing enabled state + proxy
+   reachability (+ version) + proxy mode (+ key settings) + **live stats** (session tokens saved from
+   the accumulator + proxy savings summary). Refresh the **session** figure on each compression pass;
+   refresh the **proxy** snapshot on `session_start`, the disable-flag toggle, and a short-TTL
+   throttle. No-op safe when headless.
+3. `packages/headroom/index.ts`: extend the existing `/headroom-status` command output to include the
+   proxy settings + stats snapshot (mode + key tuning + savings) so the data is assertable HEADLESS /
+   HEADLESS-RPC.
+4. `packages/headroom/index.test.ts`: unit-test `formatStatusLine` (incl. session + proxy savings
+   rendering) + the `getProxyStatus` shaping (no network — inject a stub stats object), and assert the
+   status-display wiring is registered.
 
 **Testing Gates:**
 
 | # | Method | Command | Expected |
 | - | ------ | ------- | -------- |
 | 4.1 | AUTO | `npm run check` | exit 0 |
-| 4.2 | AUTO | `npm run test -- packages/headroom` | default-config unit test passes; defaults = Phase 2 behavior |
-| 4.3 | HEADLESS-RPC | drive compression under `token` vs `cache` config via RPC; assert both run and default is unchanged from Phase 2 | both modes succeed; default behavior identical to Phase 2 |
+| 4.2 | AUTO | `npm run test -- packages/headroom` | `formatStatusLine` (settings + session/proxy savings) + `getProxyStatus`-shaping unit tests pass (no network); status-display registered |
+| 4.3 | HEADLESS | Node: `getProxyStatus()` with proxy **up** | `reachable:true`, `version:"0.27.0"`, `mode:"token"`, key tuning fields populated, `proxyTokensSaved` present (number) |
+| 4.4 | HEADLESS | Node: `getProxyStatus()` with proxy **down** | `reachable:false`, no throw, no proxy-side mutation |
+| 4.5 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom "/headroom-status"` (proxy up) | status notify now includes proxy **mode** + key settings + **savings** (session + proxy) |
+| 4.6 | MANUAL | `pi -e ./packages/headroom` — observe the persistent status chip/widget | shows `enabled · proxy reachable (vX) · mode … · saved … this session · … lifetime`. Builder captures a transcript/screenshot; if it cannot, the verifier marks **UNVERIFIED** and escalates (the underlying data is still proven by 4.3–4.5). |
 
 ---
 
@@ -335,6 +393,10 @@ known fidelity gaps, and a per-step checklist — lives in **`~/Projects/headroo
 4. Once upstream merges and releases, follow up to **remove the Path A shim (LD8)** —
    `packages/headroom/pi-format.ts` and its use in `compress.ts` — behind a version bump of
    `headroom-ai`. (Separate future change; not part of this PLAN's Phases 1–6.)
+5. **Per-request `mode` (LD9 follow-up):** file an upstream request for a **per-request token/cache
+   `mode` on `/v1/compress`** (and a typed SDK `CompressOptions.mode`). Today mode is server-launch-
+   only, so the extension can only *display* it (Phase 4 / LD9). If upstream adds per-request mode,
+   the extension could then offer a real settable mode without violating LD4.
 
 There are **no committed Testing Gates** for Phase 7 in this repo — its acceptance is the upstream
 PR's own CI and review. Record the issue/PR URLs in Appendix C when they exist.
