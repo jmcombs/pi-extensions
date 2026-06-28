@@ -16,6 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import factory, { accumulateSavings } from "./index.js";
 import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
+import { formatStatusLine, normalizeProxyStats, type StatusDisplayState } from "./status.js";
 
 interface RegistrationLog {
   tools: string[];
@@ -105,6 +106,17 @@ describe("@jmcombs/pi-headroom", () => {
     factory(api);
 
     expect(log.tools).toContain("headroom_retrieve");
+  });
+
+  it("wires the status display via session_start + context (Phase 4 refresh points)", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    // The persistent display is rendered/refreshed from the session_start and
+    // context handlers (the proxy snapshot is primed on session_start; the live
+    // session figure is refreshed on each compression pass).
+    expect(log.events).toContain("session_start");
+    expect(log.events).toContain("context");
   });
 });
 
@@ -243,5 +255,122 @@ describe("applyCompressedText", () => {
       i === 2 ? ({ role: "user", content: "x" } as (typeof openAI)[number]) : m,
     );
     expect(applyCompressedText(original, mismatched)).toBeNull();
+  });
+});
+
+// ── Phase 4: read-only status snapshot + display formatting (LD9) ───────
+
+describe("normalizeProxyStats", () => {
+  it("maps the live proxyStats() shape onto settings + lifetime savings (no network)", () => {
+    // Stub mirrors the real (camelCased) proxyStats() runtime object verified
+    // against the live proxy: mode under `summary`, tuning under `config`,
+    // lifetime savings under `tokens`.
+    const stub = {
+      summary: { mode: "token" },
+      config: {
+        targetRatio: 0.5,
+        protectRecent: 3,
+        compressUserMessages: true,
+        minTokensToCrush: 500,
+      },
+      tokens: { saved: 8800, savingsPercent: 42 },
+    };
+
+    expect(normalizeProxyStats(stub)).toEqual({
+      mode: "token",
+      targetRatio: 0.5,
+      protectRecent: 3,
+      compressUserMessages: true,
+      proxyTokensSaved: 8800,
+      proxyCompressionRatio: 42,
+    });
+  });
+
+  it("tolerates a default proxy where tuning fields are null", () => {
+    const stub = {
+      summary: { mode: "token" },
+      config: {
+        targetRatio: null,
+        protectRecent: null,
+        compressUserMessages: false,
+        minTokensToCrush: 500,
+      },
+      tokens: { saved: 0, savingsPercent: 0 },
+    };
+
+    expect(normalizeProxyStats(stub)).toEqual({
+      mode: "token",
+      targetRatio: undefined,
+      protectRecent: undefined,
+      compressUserMessages: false,
+      proxyTokensSaved: 0,
+      proxyCompressionRatio: 0,
+    });
+  });
+
+  it("returns all-undefined fields for an empty/garbage object (never throws)", () => {
+    expect(normalizeProxyStats(undefined)).toEqual({
+      mode: undefined,
+      targetRatio: undefined,
+      protectRecent: undefined,
+      compressUserMessages: undefined,
+      proxyTokensSaved: undefined,
+      proxyCompressionRatio: undefined,
+    });
+    expect(() => normalizeProxyStats({ unrelated: 1 })).not.toThrow();
+  });
+});
+
+describe("formatStatusLine", () => {
+  const reachable: StatusDisplayState = {
+    enabled: true,
+    reachable: true,
+    version: "0.27.0",
+    mode: "token",
+    compressUserMessages: false,
+    proxyTokensSaved: 1_200_000,
+    proxyCompressionRatio: 42,
+  };
+
+  it("renders enabled + proxy version + mode + session and proxy lifetime savings", () => {
+    const line = formatStatusLine(reachable, 8800);
+    expect(line).toBe(
+      "Headroom: on · proxy 0.27.0 · mode token · saved 8.8k this session · 1.2M lifetime",
+    );
+  });
+
+  it("shows key tuning settings only when the proxy has them set", () => {
+    const tuned: StatusDisplayState = {
+      ...reachable,
+      targetRatio: 0.5,
+      protectRecent: 3,
+      compressUserMessages: true,
+    };
+    const line = formatStatusLine(tuned, 0);
+    expect(line).toContain("ratio 0.5");
+    expect(line).toContain("protect 3");
+    expect(line).toContain("user-msgs");
+    // A default proxy (no tuning) keeps the line clean.
+    expect(formatStatusLine(reachable, 0)).not.toContain("ratio");
+  });
+
+  it("reflects the disabled (off) state", () => {
+    const line = formatStatusLine({ ...reachable, enabled: false }, 0);
+    expect(line.startsWith("Headroom: off ·")).toBe(true);
+  });
+
+  it("renders an unreachable proxy without version/mode/lifetime, keeping the session figure", () => {
+    const down: StatusDisplayState = { enabled: true, reachable: false };
+    const line = formatStatusLine(down, 8800);
+    expect(line).toBe("Headroom: on · proxy unreachable · saved 8.8k this session");
+    expect(line).not.toContain("lifetime");
+    expect(line).not.toContain("mode");
+  });
+
+  it("humanizes token counts (k/M) and treats non-finite session savings as 0", () => {
+    expect(formatStatusLine(reachable, Number.NaN)).toContain("saved 0 this session");
+    expect(formatStatusLine({ ...reachable, proxyTokensSaved: 950 }, 950)).toContain(
+      "saved 950 this session",
+    );
   });
 });

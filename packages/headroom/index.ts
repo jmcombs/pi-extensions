@@ -13,7 +13,8 @@
  * prerequisite documented in the README.
  *
  * Commands:
- *   - `/headroom-status`       — report proxy health + version + session savings.
+ *   - `/headroom-status`       — report proxy health + version + mode + key
+ *     settings + session and proxy lifetime savings.
  *   - `/headroom-authenticate` — securely store the proxy API key.
  *
  * Tools:
@@ -26,22 +27,54 @@
  *   - `--headroom-no-compress` — disable compression for the session. Retrieve
  *     (Phase 3) stays enabled (LD2); only compression is turned off.
  *
+ * Display (Phase 4 — read-only, LD9):
+ *   - A persistent above-editor widget shows compression enabled state, proxy
+ *     reachability (+ version), the proxy's current settings (mode + key tuning),
+ *     and live stats (session tokens saved + proxy lifetime savings). It only
+ *     READS proxy settings (`health()` / `proxyStats()`); it never sets `mode`
+ *     or any proxy-side config (that would relaunch the proxy → LD4). The user
+ *     changes proxy settings on their own.
+ *
  * Events:
- *   - `context`       — compress the conversation before each LLM call (LD1).
+ *   - `context`       — compress the conversation before each LLM call (LD1) and
+ *     refresh the live session figure in the status display.
  *   - `session_start` — emits a one-time, non-fatal notice when the proxy is
- *     unreachable so the session stays usable in passthrough mode.
+ *     unreachable so the session stays usable in passthrough mode, and primes
+ *     the status display + proxy snapshot.
  */
 
-import { AuthStorage, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
+import {
+  AuthStorage,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type Theme,
+} from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import { getClient, isHealthy, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
+import {
+  formatStatusLine,
+  getProxyStatus,
+  type ProxyStatusState,
+  type StatusDisplayState,
+} from "./status.js";
 
 const PROXY_START_HINT = "Start it with: ~/.headroom-venv/bin/headroom proxy --port 8787";
 
 /** CLI flag that disables compression for the session (retrieve stays on, LD2). */
 const DISABLE_FLAG = "headroom-no-compress";
+
+/** Stable key for the persistent above-editor status widget. */
+const STATUS_WIDGET_KEY = "headroom";
+
+/**
+ * Minimum gap between proxy-snapshot refreshes. The session figure updates for
+ * free on every compression pass; the proxy snapshot is an HTTP call, so it is
+ * throttled and never fetched on every `context` event (no added agent-loop
+ * latency; LD3).
+ */
+const PROXY_SNAPSHOT_TTL_MS = 30_000;
 
 /**
  * Fold a single call's `tokensSaved` into the running session total. Pure and
@@ -205,6 +238,71 @@ export default function (pi: ExtensionAPI): void {
   // Running total of tokens saved by compression across this session (LD8).
   let sessionTokensSaved = 0;
 
+  // Cached read-only snapshot of proxy reachability + settings + lifetime
+  // savings (LD9). Refreshed at sensible points (session_start, disable-flag
+  // toggle, short-TTL throttle) — never on every `context` call.
+  let proxySnapshot: ProxyStatusState = { reachable: false };
+  let proxySnapshotAt = 0;
+  let proxyRefreshInFlight = false;
+  // Last rendered enabled state, so a disable-flag toggle can force a refresh.
+  let lastEnabled: boolean | undefined;
+
+  /** Current enabled state (compression on unless the disable flag is set). */
+  const isEnabled = (): boolean => pi.getFlag(DISABLE_FLAG) !== true;
+
+  /**
+   * Render the persistent status widget from the cached snapshot + the live
+   * in-memory session figure. No-op (and never throws) when there's no UI;
+   * additive only — never touches compression behavior.
+   */
+  const renderStatusDisplay = (ctx: ExtensionContext): void => {
+    if (!ctx.hasUI) return;
+    const state: StatusDisplayState = { enabled: isEnabled(), ...proxySnapshot };
+    try {
+      ctx.ui.setWidget(STATUS_WIDGET_KEY, [formatStatusLine(state, sessionTokensSaved)], {
+        placement: "aboveEditor",
+      });
+    } catch {
+      // The display is purely informational; never let it disturb the loop (LD3).
+    }
+  };
+
+  /**
+   * Refresh the proxy snapshot in the background when stale (or forced), then
+   * re-render. Fire-and-forget: never awaited from the `context` handler, so it
+   * adds no latency to the agent loop (LD3). Read-only (LD9).
+   */
+  const refreshProxySnapshot = (ctx: ExtensionContext, force = false): void => {
+    const stale = force || Date.now() - proxySnapshotAt > PROXY_SNAPSHOT_TTL_MS;
+    if (!stale || proxyRefreshInFlight) return;
+    proxyRefreshInFlight = true;
+    void (async () => {
+      try {
+        const cfg = await resolveConfig({ authStorage });
+        proxySnapshot = await getProxyStatus(cfg.baseUrl, cfg.apiKey);
+        proxySnapshotAt = Date.now();
+        renderStatusDisplay(ctx);
+      } catch {
+        // getProxyStatus never throws, but guard the config resolution too (LD3).
+      } finally {
+        proxyRefreshInFlight = false;
+      }
+    })();
+  };
+
+  /**
+   * Update the display after a compression pass: re-render the (free) session
+   * figure immediately, force a snapshot refresh on a disable-flag toggle, and
+   * otherwise let the short-TTL throttle decide.
+   */
+  const updateDisplay = (ctx: ExtensionContext): void => {
+    const enabled = isEnabled();
+    const toggled = lastEnabled !== undefined && lastEnabled !== enabled;
+    lastEnabled = enabled;
+    renderStatusDisplay(ctx);
+    refreshProxySnapshot(ctx, toggled);
+  };
+
   // Disable compression for the session (retrieve stays enabled, LD2).
   pi.registerFlag(DISABLE_FLAG, {
     description: "Disable Headroom context compression for this session (retrieve stays enabled).",
@@ -228,33 +326,25 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("headroom-status", {
-    description: "Report Headroom proxy health, version, and session token savings.",
+    description:
+      "Report Headroom proxy health, version, mode, key settings, and session + proxy token savings.",
     handler: async (_args, ctx) => {
       const cfg = await resolveConfig({ authStorage });
-      const healthy = await isHealthy({ authStorage });
-      const savingsNote = `Session tokens saved so far: ${sessionTokensSaved.toLocaleString()}.`;
-      const compressionNote =
-        pi.getFlag(DISABLE_FLAG) === true ? " Compression is disabled for this session." : "";
+      // Read-only status snapshot (LD9): health + version + mode + tuning +
+      // proxy lifetime savings. Refresh the cached snapshot so the command and
+      // the persistent widget agree.
+      const status = await getProxyStatus(cfg.baseUrl, cfg.apiKey);
+      proxySnapshot = status;
+      proxySnapshotAt = Date.now();
+      renderStatusDisplay(ctx);
 
-      if (!healthy) {
-        ctx.ui.notify(
-          `Headroom proxy unreachable at ${cfg.baseUrl}. Compression runs in passthrough mode. ${savingsNote} ${PROXY_START_HINT}`,
-          "warning",
-        );
+      const line = formatStatusLine({ enabled: isEnabled(), ...status }, sessionTokensSaved);
+
+      if (!status.reachable) {
+        ctx.ui.notify(`${line} (at ${cfg.baseUrl}). ${PROXY_START_HINT}`, "warning");
         return;
       }
-
-      try {
-        const client = await getClient({ authStorage });
-        const status = await client.health();
-        ctx.ui.notify(
-          `Headroom proxy healthy at ${cfg.baseUrl} (version ${status.version}). ${savingsNote}${compressionNote}`,
-          "info",
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(`Headroom proxy health check failed: ${message}`, "warning");
-      }
+      ctx.ui.notify(`${line} (at ${cfg.baseUrl}).`, "info");
     },
   });
 
@@ -276,8 +366,16 @@ export default function (pi: ExtensionAPI): void {
   // nothing leaves `event.messages` untouched (LD3).
   pi.on("context", async (event, ctx) => {
     try {
-      if (pi.getFlag(DISABLE_FLAG) === true) return;
-      if (!(await isHealthy({ authStorage }))) return;
+      if (pi.getFlag(DISABLE_FLAG) === true) {
+        // Compression is off, but keep the display honest: reflect the toggle
+        // and (only on a real change) refresh the proxy snapshot.
+        updateDisplay(ctx);
+        return;
+      }
+      if (!(await isHealthy({ authStorage }))) {
+        updateDisplay(ctx);
+        return;
+      }
 
       const cfg = await resolveConfig({ authStorage });
       const { messages, tokensSaved } = await compressMessages(event.messages, {
@@ -287,6 +385,9 @@ export default function (pi: ExtensionAPI): void {
       });
 
       sessionTokensSaved = accumulateSavings(sessionTokensSaved, tokensSaved);
+      // Refresh the live session figure (free) and let the throttle decide on
+      // the proxy snapshot — never an extra blocking HTTP call here (LD3).
+      updateDisplay(ctx);
       return { messages };
     } catch {
       // Never throw into the agent loop (LD3); leave the conversation untouched.
@@ -295,6 +396,12 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    // Prime the proxy snapshot + persistent display once per session, then
+    // render. Read-only (LD9) and never throws into the loop (LD3).
+    lastEnabled = isEnabled();
+    refreshProxySnapshot(ctx, true);
+    renderStatusDisplay(ctx);
+
     if (noticeShown) return;
     try {
       const healthy = await isHealthy({ authStorage });
