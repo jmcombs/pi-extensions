@@ -156,6 +156,24 @@ function openAIText(message: OpenAIMessage): string {
 }
 
 /**
+ * Rewrite Headroom's inline CCR marker so it is **directive** — naming the
+ * `headroom_retrieve` tool at the point of need. The proxy embeds a marker like
+ * `… Retrieve more: hash=<hash>` in compressed text; on its own that phrasing
+ * (often alongside "compressed to 0") reads as a dead end, so models see the
+ * hash but do not connect it to the tool that recovers the original. We rewrite
+ * just the call-to-action — **preserving `hash=<hash>` verbatim** so the tool
+ * still extracts the same hash — into an explicit instruction. The leading
+ * `[N … compressed to M.` summary is left untouched. Idempotent: text without
+ * the marker is returned unchanged.
+ */
+export function rewriteRetrieveMarker(text: string): string {
+  return text.replace(
+    /Retrieve more:\s*hash=([0-9a-fA-F]+)/g,
+    "To recover an omitted detail, call the headroom_retrieve tool with hash=$1 and a query describing the specific line you need",
+  );
+}
+
+/**
  * Return a copy of a Pi message with its text content replaced by `newText`,
  * preserving all non-text content parts (images, `toolCall`, `thinking`) and
  * every other field (`toolName`, `toolCallId`, `usage`, `provider`,
@@ -204,7 +222,7 @@ export function applyCompressedText(
     const compressed = compressedOpenAIMessages[index];
     if (original === undefined || compressed === undefined) return null;
     if (compressed.role !== expectedOpenAIRole(roleOf(original))) return null;
-    result.push(swapText(original, openAIText(compressed)));
+    result.push(swapText(original, rewriteRetrieveMarker(openAIText(compressed))));
   }
 
   return result;

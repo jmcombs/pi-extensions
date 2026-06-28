@@ -52,8 +52,10 @@ import {
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { HeadroomClient, type OpenAIMessage, type RetrieveResult, simulate } from "headroom-ai";
 import { type Static, Type } from "typebox";
+import { augmentWithAutoRetrieve } from "./autoretrieve.js";
 import { getClient, isHealthy, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
+import { filterByQuery } from "./query.js";
 import {
   formatStatusLine,
   getProxyStatus,
@@ -66,6 +68,17 @@ const PROXY_START_HINT = "Start it with: ~/.headroom-venv/bin/headroom proxy --p
 
 /** CLI flag that disables compression for the session (retrieve stays on, LD2). */
 const DISABLE_FLAG = "headroom-no-compress";
+
+/**
+ * CLI flag that disables query-aware auto-retrieve. When compression crushes a
+ * bulky result, the `context` hook normally re-injects the line(s) matching the
+ * user's latest question so recall is model-independent (the model needn't call
+ * `headroom_retrieve`). This flag reverts to retrieve-on-demand only.
+ */
+const AUTORETRIEVE_DISABLE_FLAG = "headroom-no-autoretrieve";
+
+/** Max distinct CCR markers auto-retrieve will expand on one user turn. */
+const AUTORETRIEVE_MAX_MARKERS = 3;
 
 /** Stable key for the persistent above-editor status widget. */
 const STATUS_WIDGET_KEY = "headroom";
@@ -427,13 +440,12 @@ const RETRIEVE_TOOL_NAME = "headroom_retrieve";
 
 const retrieveSchema = Type.Object({
   hash: Type.String({
-    description:
-      "The CCR hash from a compression marker (the value after `hash=` in `… Retrieve more: hash=<hash>`).",
+    description: "The CCR hash from a Headroom compression marker (the value after `hash=`).",
   }),
   query: Type.Optional(
     Type.String({
       description:
-        "Optional search query to retrieve only the matching items from the stored original instead of the full content.",
+        "A few words describing the specific detail or line you need (e.g. an id, hostname, error, or filename). The tool returns the matching line(s) from the recovered original instead of the whole thing — strongly recommended for large outputs. Omit to get the full original.",
     }),
   ),
 });
@@ -451,6 +463,8 @@ interface RetrieveDetails {
   matchCount?: number;
   /** Set when a query matched nothing and we fell back to the full original. */
   fellBackToFull?: boolean;
+  /** Set when a query was satisfied by client-side line filtering of the original. */
+  filteredClientSide?: boolean;
 }
 
 /** Minimal client surface this tool needs — lets tests inject a no-network stub. */
@@ -493,61 +507,66 @@ export async function retrieveExecute(
   args: { authStorage?: AuthStorage; client?: RetrieveClient } = {},
 ): Promise<RetrieveToolResult> {
   const hash = params.hash;
+  const query = params.query;
   try {
     const client = args.client ?? (await getClient({ authStorage: args.authStorage }));
-    const result = await client.retrieve(hash, params.query ? { query: params.query } : undefined);
+    // Always fetch the full original (it is content-addressed and local). We
+    // filter client-side rather than rely on the proxy's semantic query search,
+    // which misses ordinary substrings (e.g. `txn 147`).
+    const full = await client.retrieve(hash);
 
-    // Full retrieval (RetrieveResult) → the original content as text.
-    if ("originalContent" in result) {
-      return fullRetrieveResult(hash, result, params.query);
-    }
-
-    // Query retrieval (RetrieveSearchResult) with matches → the matched items.
-    const items = Array.isArray(result.results) ? result.results : [];
-    if (items.length > 0) {
-      const text = items
-        .map((item) => (typeof item === "string" ? item : JSON.stringify(item, null, 2)))
-        .join("\n");
+    if (!("originalContent" in full)) {
+      // Defensive: proxy responded but with no original content. Non-throwing (LD3).
       return {
-        content: [{ type: "text", text }],
-        details: { hash, query: result.query, matchCount: result.count },
+        content: [
+          { type: "text", text: `Headroom could not retrieve the original for hash ${hash}.` },
+        ],
+        details: { hash, query },
       };
     }
 
-    // The proxy's query-search matched nothing — but the elided detail is fully
-    // recoverable. Fall back to a no-query full retrieval and return the original
-    // content, rather than the unhelpful "No items matched" message. The query
-    // stays a best-effort optimization for when it does match.
-    const full = await client.retrieve(hash);
-    if ("originalContent" in full) {
-      const prefix = `(Query "${result.query}" matched no stored items; showing the full original below.)\n\n`;
+    // With a query, return only the matching line(s) so the model gets a short,
+    // focused result it can actually read — not a huge dump it gives up on.
+    if (query) {
+      const matches = filterByQuery(full.originalContent, query);
+      if (matches && matches.length > 0) {
+        const header = `(Showing ${matches.length} line${matches.length === 1 ? "" : "s"} matching "${query}" from the recovered original. Call again without a query for the full content.)\n\n`;
+        return {
+          content: [{ type: "text", text: header + matches.join("\n") }],
+          details: {
+            hash,
+            query,
+            toolName: full.toolName,
+            originalTokens: full.originalTokens,
+            originalItemCount: full.originalItemCount,
+            compressedItemCount: full.compressedItemCount,
+            retrievalCount: full.retrievalCount,
+            matchCount: matches.length,
+            filteredClientSide: true,
+          },
+        };
+      }
+      // Query carried no signal / matched no line → return the full original so
+      // the detail is never lost.
+      const prefix = `(Query "${query}" matched no lines; showing the full recovered original below.)\n\n`;
       return {
         content: [{ type: "text", text: prefix + full.originalContent }],
         details: {
           hash,
-          query: params.query,
+          query,
           toolName: full.toolName,
           originalTokens: full.originalTokens,
           originalItemCount: full.originalItemCount,
           compressedItemCount: full.compressedItemCount,
           retrievalCount: full.retrievalCount,
-          matchCount: result.count,
+          matchCount: 0,
           fellBackToFull: true,
         },
       };
     }
 
-    // Defensive: the fallback also returned no original content (shouldn't
-    // happen). Non-throwing, clear message (LD3).
-    return {
-      content: [
-        {
-          type: "text",
-          text: `No items matched query "${result.query}" for hash ${hash}, and the full original could not be retrieved.`,
-        },
-      ],
-      details: { hash, query: result.query, matchCount: result.count, fellBackToFull: true },
-    };
+    // No query → the full original.
+    return fullRetrieveResult(hash, full, query);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
@@ -683,6 +702,16 @@ export default function (pi: ExtensionAPI): void {
     default: false,
   });
 
+  // Query-aware auto-retrieve (Phase 4.5): on by default so recall works across
+  // models without the model having to call `headroom_retrieve`. The flag turns
+  // it off, reverting to retrieve-on-demand.
+  pi.registerFlag(AUTORETRIEVE_DISABLE_FLAG, {
+    description:
+      "Disable Headroom query-aware auto-retrieve (re-injecting compressed lines that match your question).",
+    type: "boolean",
+    default: false,
+  });
+
   // Reversibility tool (LD2): ALWAYS registered, independent of the disable flag
   // and of whether compression ran — so any detail elided by lossy compression
   // is recoverable via its inline CCR hash. Never throws into the loop (LD3).
@@ -690,7 +719,7 @@ export default function (pi: ExtensionAPI): void {
     name: RETRIEVE_TOOL_NAME,
     label: "Headroom Retrieve",
     description:
-      "Recover original content that Headroom's lossy compression elided. When a tool result shows a marker like `… Retrieve more: hash=<hash>`, call this with that hash to get the full original text back. Pass an optional `query` to retrieve only matching items.",
+      "Recover original content that Headroom's lossy compression elided. When a tool result shows a marker naming this tool with a `hash=<hash>`, call this with that hash. Pass a `query` describing the specific detail you need (an id, hostname, error, filename, …) to get back just the matching line(s) instead of the whole original — recommended for large outputs.",
     parameters: retrieveSchema,
     execute: (_toolCallId, params) => retrieveExecute(params, { authStorage }),
     renderCall: (args, theme) => renderRetrieveCall(args, theme),
@@ -809,6 +838,18 @@ export default function (pi: ExtensionAPI): void {
       // Refresh the live session figure (free) and let the throttle decide on
       // the proxy snapshot — never an extra blocking HTTP call here (LD3).
       updateDisplay(ctx);
+
+      // Query-aware auto-retrieve (Phase 4.5): when the latest turn is a user
+      // question against compressed content, re-inject the line(s) that match it
+      // so recall is model-independent. Only touches messages on a real match;
+      // never throws (the helper swallows retrieve errors, LD3).
+      if (pi.getFlag(AUTORETRIEVE_DISABLE_FLAG) !== true) {
+        const client = await getClient({ authStorage });
+        const augmented = await augmentWithAutoRetrieve(messages, client, {
+          maxMarkers: AUTORETRIEVE_MAX_MARKERS,
+        });
+        return { messages: augmented.messages };
+      }
       return { messages };
     } catch {
       // Never throw into the agent loop (LD3); leave the conversation untouched.

@@ -24,7 +24,13 @@ import factory, {
   retrieveExecute,
   type StatsReportState,
 } from "./index.js";
-import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
+import {
+  applyCompressedText,
+  isPiFormat,
+  type PiMessage,
+  piToOpenAI,
+  rewriteRetrieveMarker,
+} from "./pi-format.js";
 import { formatStatusLine, normalizeProxyStats, type StatusDisplayState } from "./status.js";
 
 interface RegistrationLog {
@@ -211,6 +217,21 @@ describe("isPiFormat", () => {
   });
 });
 
+describe("rewriteRetrieveMarker", () => {
+  it("rewrites the CCR marker into a directive that names the tool and keeps the hash", () => {
+    const before = "[220 lines compressed to 0. Retrieve more: hash=1b55ac35e8690d5a78a3afa1]";
+    const after = rewriteRetrieveMarker(before);
+    expect(after).toContain("headroom_retrieve tool");
+    expect(after).toContain("hash=1b55ac35e8690d5a78a3afa1");
+    expect(after).toContain("a query");
+    expect(after).not.toContain("Retrieve more");
+  });
+
+  it("leaves text without a marker unchanged (idempotent)", () => {
+    expect(rewriteRetrieveMarker("just a normal log line")).toBe("just a normal log line");
+  });
+});
+
 describe("applyCompressedText", () => {
   it("is count-preserving and swaps text in place while keeping Pi metadata + linkage", () => {
     const original = samplePiConversation();
@@ -283,17 +304,16 @@ describe("applyCompressedText", () => {
  * RetrieveResult. The query result is configurable so we can exercise both the
  * empty-match (fallback) and non-empty-match paths.
  */
-function createRetrieveStub(opts: {
-  full?: Record<string, unknown> | null;
-  search: { results: unknown[]; count: number };
-}) {
+/**
+ * Stub whose no-query `retrieve(hash)` resolves `full` (the content-addressed
+ * original). `retrieveExecute` now always calls retrieve without a query and
+ * filters client-side, so we record the calls to assert that.
+ */
+function createRetrieveStub(opts: { full?: Record<string, unknown> | null }) {
   const calls: { hash: string; query?: string }[] = [];
   const client = {
     retrieve: async (hash: string, options?: { query?: string }) => {
       calls.push({ hash, query: options?.query });
-      if (options?.query) {
-        return { hash, query: options.query, ...opts.search };
-      }
       if (opts.full === null) return { hash, query: "", results: [], count: 0 };
       return opts.full;
     },
@@ -319,72 +339,57 @@ const FULL_RESULT = {
 };
 
 describe("retrieveExecute (headroom_retrieve)", () => {
-  it("falls back to the full original when the query matches nothing", async () => {
-    const { client, calls } = createRetrieveStub({
-      full: FULL_RESULT,
-      search: { results: [], count: 0 },
-    });
+  it("client-side filters the original to the matching line for a query (no proxy search)", async () => {
+    const { client, calls } = createRetrieveStub({ full: FULL_RESULT });
 
     const result = await retrieveExecute({ hash: "h123", query: "txn 147" }, { client });
     const text = result.content.map((c) => c.text).join("\n");
 
-    // Returns the original content (incl. the deep needle), NOT "No items matched".
+    // The model gets a short, focused result — the matching line — not a dump.
     expect(text).toContain("txn 147 ref=abc settled $30.00");
-    expect(text).not.toContain("No items matched");
-    // Transparency signal: fell back to full + the (zero) match count preserved.
+    expect(text).not.toContain("txn 145");
+    expect(text).not.toContain("txn 148");
+    expect(result.details.filteredClientSide).toBe(true);
+    expect(result.details.matchCount).toBe(1);
+    expect(result.details.query).toBe("txn 147");
+    // Always a single no-query retrieve; filtering is client-side (no proxy search).
+    expect(calls).toEqual([{ hash: "h123", query: undefined }]);
+  });
+
+  it("returns the full original (with a note) when a query matches no line", async () => {
+    const { client } = createRetrieveStub({ full: FULL_RESULT });
+
+    const result = await retrieveExecute({ hash: "h123", query: "zzznomatch" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    // Detail is never lost: full original returned, flagged as a fallback.
+    expect(text).toContain("txn 147 ref=abc settled $30.00");
+    expect(text).toContain("matched no lines");
     expect(result.details.fellBackToFull).toBe(true);
     expect(result.details.matchCount).toBe(0);
-    expect(result.details.query).toBe("txn 147");
     expect(result.details.error).toBeUndefined();
-    // Tried the query first, then fell back to a no-query full retrieval.
-    expect(calls).toEqual([
-      { hash: "h123", query: "txn 147" },
-      { hash: "h123", query: undefined },
-    ]);
   });
 
-  it("returns matched items unchanged when the query matches (no fallback)", async () => {
-    const { client, calls } = createRetrieveStub({
-      full: FULL_RESULT,
-      search: { results: ["txn 147 ref=abc settled $30.00 latency=7ms"], count: 1 },
-    });
-
-    const result = await retrieveExecute({ hash: "h123", query: "txn 147" }, { client });
-    const text = result.content.map((c) => c.text).join("\n");
-
-    expect(text).toBe("txn 147 ref=abc settled $30.00 latency=7ms");
-    expect(result.details.matchCount).toBe(1);
-    expect(result.details.fellBackToFull).toBeUndefined();
-    // Only one retrieve call — the query path, no fallback.
-    expect(calls).toEqual([{ hash: "h123", query: "txn 147" }]);
-  });
-
-  it("returns the full original on a no-query retrieval (existing path unchanged)", async () => {
-    const { client, calls } = createRetrieveStub({
-      full: FULL_RESULT,
-      search: { results: [], count: 0 },
-    });
+  it("returns the full original on a no-query retrieval", async () => {
+    const { client, calls } = createRetrieveStub({ full: FULL_RESULT });
 
     const result = await retrieveExecute({ hash: "h123" }, { client });
     const text = result.content.map((c) => c.text).join("\n");
 
     expect(text).toBe(ORIGINAL_LOG);
+    expect(result.details.filteredClientSide).toBeUndefined();
     expect(result.details.fellBackToFull).toBeUndefined();
     expect(result.details.originalTokens).toBe(1200);
     expect(calls).toEqual([{ hash: "h123", query: undefined }]);
   });
 
-  it("returns a clear non-throwing message if the fallback also has no original (LD3)", async () => {
-    const { client } = createRetrieveStub({
-      full: null,
-      search: { results: [], count: 0 },
-    });
+  it("returns a clear non-throwing message when no original content is available (LD3)", async () => {
+    const { client } = createRetrieveStub({ full: null });
 
     const result = await retrieveExecute({ hash: "h123", query: "nope" }, { client });
     const text = result.content.map((c) => c.text).join("\n");
 
-    expect(text).toContain("the full original could not be retrieved");
-    expect(result.details.fellBackToFull).toBe(true);
+    expect(text).toContain("could not retrieve the original");
     expect(result.details.error).toBeUndefined();
   });
 
