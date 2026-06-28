@@ -11,28 +11,34 @@
 
 # @jmcombs/pi-headroom
 
-> Context-compression for the Pi coding agent. It compresses the whole
-> conversation before each LLM call through a local [Headroom](https://www.npmjs.com/package/headroom-ai)
-> proxy, recovers any elided detail on demand, and degrades to pure passthrough
-> whenever the proxy is unreachable.
+> Context-compression for the [Pi coding agent](https://pi.dev). It compresses the
+> **whole conversation** before each LLM call through a local
+> [Headroom](https://www.npmjs.com/package/headroom-ai) proxy, lets the model
+> recover any detail that lossy compression elided, and degrades to **pure
+> passthrough** whenever the proxy is unreachable.
 
-> **Status:** scaffold (Phase 1). This release wires up the proxy client and
-> status/auth commands. Whole-conversation compression and the
-> `headroom_retrieve` recovery tool land in later phases.
+Long agent sessions accumulate bulky tool output — file dumps, logs, search
+results — that stays in context turn after turn and quietly inflates token cost.
+Headroom crushes the **stale** parts of the conversation while protecting the
+recent turns, so the model keeps the context it is actively using and sheds the
+weight it is not. Every elision is reversible: the model can call
+`headroom_retrieve` to pull back the full original on demand.
 
 ## Requirement: the Headroom Python proxy
 
-The npm `headroom-ai` package is a thin HTTP client; the compression engine is
-a **local Python proxy that you run and manage yourself**. The extension never
-starts, stops, or installs it — it only health-checks it. Install once into a
-virtualenv:
+The npm `headroom-ai` package is a thin HTTP client; the compression engine is a
+**local Python proxy that you run and manage yourself**. This extension never
+starts, stops, or installs it — it only health-checks it and reports its state.
+Install the proxy once into a virtualenv:
 
 ```bash
 python3 -m venv ~/.headroom-venv
 ~/.headroom-venv/bin/pip install "headroom-ai[proxy]"
 ```
 
-Then run the proxy (default `http://127.0.0.1:8787`):
+> The `[proxy]` extra pulls in `onnxruntime` + `magika` (no PyTorch).
+
+Then run the proxy (default endpoint `http://127.0.0.1:8787`):
 
 ```bash
 ~/.headroom-venv/bin/headroom proxy --port 8787
@@ -41,37 +47,98 @@ Then run the proxy (default `http://127.0.0.1:8787`):
 Confirm it is healthy:
 
 ```bash
-curl -s http://127.0.0.1:8787/health   # → {"status":"healthy",...}
+curl -s http://127.0.0.1:8787/health   # → {"status":"healthy","version":"0.27.0",...}
 ```
 
 If the proxy is **not** running, the extension stays fully usable: it emits a
-single non-fatal notice at session start and runs in passthrough mode.
+single non-fatal notice at session start and runs in passthrough mode (no
+compression, no added latency). See [Graceful degradation](#graceful-degradation).
 
-## Quick Start
+## Install
 
-1. Install:
+```bash
+# Globally (recommended)
+pi install @jmcombs/pi-headroom
 
-   ```bash
-   pi install @jmcombs/pi-headroom
-   ```
-
-2. (Optional) Try without installing:
-
-   ```bash
-   pi -e ./packages/headroom
-   ```
+# For a single session, without installing
+pi -e ./packages/headroom
+```
 
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 path, project-scoped install, and filtering options.
 
-## What It Adds
+## What it adds
 
-- **Command**: `/headroom-status` — reports whether the proxy is reachable and,
-  when healthy, its version.
-- **Command**: `/headroom-authenticate` — securely stores a proxy API key (the
-  input is captured by the TUI and never enters the LLM's context).
-- **Event**: `session_start` — a one-time, non-fatal notice when the proxy is
-  unreachable so you know compression is in passthrough mode.
+### Commands
+
+- **`/headroom-status`** — a one-line snapshot: whether compression is enabled,
+  whether the proxy is reachable (+ version), its mode and key tuning, and the
+  session + lifetime tokens saved.
+- **`/headroom-authenticate`** — securely store a proxy API key (the input is
+  captured by the TUI and never enters the LLM's context). Only needed if you
+  front the proxy with authentication.
+- **`/headroom-stats`** — the **detailed** view: session savings, the proxy's
+  lifetime tokens saved and compression percentage, request counts, the proxy's
+  effective tuning, and a **per-strategy breakdown** (e.g. how much each of
+  `smartCrusher`, `search`, `kompress` saved). Read-only.
+- **`/headroom-simulate <text>`** — a **dry-run** projection. Paste a blob after
+  the command and Headroom reports the **projected** token savings and the
+  transforms that would fire — **without any LLM call**. The blob is evaluated as
+  a stale tool result (the position compression actually targets), so the numbers
+  reflect what compression would really do to that content.
+
+### Tool
+
+- **`headroom_retrieve`** — the model's safety net. Compression is lossy on the
+  surface: a crushed tool result carries an inline marker
+  `… Retrieve more: hash=<hash>`. The model calls `headroom_retrieve` with that
+  hash to recover the full original text (optionally filtered by a `query`). This
+  tool is **always enabled** — even when compression is turned off — so no elided
+  detail is ever truly lost.
+
+### Flag
+
+- **`--headroom-no-compress`** — disable compression for the session. Retrieve
+  stays enabled; only the compression pass is turned off.
+
+### Status display
+
+When running in the TUI, a persistent above-editor widget shows the same
+at-a-glance line as `/headroom-status` and refreshes as the session progresses —
+so the integration's state (enabled, proxy reachable, mode, savings) is "just
+known" without running a command. The display is **read-only**: it never changes
+any proxy setting.
+
+## How it works
+
+On each LLM call, the extension's `context` hook converts Pi's message array to a
+Headroom-recognized format, compresses the **stale** portion of the conversation
+through the proxy, and swaps the compressed text back onto the original messages
+in place — preserving every field and tool-call linkage. Recent turns are
+protected, so the model never loses the context it is actively reasoning over.
+
+### Graceful degradation
+
+The extension is built to **never throw into the agent loop** and **never block**
+it:
+
+- A short-TTL cached health probe gates every compression pass. When the proxy is
+  down, the `context` handler is a **pure passthrough** — no network call, no
+  added latency — and the conversation is returned untouched.
+- Every compression call uses the SDK's `fallback: true` and is additionally
+  wrapped in defensive `try/catch`; any error returns the original conversation
+  unchanged.
+- A single non-fatal warning at session start tells you the proxy is unreachable
+  so you know you are in passthrough mode.
+
+### Savings model
+
+- **Session savings** are the in-memory total of tokens removed by this
+  extension's compression passes during the current session — free and realtime,
+  surfaced in the status display and `/headroom-stats`.
+- **Lifetime savings** come from the proxy's own `proxyStats()` (tokens saved,
+  compression percentage, per-strategy breakdown) and reflect all traffic the
+  proxy has compressed, not just this session.
 
 ## Configuration
 
@@ -82,17 +149,17 @@ The proxy endpoint and optional API key are resolved in this order:
 3. The `HEADROOM_BASE_URL` / `HEADROOM_API_KEY` environment variables.
 4. Default base URL `http://127.0.0.1:8787`.
 
-A local proxy typically needs **no** API key. Configure one only if you front
-the proxy with authentication.
+A local proxy typically needs **no** API key. Configure one only if you front the
+proxy with authentication.
 
-#### Environment variables
+### Environment variables
 
 ```bash
 export HEADROOM_BASE_URL="http://127.0.0.1:8787"
 export HEADROOM_API_KEY="…"   # only if your proxy requires it
 ```
 
-#### `~/.pi/agent/auth.json`
+### `~/.pi/agent/auth.json`
 
 ```json
 {
@@ -104,19 +171,26 @@ export HEADROOM_API_KEY="…"   # only if your proxy requires it
 }
 ```
 
-The extension reads the key with:
+### Proxy settings are read-only
 
-```ts
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
-const auth = AuthStorage.create();
-const apiKey = (await auth.getApiKey("headroom")) ?? process.env.HEADROOM_API_KEY;
+The proxy's optimization **mode** (`token` / `cache`) and tuning (target ratio,
+recency protection, …) are **server-launch settings** — they are chosen when you
+start the proxy, e.g.:
+
+```bash
+~/.headroom-venv/bin/headroom proxy --port 8787 --mode cache
 ```
+
+This extension only ever **reads and reports** those settings (via
+`/headroom-status` and `/headroom-stats`); it never changes them, because that
+would mean relaunching the proxy, which it does not manage. To change a setting,
+restart the proxy yourself with the desired flags.
 
 ## Requirements
 
 - Pi `>= 0.1.0`
 - Node `>= 22.0.0`
-- A running Headroom Python proxy (see above).
+- A running Headroom Python proxy (see [above](#requirement-the-headroom-python-proxy)).
 
 ## Development
 
@@ -127,14 +201,19 @@ See `CONTRIBUTING.md` at the repo root for project conventions.
 # From the repo root
 npm ci
 npm run check       # full quality gate
-npm run test        # this package's smoke test
+npm run test -- packages/headroom   # this package's smoke + unit tests
 ```
 
-To try local changes against a real Pi session:
+To try local changes against a real Pi session (start the proxy first):
 
 ```bash
 pi -e ./packages/headroom
 ```
+
+The committed test suite asserts registration shape and exercises the pure
+formatting/conversion logic with **no network**. Real end-to-end behavior is
+exercised against a running proxy via `pi -e` and the headless RPC driver in
+`docs/headroom/`.
 
 ## License
 
