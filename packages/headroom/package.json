@@ -20,6 +20,8 @@
   "files": [
     "index.ts",
     "client.ts",
+    "compress.ts",
+    "pi-format.ts",
     "README.md",
     "LICENSE"
   ],
