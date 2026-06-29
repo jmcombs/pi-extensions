@@ -7,5 +7,6 @@
   "packages/context7": "1.0.0",
   "packages/qwen-guard": "1.0.0",
   "packages/better-toolsy": "1.1.3",
-  "packages/blue-psl-10k": "1.1.0"
+  "packages/blue-psl-10k": "1.1.0",
+  "packages/headroom": "0.0.0"
 }

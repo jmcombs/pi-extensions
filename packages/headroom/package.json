@@ -1,7 +1,6 @@
 {
   "name": "@jmcombs/pi-headroom",
   "version": "0.0.0",
-  "private": true,
   "description": "Pi extension that compresses the whole conversation each LLM call via the local Headroom proxy, with graceful passthrough when it is unreachable.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/headroom",
   "repository": {
@@ -19,9 +18,12 @@
   "types": "./index.ts",
   "files": [
     "index.ts",
+    "autoretrieve.ts",
     "client.ts",
     "compress.ts",
     "pi-format.ts",
+    "query.ts",
+    "status.ts",
     "README.md",
     "LICENSE"
   ],
