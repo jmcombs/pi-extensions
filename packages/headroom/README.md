@@ -103,11 +103,32 @@ path, project-scoped install, and filtering options.
 
 ### Status display
 
-When running in the TUI, a persistent above-editor widget shows the same
-at-a-glance line as `/headroom-status` and refreshes as the session progresses —
-so the integration's state (enabled, proxy reachable, mode, savings) is "just
+When running in the TUI, a persistent above-editor widget shows Headroom's state
+at a glance and refreshes as the session progresses — so whether compression is
+enabled, whether the proxy is reachable, its mode, and session savings are "just
 known" without running a command. The display is **read-only**: it never changes
 any proxy setting.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/headroom/status-states.svg" width="760" alt="Headroom status widget states">
+</div>
+
+- **Active** — compression is on and the proxy is reachable. The blocks are the
+  proxy version, its optimization **mode** (`token` or `cache`, see
+  [Proxy settings](#proxy-settings-are-read-only)), and the **💾 tokens saved**
+  this session.
+- **Compression off** — the session was started with `--headroom-no-compress`.
+  The proxy may still be up (green), but `mode: off` (red) means nothing is being
+  compressed; the savings figure is dropped because there is nothing to measure.
+- **Proxy offline** — the proxy is unreachable, so the extension is in pure
+  passthrough. Only the red `proxy offline` block is shown — with the proxy down
+  there is no mode or savings to report.
+
+> **Nerd Font required.** The widget uses Powerline separators and a Nerd Font
+> brand glyph. Your terminal must be using a [Nerd Font](https://www.nerdfonts.com/)
+> (e.g. MesloLGS NF, FiraCode NF, JetBrainsMono NF) or the separators and icon
+> will render as missing-glyph boxes. This affects **display only** — compression,
+> retrieve, and all commands work regardless of the font.
 
 ## How it works
 
@@ -191,6 +212,9 @@ restart the proxy yourself with the desired flags.
 - Pi `>= 0.1.0`
 - Node `>= 22.0.0`
 - A running Headroom Python proxy (see [above](#requirement-the-headroom-python-proxy)).
+- A [Nerd Font](https://www.nerdfonts.com/) in your terminal, for the status
+  widget's Powerline separators and brand glyph (display only — see
+  [Status display](#status-display)).
 
 ## Development
 
