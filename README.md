@@ -7,10 +7,18 @@ with the `pi-package` keyword so they appear in the [pi.dev gallery](https://pi.
 
 ## Packages
 
-| Package                                                     | npm                                                                                                                               | Description                                                                                                                                |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`@jmcombs/pi-tavily-search`](./packages/tavily-search)     | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-tavily-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-tavily-search)     | Real-time web search via the [Tavily](https://tavily.com) API.                                                                             |
+| Package | npm | Description |
+| --- | --- | --- |
+| [`@jmcombs/pi-1password`](./packages/1password) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-1password.svg)](https://www.npmjs.com/package/@jmcombs/pi-1password) | 1Password secret injection — read secrets and run commands with credentials via the `op` CLI. |
+| [`@jmcombs/pi-better-toolsy`](./packages/better-toolsy) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-better-toolsy.svg)](https://www.npmjs.com/package/@jmcombs/pi-better-toolsy) | Drop-in replacements for the built-in `ls`/`read`/`grep`/`find`/`edit`/`write` tools, with .gitignore awareness, path-traversal protection, and injection-safe edits. |
+| [`@jmcombs/pi-blue-psl-10k`](./packages/blue-psl-10k) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-blue-psl-10k.svg)](https://www.npmjs.com/package/@jmcombs/pi-blue-psl-10k) | Powerline-styled status footer (Blue PSL 10K theme) — git, context usage, token counts, and cost on one line. |
+| [`@jmcombs/pi-context7`](./packages/context7) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-context7.svg)](https://www.npmjs.com/package/@jmcombs/pi-context7) | Real-time, version-accurate library documentation via [Context7](https://context7.com). |
+| [`@jmcombs/pi-grok-search`](./packages/grok-search) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-grok-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-grok-search) | Real-time web search via the [xAI Grok](https://x.ai) API. |
+| [`@jmcombs/pi-headroom`](./packages/headroom) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-headroom.svg)](https://www.npmjs.com/package/@jmcombs/pi-headroom) | Whole-conversation context compression via a local [Headroom](https://www.npmjs.com/package/headroom-ai) proxy, with graceful passthrough when it is unreachable. |
+| [`@jmcombs/pi-notify`](./packages/notify) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify) | Terminal notifications (OSC 777/9/99) when Pi finishes a turn — Ghostty, iTerm2, WezTerm, Kitty, and more. No OS binaries. |
 | [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt enhancer that rewrites rough prompts into precise ones with project tree, git context, and referenced file contents. |
+| [`@jmcombs/pi-qwen-guard`](./packages/qwen-guard) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-qwen-guard.svg)](https://www.npmjs.com/package/@jmcombs/pi-qwen-guard) | Auto-enables strict incremental mode for Qwen 3.6 (Ollama) to prevent "terminated" and streaming errors. |
+| [`@jmcombs/pi-tavily-search`](./packages/tavily-search) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-tavily-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-tavily-search) | Real-time web search via the [Tavily](https://tavily.com) API. |
 
 ## Install an Extension
 
