@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/blue-psl-10k/v1.1.0...blue-psl-10k/v1.1.1) (2026-06-29)
+
+
+### Bug Fixes
+
+* **blue-psl-10k:** rewrite broken test + clear residual audit vulnerabilities ([#83](https://github.com/jmcombs/pi-extensions/issues/83)) ([36adc46](https://github.com/jmcombs/pi-extensions/commit/36adc4630e7563fe9029181bff7ed1e7c25ffd8b))
+
 ## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/blue-psl-10k/v1.0.1...blue-psl-10k/v1.1.0) (2026-06-11)
 
 
