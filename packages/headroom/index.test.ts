@@ -13,7 +13,32 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Mock the heavy collaborators so the `context` hook can be exercised with no
+// network. The pure-helper and registration tests in this file don't touch
+// these, so file-level mocks are safe.
+vi.mock("./compress.js", () => ({
+  compressMessages: vi.fn(async (messages: unknown) => ({ messages, tokensSaved: 0 })),
+}));
+vi.mock("./client.js", () => ({
+  isHealthy: vi.fn(async () => true),
+  getClient: vi.fn(async () => ({ retrieve: vi.fn() })),
+  resolveConfig: vi.fn(async () => ({ baseUrl: "http://127.0.0.1:8787", apiKey: undefined })),
+}));
+vi.mock("./autoretrieve.js", () => ({
+  augmentWithAutoRetrieve: vi.fn(async (messages: unknown) => ({
+    messages,
+    injectedLines: 0,
+    injectedMarkers: 0,
+  })),
+}));
+vi.mock("./status.js", async () => {
+  const actual = await vi.importActual<typeof import("./status.js")>("./status.js");
+  return { ...actual, getProxyStatus: vi.fn(async () => ({ reachable: false as const })) };
+});
+
+import { augmentWithAutoRetrieve } from "./autoretrieve.js";
 import factory, {
   accumulateSavings,
   buildSimulationMessages,
@@ -24,7 +49,13 @@ import factory, {
   retrieveExecute,
   type StatsReportState,
 } from "./index.js";
-import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
+import {
+  applyCompressedText,
+  isPiFormat,
+  type PiMessage,
+  piToOpenAI,
+  rewriteRetrieveMarker,
+} from "./pi-format.js";
 import { formatStatusLine, normalizeProxyStats, type StatusDisplayState } from "./status.js";
 
 interface RegistrationLog {
@@ -35,12 +66,21 @@ interface RegistrationLog {
   events: string[];
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: handler signatures vary per event
+type Handler = (...args: any[]) => unknown;
+
 /**
  * Builds a minimal ExtensionAPI stub that records what the factory registers.
  * Only the surface used by this extension is implemented; other methods
- * throw if called so missing coverage is loud.
+ * throw if called so missing coverage is loud. `flags` configures `getFlag`
+ * return values; `handlers` captures registered event handlers so they can be
+ * invoked directly.
  */
-function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
+function createApiStub(flags: Record<string, unknown> = {}): {
+  api: ExtensionAPI;
+  log: RegistrationLog;
+  handlers: Record<string, Handler>;
+} {
   const log: RegistrationLog = {
     tools: [],
     commands: [],
@@ -48,15 +88,18 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     flags: [],
     events: [],
   };
+  const handlers: Record<string, Handler> = {};
 
   const notImplemented = (method: string) => () => {
     throw new Error(`ExtensionAPI.${method} not implemented in test stub`);
   };
 
   const api = {
-    on: ((event: string) => {
+    on: ((event: string, handler: Handler) => {
       log.events.push(event);
+      handlers[event] = handler;
     }) as unknown as ExtensionAPI["on"],
+    getFlag: ((name: string) => flags[name]) as unknown as ExtensionAPI["getFlag"],
     registerTool: ((tool: { name: string }) => {
       log.tools.push(tool.name);
     }) as unknown as ExtensionAPI["registerTool"],
@@ -69,7 +112,6 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     registerFlag: ((name: string) => {
       log.flags.push(name);
     }) as unknown as ExtensionAPI["registerFlag"],
-    getFlag: notImplemented("getFlag"),
     registerMessageRenderer: notImplemented("registerMessageRenderer"),
     sendMessage: notImplemented("sendMessage"),
     sendUserMessage: notImplemented("sendUserMessage"),
@@ -85,7 +127,23 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     setModel: notImplemented("setModel"),
   } as unknown as ExtensionAPI;
 
-  return { api, log };
+  return { api, log, handlers };
+}
+
+/** Fetch a registered handler, failing loudly (and narrowing the type) if absent. */
+function requireHandler(handlers: Record<string, Handler>, event: string): Handler {
+  const handler = handlers[event];
+  if (!handler) throw new Error(`handler for "${event}" was not registered`);
+  return handler;
+}
+
+/** Minimal ExtensionContext for invoking the `context` hook (no UI). */
+function createCtxStub() {
+  return {
+    hasUI: false,
+    model: { id: "test-model" },
+    ui: {},
+  } as unknown as Parameters<Handler>[1];
 }
 
 describe("@jmcombs/pi-headroom", () => {
@@ -108,6 +166,71 @@ describe("@jmcombs/pi-headroom", () => {
 
     expect(log.events).toContain("context");
     expect(log.flags).toContain("headroom-no-compress");
+  });
+
+  it("registers the auto-retrieve disable flag (Phase 6)", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    expect(log.flags).toContain("headroom-no-autoretrieve");
+  });
+
+  describe("context hook auto-retrieve wiring (Phase 6)", () => {
+    const baseMessages = [{ role: "user", content: "hi" }];
+
+    it("runs auto-retrieve after compression when the flag is unset", async () => {
+      vi.mocked(augmentWithAutoRetrieve).mockClear();
+      const { api, handlers } = createApiStub({
+        "headroom-no-compress": false,
+        "headroom-no-autoretrieve": false,
+      });
+      factory(api);
+      const context = requireHandler(handlers, "context");
+
+      const result = (await context({ messages: baseMessages }, createCtxStub())) as {
+        messages: unknown;
+      };
+
+      expect(augmentWithAutoRetrieve).toHaveBeenCalledTimes(1);
+      // maxMarkers is threaded through from AUTORETRIEVE_MAX_MARKERS.
+      const call = vi.mocked(augmentWithAutoRetrieve).mock.calls[0];
+      expect(call?.[2]).toEqual({ maxMarkers: 3 });
+      expect(result.messages).toBe(baseMessages);
+    });
+
+    it("bypasses auto-retrieve when --headroom-no-autoretrieve is set", async () => {
+      vi.mocked(augmentWithAutoRetrieve).mockClear();
+      const { api, handlers } = createApiStub({
+        "headroom-no-compress": false,
+        "headroom-no-autoretrieve": true,
+      });
+      factory(api);
+      const context = requireHandler(handlers, "context");
+
+      const result = (await context({ messages: baseMessages }, createCtxStub())) as {
+        messages: unknown;
+      };
+
+      expect(augmentWithAutoRetrieve).not.toHaveBeenCalled();
+      expect(result.messages).toBe(baseMessages);
+    });
+
+    it("does not run auto-retrieve when compression is disabled (passthrough)", async () => {
+      vi.mocked(augmentWithAutoRetrieve).mockClear();
+      const { api, handlers } = createApiStub({
+        "headroom-no-compress": true,
+        "headroom-no-autoretrieve": false,
+      });
+      factory(api);
+      const context = requireHandler(handlers, "context");
+
+      const result = await context({ messages: baseMessages }, createCtxStub());
+
+      // Compression off → the hook returns nothing (leaves messages untouched)
+      // and never reaches auto-retrieve.
+      expect(augmentWithAutoRetrieve).not.toHaveBeenCalled();
+      expect(result).toBeUndefined();
+    });
   });
 
   it("registers the headroom-stats and headroom-simulate commands (Phase 5)", () => {
@@ -211,6 +334,21 @@ describe("isPiFormat", () => {
   });
 });
 
+describe("rewriteRetrieveMarker", () => {
+  it("rewrites the CCR marker into a directive that names the tool and keeps the hash", () => {
+    const before = "[220 lines compressed to 0. Retrieve more: hash=1b55ac35e8690d5a78a3afa1]";
+    const after = rewriteRetrieveMarker(before);
+    expect(after).toContain("headroom_retrieve tool");
+    expect(after).toContain("hash=1b55ac35e8690d5a78a3afa1");
+    expect(after).toContain("a query");
+    expect(after).not.toContain("Retrieve more");
+  });
+
+  it("leaves text without a marker unchanged (idempotent)", () => {
+    expect(rewriteRetrieveMarker("just a normal log line")).toBe("just a normal log line");
+  });
+});
+
 describe("applyCompressedText", () => {
   it("is count-preserving and swaps text in place while keeping Pi metadata + linkage", () => {
     const original = samplePiConversation();
@@ -283,17 +421,16 @@ describe("applyCompressedText", () => {
  * RetrieveResult. The query result is configurable so we can exercise both the
  * empty-match (fallback) and non-empty-match paths.
  */
-function createRetrieveStub(opts: {
-  full?: Record<string, unknown> | null;
-  search: { results: unknown[]; count: number };
-}) {
+/**
+ * Stub whose no-query `retrieve(hash)` resolves `full` (the content-addressed
+ * original). `retrieveExecute` now always calls retrieve without a query and
+ * filters client-side, so we record the calls to assert that.
+ */
+function createRetrieveStub(opts: { full?: Record<string, unknown> | null }) {
   const calls: { hash: string; query?: string }[] = [];
   const client = {
     retrieve: async (hash: string, options?: { query?: string }) => {
       calls.push({ hash, query: options?.query });
-      if (options?.query) {
-        return { hash, query: options.query, ...opts.search };
-      }
       if (opts.full === null) return { hash, query: "", results: [], count: 0 };
       return opts.full;
     },
@@ -319,72 +456,57 @@ const FULL_RESULT = {
 };
 
 describe("retrieveExecute (headroom_retrieve)", () => {
-  it("falls back to the full original when the query matches nothing", async () => {
-    const { client, calls } = createRetrieveStub({
-      full: FULL_RESULT,
-      search: { results: [], count: 0 },
-    });
+  it("client-side filters the original to the matching line for a query (no proxy search)", async () => {
+    const { client, calls } = createRetrieveStub({ full: FULL_RESULT });
 
     const result = await retrieveExecute({ hash: "h123", query: "txn 147" }, { client });
     const text = result.content.map((c) => c.text).join("\n");
 
-    // Returns the original content (incl. the deep needle), NOT "No items matched".
+    // The model gets a short, focused result — the matching line — not a dump.
     expect(text).toContain("txn 147 ref=abc settled $30.00");
-    expect(text).not.toContain("No items matched");
-    // Transparency signal: fell back to full + the (zero) match count preserved.
+    expect(text).not.toContain("txn 145");
+    expect(text).not.toContain("txn 148");
+    expect(result.details.filteredClientSide).toBe(true);
+    expect(result.details.matchCount).toBe(1);
+    expect(result.details.query).toBe("txn 147");
+    // Always a single no-query retrieve; filtering is client-side (no proxy search).
+    expect(calls).toEqual([{ hash: "h123", query: undefined }]);
+  });
+
+  it("returns the full original (with a note) when a query matches no line", async () => {
+    const { client } = createRetrieveStub({ full: FULL_RESULT });
+
+    const result = await retrieveExecute({ hash: "h123", query: "zzznomatch" }, { client });
+    const text = result.content.map((c) => c.text).join("\n");
+
+    // Detail is never lost: full original returned, flagged as a fallback.
+    expect(text).toContain("txn 147 ref=abc settled $30.00");
+    expect(text).toContain("matched no lines");
     expect(result.details.fellBackToFull).toBe(true);
     expect(result.details.matchCount).toBe(0);
-    expect(result.details.query).toBe("txn 147");
     expect(result.details.error).toBeUndefined();
-    // Tried the query first, then fell back to a no-query full retrieval.
-    expect(calls).toEqual([
-      { hash: "h123", query: "txn 147" },
-      { hash: "h123", query: undefined },
-    ]);
   });
 
-  it("returns matched items unchanged when the query matches (no fallback)", async () => {
-    const { client, calls } = createRetrieveStub({
-      full: FULL_RESULT,
-      search: { results: ["txn 147 ref=abc settled $30.00 latency=7ms"], count: 1 },
-    });
-
-    const result = await retrieveExecute({ hash: "h123", query: "txn 147" }, { client });
-    const text = result.content.map((c) => c.text).join("\n");
-
-    expect(text).toBe("txn 147 ref=abc settled $30.00 latency=7ms");
-    expect(result.details.matchCount).toBe(1);
-    expect(result.details.fellBackToFull).toBeUndefined();
-    // Only one retrieve call — the query path, no fallback.
-    expect(calls).toEqual([{ hash: "h123", query: "txn 147" }]);
-  });
-
-  it("returns the full original on a no-query retrieval (existing path unchanged)", async () => {
-    const { client, calls } = createRetrieveStub({
-      full: FULL_RESULT,
-      search: { results: [], count: 0 },
-    });
+  it("returns the full original on a no-query retrieval", async () => {
+    const { client, calls } = createRetrieveStub({ full: FULL_RESULT });
 
     const result = await retrieveExecute({ hash: "h123" }, { client });
     const text = result.content.map((c) => c.text).join("\n");
 
     expect(text).toBe(ORIGINAL_LOG);
+    expect(result.details.filteredClientSide).toBeUndefined();
     expect(result.details.fellBackToFull).toBeUndefined();
     expect(result.details.originalTokens).toBe(1200);
     expect(calls).toEqual([{ hash: "h123", query: undefined }]);
   });
 
-  it("returns a clear non-throwing message if the fallback also has no original (LD3)", async () => {
-    const { client } = createRetrieveStub({
-      full: null,
-      search: { results: [], count: 0 },
-    });
+  it("returns a clear non-throwing message when no original content is available (LD3)", async () => {
+    const { client } = createRetrieveStub({ full: null });
 
     const result = await retrieveExecute({ hash: "h123", query: "nope" }, { client });
     const text = result.content.map((c) => c.text).join("\n");
 
-    expect(text).toContain("the full original could not be retrieved");
-    expect(result.details.fellBackToFull).toBe(true);
+    expect(text).toContain("could not retrieve the original");
     expect(result.details.error).toBeUndefined();
   });
 
