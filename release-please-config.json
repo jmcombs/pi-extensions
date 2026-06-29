@@ -59,6 +59,12 @@
       "component": "blue-psl-10k",
       "package-name": "@jmcombs/pi-blue-psl-10k",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/headroom": {
+      "release-type": "node",
+      "component": "headroom",
+      "package-name": "@jmcombs/pi-headroom",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
