@@ -134,38 +134,44 @@ intentional change so the doc and the ruleset stay in sync.
    to `0.0.0`. The first releasable commit will then trigger a `1.0.0` release
    (Release Please's default for the first release of a `release-type: node`
    package; see `VERSIONING.md`).
-6. Configure npm Trusted Publishing for the new npm package (see below).
-   This is a one-time per-package step on npmjs.com.
+6. Do the one-time bootstrap publish and configure npm Trusted Publishing for the
+   new npm package (see below) — OIDC cannot create the package on its own.
 7. Run `npm run check`. It must pass.
 8. Open a PR using a Conventional Commits title scoped to the new package, e.g.
    `feat(my-extension): initial release`.
 
-### One-time: configure npm Trusted Publishing
+### One-time: bootstrap publish + configure npm Trusted Publishing
 
 Releases publish to npm via [Trusted Publishing (OIDC)](https://docs.npmjs.com/trusted-publishers).
-No `NPM_TOKEN` is stored in GitHub. Each new npm package needs a one-time
-configuration on npmjs.com:
+No `NPM_TOKEN` is stored in GitHub. **OIDC cannot create a brand-new package**,
+and npm will not let you attach a Trusted Publisher to a package name that does
+not exist yet — so a new package needs a one-time **manual bootstrap publish**
+before OIDC can take over:
 
-1. Sign in to npmjs.com as the package owner.
-2. Visit the package settings page (or, for a brand-new package, the
-   organization's package-creation flow).
-3. Under **Publishing access → Trusted Publishers**, add a GitHub Actions
-   trusted publisher with:
+1. **Bootstrap publish (manual, once).** With the package at `version: 0.0.0` and
+   `private` removed, publish the placeholder from `main` using your own npm
+   auth (interactive `npm login` or an automation token) to create the package
+   and claim the name under the `@jmcombs` scope:
+
+   ```bash
+   npm publish --workspace=packages/<name> --access public
+   ```
+
+   This `0.0.0` is throwaway — Release Please's first managed release (`1.0.0`)
+   supersedes it.
+
+2. **Configure the Trusted Publisher (now that the package exists).** Sign in to
+   npmjs.com as the package owner, open the package's **Settings → Publishing
+   access → Trusted Publishers**, and add a GitHub Actions publisher with:
    - **Organization or user**: `jmcombs`
    - **Repository**: `pi-extensions`
    - **Workflow filename**: `release-please.yml`
    - **Environment**: _(leave blank)_
-4. Save.
 
-From that point on, the `publish-<package>` job in `release-please.yml` can
-publish that package using OIDC. The job uses `--provenance --access public`,
-so the published version gets a verifiable build attestation linking it to
-this repository and the exact workflow run.
-
-For the very first publish of a brand-new scoped package, the npm account or
-organization must already exist and own the scope (`@jmcombs`). Trusted
-Publishing creates the package on first push as long as `--access public` is
-passed.
+From that point on, the `publish` job in `release-please.yml` publishes that
+package using OIDC. The job uses `--provenance --access public`, so each
+released version gets a verifiable build attestation linking it to this
+repository and the exact workflow run — and no `NPM_TOKEN` is ever needed again.
 
 ### Required `package.json` Fields
 
