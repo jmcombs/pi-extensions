@@ -163,8 +163,8 @@ const ESC = "\x1b";
 const ARROW_RIGHT = "";
 /** Brand mark: nf-md-format-vertical-align-top — the Headroom "arrow to ceiling". */
 const HEADROOM_GLYPH = "\u{F0623}";
-/** Emoji shown beside the proxy mode value. */
-const MODE_EMOJI = "⚙️";
+/** Label prefix shown beside the proxy mode value. */
+const MODE_LABEL = "mode:";
 /** Emoji shown beside the session tokens-saved figure. */
 const SAVED_EMOJI = "💾";
 
@@ -224,13 +224,16 @@ function buildPowerline(segments: readonly WidgetSegment[]): string {
 /**
  * Render the persistent status widget as a Powerline bar. Blocks:
  *
- *   ` Headroom │ proxy v<version> │ ⚙ <mode> │ 💾 <saved>`
+ *   ` Headroom │ proxy v<version> │ mode: <mode> │ 💾 <saved>`
  *
  * The Headroom block is always the logo blue (Path Blue). The proxy block is
- * **green** with `proxy v<version>` when reachable, or **red** with
- * `proxy offline` when not — folding proxy health into one block. The mode
- * block (only when reachable) is the thinking-level blue. Lifetime savings are
- * intentionally omitted.
+ * **green** with `proxy v<version>` when reachable, or a single **red**
+ * `proxy offline` block when not (no mode/savings — nothing can be measured
+ * with the proxy down). The mode
+ * block (only when reachable) is the thinking-level blue. When compression is
+ * disabled (`--headroom-no-compress`), the bar ends with a **red** `mode: off`
+ * block and the savings figure is dropped (it would be meaningless). Lifetime
+ * savings are intentionally omitted.
  */
 export function formatStatusWidget(state: StatusDisplayState, sessionTokensSaved: number): string {
   const saved = Number.isFinite(sessionTokensSaved) ? sessionTokensSaved : 0;
@@ -238,11 +241,24 @@ export function formatStatusWidget(state: StatusDisplayState, sessionTokensSaved
     { text: `${HEADROOM_GLYPH} Headroom`, bg: WIDGET_COLORS.headroom },
   ];
 
-  if (state.reachable) {
-    segments.push({ text: `proxy v${state.version ?? "?"}`, bg: WIDGET_COLORS.proxyOk });
-    if (state.mode) segments.push({ text: `${MODE_EMOJI} ${state.mode}`, bg: WIDGET_COLORS.mode });
-  } else {
+  // Proxy offline: nothing downstream can be measured (no mode, no savings), so
+  // the bar ends at a single red `proxy offline` block.
+  if (!state.reachable) {
     segments.push({ text: "proxy offline", bg: WIDGET_COLORS.proxyOff });
+    return buildPowerline(segments);
+  }
+
+  segments.push({ text: `proxy v${state.version ?? "?"}`, bg: WIDGET_COLORS.proxyOk });
+
+  // Compression switched off (`--headroom-no-compress`): the extension is inert,
+  // so say so plainly in red and omit the (now-meaningless) mode + savings blocks.
+  if (!state.enabled) {
+    segments.push({ text: `${MODE_LABEL} off`, bg: WIDGET_COLORS.proxyOff });
+    return buildPowerline(segments);
+  }
+
+  if (state.mode) {
+    segments.push({ text: `${MODE_LABEL} ${state.mode}`, bg: WIDGET_COLORS.mode });
   }
 
   segments.push({ text: `${SAVED_EMOJI} ${humanizeTokens(saved)}`, bg: WIDGET_COLORS.saved });

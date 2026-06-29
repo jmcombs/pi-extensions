@@ -25,7 +25,7 @@ describe("formatStatusWidget", () => {
     const out = formatStatusWidget(base, 56_100);
     expect(out).toContain(`${GLYPH} Headroom`);
     expect(out).toContain("proxy v0.27.0");
-    expect(out).toContain("⚙️ token");
+    expect(out).toContain("mode: token");
     expect(out).toContain("💾 56.1k");
     expect(out).toContain(ARROW); // at least one separator
     expect(out).toContain(BG.headroom); // Headroom is always the logo blue
@@ -42,14 +42,27 @@ describe("formatStatusWidget", () => {
     expect(off).toContain(BG.headroom);
   });
 
-  it("shows a red 'proxy offline' block (no version/mode) when unreachable", () => {
+  it("shows a red 'mode: off' block (no live mode, no savings) when compression is disabled", () => {
+    const out = formatStatusWidget({ ...base, enabled: false }, 56_100);
+    expect(out).toContain("mode: off");
+    expect(out).toContain(BG.proxyOff); // off block reuses the red
+    expect(out).toContain("proxy v0.27.0"); // proxy is still reported
+    expect(out).toContain(BG.proxyOk);
+    expect(out).not.toContain("mode: token"); // not the live proxy mode
+    expect(out).not.toContain(BG.mode); // not the blue live-mode block
+    expect(out).not.toContain("💾"); // savings dropped when off
+    expect(out).not.toContain(BG.saved);
+  });
+
+  it("shows only a red 'proxy offline' block (no version/mode/savings) when unreachable", () => {
     const out = formatStatusWidget({ enabled: true, reachable: false }, 8_800);
     expect(out).toContain("proxy offline");
     expect(out).toContain(BG.proxyOff);
     expect(out).not.toContain("proxy v");
     expect(out).not.toContain(BG.proxyOk);
     expect(out).not.toContain(BG.mode);
-    expect(out).toContain("💾 8.8k"); // session figure still shown
+    expect(out).not.toContain("💾"); // nothing measurable with the proxy down
+    expect(out).not.toContain(BG.saved);
   });
 
   it("prefixes the version with 'proxy v' and shows '?' when version is missing", () => {
