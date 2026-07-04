@@ -66,6 +66,9 @@ keeps the core backend-agnostic.
 - Commit trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 - No build artifacts committed (`.gitignore` already covers `dist/`, `coverage/`,
   `node_modules/`; jiti loads `.ts` directly — there is no build step).
+- **Adding a workspace package requires regenerating the root `package-lock.json`**
+  (`npm install`) and committing it **in sync** — CI's first step is `npm ci`, which
+  hard-fails on an out-of-sync lockfile before any check runs.
 
 ---
 
@@ -144,6 +147,12 @@ seam with verdict-parse in the consumer (D10).
   Command: `node scripts/typecheck.mjs`.
   Expected: **0 type errors** — confirms **D5** peer-deps resolve and the tool returns
   only `AgentToolResult` fields (`content`/`details`/`terminate`; no `isError`, per **D9**).
+- **Gate 4 — lockfile in sync (CI parity).**
+  Command: `npm ci` (repo root).
+  Expected: **exit 0** — the root `package-lock.json` includes the new
+  `@jmcombs/pi-relay@0.0.0` workspace entry and installs cleanly. CI runs `npm ci` as
+  its first step, so an out-of-sync lockfile fails every required check before any
+  test/lint runs. (`npm install` must produce **no further lockfile diff**.)
 
 ### Definition of Done — see Appendix D.
 
@@ -231,3 +240,5 @@ the deviation to the orchestrator for human decision. Do not self-approve.
 7. Gate 2 (`harness.mjs`) proven with **real** `claude -p` stdout, or explicitly
    marked **UNVERIFIED** with the reason if the environment cannot reach `claude`
    (never PASS an unproven gate).
+8. Root `package-lock.json` **in sync** — `npm ci` at repo root exits 0 and `npm install`
+   yields no further lockfile diff (Gate 4; CI parity — CI runs `npm ci`).
