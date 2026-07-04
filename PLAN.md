@@ -35,9 +35,18 @@ keeps the core backend-agnostic.
 - **D7** The verify tool **reports verdict + evidence only** — never merges or ticks.
 - **D8** Re-entrancy guard: `process.env` sentinel at the **top of the factory** so
   it does not re-register inside a spawned child.
-- **D9** Error signalling via `content` text + `details.error`; **use `isError`**
-  if the earendil `AgentToolResult` supports it (`grok-search` returns `isError:true`
-  at `packages/grok-search/index.ts:88` — confirm in Phase 1).
+- **D9** Error signalling. `AgentToolResult` supports **only** `content`, `details`,
+  `terminate` — there is **no `isError` field**, and a returned `isError` is
+  **silently ignored**: `pi-agent-core/dist/agent-loop.js` `executePreparedToolCall`
+  hardcodes `isError:false` on the success path, and `finalizeExecutedToolCall`
+  rebuilds the result as `{content,details,terminate}` only. A tool result is flagged
+  `isError:true` **only** when `execute()` **throws** (harness wraps it via
+  `createErrorToolResult`), arg-validation/`beforeToolCall` blocks, or an
+  `afterToolCall` hook overrides it. Therefore relay's **synchronous setup-error path
+  MUST `throw`** (never `return { …, isError }`). Async dispatch errors are delivered
+  via the `sendMessage` pushback as an `UNVERIFIED` verdict, independent of tool-result
+  `isError`. (`grok-search:88`'s returned `isError` is the same latent no-op bug —
+  tracked in its own issue, out of scope for this PR.)
 - **D10 (seam)** `AgentDriver` interface; `claudeDriver` the **sole** implementation.
   Core (spawn, pushback, wall-cap, signal) is driver-agnostic. Verdict parsing lives
   in the **`verify_phase` consumer**, not the driver.
@@ -108,11 +117,13 @@ seam with verdict-parse in the consumer (D10).
   **without awaiting** and return `PENDING` (**D4**); on child close, parse (verdict
   regex for `verify_phase`, **D3**) and push back via
   `sendMessage(…, { triggerTurn: true })` + `events.emit`; wall-cap + `signal`→kill
-  with `UNVERIFIED` on cut (**D6**); errors via `content` + `details.error`/`isError`
-  (**D9**).
+  with `UNVERIFIED` on cut (**D6**); synchronous setup errors **`throw`** (never return
+  `isError`), async errors ride the pushback (**D9**).
 - [ ] `packages/relay/index.test.ts` — **registration smoke test** (asserts
   `verify_phase` and `dispatch` register against a stub `ExtensionAPI`; **no live
-  API, no network**). Repo convention (mirror `packages/grok-search/index.test.ts`).
+  API, no network**) **plus a test asserting the synchronous setup-error path THROWS**
+  (D9 — proves the error is real, not a no-op `isError`). Repo convention (mirror
+  `packages/grok-search/index.test.ts`).
 - [ ] `packages/relay/scripts/harness.mjs` — standalone **approach-B proof**: stub
   `ExtensionAPI` + **real `claude -p`**, reproducing Appendix A. Prints the 5 checks.
   Run manually; **not** part of `npm run check`.
@@ -131,8 +142,8 @@ seam with verdict-parse in the consumer (D10).
   (4) async pushback delivers a verdict; (5) pushback triggers a turn.
 - **Gate 3 — types against earendil (call-out of Gate 1).**
   Command: `node scripts/typecheck.mjs`.
-  Expected: **0 type errors** — confirms **D5** peer-deps resolve and the **D9**
-  `isError` usage compiles.
+  Expected: **0 type errors** — confirms **D5** peer-deps resolve and the tool returns
+  only `AgentToolResult` fields (`content`/`details`/`terminate`; no `isError`, per **D9**).
 
 ### Definition of Done — see Appendix D.
 
@@ -209,8 +220,9 @@ the deviation to the orchestrator for human decision. Do not self-approve.
    rename without an ADR.
 3. Locked Decisions **D1–D10** upheld — spot-check: no API-key path (D1); tools scoped,
    no skip-permissions (D2); `execute()` non-blocking (D4); peer-deps exactly D5;
-   fail-safe `UNVERIFIED` on cut (D6); re-entrancy guard present (D8); single
-   `claudeDriver` impl, verdict-parse in the consumer (D10).
+   fail-safe `UNVERIFIED` on cut (D6); re-entrancy guard present (D8); **no returned
+   `isError` anywhere — synchronous setup errors `throw` (D9)**; single `claudeDriver`
+   impl, verdict-parse in the consumer (D10).
 4. README trademark disclaimer present verbatim.
 5. `package.json` `files` includes `drivers/`; excludes `scripts/` and tests;
    `"private": true`.
