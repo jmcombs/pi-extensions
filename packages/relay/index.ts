@@ -79,8 +79,6 @@ export type DispatchInput = Static<typeof dispatchSchema>;
 interface DispatchOutcome {
   /** The backend's free-text result. */
   readonly result: string;
-  /** Whether the backend flagged an error. */
-  readonly isError: boolean;
   /** Whether the run was cut short (wall-cap or abort) — forces fail-safe (D6). */
   readonly cut: boolean;
 }
@@ -131,8 +129,7 @@ function runDriverAsync(
     settled = true;
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
-    const parsed = driver.parseResult(out);
-    onDone({ result: parsed.result, isError: parsed.isError || cut, cut });
+    onDone({ result: driver.parseResult(out).result, cut });
   };
 
   child.stdout?.on("data", (chunk: Buffer) => {
@@ -211,7 +208,6 @@ export default function (pi: ExtensionAPI): void {
                 phase: params.phase,
                 verdict,
                 cut: outcome.cut,
-                isError: outcome.isError,
               },
             },
             { triggerTurn: true },
@@ -219,13 +215,13 @@ export default function (pi: ExtensionAPI): void {
           pi.events.emit("relay:verdict", { tool: "verify_phase", phase: params.phase, verdict });
         });
       } catch (error) {
-        // D9: signal dispatch-setup errors via content text + details.error + isError.
+        // D9: a returned tool-result error flag is silently discarded by the pi
+        // runtime — the ONLY way to surface a real error result is to THROW, which
+        // the runtime wraps via createErrorToolResult. So synchronous setup errors
+        // rethrow. (Async dispatch errors ride the sendMessage pushback as
+        // UNVERIFIED, independent of any tool-result error flag.)
         const message = error instanceof Error ? error.message : String(error);
-        return Promise.resolve({
-          content: [{ type: "text", text: `Failed to dispatch verify_phase: ${message}` }],
-          details: { status: "ERROR", tool: "verify_phase", phase: params.phase, error: message },
-          isError: true,
-        });
+        throw new Error(`Failed to dispatch verify_phase: ${message}`);
       }
 
       // D4: return immediately, non-blocking.
@@ -263,20 +259,18 @@ export default function (pi: ExtensionAPI): void {
               customType: "relay:dispatch",
               content: text,
               display: true,
-              details: { cut: outcome.cut, isError: outcome.isError },
+              details: { cut: outcome.cut },
             },
             { triggerTurn: true },
           );
           pi.events.emit("relay:result", { tool: "dispatch", cut: outcome.cut });
         });
       } catch (error) {
-        // D9: signal dispatch-setup errors via content text + details.error + isError.
+        // D9: a returned tool-result error flag is silently discarded by the pi
+        // runtime — synchronous setup errors must THROW so the runtime wraps them
+        // via createErrorToolResult into a genuine error result.
         const message = error instanceof Error ? error.message : String(error);
-        return Promise.resolve({
-          content: [{ type: "text", text: `Failed to dispatch: ${message}` }],
-          details: { status: "ERROR", tool: "dispatch", error: message },
-          isError: true,
-        });
+        throw new Error(`Failed to dispatch: ${message}`);
       }
 
       // D4: return immediately, non-blocking.
