@@ -57,6 +57,9 @@ keeps the core backend-agnostic.
   + Phase 1 (scaffold) → **one PR** against `main`. **This supersedes phase-build's
   branch-per-phase default** — it is an explicit project decision; the verifier must
   treat the single-branch layout as **compliant**, not a hygiene FAIL.
+- **From Phase 2 on, each phase gets its own branch → its own PR** (`feat/relay-phase2`,
+  …), per the standard branch-per-phase model; Phase 0+1 sharing one branch was a
+  one-time bootstrap exception.
 - [Conventional Commits](https://www.conventionalcommits.org/), scope `relay`.
   `commitlint` (`header-max-length` 100) enforced by the `commit-msg` hook. `biome`
   runs on staged files via the `pre-commit` hook.
@@ -158,11 +161,63 @@ seam with verdict-parse in the consumer (D10).
 
 ---
 
-## Phases 2–6 (spec finalized when reached — objectives + gates only)
+## Phase 2 — Live-session integration  ← ACTIVE
 
-- **Phase 2 — Live-session integration.** `pi -e ./packages/relay`; invoke
-  `verify_phase`. Gate: verdict arrives as an async **follow-up turn**. Confirm Q1
-  (`triggerTurn` immediate vs. queued-on-idle).
+**Entry phases:** Phase 1 (merged to `main` @ `80e0be5`). Own branch `feat/relay-phase2`
+→ own PR.
+
+### Objectives
+Prove the **real pi runtime** delivers the async verdict as a **follow-up turn** — the
+one thing the Phase-1 mock (stub `ExtensionAPI`) could not: real
+`sendMessage(…, { triggerTurn: true })` delivery. Answer **Q1** (does `triggerTurn`
+fire immediately, or queue until the orchestrator is idle / `ctx.isIdle()`), and if
+delivery is not reliable, mirror pi-intercom's idle flush-queue so the verdict always
+lands.
+
+### Architectural Constraints
+- Locked Decisions **D1–D10** continue to hold; the `verify_phase`/`dispatch` contract
+  and the driver seam do **not** change shape.
+- Any Q1 fix is **additive/behavioral** (queue-and-flush on idle) — it must not weaken
+  **D4** (non-blocking `execute()`) or **D6** (fail-safe `UNVERIFIED`, never auto-PASS).
+- **No new runtime dependencies** (peer-deps stay = D5; lockfile stays in sync, Gate 4).
+
+### Actionable TODOs (literal paths)
+- [ ] `packages/relay/scripts/live-session.mjs` — a **scriptable live-session
+  integration harness**: launch a real `pi` session with `--extension ./packages/relay`
+  in a programmatic mode (`--mode rpc`, falling back to `--mode json`), send a user
+  turn that invokes `verify_phase`, **keep the session alive**, and capture from the
+  real runtime: (a) the tool returns `PENDING` immediately, (b) an **async follow-up
+  turn** carrying `VERDICT: PASS|FAIL` arrives via the pushback, (c) the **timing of
+  `triggerTurn`** (immediate vs. after idle) = the Q1 answer. Print OK/FAIL checks like
+  `harness.mjs`; exit 0 iff async delivery is observed. **Not** part of `npm run check`.
+- [ ] `packages/relay/index.ts` — **only if Q1 requires it**: if `triggerTurn` queues
+  until idle, add a pi-intercom-style `ctx.isIdle()` flush-queue so the verdict is
+  delivered reliably. If Q1 shows immediate delivery, make **no** code change and record
+  that in the report. Any change stays within D4/D6.
+- [ ] `packages/relay/README.md` — a short "Live-session behavior" note documenting the
+  Q1 finding (immediate vs. idle-queued) so users know when the verdict lands.
+
+### Testing Gates (exact command → expected)
+- **Gate 2.1 — live async delivery (real runtime).**
+  Command: `node packages/relay/scripts/live-session.mjs` (real `pi` + `claude` authed
+  via `oauthAccount`).
+  Expected: real output showing the tool returned `PENDING`, then an **async follow-up
+  turn with `VERDICT: PASS|FAIL`** delivered by the live runtime, plus the Q1 timing
+  line. **UNVERIFIED** (never faked) if the environment genuinely cannot drive an
+  rpc/interactive `pi` session — escalate to the orchestrator instead.
+- **Gate 2.2 — regression.**
+  Command: `npm run check` → exit 0 (vitest green; if a Q1 idle-flush change was made,
+  add/extend a unit test covering it).
+- **Gate 2.3 — lockfile parity.**
+  Command: `npm ci` → exit 0; `npm install` → no further diff (Gate 4 carries forward).
+  Also re-run Phase-1 `node packages/relay/scripts/harness.mjs` if `index.ts` changed.
+
+### Definition of Done
+Appendix D items 1–8 hold; Gate 2.1 proven (or UNVERIFIED + escalated, never faked);
+Q1 documented in the README; if `index.ts` changed, the async substrate still proves
+out via `harness.mjs`.
+
+## Phases 3–6 (spec finalized when reached — objectives + gates only)
 - **Phase 3 — Accuracy regression.** Drive the locked 9-case benchmark **through the
   extension**. Gate: 9/9 — 0 false-merge, 0 false-fail, 3/3 audit-catch.
 - **Phase 4 — Wire into the phase loop (self-hosting).** Orchestrator dispatches
