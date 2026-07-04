@@ -230,6 +230,65 @@ out via `harness.mjs`.
 
 ---
 
+## Phase 7 — "Relay Roles" generalization (post-Phase-5)
+
+**Entry phases:** Phase 5 (verifier path proven in production — do not generalize
+before the flagship role is proven). Own branch `feat/relay-roles` → own PR.
+
+### Objectives
+Generalize the async-dispatch substrate into a reusable **role** abstraction so new
+agent roles (research, summarize, triage, lint, …) can be added declaratively,
+following the same methodology as `verify_phase`. Prove it by shipping a **second
+reference role** that legitimately differs from the verifier (different tools/model).
+
+### The role abstraction
+A relay **role** is a tuple over the shared non-blocking spine (`runDriverAsync` →
+`sendMessage(…, { triggerTurn: true })`) — the same spine `verify_phase` and
+`dispatch` already use:
+- **tool name + TypeBox param schema**
+- **`buildPrompt(params)`** — the default prompt (caller-overridable via a `prompt` param)
+- **backend opts** — `{ model, allowedTools, maxTurns }` passed to the driver
+- **`interpret(result, cut)`** — result text → typed outcome (verdict / report /
+  fail-safe `UNVERIFIED`)
+- **`format(outcome)`** — the pushback `customType`, content, and details
+
+Today `verify_phase` = {verify prompt, read-only tools, verdict interpreter,
+`relay:verify_phase`} and `dispatch` = {passthrough} — both hand-rolled. Phase 7
+extracts the shared shape.
+
+### Actionable TODOs (literal paths — finalize when reached)
+- [ ] `packages/relay/roles.ts` — a `defineRelayRole(spec)` factory that registers a
+  tool over the shared substrate; refactor `verify_phase` and `dispatch` to be defined
+  through it, **behavior-preserving** (Phase-1/2 gates must still pass unchanged).
+- [ ] `packages/relay/drivers/claude.ts` — extend `AgentDriver.buildArgs(prompt, opts)`
+  to accept `{ model, allowedTools, maxTurns }`; `claudeDriver` keeps the verifier
+  defaults (D1/D2/D3) when opts are omitted.
+- [ ] `packages/relay/roles/research.ts` — a second reference role: web-tool scope
+  (`WebSearch WebFetch Read`), a research prompt, a report/citations interpreter,
+  `relay:research` pushback. Demonstrates a role that **deliberately relaxes D1/D2**.
+- [ ] `docs/relay-roles.md` — the documented "Relay Roles" pattern and a how-to-add-a-role
+  guide (the reusable methodology).
+
+### Architectural Constraints
+- The refactor is **behavior-preserving** for `verify_phase`/`dispatch` — the
+  registration test, `harness.mjs`, and `live-session.mjs` must all still pass.
+- **D1/D2 remain the defaults** and stay in force for the **verify** role; only new
+  roles opt into different tools/models via explicit opts. "Roles" is a superset that
+  lives *above* the verifier's Locked Decisions, not a violation of them.
+- Async spine (D4), fail-safe (D6), re-entrancy (D8), no-returned-`isError` (D9), and
+  the driver seam (D10) are all preserved.
+
+### Testing Gates (finalize when reached)
+- **Gate 7.1** — `npm run check` green; `verify_phase`/`dispatch` behave **identically**
+  after the refactor (unit tests unchanged; `harness.mjs` still 5/5).
+- **Gate 7.2** — the new reference role dispatches and relays a result through the
+  **real runtime** (a `live-session.mjs`-style proof for the new role).
+- **Gate 7.3** — lockfile parity (Gate 4) for any new dependency.
+
+### Resolves
+- The productization angle of **Q2** (per-role prompt-source strategy) and **Q3**
+  (config knobs: per-role `model` / `allowedTools` / `maxTurns`).
+
 ## Appendix A — proven reference (approach B)
 
 Non-blocking spawn + parse + push-back. The shippable version lives behind
@@ -275,6 +334,7 @@ the deviation to the orchestrator for human decision. Do not self-approve.
 - [ ] Phase 4 — Wire into the phase loop
 - [ ] Phase 5 — Gate B
 - [ ] Phase 6 — (optional) Duplex escalation
+- [ ] Phase 7 — "Relay Roles" generalization (post-Phase-5)
 
 ## Appendix D — Definition of Done (full-repo regression; verifier runs all)
 
