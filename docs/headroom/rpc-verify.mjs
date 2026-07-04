@@ -19,7 +19,7 @@
 //
 // Output: JSON { notifies: [{notifyType, message}], eventTypes, stderrTail }.
 // Filter `notifies` for messages beginning with "Headroom" — other globally
-// installed extensions (e.g. qwen-guard) also emit session_start notices.
+// installed extensions also emit session_start notices.
 
 import { spawn } from "node:child_process";
 

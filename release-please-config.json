@@ -48,12 +48,6 @@
       "package-name": "@jmcombs/pi-better-toolsy",
       "changelog-path": "CHANGELOG.md"
     },
-    "packages/qwen-guard": {
-      "release-type": "node",
-      "component": "qwen-guard",
-      "package-name": "@jmcombs/pi-qwen-guard",
-      "changelog-path": "CHANGELOG.md"
-    },
     "packages/blue-psl-10k": {
       "release-type": "node",
       "component": "blue-psl-10k",
