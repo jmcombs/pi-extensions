@@ -161,7 +161,7 @@ seam with verdict-parse in the consumer (D10).
 
 ---
 
-## Phase 2 — Live-session integration  ← ACTIVE
+## Phase 2 — Live-session integration  ✅ DONE
 
 **Entry phases:** Phase 1 (merged to `main` @ `80e0be5`). Own branch `feat/relay-phase2`
 → own PR.
@@ -329,7 +329,7 @@ the deviation to the orchestrator for human decision. Do not self-approve.
 
 - [x] Phase 0 — Logo & brand assets
 - [x] Phase 1 — Scaffold + driver seam + unit-prove
-- [ ] Phase 2 — Live-session integration
+- [x] Phase 2 — Live-session integration
 - [ ] Phase 3 — Accuracy regression
 - [ ] Phase 4 — Wire into the phase loop
 - [ ] Phase 5 — Gate B
