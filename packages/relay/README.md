@@ -55,6 +55,24 @@ lives in the `verify_phase` consumer, not the driver.
   (default `600000`). On a cut run (wall-cap or abort) the relay reports
   `UNVERIFIED` — it **never** auto-passes.
 
+## Live-session behavior
+
+Both tools are **non-blocking**: `execute()` returns `PENDING` immediately and the
+verdict/result arrives **later** as a follow-up turn. When does that follow-up
+land?
+
+- **Agent idle** (the usual case — you asked for a verify and are waiting): the
+  pushback is delivered via `sendMessage(…, { triggerTurn: true })` and pi starts
+  a **fresh turn immediately** the moment the dispatched `claude -p` run finishes.
+  There is no polling and no idle checkpoint to wait for.
+- **Agent busy** (still streaming another turn when the result arrives): the
+  pushback is queued as a **steer** and delivered right after the current
+  assistant turn finishes executing its tool calls, before the next LLM call.
+
+Either way the verdict is guaranteed to land as its own turn — verified against a
+real `pi --mode rpc` session (see `scripts/live-session.mjs`). Because idle
+delivery is immediate, the relay needs no separate idle-flush queue.
+
 ## Quick Start
 
 ```bash
@@ -74,7 +92,8 @@ See `CONTRIBUTING.md` at the repo root for project conventions.
 # From the repo root
 npm ci
 npm run check                            # full quality gate
-node packages/relay/scripts/harness.mjs  # manual async proof vs. real `claude -p`
+node packages/relay/scripts/harness.mjs       # manual async proof vs. real `claude -p`
+node packages/relay/scripts/live-session.mjs  # live-session proof vs. real `pi --mode rpc`
 ```
 
 ## License
