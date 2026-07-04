@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="relay app icon">
+  <title>relay — app icon</title>
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="#3465a4"/>
+  <g transform="translate(76,76) scale(5.625)">
+    <rect x="8" y="8" width="48" height="48" rx="14" fill="none" stroke="#ffffff" stroke-width="3.1"/>
+    <g fill="none" stroke="#ffffff" stroke-width="3.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 27 H44"/><path d="M39 22.6 L44.6 27 L39 31.4"/>
+      <path d="M46 37 H20"/><path d="M25 32.6 L19.4 37 L25 41.4"/>
+    </g>
+  </g>
+</svg>

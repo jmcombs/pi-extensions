@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="relay">
+  <title>relay — round-trip mark (white)</title>
+  <rect x="8" y="8" width="48" height="48" rx="14" fill="none" stroke="#ffffff" stroke-width="3.4"/>
+  <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M18 27 H44"/><path d="M39 22.6 L44.6 27 L39 31.4"/>
+    <path d="M46 37 H20"/><path d="M25 32.6 L19.4 37 L25 41.4"/>
+  </g>
+</svg>

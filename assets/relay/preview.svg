@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="pi-relay">
+  <title>pi-relay — async agent dispatch</title>
+  <!-- Netservant base ground -->
+  <rect width="1024" height="1024" fill="#eff1f5"/>
+  <!-- squircle chip holding the mark -->
+  <rect x="332" y="212" width="360" height="360" rx="83" fill="#ffffff" stroke="#d3d7e0" stroke-width="2"/>
+  <!-- round-trip mark, Path Blue, centered in the chip (chip center 512,392) -->
+  <g transform="translate(402,282) scale(3.4375)">
+    <rect x="8" y="8" width="48" height="48" rx="14" fill="none" stroke="#3465a4" stroke-width="3.4"/>
+    <g fill="none" stroke="#3465a4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 27 H44"/><path d="M39 22.6 L44.6 27 L39 31.4"/>
+      <path d="M46 37 H20"/><path d="M25 32.6 L19.4 37 L25 41.4"/>
+    </g>
+  </g>
+  <!-- wordmark -->
+  <text x="512" y="712" text-anchor="middle" font-family="Manrope" font-weight="800"
+        font-size="140" letter-spacing="-5" fill="#4c4f69">relay</text>
+  <!-- eyebrow -->
+  <text x="512" y="772" text-anchor="middle" font-family="Manrope" font-weight="600"
+        font-size="26" letter-spacing="6" fill="#6c6f85">ASYNC AGENT DISPATCH FOR PI</text>
+</svg>
