@@ -217,77 +217,90 @@ Appendix D items 1–8 hold; Gate 2.1 proven (or UNVERIFIED + escalated, never f
 Q1 documented in the README; if `index.ts` changed, the async substrate still proves
 out via `harness.mjs`.
 
-## Phases 3–6 (spec finalized when reached — objectives + gates only)
-- **Phase 3 — Accuracy regression.** Drive the locked 9-case benchmark **through the
-  extension**. Gate: 9/9 — 0 false-merge, 0 false-fail, 3/3 audit-catch.
-- **Phase 4 — Wire into the phase loop (self-hosting).** Orchestrator dispatches
-  `verify_phase`; PASS → human merge-gate, FAIL → remediation; retire/repoint
-  `verifier.md`. Gate: an end-to-end phase verifies and routes correctly.
-- **Phase 5 — Gate B.** 25 live orchestrated verify runs. Gate: 0 false-merge across
-  all 25. Then flip `"private": false` + Release Please for 1.0.0.
-- **Phase 6 — (optional) Duplex escalation.** Intercom-broker ask-reply for
-  human escalation (true pi↔pi / cross-session channel).
+## Phase 3 — Relay Roles (provider seam)  ← ACTIVE
 
----
+**Entry phases:** Phase 2 (merged @ `cf2add8`). Own branch `feat/relay-phase3` → own PR.
 
-## Phase 7 — "Relay Roles" generalization (post-Phase-5)
+### Concept (locked design — Option B)
+A **relay role** is an existing **pi-subagent** (persona `.md` + its referenced `SKILL.md`s)
+executed on an **external coding agent** instead of a local pi model. The subagent
+definition is the single source of truth; a per-agent **driver** adapts its standardized
+fields into that agent's invocation. Relay registers a pi **provider**, so a subagent runs
+externally simply by setting its `model` field — *nothing changes but the processor*.
 
-**Entry phases:** Phase 5 (verifier path proven in production — do not generalize
-before the flagship role is proven). Own branch `feat/relay-roles` → own PR.
+- **Trigger + model:** `model: relay-claude/opus` → pi's native `resolveModel` routes to
+  relay's registered provider → `claudeDriver` → `claude -p … --model opus`.
+- **Persona + skills:** the driver resolves the persona body + each `SKILL.md` and injects
+  them via `--system-prompt-file` (`systemPromptMode: replace`) / `--append-system-prompt-file`.
+  Deterministic — our code writes the file; no model re-echo, no drift (this fixes the ~22%
+  inline-prompt drift found in the Phase-4 baseline).
+- **Tools:** subagent `tools` → `--allowedTools` via a rename map (`read→Read, bash→Bash,
+  edit→Edit, write→Write, grep→Grep, glob→Glob`); pi-only tools with no external equivalent
+  are dropped; `thinking` / context-inherit fields are N/A.
+- The relayed subagent is **single-turn** (no pi-side tools; the external agent runs its own
+  tool loop) — one provider completion = one full `claude -p` run returning the final text.
+  pi's native subagent-async layer delivers the result, **superseding relay's bespoke
+  `verify_phase` tool + custom pushback** (Phases 1–2).
 
 ### Objectives
-Generalize the async-dispatch substrate into a reusable **role** abstraction so new
-agent roles (research, summarize, triage, lint, …) can be added declaratively,
-following the same methodology as `verify_phase`. Prove it by shipping a **second
-reference role** that legitimately differs from the verifier (different tools/model).
+Make any pi-subagent runnable on an external coding agent via the driver seam, and
+re-express the **verifier** as a relayed subagent — no bespoke tool, no inline prompt.
 
-### The role abstraction
-A relay **role** is a tuple over the shared non-blocking spine (`runDriverAsync` →
-`sendMessage(…, { triggerTurn: true })`) — the same spine `verify_phase` and
-`dispatch` already use:
-- **tool name + TypeBox param schema**
-- **`buildPrompt(params)`** — the default prompt (caller-overridable via a `prompt` param)
-- **backend opts** — `{ model, allowedTools, maxTurns }` passed to the driver
-- **`interpret(result, cut)`** — result text → typed outcome (verdict / report /
-  fail-safe `UNVERIFIED`)
-- **`format(outcome)`** — the pushback `customType`, content, and details
-
-Today `verify_phase` = {verify prompt, read-only tools, verdict interpreter,
-`relay:verify_phase`} and `dispatch` = {passthrough} — both hand-rolled. Phase 7
-extracts the shared shape.
-
-### Actionable TODOs (literal paths — finalize when reached)
-- [ ] `packages/relay/roles.ts` — a `defineRelayRole(spec)` factory that registers a
-  tool over the shared substrate; refactor `verify_phase` and `dispatch` to be defined
-  through it, **behavior-preserving** (Phase-1/2 gates must still pass unchanged).
-- [ ] `packages/relay/drivers/claude.ts` — extend `AgentDriver.buildArgs(prompt, opts)`
-  to accept `{ model, allowedTools, maxTurns }`; `claudeDriver` keeps the verifier
-  defaults (D1/D2/D3) when opts are omitted.
-- [ ] `packages/relay/roles/research.ts` — a second reference role: web-tool scope
-  (`WebSearch WebFetch Read`), a research prompt, a report/citations interpreter,
-  `relay:research` pushback. Demonstrates a role that **deliberately relaxes D1/D2**.
-- [ ] `docs/relay-roles.md` — the documented "Relay Roles" pattern and a how-to-add-a-role
-  guide (the reusable methodology).
+### Actionable TODOs (literal paths)
+- [ ] **Gate-zero spike** — prove pi's `registerApiProvider`/`registerProvider` contract can
+  represent *"one completion = one full `claude -p` run"* (single-turn, no pi-side tools,
+  returns the final assistant text). **If it cannot → STOP and escalate; fall back to Option A**
+  (relay stays a tool that resolves the subagent def) — a human decision, not the builder's.
+- [ ] `packages/relay/provider.ts` — register provider `relay-claude`; `model: relay-claude/*`
+  routes here; a completion runs the driver and returns the external agent's final text.
+- [ ] `packages/relay/roles/resolver.ts` — resolve a pi-subagent by name (persona `.md` + its
+  `SKILL.md`s from `~/.pi/agent`), assemble the system-prompt file; apply the tool map.
+- [ ] `packages/relay/drivers/claude.ts` — evolve `claudeDriver`: fields →
+  `claude -p --system-prompt-file <assembled> --allowedTools <mapped> --model <model>
+  --output-format json`; preserve **D1** (Opus for verify) / **D2** (read-only).
+- [ ] `packages/relay/drivers/codex.ts` — **seam-only stub + documented mapping** (deferred
+  build; no codex account): `codex exec`, persona+skills → AGENTS.md / `-c` instructions,
+  `-m`, `-s read-only`, `--json` + `-o <file>`.
+- [ ] Retire `verify_phase`'s inline-`prompt` path; the verifier runs as a relayed subagent.
+  Keep D1/D2/D6 semantics.
 
 ### Architectural Constraints
-- The refactor is **behavior-preserving** for `verify_phase`/`dispatch` — the
-  registration test, `harness.mjs`, and `live-session.mjs` must all still pass.
-- **D1/D2 remain the defaults** and stay in force for the **verify** role; only new
-  roles opt into different tools/models via explicit opts. "Roles" is a superset that
-  lives *above* the verifier's Locked Decisions, not a violation of them.
-- Async spine (D4), fail-safe (D6), re-entrancy (D8), no-returned-`isError` (D9), and
-  the driver seam (D10) are all preserved.
+- **No fork of pi core** — use its extension APIs (`registerProvider`/`registerApiProvider`).
+- **D1/D2 preserved for the verify role** (Opus, read-only); "roles" is a superset above the
+  Locked Decisions. Fail-safe (D6) and driver seam (D10) preserved; D4 non-blocking now comes
+  from pi's subagent-async layer.
+- The subagent definition is **unchanged** whether run locally or via relay (single source).
 
-### Testing Gates (finalize when reached)
-- **Gate 7.1** — `npm run check` green; `verify_phase`/`dispatch` behave **identically**
-  after the refactor (unit tests unchanged; `harness.mjs` still 5/5).
-- **Gate 7.2** — the new reference role dispatches and relays a result through the
-  **real runtime** (a `live-session.mjs`-style proof for the new role).
-- **Gate 7.3** — lockfile parity (Gate 4) for any new dependency.
+### Testing Gates (exact command → expected)
+- **Gate 3.0 (spike)** — a minimal `registerApiProvider` proof that a `relay-claude/*` model
+  yields one `claude -p` run's final text as the completion. Expected: real external output
+  captured; or a documented escalation to Option A.
+- **Gate 3.1** — the `verifier` pi-subagent (defined once) run via `model: relay-claude/opus`
+  through pi's **native** subagent system on one real phase returns a real Opus verdict
+  (`VERDICT: PASS|FAIL`), with persona+skills provably injected (byte-exact system-prompt
+  file). Proven live.
+- **Gate 3.2** — `npm run check` → exit 0; lockfile parity (Gate 4).
 
-### Resolves
-- The productization angle of **Q2** (per-role prompt-source strategy) and **Q3**
-  (config knobs: per-role `model` / `allowedTools` / `maxTurns`).
+### Definition of Done
+Appendix D items 1–8 hold; Gate 3.0/3.1 proven live (or spike-fail escalated, never faked);
+the verifier runs as a relayed subagent with no inline prompt; codex seam documented. The
+full 9-case accuracy re-benchmark is **Phase 4**, not this phase.
+
+## Phases 4–7 (spec finalized when reached — objectives + gates only)
+- **Phase 4 — Accuracy regression (through the role).** Re-run the locked 9-case benchmark
+  against the **role-based** verifier (relayed subagent, `{phase,cwd}`-only, no inline
+  prompt); **remove `docs/prompts/` from the benchmark sandbox** (methodology now lives in
+  the role). Gate: reproduce 9/9 — 0 false-merge, 0 false-fail, 3/3 audit-catch. Baseline:
+  the 9/9 already proven on the old inline-prompt design (branch `feat/relay-phase4`).
+- **Phase 5 — Wire into the phase loop (self-hosting).** Orchestrator runs the verifier
+  relay-role instead of the local verifier subagent; PASS → human merge-gate, FAIL →
+  remediation. Gate: an end-to-end phase verifies and routes correctly.
+- **Phase 6 — Gate B.** 25 live orchestrated verify runs. Gate: 0 false-merge across all 25.
+  Then flip `"private": false` + Release Please for 1.0.0.
+- **Phase 7 — (optional) Duplex escalation.** Intercom-broker ask-reply for human escalation
+  (true pi↔pi / cross-session channel).
+
+---
 
 ## Appendix A — proven reference (approach B)
 
@@ -330,11 +343,11 @@ the deviation to the orchestrator for human decision. Do not self-approve.
 - [x] Phase 0 — Logo & brand assets
 - [x] Phase 1 — Scaffold + driver seam + unit-prove
 - [x] Phase 2 — Live-session integration
-- [ ] Phase 3 — Accuracy regression
-- [ ] Phase 4 — Wire into the phase loop
-- [ ] Phase 5 — Gate B
-- [ ] Phase 6 — (optional) Duplex escalation
-- [ ] Phase 7 — "Relay Roles" generalization (post-Phase-5)
+- [ ] Phase 3 — Relay Roles (provider seam)
+- [ ] Phase 4 — Accuracy regression (through the role)
+- [ ] Phase 5 — Wire into the phase loop
+- [ ] Phase 6 — Gate B
+- [ ] Phase 7 — (optional) Duplex escalation
 
 ## Appendix D — Definition of Done (full-repo regression; verifier runs all)
 
