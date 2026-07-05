@@ -58,6 +58,15 @@ keeps the core backend-agnostic.
   `@earendil-works/pi-ai`). Adding an **official** pi package as a peer-dep is permitted and
   is **not** the forbidden `@mariozechner` fork (D5). Re-implementing a pi contract by hand
   is a defect.
+- **D12 (per-role execution posture)** relay enforces each dispatched role's execution
+  **posture** at the driver — not merely by tool-mapping. A role whose tools omit `edit`/`write`
+  is **read-only**: the driver translates that posture into the backend's **native**
+  sandbox/permission enforcement so the external agent **cannot mutate the working tree**
+  (execution — build/test — is still permitted; "read-only" means no filesystem *mutation*, not
+  "no execution"). Write-capable roles run with a write posture. This generalizes beyond verify
+  (the verifier is the first consumer) and **extends D10**: the driver maps posture→backend
+  flags exactly as it maps tools→backend tools. Withholding Edit/Write alone is **not** a
+  read-only guarantee (`bash` can mutate) — the posture must be enforced by the backend.
 
 ## Git / PR conventions (PLAN-wide)
 
@@ -375,10 +384,56 @@ the public repo; no IP leak (Gate 4.3 clean). Appendix D full-repo regression ho
 
 ---
 
-## Phases 5–7 (spec finalized when reached — objectives + gates only)
-- **Phase 5 — Wire into the phase loop (self-hosting).** Orchestrator runs the verifier
-  relay-role instead of the local verifier subagent; PASS → human merge-gate, FAIL →
-  remediation. Gate: an end-to-end phase verifies and routes correctly.
+## Phase 5 — Wire into the phase loop (self-hosting)  ← ACTIVE
+
+### Objectives
+Wire the real pi phase loop so the **orchestrator** dispatches the **relay verifier**
+(`verifier.md`, already `relay-claude/opus`) and routes **PASS → human merge-gate**, **FAIL →
+remediation** — and harden the two Phase-4 findings per the locked architecture. **Scope: demonstrate,
+then cut over** (Q1) — prove the wiring end-to-end this phase; the real loop fully self-hosts on
+relay only **after Gate B (Phase 6)**. Spans two repos: `packages/relay` (enforcement code) and the
+user's **dotfiles** orchestration (`phase-orchestrate` skill, `verifier.md`, `merger.md`) — dotfiles
+changes are reported as diffs for the human to commit (as in Phase 3/4), never auto-committed.
+
+### Part 1 — Per-role execution posture (D12, in `packages/relay`)
+- The **driver** derives a role's posture from its declared tools (no `edit`/`write` ⇒ **read-only**)
+  and translates it into `claude`'s **native** sandbox/permission enforcement so a read-only role
+  **cannot mutate the working tree**, while still being able to **execute** (run build/test).
+  **Spike `claude`'s real capabilities first** (v2.1.201 is installed — verify the actual flag(s):
+  permission-mode / sandbox / etc.); if `claude` has no native read-only-fs mode, enforce via a
+  contained environment (e.g. a disposable/read-only worktree whose writes are discarded), but prefer
+  the backend-native mechanism. Extends D10 (posture→backend flags in the driver, resolver stays
+  neutral). Write ADR `docs/decisions/0002-per-role-execution-posture.md`.
+
+### Part 2 — Dispatch cardinality (Q3=1, in dotfiles)
+- `phase-orchestrate` skill instructs the orchestrator to dispatch verify **exactly once**, then wait
+  for the verdict. relay stays a clean per-completion provider (no dedup state); **D8** re-entrancy
+  guard is the process-level backstop. **No relay code** for this — it's the caller's contract.
+
+### Part 3 — Routing (dotfiles orchestration)
+- Orchestrator routes the relay verdict: **PASS → stop at the human merge-gate** (never auto-merge/
+  tick — **D7**); **FAIL → remediation** (back to builder with the evidence). `merger.md` unchanged
+  except to consume the relay verdict.
+
+### Testing Gates (exact → expected)
+- **Gate 5.1 (posture enforced):** a read-only role's `bash` attempt to mutate the tree is **blocked**
+  by the driver's enforcement (real proof — the write fails); a build/test still runs. Withheld
+  Edit/Write alone is not accepted as proof.
+- **Gate 5.2 (routing):** end-to-end — one **PASS** scenario halts at the human merge-gate (no auto-
+  merge, D7); one **FAIL** scenario routes to remediation. Driven by the real orchestrator (qwen) →
+  relay verifier (Opus).
+- **Gate 5.3 (dispatch cardinality):** exactly **one** verify dispatch per phase; no spurious extras.
+- **Gate 5.4 (repo):** `npm run check` green; lockfile in sync; ADR indexed (Appendix B).
+
+### Definition of Done
+D12 posture enforced by the backend (Gate 5.1) + documented (ADR); orchestrator dispatches the relay
+verifier exactly once and routes PASS/FAIL correctly, demonstrated end-to-end (Gate 5.2/5.3); **real-
+loop cutover explicitly deferred to post-Gate-B**; dotfiles diffs reported for the human to commit;
+Appendix D regression holds.
+
+---
+
+## Phases 6–7 (spec finalized when reached — objectives + gates only)
 - **Phase 6 — Gate B.** 25 live orchestrated verify runs. Gate: 0 false-merge across all 25.
   Then flip `"private": false` + Release Please for 1.0.0.
 - **Phase 7 — (optional) Duplex escalation.** Intercom-broker ask-reply for human escalation
@@ -434,7 +489,7 @@ the official `@earendil-works/pi-ai` peer-dep + deletion of the hand-rolled
 - [x] Phase 1 — Scaffold + driver seam + unit-prove
 - [x] Phase 2 — Live-session integration
 - [x] Phase 3 — Relay Roles (provider seam)
-- [ ] Phase 4 — Accuracy regression (through the role)
+- [x] Phase 4 — Accuracy regression (through the role)
 - [ ] Phase 5 — Wire into the phase loop
 - [ ] Phase 6 — Gate B
 - [ ] Phase 7 — (optional) Duplex escalation
