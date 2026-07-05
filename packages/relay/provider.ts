@@ -1,0 +1,253 @@
+/**
+ * provider.ts — registers the `relay-claude` pi provider (Option B, Phase 3).
+ *
+ * A pi-subagent runs on an external coding agent simply by setting its `model` to
+ * `relay-claude/<id>` (e.g. `relay-claude/opus`). pi's native `resolveModel` routes
+ * that model to the custom `streamSimple` handler registered here; the handler
+ * runs ONE headless `claude -p` through {@link claudeDriver} and streams the
+ * external agent's final assistant text back as the completion.
+ *
+ * ── Single completion = one full `claude -p` run (single-turn) ──
+ * The relayed subagent has NO pi-side tools; the external agent runs its OWN tool
+ * loop and returns final text. So `streamSimple` emits exactly one assistant
+ * message (`stop`), the child pi agent loop ends after one turn, and pi's native
+ * subagent-async layer delivers the result. This supersedes relay's Phase-1/2
+ * bespoke `verify_phase` tool + custom `sendMessage` pushback.
+ *
+ * ── Persona + skills (context vs. resolver) ──
+ * pi-subagents assembles the subagent persona body + skill bodies into the child
+ * pi's system prompt, which arrives here as `context.systemPrompt`. We RELAY that
+ * verbatim to `claude` via `--system-prompt-file` (deterministic; no re-echo, no
+ * drift) — we do NOT re-resolve by name (that would double-inject). See
+ * `roles/resolver.ts` for the fallback resolver used off the pi-subagents path.
+ *
+ * Types are derived from `@earendil-works/pi-coding-agent`'s `ProviderConfig`
+ * rather than imported from `@earendil-works/pi-ai/compat` — see `stream.ts` for
+ * why the direct compat import is avoided in this monorepo.
+ *
+ * Not affiliated with or endorsed by Anthropic. Claude and Opus are trademarks of
+ * Anthropic, PBC.
+ */
+
+import { spawn } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import { type AgentDriver, claudeDriver } from "./drivers/claude.js";
+import { mapToolNames } from "./roles/resolver.js";
+import { RelayEventStream, type RelayStreamEvent } from "./stream.js";
+
+// ── Types derived from pi's ProviderConfig (resolve via its nested pi-ai) ──────
+type StreamSimpleFn = NonNullable<ProviderConfig["streamSimple"]>;
+type RelayModel = Parameters<StreamSimpleFn>[0];
+type RelayContext = Parameters<StreamSimpleFn>[1];
+type RelayStreamOptions = Parameters<StreamSimpleFn>[2];
+type RelayStreamReturn = ReturnType<StreamSimpleFn>;
+type RelayAssistantMessage = Awaited<ReturnType<RelayStreamReturn["result"]>>;
+
+/** The pi provider name. `model: relay-claude/<id>` routes to this provider. */
+export const RELAY_CLAUDE_PROVIDER = "relay-claude";
+
+/** Wall-cap backstop (D6): default 600 s, overridable via `PI_RELAY_WALL_MS`. */
+const DEFAULT_WALL_CAP_MS = 600_000;
+
+/**
+ * Models exposed by the provider. The pi model id after the slash (`opus`,
+ * `sonnet`, `haiku`) is passed through as the driver's `--model` value. D1: the
+ * verify role uses `relay-claude/opus`.
+ */
+const RELAY_CLAUDE_MODELS = [
+  { id: "opus", name: "Relay Claude Opus" },
+  { id: "sonnet", name: "Relay Claude Sonnet" },
+  { id: "haiku", name: "Relay Claude Haiku" },
+] as const;
+
+/** Resolve the configured wall-cap in milliseconds (D6). */
+function wallCapMs(): number {
+  const raw = process.env.PI_RELAY_WALL_MS;
+  const parsed = raw !== undefined ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WALL_CAP_MS;
+}
+
+/** Extract the task text (concatenated user-message text) from the pi context. */
+function extractTask(context: RelayContext): string {
+  const parts: string[] = [];
+  for (const message of context.messages) {
+    if (message.role !== "user") continue;
+    if (typeof message.content === "string") {
+      parts.push(message.content);
+    } else {
+      for (const chunk of message.content) {
+        if (chunk.type === "text") parts.push(chunk.text);
+      }
+    }
+  }
+  return parts.join("\n\n").trim();
+}
+
+/** Build a minimal final assistant message carrying `text`. */
+function assistantMessage(model: RelayModel, text: string, isError = false): RelayAssistantMessage {
+  const message = {
+    role: "assistant",
+    content: text.length > 0 ? [{ type: "text", text }] : [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: isError ? "error" : "stop",
+    timestamp: Date.now(),
+    ...(isError ? { errorMessage: text || "relay run produced no result" } : {}),
+  };
+  return message as unknown as RelayAssistantMessage;
+}
+
+/**
+ * Run a single dispatch through `driver` and return an assistant-message event
+ * stream. The stream terminates with a `done` event (the external agent's final
+ * text) or, on a cut / spawn-failure / unparseable result, an `error` event —
+ * NEVER a silent success (D6 fail-safe: no auto-PASS on a cut run).
+ */
+export function streamViaDriver(
+  driver: AgentDriver,
+  model: RelayModel,
+  context: RelayContext,
+  signal?: AbortSignal,
+): RelayStreamReturn {
+  const stream = new RelayEventStream<RelayStreamEvent, RelayAssistantMessage>(
+    (event) => event.type === "done" || event.type === "error",
+    (event) => (event.type === "done" ? event.message : event.error) as RelayAssistantMessage,
+  );
+
+  // Relay the child pi's assembled system prompt (persona + skills) verbatim.
+  let systemPromptFile: string | undefined;
+  let tempDir: string | undefined;
+  const systemPrompt = context.systemPrompt?.trim();
+  if (systemPrompt && systemPrompt.length > 0) {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-"));
+    systemPromptFile = path.join(tempDir, "system-prompt.md");
+    fs.writeFileSync(systemPromptFile, context.systemPrompt ?? "", { mode: 0o600 });
+  }
+
+  const allowedTools = mapToolNames((context.tools ?? []).map((tool) => tool.name));
+
+  const args = driver.buildArgs({
+    task: extractTask(context),
+    model: model.id,
+    ...(systemPromptFile ? { systemPromptFile, systemPromptMode: "replace" as const } : {}),
+    ...(allowedTools.length > 0 ? { allowedTools } : {}),
+  });
+
+  const child = spawn(driver.bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+
+  let out = "";
+  let cut = false;
+  let settled = false;
+
+  const cleanupTemp = (): void => {
+    if (tempDir) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort temp cleanup.
+      }
+    }
+  };
+
+  const timer = setTimeout(() => {
+    cut = true;
+    child.kill("SIGTERM");
+  }, wallCapMs());
+
+  const onAbort = (): void => {
+    cut = true;
+    child.kill("SIGTERM");
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  const settle = (final: RelayAssistantMessage, isError: boolean): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+    cleanupTemp();
+    stream.push({ type: "start", partial: assistantMessage(model, "") });
+    if (isError) {
+      stream.push({ type: "error", reason: "error", error: final });
+    } else {
+      stream.push({ type: "done", reason: "stop", message: final });
+    }
+  };
+
+  child.stdout?.on("data", (chunk: Buffer) => {
+    out += chunk.toString();
+  });
+
+  child.on("error", (error: Error) => {
+    // Spawn failure (e.g. missing binary) → fail-safe error, never auto-success.
+    settle(
+      assistantMessage(model, `relay: failed to run ${driver.bin} — ${error.message}`, true),
+      true,
+    );
+  });
+
+  child.on("close", () => {
+    if (cut) {
+      // D6: a cut run (wall-cap or abort) is UNVERIFIED, never PASS.
+      settle(
+        assistantMessage(
+          model,
+          "relay: run cut short (wall-cap or abort) before producing a result — UNVERIFIED",
+          true,
+        ),
+        true,
+      );
+      return;
+    }
+    const parsed = driver.parseResult(out);
+    if (parsed.isError && parsed.result.length === 0) {
+      settle(
+        assistantMessage(model, "relay: backend produced no parseable result — UNVERIFIED", true),
+        true,
+      );
+      return;
+    }
+    settle(assistantMessage(model, parsed.result), false);
+  });
+
+  return stream as unknown as RelayStreamReturn;
+}
+
+/** Register the `relay-claude` provider on the given pi extension API. */
+export function registerRelayClaudeProvider(pi: ExtensionAPI): void {
+  const config: ProviderConfig = {
+    name: "Relay (Claude)",
+    // `api` is required when registering a custom `streamSimple` handler.
+    api: RELAY_CLAUDE_PROVIDER,
+    // baseUrl + apiKey are required by provider validation when models are
+    // defined, but are UNUSED here: the streamSimple handler shells out to
+    // `claude -p`, which authenticates via its own subscription `oauthAccount`
+    // (D1 — never an API key, never a network baseUrl from relay).
+    baseUrl: "http://relay.invalid",
+    apiKey: "relay-unused",
+    streamSimple: (model, context, options: RelayStreamOptions) =>
+      streamViaDriver(claudeDriver, model, context, options?.signal),
+    models: RELAY_CLAUDE_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      reasoning: false,
+      input: ["text"] as ("text" | "image")[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 64_000,
+    })),
+  };
+  pi.registerProvider(RELAY_CLAUDE_PROVIDER, config);
+}

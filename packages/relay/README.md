@@ -9,38 +9,54 @@
 
 # @jmcombs/pi-relay
 
-> An async **agent-dispatch primitive** for the [Pi coding agent](https://pi.dev).
-> Pi hands a task to a headless agent CLI and the result is relayed back into the
-> live session **mid-turn, non-blocking**. The flagship consumer is phase
-> verification (`verify_phase`); a thin generic `dispatch` tool rides the same
-> substrate.
+> **Relay roles** for the [Pi coding agent](https://pi.dev): run any Pi **subagent**
+> on an **external coding agent** instead of a local model — just by setting its
+> `model`. Relay registers a pi **provider** (`relay-claude`); a subagent whose
+> `model` is `relay-claude/opus` routes through relay to a headless **Claude Opus**
+> via `claude -p`, which runs its own tool loop and returns the final result.
 
 > **Not affiliated with or endorsed by Anthropic. Claude and Opus are trademarks
 > of Anthropic, PBC.**
 
-## What It Adds
+## How It Works
 
-- **Tool**: `verify_phase` — dispatches a **read-only** phase verification to a
-  headless **Claude Opus** agent via `claude -p`, then relays the `PASS` / `FAIL`
-  verdict back as a follow-up turn. Returns immediately as `PENDING`; the verdict
-  arrives asynchronously. It reports the verdict and evidence **only** — it never
-  merges, ticks, or edits anything. Parameters: `phase` (required), `cwd`
-  (optional, defaults to the session cwd), `prompt` (optional prompt override).
-- **Tool**: `dispatch` — a generic escape hatch over the same async substrate:
-  hand an arbitrary `prompt` to a headless Claude Opus agent and relay its result
-  back as a follow-up turn. Parameters: `prompt` (required), `cwd` (optional).
+A **relay role** is an existing pi-subagent (its persona `.md` + referenced
+`SKILL.md`s). Nothing about the subagent changes except the processor:
+
+- **Trigger + model** — set a subagent's `model` to `relay-claude/opus`. pi's
+  native `resolveModel` routes the completion to relay's registered provider →
+  `claudeDriver` → `claude -p … --model opus`.
+- **Persona + skills** — when pi runs a subagent it assembles the persona body +
+  each skill body into the (child) session's system prompt. Relay **relays that
+  `context.systemPrompt` verbatim** to `claude` via `--system-prompt-file`
+  (deterministic — our code writes the file; no model re-echo, no drift).
+- **Tools** — the subagent's tools map to `claude`'s `--allowedTools` via a rename
+  map (`read → Read`, `bash → Bash`, `edit → Edit`, `write → Write`,
+  `grep → Grep`, `glob → Glob`); pi-only tools with no external equivalent (e.g.
+  `subagent`) are dropped.
+- **Single-turn** — the relayed subagent has no pi-side tools; the external agent
+  runs its **own** tool loop. One provider completion = one full `claude -p` run
+  returning the final assistant text. pi's native subagent-async layer delivers
+  the result.
+
+The flagship consumer is phase **verification**: the `verifier` subagent runs as a
+relayed subagent (`model: relay-claude/opus`, read-only tools) — no bespoke tool,
+no inline prompt.
 
 ## Backend
 
-The verification backend is **Claude Opus only**, reached through the subscription
+The verify backend is **Claude Opus only**, reached through the subscription
 `claude -p` CLI (billed to your Claude subscription via `oauthAccount` — never the
-Anthropic API, never a local model). Dispatches are **read-only**: the underlying
-agent is invoked with scoped tools (`Bash Read Grep Glob`) and **never** with
-`--dangerously-skip-permissions`.
+Anthropic API, never a local model). The verify role is **read-only**: `claude` is
+invoked with a scoped `--allowedTools` allowlist and **never** with
+`--dangerously-skip-permissions`. On a cut run (wall-cap or abort) relay surfaces
+an **UNVERIFIED** error result — it **never** auto-passes.
 
-A driver/adapter seam (`AgentDriver`, sole implementation `claudeDriver` in
-`drivers/claude.ts`) keeps the async core backend-agnostic; verdict interpretation
-lives in the `verify_phase` consumer, not the driver.
+A driver/adapter seam (`AgentDriver` in `drivers/claude.ts`) keeps the provider
+backend-agnostic. `claudeDriver` is the live implementation; `drivers/codex.ts` is
+a documented seam-only stub (`codex exec`, `-s read-only`) for a future OpenAI
+Codex backend. `roles/resolver.ts` holds the tool-name map and a persona+skills
+resolver (used off the pi-subagents path).
 
 ## Requirements
 
@@ -51,37 +67,23 @@ lives in the `verify_phase` consumer, not the driver.
 
 ## Configuration
 
-- `PI_RELAY_WALL_MS` — wall-cap backstop for a single dispatch, in milliseconds
-  (default `600000`). On a cut run (wall-cap or abort) the relay reports
-  `UNVERIFIED` — it **never** auto-passes.
-
-## Live-session behavior
-
-Both tools are **non-blocking**: `execute()` returns `PENDING` immediately and the
-verdict/result arrives **later** as a follow-up turn. When does that follow-up
-land?
-
-- **Agent idle** (the usual case — you asked for a verify and are waiting): the
-  pushback is delivered via `sendMessage(…, { triggerTurn: true })` and pi starts
-  a **fresh turn immediately** the moment the dispatched `claude -p` run finishes.
-  There is no polling and no idle checkpoint to wait for.
-- **Agent busy** (still streaming another turn when the result arrives): the
-  pushback is queued as a **steer** and delivered right after the current
-  assistant turn finishes executing its tool calls, before the next LLM call.
-
-Either way the verdict is guaranteed to land as its own turn — verified against a
-real `pi --mode rpc` session (see `scripts/live-session.mjs`). Because idle
-delivery is immediate, the relay needs no separate idle-flush queue.
+- `PI_RELAY_WALL_MS` — wall-cap backstop for a single relayed run, in milliseconds
+  (default `600000`). On a cut run relay reports an **UNVERIFIED** error result.
 
 ## Quick Start
 
 ```bash
-# Try it against a real Pi session without installing
+# Load the provider into a real Pi session
 pi -e ./packages/relay
+
+# Route a session (or subagent) through the relay provider
+pi -e ./packages/relay --model relay-claude/opus "…"
 ```
 
-See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
-path, project-scoped install, and filtering options.
+To run an existing subagent through relay, set its `model` frontmatter to
+`relay-claude/opus` and make relay discoverable in the subagent's child pi (via an
+installed package or the agent's `extensions` field). See the
+[Pi packages documentation](https://pi.dev/docs/packages) for install options.
 
 ## Development
 
@@ -91,9 +93,8 @@ See `CONTRIBUTING.md` at the repo root for project conventions.
 ```bash
 # From the repo root
 npm ci
-npm run check                            # full quality gate
-node packages/relay/scripts/harness.mjs       # manual async proof vs. real `claude -p`
-node packages/relay/scripts/live-session.mjs  # live-session proof vs. real `pi --mode rpc`
+npm run check                       # full quality gate
+node packages/relay/scripts/harness.mjs   # manual provider proof vs. real `claude -p`
 ```
 
 ## License
