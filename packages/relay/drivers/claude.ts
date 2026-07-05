@@ -48,14 +48,6 @@ export interface DriverInvocation {
    * (`Read Bash …`). D2: for the verify role this is a read-only set.
    */
   readonly tools?: readonly string[];
-  /**
-   * Absolute path to the working tree the dispatched agent runs against. Used by
-   * the driver to derive a **read-only posture's** filesystem-mutation guard (D12):
-   * for a read-only role the driver denies writes to this path in the backend's
-   * native sandbox. Defaults to `process.cwd()` when omitted. Should equal the
-   * `cwd` the provider passes to `spawn`.
-   */
-  readonly cwd?: string;
 }
 
 /**
@@ -89,56 +81,6 @@ export function mapToolNames(piNames: readonly string[]): string[] {
     if (mapped && !out.includes(mapped)) out.push(mapped);
   }
   return out;
-}
-
-/**
- * ── Per-role execution posture (D12) ──────────────────────────────────────────
- * pi tool names that grant filesystem **mutation**. A role whose declared tools
- * omit ALL of these runs **read-only** — the driver must then enforce that posture
- * in the backend so the external agent cannot mutate the working tree, not merely
- * withhold the Edit/Write tools (`bash` can still `echo > file`; that is the bug
- * D12 closes).
- */
-const WRITE_TOOL_NAMES: ReadonlySet<string> = new Set(["edit", "write"]);
-
-/**
- * Derive a role's execution posture from its **pi-neutral** declared tool set (D12).
- * A role is **read-only** when it declares a scoped tool set that withholds every
- * mutation tool (`edit`/`write`). An empty/undefined set is NOT read-only: with no
- * declared allowlist the backend runs its full default (write-capable) tool set, so
- * that is a write posture — the driver only claims read-only when it can actually
- * scope the backend down.
- */
-export function isReadOnlyPosture(tools: readonly string[] | undefined): boolean {
-  if (!tools || tools.length === 0) return false;
-  return !tools.some((name) => WRITE_TOOL_NAMES.has(name.trim().toLowerCase()));
-}
-
-/**
- * Build `claude`'s **native** sandbox settings for a read-only role (D12): deny all
- * writes to the working tree (`cwd`) while still permitting reads everywhere and
- * command **execution** (build/test). The sandbox runs the agent in place, so it
- * still sees the real, **uncommitted** working-tree state (design tension option
- * (i) — best: no copy, no worktree, full fidelity).
- *
- * - `enabled` — turn on OS-level sandboxing (macOS Seatbelt).
- * - `failIfUnavailable` — if the OS sandbox is unavailable, FAIL rather than
- *   silently run unsandboxed: a read-only guarantee that isn't enforced must not
- *   ship (fail-safe).
- * - `allowUnsandboxedCommands: false` — a command blocked by the sandbox cannot be
- *   retried outside it.
- * - `filesystem.denyWrite: [cwd]` — the working tree is read-only; `$TMPDIR` and
- *   other default-writable scratch remain writable so build/test tooling still runs.
- */
-export function readOnlySandboxSettings(cwd: string): string {
-  return JSON.stringify({
-    sandbox: {
-      enabled: true,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: false,
-      filesystem: { denyWrite: [cwd] },
-    },
-  });
 }
 
 /**
@@ -207,17 +149,6 @@ export const claudeDriver: AgentDriver = {
     if (allowedTools.length > 0) {
       // D2: a SCOPED allowlist only. Never --dangerously-skip-permissions.
       args.push("--allowedTools", allowedTools.join(" "));
-    }
-
-    // D12: translate the role's POSTURE into claude's native enforcement. For a
-    // read-only role we (1) explicitly deny the mutation tools (close the tool
-    // path) and (2) enable the OS sandbox denying writes to the working tree
-    // (close the `bash` path — the actual bug: withholding Edit/Write is not
-    // enough because `bash` can still mutate). Execution (build/test) is still
-    // allowed; the agent still sees uncommitted state (in-place sandbox).
-    if (isReadOnlyPosture(invocation.tools)) {
-      args.push("--disallowedTools", "Edit Write NotebookEdit");
-      args.push("--settings", readOnlySandboxSettings(invocation.cwd ?? process.cwd()));
     }
 
     return args;
