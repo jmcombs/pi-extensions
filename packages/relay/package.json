@@ -20,7 +20,6 @@
   "files": [
     "index.ts",
     "provider.ts",
-    "stream.ts",
     "drivers/",
     "roles/",
     "README.md",
@@ -45,6 +44,7 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"

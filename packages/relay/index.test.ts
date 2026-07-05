@@ -1,21 +1,20 @@
 /**
- * Unit tests — provider registration surface (index.ts) + the roles resolver
- * (tool-name map, frontmatter parse, persona+skills assembly).
+ * Unit tests — provider registration surface (index.ts), the driver tool-name map
+ * (D10, now in drivers/claude.ts), and the roles resolver (frontmatter parse,
+ * persona+skills assembly, and skill-reference → full-content inlining).
  *
- * These are meaningful, network-free tests: they assert the factory registers the
- * `relay-claude` provider with a custom `streamSimple` and an `opus` model, and
- * that the resolver maps/drops tools and assembles a role's system prompt from
- * disk fixtures. The live end-to-end path (a real `claude -p` run through pi's
- * subagent system) is proven separately by Gate 3.1.
+ * These are meaningful, network-free tests. The live end-to-end path (a real
+ * `claude -p` run through pi's subagent system) is proven separately by Gate 3.1.
  */
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
 import factory from "./index.js";
-import { mapToolName, mapToolNames, parseRoleFile, resolveRole } from "./roles/resolver.js";
+import { expandSkillReferences, parseRoleFile, resolveRole } from "./roles/resolver.js";
 
 interface CapturedProvider {
   name: string;
@@ -68,30 +67,43 @@ describe("@jmcombs/pi-relay — provider registration", () => {
   });
 });
 
-describe("roles resolver — tool-name map", () => {
-  it("maps known pi tool names to external names", () => {
+describe("claudeDriver — tool-name map (D10, in the driver)", () => {
+  it("maps pi tool names to Claude tool names", () => {
     expect(mapToolName("read")).toBe("Read");
     expect(mapToolName("BASH")).toBe("Bash");
     expect(mapToolName("edit")).toBe("Edit");
     expect(mapToolName("write")).toBe("Write");
     expect(mapToolName("grep")).toBe("Grep");
-    expect(mapToolName("glob")).toBe("Glob");
+    // pi has no `glob`; its glob-style tool is `find` → Claude `Glob`.
+    expect(mapToolName("find")).toBe("Glob");
   });
 
-  it("drops pi-only tools with no external equivalent and de-duplicates", () => {
+  it("drops the phantom `glob` and other pi-only tools (`ls`, `subagent`)", () => {
+    expect(mapToolName("glob")).toBeUndefined();
+    expect(mapToolName("ls")).toBeUndefined();
+    expect(mapToolName("subagent")).toBeUndefined();
     expect(mapToolNames(["read", "bash", "subagent", "read"])).toEqual(["Read", "Bash"]);
+  });
+
+  it("buildArgs emits `--allowedTools` from the neutral pi tool list", () => {
+    const args = claudeDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      tools: ["read", "bash", "grep", "find", "subagent"],
+    });
+    const idx = args.indexOf("--allowedTools");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe("Read Bash Grep Glob");
+    // D2: never a permission-skip flag.
+    expect(args).not.toContain("--dangerously-skip-permissions");
   });
 });
 
-describe("roles resolver — frontmatter + assembly", () => {
+describe("roles resolver — frontmatter + assembly (backend-neutral)", () => {
   const roots: string[] = [];
 
   afterAll(() => {
     for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
-  });
-
-  beforeEach(() => {
-    // no shared state
   });
 
   it("parses frontmatter fields and strips the block from the body", () => {
@@ -105,7 +117,7 @@ describe("roles resolver — frontmatter + assembly", () => {
     expect(body).toBe("Persona body here.");
   });
 
-  it("assembles persona body + skill bodies and maps declared tools", () => {
+  it("assembles persona body + full skill bodies and keeps tools pi-neutral", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-test-"));
     roots.push(root);
     const agentsDir = path.join(root, "agents");
@@ -125,10 +137,49 @@ describe("roles resolver — frontmatter + assembly", () => {
 
     expect(role.name).toBe("tester");
     expect(role.skills).toEqual(["alpha", "beta"]);
-    // subagent (pi-only) is dropped from the external allowlist.
-    expect(role.allowedTools).toEqual(["Read", "Bash"]);
+    // Resolver is backend-neutral (D10): tools are pi names, unmapped/undropped.
+    expect(role.tools).toEqual(["read", "bash", "subagent"]);
     expect(role.systemPrompt).toContain("You are the tester persona.");
     expect(role.systemPrompt).toContain("Alpha skill body.");
     expect(role.systemPrompt).toContain("Beta skill body.");
+  });
+});
+
+describe("roles resolver — expandSkillReferences (fidelity)", () => {
+  const roots: string[] = [];
+
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("inlines each referenced SKILL.md's full body into the system prompt", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-skills-"));
+    roots.push(root);
+    const skillFile = path.join(root, "phase-verify", "SKILL.md");
+    fs.mkdirSync(path.dirname(skillFile), { recursive: true });
+    fs.writeFileSync(skillFile, "PHASE VERIFY METHODOLOGY BODY.");
+
+    const systemPrompt = [
+      "You are `verifier`. Persona body.",
+      "",
+      "<available_skills>",
+      "  <skill>",
+      "    <name>phase-verify</name>",
+      "    <description>Adversarial verification.</description>",
+      `    <location>${skillFile}</location>`,
+      "  </skill>",
+      "</available_skills>",
+    ].join("\n");
+
+    const expanded = expandSkillReferences(systemPrompt);
+    // References preserved AND full body inlined (not just the pointer).
+    expect(expanded).toContain("<available_skills>");
+    expect(expanded).toContain("<skill_contents>");
+    expect(expanded).toContain("PHASE VERIFY METHODOLOGY BODY.");
+  });
+
+  it("returns the prompt unchanged when there is no <available_skills> block", () => {
+    expect(expandSkillReferences("just a persona, no skills")).toBe("just a persona, no skills");
+    expect(expandSkillReferences(undefined)).toBe("");
   });
 });

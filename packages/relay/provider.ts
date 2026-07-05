@@ -14,16 +14,21 @@
  * subagent-async layer delivers the result. This supersedes relay's Phase-1/2
  * bespoke `verify_phase` tool + custom `sendMessage` pushback.
  *
- * ── Persona + skills (context vs. resolver) ──
- * pi-subagents assembles the subagent persona body + skill bodies into the child
- * pi's system prompt, which arrives here as `context.systemPrompt`. We RELAY that
- * verbatim to `claude` via `--system-prompt-file` (deterministic; no re-echo, no
- * drift) — we do NOT re-resolve by name (that would double-inject). See
- * `roles/resolver.ts` for the fallback resolver used off the pi-subagents path.
+ * ── Persona + skills (context → inlined content) ──
+ * pi-subagents assembles the subagent persona body + a skill INJECTION into the
+ * child pi's system prompt, which arrives here as `context.systemPrompt`. pi
+ * injects skills as `<available_skills>` *references* (name/description/location),
+ * expecting an on-demand `Read`. A headless `claude -p` may never read them, so we
+ * {@link expandSkillReferences | inline each referenced `SKILL.md`'s full body}
+ * before relaying the prompt to `claude` via `--system-prompt-file` (deterministic;
+ * no re-echo, no drift). See `roles/resolver.ts` for the off-path fallback resolver.
  *
- * Types are derived from `@earendil-works/pi-coding-agent`'s `ProviderConfig`
- * rather than imported from `@earendil-works/pi-ai/compat` — see `stream.ts` for
- * why the direct compat import is avoided in this monorepo.
+ * ── Stream (D11: use pi's API, never reinvent) ──
+ * The completion is delivered through pi's own
+ * `createAssistantMessageEventStream()` (`@earendil-works/pi-ai`, "for use in
+ * extensions") — relay does NOT hand-roll the `AssistantMessageEventStream`
+ * contract. Provider types are derived from `@earendil-works/pi-coding-agent`'s
+ * `ProviderConfig`.
  *
  * Not affiliated with or endorsed by Anthropic. Claude and Opus are trademarks of
  * Anthropic, PBC.
@@ -33,10 +38,10 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { type AgentDriver, claudeDriver } from "./drivers/claude.js";
-import { mapToolNames } from "./roles/resolver.js";
-import { RelayEventStream, type RelayStreamEvent } from "./stream.js";
+import { expandSkillReferences } from "./roles/resolver.js";
 
 // ── Types derived from pi's ProviderConfig (resolve via its nested pi-ai) ──────
 type StreamSimpleFn = NonNullable<ProviderConfig["streamSimple"]>;
@@ -121,28 +126,36 @@ export function streamViaDriver(
   context: RelayContext,
   signal?: AbortSignal,
 ): RelayStreamReturn {
-  const stream = new RelayEventStream<RelayStreamEvent, RelayAssistantMessage>(
-    (event) => event.type === "done" || event.type === "error",
-    (event) => (event.type === "done" ? event.message : event.error) as RelayAssistantMessage,
-  );
+  // D11: pi's own event-stream contract (for use in extensions) — not hand-rolled.
+  const stream = createAssistantMessageEventStream();
+  // Push events typed against our (structurally identical) message shape.
+  const push = stream.push.bind(stream) as (event: {
+    type: "start" | "done" | "error";
+    reason?: string;
+    partial?: RelayAssistantMessage;
+    message?: RelayAssistantMessage;
+    error?: RelayAssistantMessage;
+  }) => void;
 
-  // Relay the child pi's assembled system prompt (persona + skills) verbatim.
+  // Inline each referenced SKILL.md's full body into the child pi's assembled
+  // system prompt (fidelity), then relay it to `claude` via --system-prompt-file.
   let systemPromptFile: string | undefined;
   let tempDir: string | undefined;
-  const systemPrompt = context.systemPrompt?.trim();
-  if (systemPrompt && systemPrompt.length > 0) {
+  const systemPrompt = expandSkillReferences(context.systemPrompt).trim();
+  if (systemPrompt.length > 0) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-"));
     systemPromptFile = path.join(tempDir, "system-prompt.md");
-    fs.writeFileSync(systemPromptFile, context.systemPrompt ?? "", { mode: 0o600 });
+    fs.writeFileSync(systemPromptFile, systemPrompt, { mode: 0o600 });
   }
 
-  const allowedTools = mapToolNames((context.tools ?? []).map((tool) => tool.name));
+  // pi-neutral tool names; the driver applies the pi→backend tool map (D10).
+  const tools = (context.tools ?? []).map((tool) => tool.name);
 
   const args = driver.buildArgs({
     task: extractTask(context),
     model: model.id,
     ...(systemPromptFile ? { systemPromptFile, systemPromptMode: "replace" as const } : {}),
-    ...(allowedTools.length > 0 ? { allowedTools } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
   });
 
   const child = spawn(driver.bin, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -178,11 +191,11 @@ export function streamViaDriver(
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
     cleanupTemp();
-    stream.push({ type: "start", partial: assistantMessage(model, "") });
+    push({ type: "start", partial: assistantMessage(model, "") });
     if (isError) {
-      stream.push({ type: "error", reason: "error", error: final });
+      push({ type: "error", reason: "error", error: final });
     } else {
-      stream.push({ type: "done", reason: "stop", message: final });
+      push({ type: "done", reason: "stop", message: final });
     }
   };
 

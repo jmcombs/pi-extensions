@@ -1,60 +1,117 @@
 /**
  * roles/resolver.ts — resolve a pi-subagent "role" into the pieces an external
- * coding agent needs: an assembled system prompt (persona body + referenced
- * skills) and a mapped tool allowlist.
+ * coding agent needs. This module is **backend-neutral** (D10): it emits pi's
+ * own tool names and pi-shaped system-prompt text; translating those into a
+ * specific agent's flags (e.g. `read` → `Read`, `--allowedTools`) is the
+ * DRIVER's job — see `drivers/claude.ts` for the tool-name map.
  *
  * ── Where the system prompt actually comes from (context vs. resolver) ──
  * pi runs a subagent by spawning a CHILD `pi` process whose system prompt is
- * ALREADY the assembled persona body + skill bodies (pi-subagents does this in
+ * ALREADY the assembled persona body + skill injection (pi-subagents does this in
  * `runs/foreground/execution.ts`: `systemPrompt = personaBody + buildSkillInjection(skills)`,
  * then passes it via `--system-prompt`/`--append-system-prompt`). That child pi,
  * running `model: relay-claude/<id>`, hands US that exact text as
- * `context.systemPrompt` in the provider's `streamSimple`. So on the live
- * pi-subagents path the provider RELAYS `context.systemPrompt` verbatim — it does
- * NOT re-resolve by name here (that would double-inject / risk drift).
+ * `context.systemPrompt` in the provider's `streamSimple`.
  *
- * {@link resolveRole} is therefore the seam's *fallback / building block*: it lets
- * a caller that is NOT going through pi-subagents (e.g. the codex driver, or a
- * direct provider invocation with no assembled system prompt) reconstruct the same
- * persona+skills text from disk. {@link mapToolNames} is used on BOTH paths — the
- * live provider maps `context.tools`, and `resolveRole` maps a role's declared
- * `tools`.
+ * ── Skill FIDELITY: references → inlined content ({@link expandSkillReferences}) ──
+ * pi's `buildSkillInjection` injects skills as an `<available_skills>` block of
+ * *references* — `<name>`/`<description>`/`<location>` (the path to `SKILL.md`) —
+ * expecting the model to `Read` the file on demand. Relayed to a headless
+ * `claude -p`, the external agent may never load that file, so the methodology
+ * (e.g. the verifier's phase-verify skill) can go missing. There is NO pi public
+ * API that expands a skill reference to its full body (the exported skills API —
+ * `loadSkills`/`formatSkillsForPrompt`/`Skill` — only surfaces name/description/
+ * filePath), so per D11 we read the referenced `SKILL.md` files ourselves and
+ * inline their full content into the system prompt before relaying it.
+ *
+ * {@link resolveRole} is the seam's *fallback / building block*: it lets a caller
+ * that is NOT going through pi-subagents (e.g. the codex driver, or a direct
+ * provider invocation with no assembled system prompt) reconstruct the same
+ * persona+skills text from disk.
  */
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-/**
- * pi tool name → external (Claude) tool name. pi-only tools with no external
- * equivalent (e.g. `subagent`) are intentionally absent and get dropped by
- * {@link mapToolNames}. `thinking` / context-inherit fields are N/A here.
- */
-export const TOOL_NAME_MAP: Readonly<Record<string, string>> = {
-  read: "Read",
-  bash: "Bash",
-  edit: "Edit",
-  write: "Write",
-  grep: "Grep",
-  glob: "Glob",
-};
+/** Reverse pi's `escapeXmlText` (used by `buildSkillInjection` on `<location>`). */
+function unescapeXml(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
 
-/** Map a single pi tool name to its external equivalent, or `undefined` if none. */
-export function mapToolName(piName: string): string | undefined {
-  return TOOL_NAME_MAP[piName.trim().toLowerCase()];
+/** Read a file, resolving symlinks (agents/skills dirs are symlinked from dotfiles). */
+function readResolved(filePath: string): string {
+  const real = fs.realpathSync(filePath);
+  return fs.readFileSync(real, "utf8");
+}
+
+/** Options for {@link expandSkillReferences} — the reader is overridable for testing. */
+export interface ExpandSkillOptions {
+  /** Read a referenced `SKILL.md` by absolute path. Default resolves symlinks + reads UTF-8. */
+  readFile?: (absolutePath: string) => string;
 }
 
 /**
- * Map a list of pi tool names to external tool names, dropping pi-only tools with
- * no external equivalent and de-duplicating while preserving order.
+ * Inline the full body of every skill referenced in a pi `<available_skills>`
+ * block into the system prompt, so the relayed external agent is GUARANTEED to
+ * have each skill's methodology present (fidelity fix) instead of only a
+ * `<location>` pointer it might never `Read`.
+ *
+ * The original `<available_skills>` references are preserved (they carry the
+ * `<location>` paths the agent may still use for relative-path resolution); a new
+ * `<skill_contents>` section carrying each skill's full `SKILL.md` body is
+ * appended. If `systemPrompt` has no `<available_skills>` block (or no readable
+ * skills), it is returned unchanged.
  */
-export function mapToolNames(piNames: readonly string[]): string[] {
-  const out: string[] = [];
-  for (const name of piNames) {
-    const mapped = mapToolName(name);
-    if (mapped && !out.includes(mapped)) out.push(mapped);
+export function expandSkillReferences(
+  systemPrompt: string | undefined,
+  options: ExpandSkillOptions = {},
+): string {
+  const prompt = systemPrompt ?? "";
+  const blockMatch = /<available_skills>([\s\S]*?)<\/available_skills>/.exec(prompt);
+  if (!blockMatch) return prompt;
+
+  const read = options.readFile ?? readResolved;
+  const block = blockMatch[1] ?? "";
+  const skillRe = /<skill>([\s\S]*?)<\/skill>/g;
+
+  const sections: string[] = [];
+  for (let m = skillRe.exec(block); m !== null; m = skillRe.exec(block)) {
+    const entry = m[1] ?? "";
+    const name = unescapeXml(/<name>([\s\S]*?)<\/name>/.exec(entry)?.[1]?.trim() ?? "");
+    const location = unescapeXml(/<location>([\s\S]*?)<\/location>/.exec(entry)?.[1]?.trim() ?? "");
+    if (location.length === 0) continue;
+
+    let body: string;
+    try {
+      body = read(location).trim();
+    } catch (error) {
+      // Fidelity is best-effort: a skill we cannot read is left as its reference
+      // rather than aborting the whole relay run. Note it inline so it is visible.
+      const message = error instanceof Error ? error.message : String(error);
+      sections.push(`### Skill: ${name || location} (could not inline: ${message})`);
+      continue;
+    }
+    sections.push(`### Skill: ${name || location}\n\n(inlined from ${location})\n\n${body}`);
   }
-  return out;
+
+  if (sections.length === 0) return prompt;
+
+  const inlined = [
+    "<skill_contents>",
+    "The full content of each configured skill is inlined below so it is always",
+    "present without a separate read. Treat these as authoritative instructions.",
+    "",
+    sections.join("\n\n"),
+    "</skill_contents>",
+  ].join("\n");
+
+  return `${prompt.trimEnd()}\n\n${inlined}\n`;
 }
 
 /** Frontmatter fields the resolver understands (a subset of the pi subagent schema). */
@@ -73,10 +130,11 @@ export interface ResolvedRole {
   readonly systemPrompt: string;
   /** Skill names referenced by the persona (in declaration order). */
   readonly skills: string[];
-  /** Declared pi tool names (unmapped). */
+  /**
+   * Declared pi tool names (backend-NEUTRAL). Mapping these onto a specific
+   * agent's flags (e.g. `read` → `Read`) is the driver's job (D10).
+   */
   readonly tools: string[];
-  /** External tool names, mapped from {@link tools} via {@link mapToolNames}. */
-  readonly allowedTools: string[];
   /** Whether the assembled prompt replaces or appends to the default. */
   readonly systemPromptMode: "replace" | "append";
   /** Declared model id (e.g. `relay-claude/opus`), if any. */
@@ -148,22 +206,17 @@ export function parseRoleFile(content: string): {
   return { frontmatter, body: body.trim() };
 }
 
-/** Read a file, resolving symlinks (agents/skills dirs are symlinked from dotfiles). */
-function readResolved(filePath: string): string {
-  const real = fs.realpathSync(filePath);
-  return fs.readFileSync(real, "utf8");
-}
-
 /**
  * Resolve a pi-subagent by name into a {@link ResolvedRole}: read
  * `<agentsDir>/<name>.md`, parse its persona body + frontmatter, read each
  * referenced `<skillsDir>/<skill>/SKILL.md`, and assemble them into ONE
- * system-prompt string. Applies the tool-name map to the declared tools.
+ * system-prompt string with the skill bodies inlined in full.
  *
- * This mirrors what pi-subagents assembles for the child pi's system prompt, and
- * exists for callers that resolve a role OUTSIDE the pi-subagents path (see the
- * module header). On the live pi-subagents path, prefer relaying
- * `context.systemPrompt` instead of calling this.
+ * This mirrors what pi-subagents assembles for the child pi's system prompt (but
+ * with FULL skill bodies, not references), and exists for callers that resolve a
+ * role OUTSIDE the pi-subagents path (see the module header). On the live
+ * pi-subagents path, prefer {@link expandSkillReferences} on `context.systemPrompt`.
+ * The returned {@link ResolvedRole.tools} are pi-neutral — the driver maps them.
  */
 export function resolveRole(name: string, options: ResolveRoleOptions = {}): ResolvedRole {
   const agentsDir = options.agentsDir ?? defaultAgentsDir();
@@ -195,7 +248,6 @@ export function resolveRole(name: string, options: ResolveRoleOptions = {}): Res
     systemPrompt: sections.join("\n\n"),
     skills: frontmatter.skills,
     tools: frontmatter.tools,
-    allowedTools: mapToolNames(frontmatter.tools),
     systemPromptMode: frontmatter.systemPromptMode,
     ...(frontmatter.model !== undefined ? { model: frontmatter.model } : {}),
   };

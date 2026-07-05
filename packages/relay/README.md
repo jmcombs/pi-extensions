@@ -27,13 +27,15 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
   native `resolveModel` routes the completion to relay's registered provider →
   `claudeDriver` → `claude -p … --model opus`.
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
-  each skill body into the (child) session's system prompt. Relay **relays that
-  `context.systemPrompt` verbatim** to `claude` via `--system-prompt-file`
+  a skill injection into the (child) session's system prompt, where skills are
+  `<available_skills>` **references** (name/description/location). Relay reads each
+  referenced `SKILL.md` and **inlines its full content** into the prompt it writes
+  to `claude`'s `--system-prompt-file`, so the methodology is guaranteed present
   (deterministic — our code writes the file; no model re-echo, no drift).
-- **Tools** — the subagent's tools map to `claude`'s `--allowedTools` via a rename
-  map (`read → Read`, `bash → Bash`, `edit → Edit`, `write → Write`,
-  `grep → Grep`, `glob → Glob`); pi-only tools with no external equivalent (e.g.
-  `subagent`) are dropped.
+- **Tools** — the driver maps the subagent's pi tools to `claude`'s
+  `--allowedTools` (`read → Read`, `bash → Bash`, `edit → Edit`, `write → Write`,
+  `grep → Grep`, `find → Glob`); pi-only tools with no external equivalent (e.g.
+  `subagent`, `ls`) are dropped. The map is a **driver** function (D10).
 - **Single-turn** — the relayed subagent has no pi-side tools; the external agent
   runs its **own** tool loop. One provider completion = one full `claude -p` run
   returning the final assistant text. pi's native subagent-async layer delivers
@@ -53,10 +55,13 @@ invoked with a scoped `--allowedTools` allowlist and **never** with
 an **UNVERIFIED** error result — it **never** auto-passes.
 
 A driver/adapter seam (`AgentDriver` in `drivers/claude.ts`) keeps the provider
-backend-agnostic. `claudeDriver` is the live implementation; `drivers/codex.ts` is
-a documented seam-only stub (`codex exec`, `-s read-only`) for a future OpenAI
-Codex backend. `roles/resolver.ts` holds the tool-name map and a persona+skills
-resolver (used off the pi-subagents path).
+backend-agnostic. `claudeDriver` is the live implementation and owns the
+pi→Claude tool-name map (D10); `drivers/codex.ts` is a documented seam-only stub
+(`codex exec`, `-s read-only`) for a future OpenAI Codex backend. `roles/resolver.ts`
+is backend-neutral: it inlines skill references to full content
+(`expandSkillReferences`) and resolves a persona+skills role from disk (used off
+the pi-subagents path). The provider streams the completion through pi's own
+`createAssistantMessageEventStream()` (`@earendil-works/pi-ai`).
 
 ## Requirements
 

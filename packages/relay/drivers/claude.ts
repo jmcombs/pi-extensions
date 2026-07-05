@@ -13,14 +13,19 @@
  *
  * D2 is preserved structurally: the driver always passes a SCOPED `--allowedTools`
  * allowlist and NEVER `--dangerously-skip-permissions`. The verify role supplies a
- * read-only tool set (`Read Bash Grep Glob`); the driver relays exactly what it is
- * handed and adds no privilege-escalating flags.
+ * read-only tool set (pi `read, bash, grep, find`); the driver maps those neutral
+ * names to Claude's (`Read Bash Grep Glob`) and adds no privilege-escalating flags.
+ *
+ * ── Tool-name map lives HERE (D10) ──
+ * Mapping pi's neutral tool names to a backend's tool names is a DRIVER concern,
+ * not the resolver's. `claudeDriver` maps them to `claude`'s `--allowedTools`
+ * names; a future `codexDriver` maps the same neutral list to its sandbox (`-s`).
  */
 
 /**
  * A single, backend-neutral dispatch request. The relay provider assembles this
  * from the pi model id (→ {@link model}), the pi subagent's system prompt
- * (→ {@link systemPromptFile}), and its tool set (→ {@link allowedTools}).
+ * (→ {@link systemPromptFile}), and its **pi-neutral** tool set (→ {@link tools}).
  */
 export interface DriverInvocation {
   /** The task / final user message text handed to the external agent. */
@@ -38,10 +43,44 @@ export interface DriverInvocation {
    */
   readonly systemPromptMode?: "replace" | "append";
   /**
-   * External tool names, ALREADY mapped from pi tool names via the roles tool
-   * map (e.g. `read` → `Read`). D2: for the verify role this is a read-only set.
+   * **pi-neutral** tool names (e.g. `read`, `bash`, `grep`, `find`). Each driver
+   * maps these onto its own backend (D10) — `claudeDriver` → `--allowedTools`
+   * (`Read Bash …`). D2: for the verify role this is a read-only set.
    */
-  readonly allowedTools?: readonly string[];
+  readonly tools?: readonly string[];
+}
+
+/**
+ * pi tool name → Claude (`claude -p`) tool name. This map is a DRIVER function
+ * (D10). pi-only tools with no Claude equivalent (e.g. `subagent`, `ls`) are
+ * intentionally absent and get dropped by {@link mapToolNames}. Note pi has no
+ * `glob` tool — its glob-style tool is `find`, which maps to Claude's `Glob`.
+ */
+export const CLAUDE_TOOL_NAME_MAP: Readonly<Record<string, string>> = {
+  read: "Read",
+  bash: "Bash",
+  edit: "Edit",
+  write: "Write",
+  grep: "Grep",
+  find: "Glob",
+};
+
+/** Map a single pi tool name to its Claude equivalent, or `undefined` if none. */
+export function mapToolName(piName: string): string | undefined {
+  return CLAUDE_TOOL_NAME_MAP[piName.trim().toLowerCase()];
+}
+
+/**
+ * Map pi tool names to Claude `--allowedTools` names, dropping pi-only tools with
+ * no Claude equivalent and de-duplicating while preserving order.
+ */
+export function mapToolNames(piNames: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const name of piNames) {
+    const mapped = mapToolName(name);
+    if (mapped && !out.includes(mapped)) out.push(mapped);
+  }
+  return out;
 }
 
 /**
@@ -105,9 +144,11 @@ export const claudeDriver: AgentDriver = {
       );
     }
 
-    if (invocation.allowedTools && invocation.allowedTools.length > 0) {
+    // D10: the pi→Claude tool-name map is applied HERE, in the driver.
+    const allowedTools = mapToolNames(invocation.tools ?? []);
+    if (allowedTools.length > 0) {
       // D2: a SCOPED allowlist only. Never --dangerously-skip-permissions.
-      args.push("--allowedTools", invocation.allowedTools.join(" "));
+      args.push("--allowedTools", allowedTools.join(" "));
     }
 
     return args;

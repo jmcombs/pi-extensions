@@ -18,12 +18,15 @@
  *   DriverInvocation.systemPromptMode→ replace: write AGENTS.md as the whole
  *                                       instruction; append: prepend to codex's
  *                                       default via the `-c instructions` layer.
- *   DriverInvocation.allowedTools    → codex has no per-tool allowlist flag; the
- *                                       read-only guarantee (D2) is expressed with
- *                                       the sandbox instead: `-s read-only`
+ *   DriverInvocation.tools           → the pi-neutral tool list. codex has no
+ *                                       per-tool allowlist flag; the read-only
+ *                                       guarantee (D2) is expressed with the
+ *                                       sandbox instead: `-s read-only`
  *                                       (`--sandbox read-only`). Codex's built-in
  *                                       tools are gated by the sandbox, not by an
- *                                       allowlist, so the tool map is advisory only.
+ *                                       allowlist, so mapping the neutral list is
+ *                                       advisory only (this is why the tool-name
+ *                                       map is a per-driver function, D10).
  *   (output)                         → `--json` (JSONL event stream) plus
  *                                       `-o <file>` / `--output-last-message <file>`
  *                                       to capture the final assistant message.

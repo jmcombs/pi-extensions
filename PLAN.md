@@ -360,10 +360,16 @@ The 5-step proof `harness.mjs` must print: (1) `verify_phase` registered;
 
 ## Appendix B — ADR index
 
-None. If a deviation from a literal TODO or a Locked Decision is genuinely required,
-create `docs/decisions/0001-<slug>.md` (MADR-lite: **Context / Decision /
-Consequences**), add a row here `| 0001 | <slug> | <phase> | <status> |`, and route
-the deviation to the orchestrator for human decision. Do not self-approve.
+| ADR  | Slug                     | Phase | Status   |
+| ---- | ------------------------ | ----- | -------- |
+| 0001 | pi-ai-peer-dependency    | 3     | Accepted |
+
+If a deviation from a literal TODO or a Locked Decision is genuinely required,
+create `docs/decisions/000N-<slug>.md` (MADR-lite: **Context / Decision /
+Consequences**), add a row here, and route the deviation to the orchestrator for
+human decision. Do not self-approve. (ADR 0001 records the D11-mandated addition of
+the official `@earendil-works/pi-ai` peer-dep + deletion of the hand-rolled
+`stream.ts` — an alignment with a Locked Decision, not a deviation from one.)
 
 ## Appendix C — Phase tick tracker (ticked only in the human-approved merge step)
 
