@@ -225,11 +225,17 @@ export function streamViaDriver(
       return;
     }
     const parsed = driver.parseResult(out);
-    if (parsed.isError && parsed.result.length === 0) {
-      settle(
-        assistantMessage(model, "relay: backend produced no parseable result — UNVERIFIED", true),
-        true,
-      );
+    if (parsed.isError) {
+      // D6: ANY errored run is UNVERIFIED — never surface an is_error envelope as a
+      // clean completion, even when it carries result text (an errored run's output
+      // is untrustworthy and must not leak a verdict). This respects the envelope's
+      // structured is_error flag, not the result text — D10-safe (the provider never
+      // interprets verdict content).
+      const detail =
+        parsed.result.length === 0
+          ? "backend produced no parseable result"
+          : "backend reported is_error";
+      settle(assistantMessage(model, `relay: ${detail} — UNVERIFIED`, true), true);
       return;
     }
     settle(assistantMessage(model, parsed.result), false);
