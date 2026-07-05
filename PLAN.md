@@ -58,15 +58,17 @@ keeps the core backend-agnostic.
   `@earendil-works/pi-ai`). Adding an **official** pi package as a peer-dep is permitted and
   is **not** the forbidden `@mariozechner` fork (D5). Re-implementing a pi contract by hand
   is a defect.
-- **D12 (per-role execution posture)** relay enforces each dispatched role's execution
-  **posture** at the driver — not merely by tool-mapping. A role whose tools omit `edit`/`write`
-  is **read-only**: the driver translates that posture into the backend's **native**
-  sandbox/permission enforcement so the external agent **cannot mutate the working tree**
-  (execution — build/test — is still permitted; "read-only" means no filesystem *mutation*, not
-  "no execution"). Write-capable roles run with a write posture. This generalizes beyond verify
-  (the verifier is the first consumer) and **extends D10**: the driver maps posture→backend
-  flags exactly as it maps tools→backend tools. Withholding Edit/Write alone is **not** a
-  read-only guarantee (`bash` can mutate) — the posture must be enforced by the backend.
+- **D12 (read-only by declaration + detect/present, NOT sandbox)** relay does **not** OS-sandbox
+  dispatched agents. A role's read-only posture is expressed by its **declared tools** — relay maps
+  only those to the backend (withholding Edit/Write). A hard filesystem sandbox is **rejected**: it
+  breaks the verifier's own mandated gates (`vitest` writes scratch under `node_modules/` *inside* cwd)
+  and buys **no verdict integrity** — a bad verifier returns a wrong verdict without writing a byte, so
+  write-blocking is the wrong lever. Instead, tree-hygiene is enforced by **detection, not prevention**:
+  the verifier runs in the real git-tracked tree; **after** verify the orchestrator diffs the tree, and
+  if the verifier changed anything it **presents the diff to the human and asks discard-or-keep** before
+  acting on the verdict. Containment already holds — the verifier can't merge/tick (**D7**), its changes
+  are git-visible + uncommitted, and merge is human-gated. (Supersedes the Phase-5 Seatbelt-sandbox
+  spike, reverted.)
 
 ## Git / PR conventions (PLAN-wide)
 
@@ -395,15 +397,21 @@ relay only **after Gate B (Phase 6)**. Spans two repos: `packages/relay` (enforc
 user's **dotfiles** orchestration (`phase-orchestrate` skill, `verifier.md`, `merger.md`) — dotfiles
 changes are reported as diffs for the human to commit (as in Phase 3/4), never auto-committed.
 
-### Part 1 — Per-role execution posture (D12, in `packages/relay`)
-- The **driver** derives a role's posture from its declared tools (no `edit`/`write` ⇒ **read-only**)
-  and translates it into `claude`'s **native** sandbox/permission enforcement so a read-only role
-  **cannot mutate the working tree**, while still being able to **execute** (run build/test).
-  **Spike `claude`'s real capabilities first** (v2.1.201 is installed — verify the actual flag(s):
-  permission-mode / sandbox / etc.); if `claude` has no native read-only-fs mode, enforce via a
-  contained environment (e.g. a disposable/read-only worktree whose writes are discarded), but prefer
-  the backend-native mechanism. Extends D10 (posture→backend flags in the driver, resolver stays
-  neutral). Write ADR `docs/decisions/0002-per-role-execution-posture.md`.
+### Part 1 — Read-only by declaration; NO sandbox (D12 revised, `packages/relay`)
+- **Revert the driver OS sandbox** (the `--settings` Seatbelt `denyWrite:[cwd]` + `--disallowedTools`
+  enforcement from the reverted spike). It broke the verifier's own **mandated** gates (`vitest` writes
+  scratch to `node_modules/.vite-temp` *inside* cwd → EPERM, zero tests collected) and buys **no verdict
+  integrity** (a bad verifier returns a wrong verdict without writing a byte). A read-only role is
+  read-only **by declaration**: relay maps only its declared read-only tools to the backend (no
+  Edit/Write) and does **not** OS-sandbox. The read-only verifier MUST be able to run the repo's full
+  `npm run check` (incl. `vitest`) **in-tree**.
+
+### Part 1b — Tree-hygiene by detection, human-decides (D12, dotfiles orchestration)
+- Enforcement that "the verifier didn't tamper with the tree" is by **detection, not prevention**:
+  **after** verify, the orchestrator diffs the working tree; if the verifier changed anything it
+  **presents the diff to the human and asks whether to discard or keep**, and does **not** act on the
+  verdict until the human decides. Containment already holds — the verifier can't merge/tick (**D7**),
+  its changes are git-visible + uncommitted, and merge is human-gated.
 
 ### Part 2 — Dispatch cardinality (Q3=1, in dotfiles)
 - `phase-orchestrate` skill instructs the orchestrator to dispatch verify **exactly once**, then wait
@@ -416,19 +424,25 @@ changes are reported as diffs for the human to commit (as in Phase 3/4), never a
   except to consume the relay verdict.
 
 ### Testing Gates (exact → expected)
-- **Gate 5.1 (posture enforced):** a read-only role's `bash` attempt to mutate the tree is **blocked**
-  by the driver's enforcement (real proof — the write fails); a build/test still runs. Withheld
-  Edit/Write alone is not accepted as proof.
-- **Gate 5.2 (routing):** end-to-end — one **PASS** scenario halts at the human merge-gate (no auto-
-  merge, D7); one **FAIL** scenario routes to remediation. Driven by the real orchestrator (qwen) →
-  relay verifier (Opus).
-- **Gate 5.3 (dispatch cardinality):** exactly **one** verify dispatch per phase; no spurious extras.
-- **Gate 5.4 (repo):** `npm run check` green; lockfile in sync; ADR indexed (Appendix B).
+- **Gate 5.1 (no sandbox breakage):** the read-only verifier runs the repo's **full `npm run check`
+  (incl. `vitest`) to a real pass/fail in-tree** — no EPERM, tests actually collected. Proves the
+  reverted sandbox unbroke verification.
+- **Gate 5.2 (routing) — CITE REAL ARTIFACTS:** end-to-end via the real orchestrator (qwen `:11439`) →
+  relay verifier (Opus): one **PASS** halts at the human merge-gate (no auto-merge/tick, D7); one
+  **FAIL** → remediation. **Commit/cite the run transcripts** (distinct `toolCallId`s) — a claim is not
+  proof (the first attempt cited none).
+- **Gate 5.3 (dispatch cardinality):** exactly **one** verify dispatch per scenario, re-derivable from
+  the cited artifacts.
+- **Gate 5.4 (tree-hygiene detect+present):** a verify that mutates the tree is **detected** and
+  **surfaced to the human** (keep/discard) before the verdict is acted on — demonstrated.
+- **Gate 5.5 (repo):** `npm run check` green; lockfile in sync; ADR 0002 **rewritten** to the detect
+  model + indexed (Appendix B).
 
 ### Definition of Done
-D12 posture enforced by the backend (Gate 5.1) + documented (ADR); orchestrator dispatches the relay
-verifier exactly once and routes PASS/FAIL correctly, demonstrated end-to-end (Gate 5.2/5.3); **real-
-loop cutover explicitly deferred to post-Gate-B**; dotfiles diffs reported for the human to commit;
+Driver sandbox **reverted**; the read-only verifier runs the full `npm run check` in-tree (Gate 5.1);
+orchestrator dispatches verify exactly once, routes PASS/FAIL correctly, and **presents any verifier
+tree-change to the human** (Gates 5.2–5.4) — all proven with **cited** artifacts; real-loop cutover
+deferred to post-Gate-B; D12 + ADR rewritten; dotfiles diffs reported for the human to commit;
 Appendix D regression holds.
 
 ---
