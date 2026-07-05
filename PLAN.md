@@ -362,7 +362,7 @@ commit, or table.** The through-the-role runner lives in the private repo.
 | false-merge | 0 | **0** |
 | false-fail | 0 | **0** |
 | audit-catch (spec-only defects) | 3/3 | **3/3** |
-| avg wall / case | ~150 s | ~153 s |
+| avg wall / case | ~150 s | ~149 s |
 
 _Baseline = the old inline-prompt/`verify_phase` design. Phase 4 filled the right column via the
 **role** — host on local `qwen3.6-35b-a3b` (`:11439`), verifier on `relay-claude/opus` (Opus,
