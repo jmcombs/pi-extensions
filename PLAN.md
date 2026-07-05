@@ -225,7 +225,7 @@ Appendix D items 1–8 hold; Gate 2.1 proven (or UNVERIFIED + escalated, never f
 Q1 documented in the README; if `index.ts` changed, the async substrate still proves
 out via `harness.mjs`.
 
-## Phase 3 — Relay Roles (provider seam)  ← ACTIVE
+## Phase 3 — Relay Roles (provider seam)  ✅ DONE
 
 **Entry phases:** Phase 2 (merged @ `cf2add8`). Own branch `feat/relay-phase3` → own PR.
 
@@ -376,7 +376,7 @@ the official `@earendil-works/pi-ai` peer-dep + deletion of the hand-rolled
 - [x] Phase 0 — Logo & brand assets
 - [x] Phase 1 — Scaffold + driver seam + unit-prove
 - [x] Phase 2 — Live-session integration
-- [ ] Phase 3 — Relay Roles (provider seam)
+- [x] Phase 3 — Relay Roles (provider seam)
 - [ ] Phase 4 — Accuracy regression (through the role)
 - [ ] Phase 5 — Wire into the phase loop
 - [ ] Phase 6 — Gate B
