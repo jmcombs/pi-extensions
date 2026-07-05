@@ -1,15 +1,87 @@
 /**
  * drivers/claude.ts — the driver/adapter seam (Locked Decision D10).
  *
- * `AgentDriver` is the backend-agnostic interface the relay core dispatches
- * through: it knows how to name the backend binary, build its argv, and pull the
- * raw text result out of the backend's stdout envelope. `claudeDriver` is the
- * SOLE implementation — headless subscription Opus via `claude -p`.
+ * `AgentDriver` is the backend-agnostic interface the relay provider dispatches
+ * through: it knows how to name the backend binary, build its argv from a
+ * standardized {@link DriverInvocation}, and pull the raw text result out of the
+ * backend's stdout envelope. `claudeDriver` is the primary implementation —
+ * headless subscription Opus via `claude -p` (`oauthAccount`, D1).
  *
  * Per D10, NO verdict parsing lives here. The driver only surfaces the backend's
- * `.result` text and its own error flag; interpreting that text (e.g. the
- * `verify_phase` VERDICT regex, D3) is the consumer's job in `index.ts`.
+ * `.result` text and its own error flag; interpreting that text (e.g. a
+ * `VERDICT: PASS|FAIL` line) is the caller's job.
+ *
+ * D2 is preserved structurally: the driver always passes a SCOPED `--allowedTools`
+ * allowlist and NEVER `--dangerously-skip-permissions`. The verify role supplies a
+ * read-only tool set (pi `read, bash, grep, find`); the driver maps those neutral
+ * names to Claude's (`Read Bash Grep Glob`) and adds no privilege-escalating flags.
+ *
+ * ── Tool-name map lives HERE (D10) ──
+ * Mapping pi's neutral tool names to a backend's tool names is a DRIVER concern,
+ * not the resolver's. `claudeDriver` maps them to `claude`'s `--allowedTools`
+ * names; a future `codexDriver` maps the same neutral list to its sandbox (`-s`).
  */
+
+/**
+ * A single, backend-neutral dispatch request. The relay provider assembles this
+ * from the pi model id (→ {@link model}), the pi subagent's system prompt
+ * (→ {@link systemPromptFile}), and its **pi-neutral** tool set (→ {@link tools}).
+ */
+export interface DriverInvocation {
+  /** The task / final user message text handed to the external agent. */
+  readonly task: string;
+  /** External model id parsed from the pi model id (e.g. `relay-claude/opus` → `opus`). */
+  readonly model: string;
+  /**
+   * Path to the assembled system-prompt file (persona body + skills). When
+   * omitted, the backend runs with its own default system prompt.
+   */
+  readonly systemPromptFile?: string;
+  /**
+   * Whether {@link systemPromptFile} replaces the backend's default system prompt
+   * (`replace`, the subagent default) or is appended to it (`append`).
+   */
+  readonly systemPromptMode?: "replace" | "append";
+  /**
+   * **pi-neutral** tool names (e.g. `read`, `bash`, `grep`, `find`). Each driver
+   * maps these onto its own backend (D10) — `claudeDriver` → `--allowedTools`
+   * (`Read Bash …`). D2: for the verify role this is a read-only set.
+   */
+  readonly tools?: readonly string[];
+}
+
+/**
+ * pi tool name → Claude (`claude -p`) tool name. This map is a DRIVER function
+ * (D10). pi-only tools with no Claude equivalent (e.g. `subagent`, `ls`) are
+ * intentionally absent and get dropped by {@link mapToolNames}. Note pi has no
+ * `glob` tool — its glob-style tool is `find`, which maps to Claude's `Glob`.
+ */
+export const CLAUDE_TOOL_NAME_MAP: Readonly<Record<string, string>> = {
+  read: "Read",
+  bash: "Bash",
+  edit: "Edit",
+  write: "Write",
+  grep: "Grep",
+  find: "Glob",
+};
+
+/** Map a single pi tool name to its Claude equivalent, or `undefined` if none. */
+export function mapToolName(piName: string): string | undefined {
+  return CLAUDE_TOOL_NAME_MAP[piName.trim().toLowerCase()];
+}
+
+/**
+ * Map pi tool names to Claude `--allowedTools` names, dropping pi-only tools with
+ * no Claude equivalent and de-duplicating while preserving order.
+ */
+export function mapToolNames(piNames: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const name of piNames) {
+    const mapped = mapToolName(name);
+    if (mapped && !out.includes(mapped)) out.push(mapped);
+  }
+  return out;
+}
 
 /**
  * The JSON envelope emitted by `claude -p --output-format json`. Only the fields
@@ -30,7 +102,7 @@ export interface DriverResult {
 }
 
 /**
- * Backend-agnostic dispatch adapter. The relay core (spawn, pushback, wall-cap,
+ * Backend-agnostic dispatch adapter. The relay provider (spawn, stream, wall-cap,
  * signal handling) is written against this interface, never against `claude`
  * directly (D10).
  */
@@ -39,35 +111,47 @@ export interface AgentDriver {
   readonly name: string;
   /** The executable to spawn. */
   readonly bin: string;
-  /** Build the argv for a single headless, read-only dispatch of `prompt`. */
-  buildArgs(prompt: string): string[];
+  /** Build the argv for a single headless dispatch. */
+  buildArgs(invocation: DriverInvocation): string[];
   /** Extract the neutral result from the backend's raw stdout. */
   parseResult(stdout: string): DriverResult;
 }
 
 /**
- * The sole `AgentDriver` implementation: subscription **Opus via `claude -p`**
+ * The primary `AgentDriver` implementation: subscription **Opus via `claude -p`**
  * (D1), scoped read-only tools and never `--dangerously-skip-permissions` (D2),
- * `--model opus` + `--output-format json` (D3).
+ * `--output-format json` for a machine-parseable envelope.
+ *
+ * The persona + skills reach `claude` deterministically via
+ * `--system-prompt-file` (our code writes the file — no model re-echo, no drift).
  */
 export const claudeDriver: AgentDriver = {
   name: "claude",
   bin: "claude",
 
-  buildArgs(prompt: string): string[] {
-    return [
-      "-p",
-      prompt,
-      "--output-format",
-      "json",
-      "--model",
-      "opus",
-      // D2: scoped, read-only tools only. Never --dangerously-skip-permissions.
-      "--allowedTools",
-      "Bash Read Grep Glob",
-      "--max-turns",
-      "80",
-    ];
+  buildArgs(invocation: DriverInvocation): string[] {
+    const args = ["-p", invocation.task, "--output-format", "json", "--model", invocation.model];
+
+    if (invocation.systemPromptFile) {
+      // `--system-prompt-file` replaces claude's default system prompt with the
+      // assembled persona+skills (the subagent default `systemPromptMode: replace`);
+      // `--append-system-prompt-file` layers it on top instead.
+      args.push(
+        invocation.systemPromptMode === "append"
+          ? "--append-system-prompt-file"
+          : "--system-prompt-file",
+        invocation.systemPromptFile,
+      );
+    }
+
+    // D10: the pi→Claude tool-name map is applied HERE, in the driver.
+    const allowedTools = mapToolNames(invocation.tools ?? []);
+    if (allowedTools.length > 0) {
+      // D2: a SCOPED allowlist only. Never --dangerously-skip-permissions.
+      args.push("--allowedTools", allowedTools.join(" "));
+    }
+
+    return args;
   },
 
   parseResult(stdout: string): DriverResult {
@@ -79,7 +163,7 @@ export const claudeDriver: AgentDriver = {
       };
     } catch {
       // Unparseable stdout (truncated/empty/non-JSON) is treated as an error with
-      // no result — the consumer's fail-safe (D6) then reports UNVERIFIED.
+      // no result — the caller's fail-safe (D6) then reports UNVERIFIED, never PASS.
       return { result: "", isError: true };
     }
   },

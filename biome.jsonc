@@ -17,6 +17,7 @@
       "!**/coverage",
       "!**/package-lock.json",
       "!**/CHANGELOG.md",
+      "!**/.pi-subagents",
       "!packages/_template"
     ]
   },

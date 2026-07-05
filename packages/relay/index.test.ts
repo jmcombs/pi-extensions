@@ -1,138 +1,185 @@
 /**
- * Smoke test — verifies the extension's default factory loads and registers
- * the resources it claims to register.
+ * Unit tests — provider registration surface (index.ts), the driver tool-name map
+ * (D10, now in drivers/claude.ts), and the roles resolver (frontmatter parse,
+ * persona+skills assembly, and skill-reference → full-content inlining).
  *
- * This is a meaningful test, not coverage theater. It exercises:
- *   - The default export is a function (Pi requires this).
- *   - Calling the factory with a minimal real-shape `ExtensionAPI` does not
- *     throw and produces the expected tool names.
- *
- * It does NOT spawn `claude`, hit the network, or exercise dispatch — the async
- * substrate is proven separately by `scripts/harness.mjs` (Gate 2) against a
- * real `claude -p`. This test only asserts the registration surface.
+ * These are meaningful, network-free tests. The live end-to-end path (a real
+ * `claude -p` run through pi's subagent system) is proven separately by Gate 3.1.
  */
 
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { afterAll, describe, expect, it } from "vitest";
+import { claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
 import factory from "./index.js";
+import { expandSkillReferences, parseRoleFile, resolveRole } from "./roles/resolver.js";
 
-interface RegistrationLog {
-  tools: string[];
-  commands: string[];
-  shortcuts: string[];
-  flags: string[];
-  events: string[];
+interface CapturedProvider {
+  name: string;
+  config: {
+    api?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    streamSimple?: unknown;
+    models?: { id: string; name: string }[];
+  };
 }
 
-/**
- * Builds a minimal ExtensionAPI stub that records what the factory registers.
- * Only the surface used by this extension's registration path is implemented;
- * other methods throw if called so missing coverage is loud.
- */
-function createApiStub(): {
-  api: ExtensionAPI;
-  log: RegistrationLog;
-  tools: Map<string, ToolDefinition>;
-} {
-  const log: RegistrationLog = {
-    tools: [],
-    commands: [],
-    shortcuts: [],
-    flags: [],
-    events: [],
-  };
-  const tools = new Map<string, ToolDefinition>();
-
+function createApiStub(): { api: ExtensionAPI; providers: CapturedProvider[] } {
+  const providers: CapturedProvider[] = [];
   const notImplemented = (method: string) => () => {
     throw new Error(`ExtensionAPI.${method} not implemented in test stub`);
   };
-
   const api = {
-    on: ((event: string) => {
-      log.events.push(event);
-    }) as unknown as ExtensionAPI["on"],
-    registerTool: ((tool: ToolDefinition) => {
-      log.tools.push(tool.name);
-      tools.set(tool.name, tool);
-    }) as unknown as ExtensionAPI["registerTool"],
-    registerCommand: ((name: string) => {
-      log.commands.push(name);
-    }) as unknown as ExtensionAPI["registerCommand"],
-    registerShortcut: ((shortcut: string) => {
-      log.shortcuts.push(shortcut);
-    }) as unknown as ExtensionAPI["registerShortcut"],
-    registerFlag: ((name: string) => {
-      log.flags.push(name);
-    }) as unknown as ExtensionAPI["registerFlag"],
-    getFlag: notImplemented("getFlag"),
-    registerMessageRenderer: notImplemented("registerMessageRenderer"),
-    sendMessage: notImplemented("sendMessage"),
-    sendUserMessage: notImplemented("sendUserMessage"),
-    appendEntry: notImplemented("appendEntry"),
-    setSessionName: notImplemented("setSessionName"),
-    getSessionName: notImplemented("getSessionName"),
-    setLabel: notImplemented("setLabel"),
-    exec: notImplemented("exec"),
-    getActiveTools: notImplemented("getActiveTools"),
-    getAllTools: notImplemented("getAllTools"),
-    setActiveTools: notImplemented("setActiveTools"),
-    getCommands: notImplemented("getCommands"),
-    setModel: notImplemented("setModel"),
+    registerProvider: ((name: string, config: CapturedProvider["config"]) => {
+      providers.push({ name, config });
+    }) as unknown as ExtensionAPI["registerProvider"],
+    unregisterProvider: notImplemented("unregisterProvider"),
+    registerTool: notImplemented("registerTool"),
+    on: notImplemented("on"),
     events: { emit: notImplemented("events.emit") },
   } as unknown as ExtensionAPI;
-
-  return { api, log, tools };
+  return { api, providers };
 }
 
-describe("@jmcombs/pi-relay", () => {
-  beforeEach(() => {
-    // Clear the D8 re-entrancy sentinel so each factory call registers cleanly
-    // (a prior call — or an inherited env — would otherwise short-circuit it).
-    delete process.env.PI_RELAY_ACTIVE;
-  });
-
+describe("@jmcombs/pi-relay — provider registration", () => {
   it("exports a default factory function", () => {
     expect(typeof factory).toBe("function");
   });
 
-  it("registers its expected tools", () => {
-    const { api, log } = createApiStub();
+  it("registers the relay-claude provider with a custom streamSimple and opus model", () => {
+    const { api, providers } = createApiStub();
     factory(api);
 
-    expect(log.tools).toContain("verify_phase");
-    expect(log.tools).toContain("dispatch");
+    expect(providers).toHaveLength(1);
+    const provider = providers[0];
+    if (!provider) throw new Error("no provider registered");
+    expect(provider.name).toBe("relay-claude");
+    expect(provider.config.api).toBe("relay-claude");
+    expect(typeof provider.config.streamSimple).toBe("function");
+    // baseUrl + apiKey are required by pi's provider validation but unused.
+    expect(provider.config.baseUrl).toBeTruthy();
+    expect(provider.config.apiKey).toBeTruthy();
+    const modelIds = (provider.config.models ?? []).map((m) => m.id);
+    expect(modelIds).toContain("opus");
+  });
+});
+
+describe("claudeDriver — tool-name map (D10, in the driver)", () => {
+  it("maps pi tool names to Claude tool names", () => {
+    expect(mapToolName("read")).toBe("Read");
+    expect(mapToolName("BASH")).toBe("Bash");
+    expect(mapToolName("edit")).toBe("Edit");
+    expect(mapToolName("write")).toBe("Write");
+    expect(mapToolName("grep")).toBe("Grep");
+    // pi has no `glob`; its glob-style tool is `find` → Claude `Glob`.
+    expect(mapToolName("find")).toBe("Glob");
   });
 
-  it("honors the D8 re-entrancy guard: no re-registration when the sentinel is set", () => {
-    process.env.PI_RELAY_ACTIVE = "1";
-    const { api, log } = createApiStub();
-    factory(api);
-
-    expect(log.tools).toEqual([]);
+  it("drops the phantom `glob` and other pi-only tools (`ls`, `subagent`)", () => {
+    expect(mapToolName("glob")).toBeUndefined();
+    expect(mapToolName("ls")).toBeUndefined();
+    expect(mapToolName("subagent")).toBeUndefined();
+    expect(mapToolNames(["read", "bash", "subagent", "read"])).toEqual(["Read", "Bash"]);
   });
 
-  it("throws (never silently returns an error flag) on synchronous setup failure (D9)", () => {
-    const { api, tools } = createApiStub();
-    factory(api);
+  it("buildArgs emits `--allowedTools` from the neutral pi tool list", () => {
+    const args = claudeDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      tools: ["read", "bash", "grep", "find", "subagent"],
+    });
+    const idx = args.indexOf("--allowedTools");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe("Read Bash Grep Glob");
+    // D2: never a permission-skip flag.
+    expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+});
 
-    const verifyPhase = tools.get("verify_phase");
-    if (!verifyPhase) throw new Error("verify_phase was not registered");
+describe("roles resolver — frontmatter + assembly (backend-neutral)", () => {
+  const roots: string[] = [];
 
-    // A non-string cwd makes the synchronous `child_process.spawn` setup throw
-    // (ERR_INVALID_ARG_TYPE). Per D9 the pi runtime silently discards a returned
-    // tool-result error flag, so the ONLY way to surface a real error is to throw.
-    // This asserts the tool propagates the failure as a throw, not a no-op result.
-    const ctx = { cwd: process.cwd() } as unknown as ExtensionContext;
-    const badParams = { phase: "boom", cwd: 12345 } as unknown as Parameters<
-      ToolDefinition["execute"]
-    >[1];
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
 
-    expect(() => verifyPhase.execute("call-throw", badParams, undefined, undefined, ctx)).toThrow(
-      /Failed to dispatch verify_phase/,
+  it("parses frontmatter fields and strips the block from the body", () => {
+    const { frontmatter, body } = parseRoleFile(
+      "---\nname: r\nskills: a, b\ntools: read, bash\nsystemPromptMode: replace\nmodel: relay-claude/opus\n---\nPersona body here.",
     );
+    expect(frontmatter.skills).toEqual(["a", "b"]);
+    expect(frontmatter.tools).toEqual(["read", "bash"]);
+    expect(frontmatter.systemPromptMode).toBe("replace");
+    expect(frontmatter.model).toBe("relay-claude/opus");
+    expect(body).toBe("Persona body here.");
+  });
+
+  it("assembles persona body + full skill bodies and keeps tools pi-neutral", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-test-"));
+    roots.push(root);
+    const agentsDir = path.join(root, "agents");
+    const skillsDir = path.join(root, "skills");
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.mkdirSync(path.join(skillsDir, "alpha"), { recursive: true });
+    fs.mkdirSync(path.join(skillsDir, "beta"), { recursive: true });
+
+    fs.writeFileSync(
+      path.join(agentsDir, "tester.md"),
+      "---\nname: tester\nskills: alpha, beta\ntools: read, bash, subagent\nsystemPromptMode: replace\n---\nYou are the tester persona.",
+    );
+    fs.writeFileSync(path.join(skillsDir, "alpha", "SKILL.md"), "Alpha skill body.");
+    fs.writeFileSync(path.join(skillsDir, "beta", "SKILL.md"), "Beta skill body.");
+
+    const role = resolveRole("tester", { agentsDir, skillsDir });
+
+    expect(role.name).toBe("tester");
+    expect(role.skills).toEqual(["alpha", "beta"]);
+    // Resolver is backend-neutral (D10): tools are pi names, unmapped/undropped.
+    expect(role.tools).toEqual(["read", "bash", "subagent"]);
+    expect(role.systemPrompt).toContain("You are the tester persona.");
+    expect(role.systemPrompt).toContain("Alpha skill body.");
+    expect(role.systemPrompt).toContain("Beta skill body.");
+  });
+});
+
+describe("roles resolver — expandSkillReferences (fidelity)", () => {
+  const roots: string[] = [];
+
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("inlines each referenced SKILL.md's full body into the system prompt", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-skills-"));
+    roots.push(root);
+    const skillFile = path.join(root, "phase-verify", "SKILL.md");
+    fs.mkdirSync(path.dirname(skillFile), { recursive: true });
+    fs.writeFileSync(skillFile, "PHASE VERIFY METHODOLOGY BODY.");
+
+    const systemPrompt = [
+      "You are `verifier`. Persona body.",
+      "",
+      "<available_skills>",
+      "  <skill>",
+      "    <name>phase-verify</name>",
+      "    <description>Adversarial verification.</description>",
+      `    <location>${skillFile}</location>`,
+      "  </skill>",
+      "</available_skills>",
+    ].join("\n");
+
+    const expanded = expandSkillReferences(systemPrompt);
+    // References preserved AND full body inlined (not just the pointer).
+    expect(expanded).toContain("<available_skills>");
+    expect(expanded).toContain("<skill_contents>");
+    expect(expanded).toContain("PHASE VERIFY METHODOLOGY BODY.");
+  });
+
+  it("returns the prompt unchanged when there is no <available_skills> block", () => {
+    expect(expandSkillReferences("just a persona, no skills")).toBe("just a persona, no skills");
+    expect(expandSkillReferences(undefined)).toBe("");
   });
 });

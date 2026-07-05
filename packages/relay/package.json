@@ -2,7 +2,7 @@
   "name": "@jmcombs/pi-relay",
   "version": "0.0.0",
   "private": true,
-  "description": "Async agent-dispatch primitive for Pi that dispatches to headless Claude Opus via `claude -p` and relays the result back mid-turn.",
+  "description": "Relay roles for Pi: run any Pi subagent on an external coding agent (headless Claude Opus via `claude -p`) through a provider seam, driven by the subagent's `model` field.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/relay",
   "repository": {
     "type": "git",
@@ -19,7 +19,9 @@
   "types": "./index.ts",
   "files": [
     "index.ts",
+    "provider.ts",
     "drivers/",
+    "roles/",
     "README.md",
     "LICENSE"
   ],
@@ -42,6 +44,7 @@
     "node": ">=22.0.0"
   },
   "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
