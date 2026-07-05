@@ -313,12 +313,68 @@ the verifier runs as a relayed subagent with no inline prompt (real verifier.md,
 inlined); the corrective refinements above are all applied; codex seam documented. The
 full 9-case accuracy re-benchmark is **Phase 4**, not this phase.
 
-## Phases 4–7 (spec finalized when reached — objectives + gates only)
-- **Phase 4 — Accuracy regression (through the role).** Re-run the locked 9-case benchmark
-  against the **role-based** verifier (relayed subagent, `{phase,cwd}`-only, no inline
-  prompt); **remove `docs/prompts/` from the benchmark sandbox** (methodology now lives in
-  the role). Gate: reproduce 9/9 — 0 false-merge, 0 false-fail, 3/3 audit-catch. Baseline:
-  the 9/9 already proven on the old inline-prompt design (branch `feat/relay-phase4`).
+## Phase 4 — Accuracy regression (through the role)  ← ACTIVE
+
+### Objectives
+Re-run the locked **9-case verifier benchmark** against the **role-based** verifier — the
+relayed `verifier` subagent (`model: relay-claude/opus`, `{phase,cwd}`-only, **no inline
+prompt**, methodology from its 4 skills) — reproducing the accuracy bar the old inline-prompt
+design already cleared. **Remove `docs/prompts/` from the benchmark sandbox** (the methodology
+now lives in the role + skills, not a prompt file the case carries).
+
+### Topology (LOCKED — the seat correction)
+- **Host / orchestrator seat = LOCAL `qwen3.6-35b-a3b` @ `localhost:11439`** (llama.cpp). The
+  benchmark's hosting `pi` session runs on qwen and dispatches the verifier subagent per case.
+- **Verifier = `relay-claude/opus`** (external subscription Opus via `claude -p`) — the **only**
+  external call. **No local verifier seat** (`:11436` stays down); **no Haiku / API / non-local
+  driver anywhere.** (Last accuracy attempt wrongly used a Haiku driver — do not repeat.)
+- Builder seat (`ornith` @ `:11437`) is not exercised (cases are pre-built), may be up.
+
+### IP constraint (LOCKED, user-approved — must hold)
+The benchmark is the **PRIVATE** `jmcombs/verifier-benchmark` repo (macprefs IP). ALL case
+internals, the runner, and per-case verdict text stay in the private repo
+(`~/.cache/verifier-bench`). **Only the numeric summary** may enter the public `pi-extensions`
+repo. **No macprefs token — path, brand hex, theme name, filename — in any pi-extensions file,
+commit, or table.** The through-the-role runner lives in the private repo.
+
+### Actionable TODOs
+- **(private repo)** Point the runner at the relayed verifier **role** (dispatch the `verifier`
+  subagent at `relay-claude/opus`) instead of `docs/prompts/verify-phase.md`; **remove
+  `docs/prompts/` from the sandbox cases.**
+- **(private repo)** Run all **9 cases** (3 correct + 6 defects incl. 3 audit-only) with the
+  host on qwen `:11439`; score verdicts vs `answer-key.json` (false-merge = dangerous,
+  false-fail = over-strict, audit-catch); re-lock the private results.
+- **(public repo, this branch)** Record **only the numeric summary** in the results table below.
+
+### Testing Gates (exact → expected)
+- **Gate 4.1 (accuracy):** 9/9 — **0 false-merge, 0 false-fail, 3/3 audit-catch** via the role
+  (`relay-claude/opus`), host on qwen.
+- **Gate 4.2 (topology):** captured invocations show the verifier at `--model opus` (D1),
+  read-only tools (D2); host session model = `qwen3.6-35b-a3b`; no non-local driver present.
+- **Gate 4.3 (no leak + removal):** `git grep` in `pi-extensions` finds **no** macprefs token;
+  `docs/prompts/` removed from the sandbox; only the numeric summary is public.
+- **Gate 4.4 (repo):** `npm run check` green (public repo gains only the summary doc).
+
+### Results — numeric summary
+| metric | baseline (inline-prompt) | Phase 4 (through the role) |
+|---|---|---|
+| correct | 9/9 | _pending_ |
+| false-merge | 0 | _pending_ |
+| false-fail | 0 | _pending_ |
+| audit-catch (spec-only defects) | 3/3 | _pending_ |
+| avg wall / case | ~150 s | _pending_ |
+
+_Baseline = the old inline-prompt/`verify_phase` design. Phase 4 fills the right column via the
+role. No macprefs specifics — numeric only._
+
+### Definition of Done
+9/9 reproduced **through the role** with the correct local-host / Opus-verifier topology;
+`docs/prompts/` removed from the sandbox; private results re-locked; only the numeric summary in
+the public repo; no IP leak (Gate 4.3 clean). Appendix D full-repo regression holds.
+
+---
+
+## Phases 5–7 (spec finalized when reached — objectives + gates only)
 - **Phase 5 — Wire into the phase loop (self-hosting).** Orchestrator runs the verifier
   relay-role instead of the local verifier subagent; PASS → human merge-gate, FAIL →
   remediation. Gate: an end-to-end phase verifies and routes correctly.
