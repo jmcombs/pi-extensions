@@ -358,14 +358,15 @@ commit, or table.** The through-the-role runner lives in the private repo.
 ### Results — numeric summary
 | metric | baseline (inline-prompt) | Phase 4 (through the role) |
 |---|---|---|
-| correct | 9/9 | _pending_ |
-| false-merge | 0 | _pending_ |
-| false-fail | 0 | _pending_ |
-| audit-catch (spec-only defects) | 3/3 | _pending_ |
-| avg wall / case | ~150 s | _pending_ |
+| correct | 9/9 | **9/9** |
+| false-merge | 0 | **0** |
+| false-fail | 0 | **0** |
+| audit-catch (spec-only defects) | 3/3 | **3/3** |
+| avg wall / case | ~150 s | ~153 s |
 
-_Baseline = the old inline-prompt/`verify_phase` design. Phase 4 fills the right column via the
-role. No macprefs specifics — numeric only._
+_Baseline = the old inline-prompt/`verify_phase` design. Phase 4 filled the right column via the
+**role** — host on local `qwen3.6-35b-a3b` (`:11439`), verifier on `relay-claude/opus` (Opus,
+read-only) — with `docs/prompts/` removed from the sandbox. No macprefs specifics — numeric only._
 
 ### Definition of Done
 9/9 reproduced **through the role** with the correct local-host / Opus-verifier topology;
