@@ -49,7 +49,15 @@ keeps the core backend-agnostic.
   tracked in its own issue, out of scope for this PR.)
 - **D10 (seam)** `AgentDriver` interface; `claudeDriver` the **sole** implementation.
   Core (spawn, pushback, wall-cap, signal) is driver-agnostic. Verdict parsing lives
-  in the **`verify_phase` consumer**, not the driver.
+  in the **`verify_phase` consumer**, not the driver. **Backend tool-name mapping is a
+  driver function** — the resolver stays backend-neutral (persona + skills + pi tool list);
+  each driver maps that to its agent (`claudeDriver` → `--allowedTools`, `codexDriver` → `-s`).
+- **D11 (use pi's APIs — never reinvent)** Use pi's **public extension APIs**; never mirror,
+  fork, or hand-roll pi internals. Import pi types/helpers from the official
+  `@earendil-works/*` packages (e.g. `createAssistantMessageEventStream()` from
+  `@earendil-works/pi-ai`). Adding an **official** pi package as a peer-dep is permitted and
+  is **not** the forbidden `@mariozechner` fork (D5). Re-implementing a pi contract by hand
+  is a defect.
 
 ## Git / PR conventions (PLAN-wide)
 
@@ -281,9 +289,28 @@ re-express the **verifier** as a relayed subagent — no bespoke tool, no inline
   file). Proven live.
 - **Gate 3.2** — `npm run check` → exit 0; lockfile parity (Gate 4).
 
+### Corrective refinements (found in verify — apply before merge)
+1. **Inline skill content (fidelity).** pi injects a subagent's skills as `<available_skills>`
+   *references* (name/desc/`<location>`); relayed to `claude -p`, the external agent gets only
+   pointers. The role resolver must **read each referenced `SKILL.md` and inline its full
+   content** into the assembled system prompt so the methodology is guaranteed present (prefer
+   a pi API to expand skills → content if one exists per D11, else read the files).
+2. **Tool-name map → driver (D10).** Move the pi→backend tool map out of `roles/resolver.ts`
+   into `claudeDriver`. Use pi's **real** tool names: `read→Read, bash→Bash, grep→Grep,
+   write→Write, edit→Edit, find→Glob`, `ls`→Bash/drop; there is **no** pi `glob` — drop the
+   phantom entry.
+3. **Use pi's stream API (D11).** Delete `stream.ts`; use `createAssistantMessageEventStream()`
+   from `@earendil-works/pi-ai` (add as peer-dep; write the ADR — official pkg, not the fork).
+4. **Real single-source verifier.** Update `~/.pi/agent/agents/verifier.md`:
+   `model: relay-claude/opus`, `tools: read, bash, grep, find` (drop `edit` → D2), wire the
+   relay extension. **Re-prove Gate 3.1 with the real verifier.md** (not a stand-in). Report
+   the dotfiles diff for the human to commit — do **not** auto-commit the user's dotfiles.
+5. **biome-ignore `.pi-subagents/`** in `biome.json` (subagent-run artifacts trip `npm run check`).
+
 ### Definition of Done
 Appendix D items 1–8 hold; Gate 3.0/3.1 proven live (or spike-fail escalated, never faked);
-the verifier runs as a relayed subagent with no inline prompt; codex seam documented. The
+the verifier runs as a relayed subagent with no inline prompt (real verifier.md, skills
+inlined); the corrective refinements above are all applied; codex seam documented. The
 full 9-case accuracy re-benchmark is **Phase 4**, not this phase.
 
 ## Phases 4–7 (spec finalized when reached — objectives + gates only)
