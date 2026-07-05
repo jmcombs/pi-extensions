@@ -429,11 +429,16 @@ changes are reported as diffs for the human to commit (as in Phase 3/4), never a
   inline output is replaced by a `[failed]` summary, **burying the verdict** (the orchestrator's only
   source of truth then lacks it → risks misrouting a real PASS/FAIL as an execution failure). **Fix:**
   the verify-dispatch template in `phase-orchestrate` (`subagent({agent:"verifier"…})`, both spots)
-  carries **`acceptance: "none"`** — scoped to the **verifier only** (builder/merger dispatches keep
-  their acceptance gate). The verify run then exits 0 and its `VERDICT` flows into the subagent tool
-  result (pi default `outputMode:"inline"`), read directly — no artifact-grep. **Not a relay issue** —
-  a local read-only verifier hits the same contract. Also test whether a **verifier-scoped
-  `settings.json`** default achieves the same set-once (belt-and-suspenders; per-agent, never global).
+  carries **`acceptance: { level: "none", reason: "…" }`** — scoped to the **verifier only**
+  (builder/merger keep their gate). ⚠️ The bare string **`"none"` does NOT disable** in installed
+  `pi-subagents@0.32.0`: `explicitAcceptanceCanDisable` (acceptance.ts:135) only disables for the
+  **object form with a non-empty `reason`** (CHANGELOG: "object-only … removing disable shorthands");
+  a bare `"none"` stays explicit at the inferred `attested` level → still exits 1. The object-form run
+  exits 0 and its `VERDICT` flows into the subagent tool result inline (pi default `outputMode:"inline"`),
+  read directly — no artifact-grep. **The per-dispatch param is the ONLY working locus** — `settings.json`
+  `agentOverrides` and `verifier.md` frontmatter do **not** parse `acceptance`; never set a global
+  default (would disable the builder/merger gate). **Not a relay issue** — a local read-only verifier
+  hits the identical contract.
 
 ### Testing Gates (exact → expected)
 - **Gate 5.1 (no sandbox breakage):** the read-only verifier runs the repo's **full `npm run check`
@@ -449,10 +454,11 @@ changes are reported as diffs for the human to commit (as in Phase 3/4), never a
   **surfaced to the human** (keep/discard) before the verdict is acted on — demonstrated.
 - **Gate 5.5 (repo):** `npm run check` green; lockfile in sync; ADR 0002 **rewritten** to the detect
   model + indexed (Appendix B).
-- **Gate 5.6 (verify exits 0 + verdict in-result, VERBATIM skill):** with `acceptance:"none"` on the
-  verify dispatch, the verifier run exits **0**, and its `VERDICT` appears in the **subagent tool
-  result** (not only an artifact). Gates 5.2–5.4 routing re-proven with the orchestrator driven by the
-  **verbatim shipped `phase-orchestrate` skill** — NO hand-injected grep/outputPath logic in the prompt.
+- **Gate 5.6 (verify exits 0 + verdict in-result, VERBATIM skill):** with
+  `acceptance:{level:"none",reason:"…"}` on the verify dispatch, the verifier run exits **0**, and its
+  `VERDICT` appears in the **subagent tool result** (not only an artifact). Gates 5.2–5.4 routing
+  re-proven with the orchestrator driven by the **verbatim shipped `phase-orchestrate` skill** — NO
+  hand-injected grep/outputPath logic in the prompt.
 
 ### Definition of Done
 Driver sandbox **reverted**; the read-only verifier runs the full `npm run check` in-tree (Gate 5.1);
