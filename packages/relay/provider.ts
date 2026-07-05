@@ -151,14 +151,20 @@ export function streamViaDriver(
   // pi-neutral tool names; the driver applies the pi→backend tool map (D10).
   const tools = (context.tools ?? []).map((tool) => tool.name);
 
+  // The working tree the external agent runs against. Passed to BOTH buildArgs
+  // (so a read-only posture's sandbox denies writes to exactly this path, D12) and
+  // spawn, so the deny-path and the child's cwd are guaranteed identical.
+  const cwd = process.cwd();
+
   const args = driver.buildArgs({
     task: extractTask(context),
     model: model.id,
+    cwd,
     ...(systemPromptFile ? { systemPromptFile, systemPromptMode: "replace" as const } : {}),
     ...(tools.length > 0 ? { tools } : {}),
   });
 
-  const child = spawn(driver.bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(driver.bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
 
   let out = "";
   let cut = false;

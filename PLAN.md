@@ -472,9 +472,10 @@ The 5-step proof `harness.mjs` must print: (1) `verify_phase` registered;
 
 ## Appendix B — ADR index
 
-| ADR  | Slug                     | Phase | Status   |
-| ---- | ------------------------ | ----- | -------- |
-| 0001 | pi-ai-peer-dependency    | 3     | Accepted |
+| ADR  | Slug                          | Phase | Status   |
+| ---- | ----------------------------- | ----- | -------- |
+| 0001 | pi-ai-peer-dependency         | 3     | Accepted |
+| 0002 | per-role-execution-posture    | 5     | Accepted |
 
 If a deviation from a literal TODO or a Locked Decision is genuinely required,
 create `docs/decisions/000N-<slug>.md` (MADR-lite: **Context / Decision /

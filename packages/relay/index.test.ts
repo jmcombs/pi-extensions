@@ -12,7 +12,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterAll, describe, expect, it } from "vitest";
-import { claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
+import {
+  claudeDriver,
+  isReadOnlyPosture,
+  mapToolName,
+  mapToolNames,
+  readOnlySandboxSettings,
+} from "./drivers/claude.js";
 import factory from "./index.js";
 import { expandSkillReferences, parseRoleFile, resolveRole } from "./roles/resolver.js";
 
@@ -96,6 +102,63 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     expect(args[idx + 1]).toBe("Read Bash Grep Glob");
     // D2: never a permission-skip flag.
     expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+});
+
+describe("claudeDriver — per-role execution posture (D12)", () => {
+  it("derives read-only from a scoped tool set that omits edit/write", () => {
+    expect(isReadOnlyPosture(["read", "bash", "grep", "find"])).toBe(true);
+    expect(isReadOnlyPosture(["Read", "BASH"])).toBe(true);
+  });
+
+  it("derives a write posture when edit or write is present", () => {
+    expect(isReadOnlyPosture(["read", "bash", "edit"])).toBe(false);
+    expect(isReadOnlyPosture(["read", "write"])).toBe(false);
+    expect(isReadOnlyPosture(["read", "WRITE"])).toBe(false);
+  });
+
+  it("treats an empty/undefined tool set as a write posture (no scoped allowlist)", () => {
+    // With no declared allowlist the backend runs its full default (write-capable)
+    // tool set, so the driver must NOT claim read-only.
+    expect(isReadOnlyPosture(undefined)).toBe(false);
+    expect(isReadOnlyPosture([])).toBe(false);
+  });
+
+  it("read-only sandbox settings deny writes to the working tree but keep the sandbox on", () => {
+    const parsed = JSON.parse(readOnlySandboxSettings("/work/tree"));
+    expect(parsed.sandbox.enabled).toBe(true);
+    expect(parsed.sandbox.failIfUnavailable).toBe(true);
+    expect(parsed.sandbox.allowUnsandboxedCommands).toBe(false);
+    expect(parsed.sandbox.filesystem.denyWrite).toEqual(["/work/tree"]);
+  });
+
+  it("buildArgs enforces the sandbox + disallowed mutation tools for a read-only role", () => {
+    const args = claudeDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      cwd: "/work/tree",
+      tools: ["read", "bash", "grep", "find"],
+    });
+    expect(args).toContain("--disallowedTools");
+    expect(args).toContain("Edit Write NotebookEdit");
+    const sIdx = args.indexOf("--settings");
+    expect(sIdx).toBeGreaterThanOrEqual(0);
+    const settings = JSON.parse(args[sIdx + 1] ?? "{}");
+    expect(settings.sandbox.enabled).toBe(true);
+    expect(settings.sandbox.filesystem.denyWrite).toEqual(["/work/tree"]);
+    // D2 still holds: no permission-skip flag.
+    expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("buildArgs adds NO sandbox for a write-capable role", () => {
+    const args = claudeDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      cwd: "/work/tree",
+      tools: ["read", "bash", "edit", "write"],
+    });
+    expect(args).not.toContain("--settings");
+    expect(args).not.toContain("--disallowedTools");
   });
 });
 
