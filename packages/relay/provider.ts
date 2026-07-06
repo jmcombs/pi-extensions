@@ -58,6 +58,17 @@ export const RELAY_CLAUDE_PROVIDER = "relay-claude";
 const DEFAULT_WALL_CAP_MS = 600_000;
 
 /**
+ * Heartbeat interval: default 20 s, overridable via `PI_RELAY_HEARTBEAT_MS`
+ * (set to `0` to disable). A single `claude -p` run is one provider completion
+ * that emits nothing until it finishes (~50–80 s for a verify), so pi-subagents'
+ * parent run would otherwise see "no observed activity" and flip the child to
+ * `needs_attention` at its 60 s threshold — a FALSE stall on a healthy loop.
+ * We keep the run visibly alive by pushing periodic no-op stream beats (see
+ * {@link streamViaDriver}); 20 s gives a comfortable margin under 60 s.
+ */
+const DEFAULT_HEARTBEAT_MS = 20_000;
+
+/**
  * Models exposed by the provider. The pi model id after the slash (`opus`,
  * `sonnet`, `haiku`) is passed through as the driver's `--model` value. D1: the
  * verify role uses `relay-claude/opus`.
@@ -73,6 +84,19 @@ function wallCapMs(): number {
   const raw = process.env.PI_RELAY_WALL_MS;
   const parsed = raw !== undefined ? Number.parseInt(raw, 10) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WALL_CAP_MS;
+}
+
+/**
+ * Resolve the heartbeat interval in milliseconds. A parsed value of `0` (or any
+ * non-positive) DISABLES heartbeats (opt-out / A-B rollback); an absent or
+ * unparseable value falls back to {@link DEFAULT_HEARTBEAT_MS}.
+ */
+function heartbeatMs(): number {
+  const raw = process.env.PI_RELAY_HEARTBEAT_MS;
+  if (raw === undefined) return DEFAULT_HEARTBEAT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_HEARTBEAT_MS;
+  return parsed > 0 ? parsed : 0;
 }
 
 /** Extract the task text (concatenated user-message text) from the pi context. */
@@ -116,9 +140,12 @@ function assistantMessage(model: RelayModel, text: string, isError = false): Rel
 
 /**
  * Run a single dispatch through `driver` and return an assistant-message event
- * stream. The stream terminates with a `done` event (the external agent's final
- * text) or, on a cut / spawn-failure / unparseable result, an `error` event —
- * NEVER a silent success (D6 fail-safe: no auto-PASS on a cut run).
+ * stream. The stream opens with a `start` and then emits periodic no-op
+ * `text_delta` beats (heartbeat — keeps a long, single-completion run from being
+ * misread as a 60s stall; see the interval below) until it terminates with a
+ * `done` event (the external agent's final text) or, on a cut / spawn-failure /
+ * unparseable result, an `error` event — NEVER a silent success (D6 fail-safe: no
+ * auto-PASS on a cut run). The verdict rides ONLY on the terminal event.
  */
 export function streamViaDriver(
   driver: AgentDriver,
@@ -128,10 +155,14 @@ export function streamViaDriver(
 ): RelayStreamReturn {
   // D11: pi's own event-stream contract (for use in extensions) — not hand-rolled.
   const stream = createAssistantMessageEventStream();
-  // Push events typed against our (structurally identical) message shape.
+  // Push events typed against our (structurally identical) message shape. The
+  // `text_delta` beat carries an empty partial and drives pi's `message_update`
+  // (heartbeat, below); the terminal result rides only on `done`/`error`.
   const push = stream.push.bind(stream) as (event: {
-    type: "start" | "done" | "error";
+    type: "start" | "text_delta" | "done" | "error";
     reason?: string;
+    contentIndex?: number;
+    delta?: string;
     partial?: RelayAssistantMessage;
     message?: RelayAssistantMessage;
     error?: RelayAssistantMessage;
@@ -164,6 +195,32 @@ export function streamViaDriver(
   let cut = false;
   let settled = false;
 
+  // ── Heartbeat (keeps a long, single-completion run visibly "active") ─────────
+  // A `claude -p` run emits nothing on the stream until it finishes, so the
+  // parent pi-subagent run would otherwise observe >60 s of "no activity" and
+  // FALSELY flip the child to `needs_attention`. We open the stream with `start`
+  // (so pi's agent-loop has a partial to update), then push a no-op `text_delta`
+  // beat every `heartbeatMs()`. Each beat becomes a pi `message_update` — a JSONL
+  // line on the child's stdout — which advances the parent's `lastActivityAt`.
+  // The beats carry an EMPTY partial and are discarded when `done` swaps in the
+  // real final message, so the verdict (D6/D10) is untouched. `settle` clears the
+  // interval before pushing the terminal event; `push()` also no-ops post-settle.
+  push({ type: "start", partial: assistantMessage(model, "") });
+  const beatMs = heartbeatMs();
+  const heartbeat =
+    beatMs > 0
+      ? setInterval(() => {
+          if (settled) return;
+          push({
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "",
+            partial: assistantMessage(model, ""),
+          });
+        }, beatMs)
+      : undefined;
+  heartbeat?.unref?.();
+
   const cleanupTemp = (): void => {
     if (tempDir) {
       try {
@@ -189,9 +246,11 @@ export function streamViaDriver(
     if (settled) return;
     settled = true;
     clearTimeout(timer);
+    if (heartbeat) clearInterval(heartbeat);
     signal?.removeEventListener("abort", onAbort);
     cleanupTemp();
-    push({ type: "start", partial: assistantMessage(model, "") });
+    // `start` was already pushed when the stream opened (see heartbeat, above);
+    // the terminal event replaces the partial with the real final message.
     if (isError) {
       push({ type: "error", reason: "error", error: final });
     } else {

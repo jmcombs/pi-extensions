@@ -74,6 +74,13 @@ the pi-subagents path). The provider streams the completion through pi's own
 
 - `PI_RELAY_WALL_MS` — wall-cap backstop for a single relayed run, in milliseconds
   (default `600000`). On a cut run relay reports an **UNVERIFIED** error result.
+- `PI_RELAY_HEARTBEAT_MS` — interval, in milliseconds, at which the provider pushes
+  a no-op stream beat while a relayed run is in flight (default `20000`; set `0` to
+  disable). A single `claude -p` completion emits nothing until it finishes, so
+  without a beat pi-subagents' parent run sees "no observed activity" and falsely
+  flips the child to `needs_attention` at its 60s threshold. Each beat surfaces as
+  a pi `message_update`, advancing the parent's activity clock; the verdict still
+  rides only on the terminal result, so the beats never affect it.
 
 ## Quick Start
 

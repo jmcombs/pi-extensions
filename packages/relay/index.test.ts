@@ -12,8 +12,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterAll, describe, expect, it } from "vitest";
-import { claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
+import { type AgentDriver, claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
 import factory from "./index.js";
+import { streamViaDriver } from "./provider.js";
 import { expandSkillReferences, parseRoleFile, resolveRole } from "./roles/resolver.js";
 
 interface CapturedProvider {
@@ -64,6 +65,105 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     expect(provider.config.apiKey).toBeTruthy();
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
     expect(modelIds).toContain("opus");
+  });
+});
+
+describe("streamViaDriver — heartbeat keeps a long run visibly active", () => {
+  // A single `claude -p` completion emits nothing until it finishes, so without a
+  // heartbeat pi-subagents' parent run flips the child to `needs_attention` at 60s
+  // (a FALSE stall). streamViaDriver now opens the stream with `start` and pushes
+  // periodic `text_delta` beats; each becomes a pi `message_update` that advances
+  // the parent's `lastActivityAt`. This proves beats arrive BEFORE `done` and that
+  // the terminal result still rides only on `done` (unaffected by the no-op beats).
+  type StreamEvent = {
+    type: string;
+    message?: { content?: { type: string; text?: string }[] };
+  };
+
+  const model = {
+    api: "relay-claude",
+    provider: "relay-claude",
+    id: "opus",
+  } as unknown as Parameters<typeof streamViaDriver>[1];
+
+  // Fake backend: a `node -e` child that stays silent ~250ms, then prints one JSON
+  // envelope. The wall-clock silence is exactly the window a real verify spends
+  // inside `claude -p`; the parent-side heartbeat interval must fill it.
+  const fakeDriver: AgentDriver = {
+    name: "fake",
+    bin: "node",
+    buildArgs: () => [
+      "-e",
+      "setTimeout(() => process.stdout.write(JSON.stringify({ type: 'result', result: 'HEARTBEAT_OK', is_error: false })), 250)",
+    ],
+    parseResult: (stdout: string) => {
+      const envelope = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+      return { result: String(envelope.result ?? ""), isError: envelope.is_error === true };
+    },
+  };
+
+  it("pushes `start` then periodic `text_delta` beats before the final `done`", async () => {
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "40";
+    try {
+      const stream = streamViaDriver(
+        fakeDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const types: string[] = [];
+      let finalText = "";
+      for await (const event of stream) {
+        types.push(event.type);
+        if (event.type === "done") finalText = event.message?.content?.[0]?.text ?? "";
+      }
+
+      // Opens with a single `start`, ends with a single terminal `done`.
+      expect(types[0]).toBe("start");
+      expect(types[types.length - 1]).toBe("done");
+      expect(types.filter((t) => t === "start")).toHaveLength(1);
+      expect(types.filter((t) => t === "done")).toHaveLength(1);
+      // At least one heartbeat beat arrived, and every beat precedes `done`.
+      const beats = types.filter((t) => t === "text_delta");
+      expect(beats.length).toBeGreaterThanOrEqual(1);
+      expect(types.lastIndexOf("text_delta")).toBeLessThan(types.indexOf("done"));
+      // The verdict rides only on `done` — beats do not corrupt the final text.
+      expect(finalText).toBe("HEARTBEAT_OK");
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+    }
+  });
+
+  it("emits no heartbeat beats when disabled with PI_RELAY_HEARTBEAT_MS=0", async () => {
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        fakeDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const types: string[] = [];
+      for await (const event of stream) types.push(event.type);
+      // Opt-out preserves the pre-fix shape: just `start` then `done`, no beats.
+      expect(types).toEqual(["start", "done"]);
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+    }
   });
 });
 
