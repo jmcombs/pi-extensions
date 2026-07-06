@@ -386,7 +386,7 @@ the public repo; no IP leak (Gate 4.3 clean). Appendix D full-repo regression ho
 
 ---
 
-## Phase 5 — Wire into the phase loop (self-hosting)  ← ACTIVE
+## Phase 5 — Wire into the phase loop (self-hosting)  ← DONE (#109)
 
 ### Objectives
 Wire the real pi phase loop so the **orchestrator** dispatches the **relay verifier**
@@ -528,7 +528,7 @@ the official `@earendil-works/pi-ai` peer-dep + deletion of the hand-rolled
 - [x] Phase 2 — Live-session integration
 - [x] Phase 3 — Relay Roles (provider seam)
 - [x] Phase 4 — Accuracy regression (through the role)
-- [ ] Phase 5 — Wire into the phase loop
+- [x] Phase 5 — Wire into the phase loop
 - [ ] Phase 6 — Gate B
 - [ ] Phase 7 — (optional) Duplex escalation
 
