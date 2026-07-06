@@ -423,22 +423,23 @@ changes are reported as diffs for the human to commit (as in Phase 3/4), never a
   tick — **D7**); **FAIL → remediation** (back to builder with the evidence). `merger.md` unchanged
   except to consume the relay verdict.
 
-### Part 3b — Verify-dispatch acceptance opt-out (root cause of the exit-1 FAIL)
-- The read-only verifier cannot satisfy pi-subagents' **write-agent acceptance contract** (it produces
-  no `changed-files`/`tests-added` evidence) → it deterministically exits **1**, and a *failed* run's
-  inline output is replaced by a `[failed]` summary, **burying the verdict** (the orchestrator's only
-  source of truth then lacks it → risks misrouting a real PASS/FAIL as an execution failure). **Fix:**
-  the verify-dispatch template in `phase-orchestrate` (`subagent({agent:"verifier"…})`, both spots)
-  carries **`acceptance: { level: "none", reason: "…" }`** — scoped to the **verifier only**
-  (builder/merger keep their gate). ⚠️ The bare string **`"none"` does NOT disable** in installed
-  `pi-subagents@0.32.0`: `explicitAcceptanceCanDisable` (acceptance.ts:135) only disables for the
-  **object form with a non-empty `reason`** (CHANGELOG: "object-only … removing disable shorthands");
-  a bare `"none"` stays explicit at the inferred `attested` level → still exits 1. The object-form run
-  exits 0 and its `VERDICT` flows into the subagent tool result inline (pi default `outputMode:"inline"`),
-  read directly — no artifact-grep. **The per-dispatch param is the ONLY working locus** — `settings.json`
-  `agentOverrides` and `verifier.md` frontmatter do **not** parse `acceptance`; never set a global
-  default (would disable the builder/merger gate). **Not a relay issue** — a local read-only verifier
-  hits the identical contract.
+### Part 3b — Read-only verifier: disable the completion guard (root cause of the exit-1 FAIL)
+- A read-only verifier makes **no file edits**, so pi-subagents flips its exit **0 → 1** via the
+  **completion/no-edits guard** (`execution.ts:838` → "completed without making edits for an
+  implementation task"); a *failed* run's inline output is then replaced by a `[failed]` summary,
+  **burying the verdict** (the orchestrator must artifact-grep to recover it → risks misrouting a real
+  PASS/FAIL as an execution failure). **Fix (set once, robust):** `completionGuard: false` in
+  **`verifier.md` frontmatter** — the agent loader honors it (`agents.ts:1156` coerces the string),
+  and `execution.ts:838` then skips the guard entirely. **Do NOT set `acceptance` on the dispatch:** the
+  acceptance gate only flips the exit when acceptance is **explicit** (`execution.ts:1099`); left
+  inferred (`explicit=false`) it never fails the run. ⚠️ The earlier
+  `acceptance: { level: "none", reason }` approach is **rejected on two counts** (both observed live):
+  (a) the local orchestrator **can't emit the nested object** — qwen serialized it as a JSON *string* →
+  tool-validation error → forced a `false` fallback; (b) it targeted the wrong gate (the completion
+  guard, not acceptance, is what failed the run). With `completionGuard:false` + no acceptance param the
+  verify run exits **0** and its `VERDICT` flows into the subagent tool result inline (pi default
+  `outputMode:"inline"`) — no artifact-grep. **Not a relay issue** — a local read-only verifier hits the
+  identical guard.
 
 ### Testing Gates (exact → expected)
 - **Gate 5.1 (no sandbox breakage):** the read-only verifier runs the repo's **full `npm run check`
@@ -454,8 +455,8 @@ changes are reported as diffs for the human to commit (as in Phase 3/4), never a
   **surfaced to the human** (keep/discard) before the verdict is acted on — demonstrated.
 - **Gate 5.5 (repo):** `npm run check` green; lockfile in sync; ADR 0002 **rewritten** to the detect
   model + indexed (Appendix B).
-- **Gate 5.6 (verify exits 0 + verdict in-result, VERBATIM skill):** with
-  `acceptance:{level:"none",reason:"…"}` on the verify dispatch, the verifier run exits **0**, and its
+- **Gate 5.6 (verify exits 0 + verdict in-result, VERBATIM skill):** with `completionGuard: false` on
+  `verifier.md` (and NO `acceptance` param on the dispatch), the verifier run exits **0**, and its
   `VERDICT` appears in the **subagent tool result** (not only an artifact). Gates 5.2–5.4 routing
   re-proven with the orchestrator driven by the **verbatim shipped `phase-orchestrate` skill** — NO
   hand-injected grep/outputPath logic in the prompt.
