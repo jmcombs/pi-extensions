@@ -200,8 +200,29 @@ Releases are automated.
 
 See `VERSIONING.md` for the full policy.
 
+## Dependency Updates
+
+[Dependabot](https://docs.github.com/en/code-security/dependabot) is enabled for the npm
+workspace and for GitHub Actions (see `.github/dependabot.yml`).
+
+- **Version updates** run weekly. Routine minor/patch bumps are **grouped** into a single PR
+  per ecosystem (one npm PR, one Actions PR) to keep review load low; **major bumps arrive as
+  individual PRs** so breaking changes get isolated scrutiny.
+- **Security updates** are opened as needed from the GitHub Advisory Database (see the
+  [Security](#security) section for the repo-level toggles).
+- Every Dependabot PR is gated by the same `npm run check` quality gate as any other PR and
+  requires maintainer (CODEOWNERS) approval before merge, per the "Protect main" ruleset —
+  **nothing auto-merges.**
+- Commit subjects use conventional prefixes (`chore(deps)`, `chore(deps-dev)`, `ci(actions)`)
+  so they pass the `commitlint` job. These prefixes are configured in `.github/dependabot.yml`;
+  do not remove them.
+
 ## Security
 
 Never commit secrets. `secretlint` runs in `npm run check` to catch obvious mistakes, but you
 are still responsible for what you commit. Use `~/.pi/agent/auth.json` or environment variables
 for runtime secrets; see each package's README for guidance.
+
+Dependabot **alerts** and **security updates** are enabled for the repository — the proactive
+half of the supply-chain story (see [Dependency Updates](#dependency-updates)). They surface
+vulnerable dependencies in the Security tab and open pre-patched fix PRs automatically.
