@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.3/schema.json",
   // Honor .gitignore so generated/vendored files are never touched.
   "vcs": {
     "enabled": true,
@@ -18,7 +18,10 @@
       "!**/package-lock.json",
       "!**/CHANGELOG.md",
       "!**/.pi-subagents",
-      "!packages/_template"
+      "!packages/_template",
+      // Decorative design assets — biome ≥2.5 lints SVGs for a11y (empty
+      // <title>), which does not apply to standalone marketing artwork.
+      "!**/*.svg"
     ]
   },
   // Match the previous Prettier config: 2-space indent, 100 col, double quotes,
