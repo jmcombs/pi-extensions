@@ -23,7 +23,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: googleapis/release-please-action@v4
         id: release
         with:
@@ -61,7 +61,7 @@ jobs:
       contents: read
       id-token: write # required for npm OIDC publishing + provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ matrix.package.tag }}
 
