@@ -6,11 +6,17 @@
  * temp files.
  */
 
+// biome-ignore-all lint/suspicious/noTemplateCurlyInString: the makeGhBodySafe fixtures embed literal shell syntax (${VAR}, $(cmd)) on purpose.
+
+import { execFile } from "node:child_process";
 import { promises as fsPromises } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { editTool, readTool, safeResolve } from "./index.js";
+import factory, { editTool, makeGhBodySafe, readTool, safeResolve } from "./index.js";
+
+const execFileAsync = promisify(execFile);
 
 interface RegistrationLog {
   tools: string[];
@@ -95,6 +101,13 @@ describe("@jmcombs/pi-better-toolsy", () => {
     expect(log.flags).toHaveLength(0);
     expect(log.commands).toHaveLength(0);
     expect(log.shortcuts).toHaveLength(0);
+  });
+
+  it("registers a tool_call listener for gh-body sanitization", () => {
+    const { api, log } = createApiStub();
+    factory(api);
+
+    expect(log.events).toContain("tool_call");
   });
 });
 
@@ -181,5 +194,132 @@ describe("editTool", () => {
     } finally {
       await fsPromises.unlink(filePath);
     }
+  });
+});
+
+describe("makeGhBodySafe", () => {
+  describe("rewrites shell-unsafe values", () => {
+    it("single-quotes a --body containing backticks", () => {
+      const { command, changed } = makeGhBodySafe(
+        'gh pr create --title "T" --body "## Phase 2 uses `ci.yml`"',
+      );
+      expect(changed).toBe(true);
+      expect(command).toBe("gh pr create --title \"T\" --body '## Phase 2 uses `ci.yml`'");
+    });
+
+    it("single-quotes a --body containing $(…)", () => {
+      const { command, changed } = makeGhBodySafe('gh pr create --body "built by $(whoami)"');
+      expect(changed).toBe(true);
+      expect(command).toBe("gh pr create --body 'built by $(whoami)'");
+    });
+
+    it("single-quotes a --body containing ${VAR}", () => {
+      const { command, changed } = makeGhBodySafe('gh issue create --body "home is ${HOME}"');
+      expect(changed).toBe(true);
+      expect(command).toBe("gh issue create --body 'home is ${HOME}'");
+    });
+
+    it("single-quotes a --body containing a bare $VAR", () => {
+      const { command, changed } = makeGhBodySafe('gh pr edit 1 --body "path is $PATH now"');
+      expect(changed).toBe(true);
+      expect(command).toBe("gh pr edit 1 --body 'path is $PATH now'");
+    });
+
+    it("rewrites --title (same exposure as --body)", () => {
+      const { command, changed } = makeGhBodySafe(
+        'gh pr create --title "release `v2`" --body "ok"',
+      );
+      expect(changed).toBe(true);
+      // --body "ok" has no shell-active chars and is left untouched.
+      expect(command).toBe("gh pr create --title 'release `v2`' --body \"ok\"");
+    });
+
+    it("rewrites gh release --notes (not --body)", () => {
+      const { command, changed } = makeGhBodySafe('gh release create v1 --notes "see `CHANGELOG`"');
+      expect(changed).toBe(true);
+      expect(command).toBe("gh release create v1 --notes 'see `CHANGELOG`'");
+    });
+
+    it('handles the attached --body="…" form', () => {
+      const { command, changed } = makeGhBodySafe('gh pr create --body="uses `x`"');
+      expect(changed).toBe(true);
+      expect(command).toBe("gh pr create --body='uses `x`'");
+    });
+
+    it("escapes embedded single quotes via '\\''", () => {
+      const { command, changed } = makeGhBodySafe(`gh pr create --body "it's $(date)"`);
+      expect(changed).toBe(true);
+      expect(command).toBe(`gh pr create --body 'it'\\''s $(date)'`);
+    });
+
+    it("rewrites only the unsafe flag, leaving the rest byte-identical", () => {
+      const input = 'gh pr create --draft --title "T" --body "has `tick`" --label bug';
+      const { command, changed } = makeGhBodySafe(input);
+      expect(changed).toBe(true);
+      expect(command).toBe("gh pr create --draft --title \"T\" --body 'has `tick`' --label bug");
+    });
+  });
+
+  describe("leaves safe or unrelated commands untouched", () => {
+    const unchanged = [
+      // Plain body, no shell-active characters.
+      'gh pr create --body "just plain prose"',
+      // Already single-quoted — nothing to do.
+      "gh pr create --body 'already `safe`'",
+      // Body sourced from a file is inherently expansion-safe.
+      "gh pr create --body-file body.md",
+      // Backticks already escaped inside the double quotes → bash won't expand.
+      'gh pr create --body "escaped \\`tick\\`"',
+      // Not a gh command: generic -n/-b/-t must never be touched.
+      'grep -rn "foo$BAR" .',
+      "sort -n data.txt",
+      'git commit -m "fix: uses `x`"',
+      // gh, but a subcommand without a body flag involved.
+      "gh pr view 1 --json body",
+    ];
+
+    for (const input of unchanged) {
+      it(`no-op: ${input}`, () => {
+        const { command, changed } = makeGhBodySafe(input);
+        expect(changed).toBe(false);
+        expect(command).toBe(input);
+      });
+    }
+
+    it("bails on nested quotes inside $(…) rather than corrupt the command", () => {
+      const input = 'gh pr create --body "text $(echo "hi") end"';
+      const { command, changed } = makeGhBodySafe(input);
+      expect(changed).toBe(false);
+      expect(command).toBe(input);
+    });
+  });
+
+  describe("round-trips through a real shell verbatim", () => {
+    // Prove that after rewriting, bash reproduces the intended body exactly —
+    // no command substitution. We run the rewritten value token through
+    // `printf %s`, which is what gh does with the argument minus the network.
+    const bodies = [
+      "## Phase 2 edits `.github/workflows/ci.yml`",
+      "built by $(whoami) at ${PWD}",
+      "mix `a` and $(b) and $PATH and ${X}",
+    ];
+
+    for (const body of bodies) {
+      it(`preserves: ${body}`, async () => {
+        const { command, changed } = makeGhBodySafe(`gh pr create --body "${body}"`);
+        expect(changed).toBe(true);
+        const valueToken = command.slice(command.indexOf("--body ") + "--body ".length);
+        const { stdout } = await execFileAsync("bash", ["-c", `printf %s ${valueToken}`]);
+        expect(stdout).toBe(body);
+      });
+    }
+
+    it("the original double-quoted form would have been garbled (control)", async () => {
+      const body = "uses `echo GARBLE`";
+      const { stdout } = await execFileAsync("bash", ["-c", `printf %s "${body}"`]);
+      // Command substitution ran — proving the bug the rewrite prevents.
+      expect(stdout).not.toBe(body);
+      expect(stdout).toContain("GARBLE");
+    });
   });
 });

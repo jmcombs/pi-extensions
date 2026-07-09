@@ -11,7 +11,7 @@
 
 # @jmcombs/pi-better-toolsy
 
-Drop-in replacements for Pi's built-in `ls`, `read`, `grep`, `find`, `edit`, and `write` tools — transparently adds `.gitignore` awareness, path-traversal protection, and injection-safe edits without changing how the agent works.
+Drop-in replacements for Pi's built-in `ls`, `read`, `grep`, `find`, `edit`, and `write` tools — transparently adds `.gitignore` awareness, path-traversal protection, and injection-safe edits without changing how the agent works. It also normalizes shell-unsafe `gh` PR/issue/release bodies so Markdown backticks don't get command-substituted.
 
 ## Quick Start
 
@@ -51,6 +51,12 @@ The built-in `edit` tool uses `String.prototype.replace`, which silently expands
 ### Multi-Edit Support
 
 The `edit` tool accepts an array of `{ oldText, newText }` pairs and applies them in sequence within a single call. Each edit is validated for uniqueness before any change is written to disk.
+
+### Shell-Safe `gh` Bodies
+
+When a model writes `gh pr create --body "## Notes about \`ci.yml\` built by $(date)"`, bash performs command substitution on the backticks and `$(…)` **inside the double quotes**, silently garbling the PR body. A `tool_call` hook rewrites the `--body`, `--title`, and `--notes` values of `gh pr`, `gh issue`, and `gh release` commands to single-quoted form (which disables all expansion) before the built-in `bash` tool runs — so the body lands verbatim on the first try instead of relying on the model noticing and re-issuing an edit.
+
+It only acts when the value is double-quoted **and** contains an unescaped backtick or `$`, and it is deliberately fail-safe: any parsing ambiguity (e.g. nested quotes inside `$(…)`) leaves the command untouched. Generic `-n`/`-b`/`-t` flags on non-`gh` commands (`grep -n`, `sort -n`) are never affected. Each rewrite is logged so the mutation is observable.
 
 ## Development
 

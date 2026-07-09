@@ -5,6 +5,12 @@
  * that add: .gitignore awareness, path-traversal protection, $ injection-safe
  * edits, normalized search paths, and a file-size guard on reads.
  *
+ * Also registers a `tool_call` hook that normalizes shell-unsafe `gh pr/issue/
+ * release` bodies: a double-quoted --body/--title/--notes whose value contains
+ * backticks or `$` is command-substituted by bash *inside the double quotes*,
+ * silently garbling Markdown. The hook re-quotes such values as single-quoted
+ * (expansion-safe) before the built-in bash tool runs. See makeGhBodySafe.
+ *
  * See:
  *    - CONTRIBUTING.md (project conventions)
  *    - TEMPLATE.md at the repo root
@@ -16,6 +22,7 @@ import { type Dirent, promises as fs } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 
@@ -654,6 +661,162 @@ function renderToolResult(
   return new Text(body, 0, 0);
 }
 
+// ── gh body sanitization ───────────────────────────────────────────────
+// A double-quoted `gh … --body "…"` whose value contains backticks or `$` gets
+// command-substituted by bash *inside the double quotes*, garbling Markdown PR/
+// issue/release bodies. We re-quote such values as single-quoted (which disables
+// ALL expansion), mirroring the fix a model applies by hand. Pure and fail-safe:
+// any parse ambiguity leaves the command byte-for-byte untouched. Over-quoting a
+// body is harmless (bodies never intend expansion); under-detecting just falls
+// back to the status quo — so we only ever err on the safe side.
+
+// Long/short flags whose value is free-form prose that must not shell-expand.
+// Only honored inside a gh pr/issue/release command (see the segment walk in
+// makeGhBodySafe), so a generic -n/-b/-t elsewhere (grep -n, sort -n) is never
+// touched. Note: gh release uses --notes/-n, not --body.
+const GH_BODY_FLAGS = new Set(["--body", "-b", "--title", "-t", "--notes", "-n"]);
+const GH_SUBCOMMANDS = new Set(["pr", "issue", "release"]);
+const COMMAND_SEPARATORS = new Set(["&&", "||", "|", ";"]);
+const ATTACHED_FLAG = /^(--body|--title|--notes)=/;
+
+type Word = { start: number; end: number; text: string };
+
+/** POSIX-safe single-quoting: close, escaped-quote, reopen around each `'`. */
+function singleQuote(s: string): string {
+  return `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Split a command into shell words, respecting single/double quotes and
+ * backslash escapes, recording each word's [start, end) span in the original
+ * string. Returns null on unbalanced quoting so the caller leaves the command
+ * alone (fail-safe).
+ */
+function tokenizeWords(cmd: string): Word[] | null {
+  const words: Word[] = [];
+  const n = cmd.length;
+  let i = 0;
+  while (i < n) {
+    while (i < n && /\s/.test(cmd[i] as string)) i++;
+    if (i >= n) break;
+    const start = i;
+    let quote: "none" | "single" | "double" = "none";
+    while (i < n) {
+      const c = cmd[i] as string;
+      if (quote === "none") {
+        if (/\s/.test(c)) break;
+        if (c === "'") quote = "single";
+        else if (c === '"') quote = "double";
+        else if (c === "\\") i++; // skip the escaped char
+      } else if (quote === "single") {
+        if (c === "'") quote = "none";
+      } else {
+        if (c === "\\")
+          i++; // inside "…", backslash escapes the next char
+        else if (c === '"') quote = "none";
+      }
+      i++;
+    }
+    if (quote !== "none") return null; // unterminated quote
+    words.push({ start, end: i, text: cmd.slice(start, i) });
+  }
+  return words;
+}
+
+/**
+ * If `text` is exactly one double-quoted string (`"…"`), return its raw inner
+ * content; otherwise null. The closing quote must be the final character, which
+ * rejects the ambiguous `"… $(echo "x") …"` (nested quotes inside command
+ * substitution) — bailing there rather than risk corrupting a valid command.
+ */
+function asDoubleQuoted(text: string): string | null {
+  if (text.length < 2 || text[0] !== '"') return null;
+  let i = 1;
+  while (i < text.length) {
+    const c = text[i] as string;
+    if (c === "\\") {
+      i += 2;
+      continue;
+    }
+    if (c === '"') return i === text.length - 1 ? text.slice(1, i) : null;
+    i++;
+  }
+  return null; // no closing quote
+}
+
+/** Un-apply the four escapes bash honors inside double quotes → literal text. */
+function unescapeDoubleQuoted(inner: string): string {
+  return inner.replace(/\\(["\\$`])/g, "$1");
+}
+
+/** True if `inner` has a backtick or `$` that bash would act on (unescaped). */
+function hasUnescapedShellActive(inner: string): boolean {
+  return /(?<!\\)[`$]/.test(inner);
+}
+
+/**
+ * Re-quote shell-unsafe `gh pr/issue/release` --body/--title/--notes values as
+ * single-quoted. Returns the (possibly) rewritten command and whether anything
+ * changed. Never throws; on any ambiguity returns `{ command, changed: false }`.
+ */
+export function makeGhBodySafe(command: string): { command: string; changed: boolean } {
+  const words = tokenizeWords(command);
+  if (!words) return { command, changed: false };
+
+  // Walk simple-command segments (split on &&/||/|/;). Only act on flags inside
+  // a segment whose command name is `gh` (or `…/gh`) and that names a pr/issue/
+  // release subcommand — this is what keeps us off unrelated `-n/-b/-t`.
+  const edits: { start: number; end: number; text: string }[] = [];
+  let cmdName: string | null = null;
+  let cmdIsGh = false;
+  let ghSubSeen = false;
+
+  const considerValue = (start: number, end: number, dq: string) => {
+    if (!hasUnescapedShellActive(dq)) return;
+    edits.push({ start, end, text: singleQuote(unescapeDoubleQuoted(dq)) });
+  };
+
+  for (let w = 0; w < words.length; w++) {
+    const word = words[w] as Word;
+    if (COMMAND_SEPARATORS.has(word.text)) {
+      cmdName = null;
+      cmdIsGh = false;
+      ghSubSeen = false;
+      continue;
+    }
+    if (cmdName === null) {
+      cmdName = word.text;
+      cmdIsGh = word.text === "gh" || word.text.endsWith("/gh");
+      continue;
+    }
+    if (cmdIsGh && !ghSubSeen && GH_SUBCOMMANDS.has(word.text)) ghSubSeen = true;
+    if (!cmdIsGh || !ghSubSeen) continue;
+
+    // Attached form: --body="…"
+    if (ATTACHED_FLAG.test(word.text)) {
+      const eq = word.text.indexOf("=");
+      const dq = asDoubleQuoted(word.text.slice(eq + 1));
+      if (dq != null) considerValue(word.start + eq + 1, word.end, dq);
+      continue;
+    }
+    // Separated form: --body "…"
+    if (GH_BODY_FLAGS.has(word.text) && w + 1 < words.length) {
+      const value = words[w + 1] as Word;
+      if (!COMMAND_SEPARATORS.has(value.text)) {
+        const dq = asDoubleQuoted(value.text);
+        if (dq != null) considerValue(value.start, value.end, dq);
+      }
+    }
+  }
+
+  if (edits.length === 0) return { command, changed: false };
+  // Apply right-to-left so earlier spans keep their original indices.
+  edits.sort((a, b) => b.start - a.start);
+  let out = command;
+  for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  return { command: out, changed: true };
+}
+
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
@@ -736,5 +899,26 @@ export default function (pi: ExtensionAPI): void {
     renderCall: (args: WriteInput, theme) => renderToolHeader("write", args.path, theme),
     renderResult: (result, options, theme, context) =>
       renderToolResult(result, context.isError, options.expanded, theme),
+  });
+
+  // Rewrite shell-unsafe `gh …--body/--title/--notes` before the built-in bash
+  // tool runs. `event.input` is mutable in place (Pi re-runs no validation), so
+  // we patch `command` directly. Fully defensive: any error leaves it untouched.
+  pi.on("tool_call", (event) => {
+    if (!isToolCallEventType("bash", event)) return;
+    try {
+      const { command, changed } = makeGhBodySafe(event.input.command);
+      if (changed) {
+        event.input.command = command;
+        // Observable in Pi's extension logs. `pi.notify(msg, "info")` is
+        // available if an in-session toast is ever wanted (kept off — it would
+        // fire on every PR create).
+        console.error(
+          "[better-toolsy] normalized shell-unsafe gh --body/--title/--notes to single-quoted form",
+        );
+      }
+    } catch {
+      // fail-safe: never mutate the command on error
+    }
   });
 }
