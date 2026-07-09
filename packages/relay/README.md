@@ -82,25 +82,48 @@ the pi-subagents path). The provider streams the completion through pi's own
   a pi `message_update`, advancing the parent's activity clock; the verdict still
   rides only on the terminal result, so the beats never affect it.
 
-## Quick Start
+## Install
 
 ```bash
-# Load the provider into a real Pi session
-pi -e ./packages/relay
+# Globally (recommended)
+pi install @jmcombs/pi-relay
 
-# Route a session (or subagent) through the relay provider
-pi -e ./packages/relay --model relay-claude/opus "…"
+# For a single session, without installing
+pi -e ./packages/relay
+```
+
+See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
+path, project-scoped install, and filtering options.
+
+## Usage
+
+Relay registers the `relay-claude` **provider**; you use it by pointing a subagent
+(or a whole session) at it through `model`:
+
+```bash
+# Route a whole session through the relay provider
+pi --model relay-claude/opus "…"
 ```
 
 To run an existing subagent through relay, set its `model` frontmatter to
-`relay-claude/opus` and make relay discoverable in the subagent's child pi (via an
-installed package or the agent's `extensions` field). See the
-[Pi packages documentation](https://pi.dev/docs/packages) for install options.
+`relay-claude/opus` and make relay discoverable in the subagent's child pi (an
+installed package, or the agent's `extensions` field). The flagship example is the
+`verifier` subagent — `model: relay-claude/opus` with a read-only tool set.
+
+## Extending — adding a driver
+
+Relay is backend-agnostic through the `AgentDriver` seam (D10). `claudeDriver` is the
+sole live implementation; `drivers/codex.ts` is a documented seam-only stub for a future
+OpenAI Codex backend. To add a driver for another coding agent (Codex, Gemini CLI, …) —
+the `AgentDriver` API, the pi→backend tool-name mapping, the read-only/fail-safe
+constraints, and a step-by-step guide — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) in
+this package.
 
 ## Development
 
 This package lives in the [pi-extensions monorepo](https://github.com/jmcombs/pi-extensions).
-See `CONTRIBUTING.md` at the repo root for project conventions.
+See the repo-root [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for project conventions, and
+this package's [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the driver seam.
 
 ```bash
 # From the repo root
