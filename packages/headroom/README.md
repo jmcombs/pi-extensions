@@ -58,7 +58,7 @@ compression, no added latency). See [Graceful degradation](#graceful-degradation
 
 ```bash
 # Globally (recommended)
-pi install @jmcombs/pi-headroom
+pi install npm:@jmcombs/pi-headroom
 
 # For a single session, without installing
 pi -e ./packages/headroom

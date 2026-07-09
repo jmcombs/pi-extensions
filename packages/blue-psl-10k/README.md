@@ -16,7 +16,7 @@ Replaces Pi's default footer with a two-line Powerline status bar and bundles th
 ## Quick Start
 
 ```bash
-pi install @jmcombs/pi-blue-psl-10k
+pi install npm:@jmcombs/pi-blue-psl-10k
 ```
 
 Then apply the theme:
