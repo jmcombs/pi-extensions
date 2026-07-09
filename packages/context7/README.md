@@ -20,7 +20,7 @@ Get better library documentation in your agent in under a minute.
 1. Install the extension:
 
    ```bash
-   pi install @jmcombs/pi-context7
+   pi install npm:@jmcombs/pi-context7
    ```
 
 2. Configure your Context7 API key:

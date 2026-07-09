@@ -21,7 +21,7 @@ Get the extension in under a minute:
 1. Install:
 
    ```bash
-   pi install @jmcombs/pi-EXTENSION_NAME
+   pi install npm:@jmcombs/pi-EXTENSION_NAME
    ```
 
 2. (Optional) Try without installing:
