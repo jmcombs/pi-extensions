@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.3...better-toolsy/v1.2.0) (2026-07-09)
+
+
+### Features
+
+* **better-toolsy:** normalize shell-unsafe gh --body/--title to single-quoted form ([#127](https://github.com/jmcombs/pi-extensions/issues/127)) ([ddb7802](https://github.com/jmcombs/pi-extensions/commit/ddb7802045a94bbdce92912e8749b14b02486c5c)), closes [#126](https://github.com/jmcombs/pi-extensions/issues/126)
+
 ## [1.1.3](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.2...better-toolsy/v1.1.3) (2026-06-07)
 
 
