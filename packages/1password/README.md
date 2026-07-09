@@ -22,7 +22,7 @@ Get transparent credential injection in under a minute:
 2. Install the extension:
 
    ```bash
-   pi install @jmcombs/pi-1password
+   pi install npm:@jmcombs/pi-1password
    ```
 
 3. In any Pi chat, type:
