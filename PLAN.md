@@ -471,8 +471,14 @@ Appendix D regression holds.
 ---
 
 ## Phases 6–7 (spec finalized when reached — objectives + gates only)
-- **Phase 6 — Gate B.** 25 live orchestrated verify runs. Gate: 0 false-merge across all 25.
-  Then flip `"private": false` + Release Please for 1.0.0.
+- **Phase 6 — Gate B.** ✅ DONE. Gate B measured **through the shipped `verifier` role**
+  (relay-claude/opus + its real skills), not bare `claude -p` — the only lens that catches a
+  role-level false-merge. Full 9-case pass: 6/6 gate-defect catch, **0 false-merge**, 3/3
+  audit-catch, 3/3 correct→PASS, 0 UNVERIFIED; audit-stability 9/9. A stochastic false-merge on
+  a committed `dist/` artifact was root-caused to the `git-hygiene` skill and fixed at source.
+  Then flipped `"private": false` + registered Release Please; **`@jmcombs/pi-relay@1.0.0`
+  published** (bootstrap 0.0.0 → OIDC-managed 1.0.0). `verifier.md` repointed to
+  `npm:@jmcombs/pi-relay`.
 - **Phase 7 — (optional) Duplex escalation.** Intercom-broker ask-reply for human escalation
   (true pi↔pi / cross-session channel).
 
@@ -529,7 +535,7 @@ the official `@earendil-works/pi-ai` peer-dep + deletion of the hand-rolled
 - [x] Phase 3 — Relay Roles (provider seam)
 - [x] Phase 4 — Accuracy regression (through the role)
 - [x] Phase 5 — Wire into the phase loop
-- [ ] Phase 6 — Gate B
+- [x] Phase 6 — Gate B (published `@jmcombs/pi-relay@1.0.0`)
 - [ ] Phase 7 — (optional) Duplex escalation
 
 ## Appendix D — Definition of Done (full-repo regression; verifier runs all)

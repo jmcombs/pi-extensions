@@ -59,6 +59,12 @@
       "component": "headroom",
       "package-name": "@jmcombs/pi-headroom",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/relay": {
+      "release-type": "node",
+      "component": "relay",
+      "package-name": "@jmcombs/pi-relay",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
