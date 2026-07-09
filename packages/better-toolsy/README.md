@@ -16,7 +16,7 @@ Drop-in replacements for Pi's built-in `ls`, `read`, `grep`, `find`, `edit`, and
 ## Quick Start
 
 ```bash
-pi install @jmcombs/pi-better-toolsy
+pi install npm:@jmcombs/pi-better-toolsy
 ```
 
 That's it. The agent uses its normal tool names and your implementations run automatically.
