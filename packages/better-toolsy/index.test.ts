@@ -322,4 +322,95 @@ describe("makeGhBodySafe", () => {
       expect(stdout).toContain("GARBLE");
     });
   });
+
+  describe("reports which flags were normalized", () => {
+    it("names --body and --title when both are rewritten", () => {
+      const { flags } = makeGhBodySafe('gh pr create --title "T `x`" --body "b `y`"');
+      expect(flags).toEqual(["--body", "--title"]);
+    });
+
+    it("canonicalizes short flags (-n → --notes)", () => {
+      const { flags } = makeGhBodySafe('gh release create v1 -n "see `CHANGELOG`"');
+      expect(flags).toEqual(["--notes"]);
+    });
+
+    it("returns no flags for a pass-through command", () => {
+      const { changed, flags } = makeGhBodySafe("gh pr view 1");
+      expect(changed).toBe(false);
+      expect(flags).toEqual([]);
+    });
+  });
+});
+
+describe("gh-body tool_call hook", () => {
+  function loadHook(): (event: unknown, ctx: unknown) => unknown {
+    let handler: ((event: unknown, ctx: unknown) => unknown) | undefined;
+    const api = {
+      registerTool: () => {},
+      on: (event: string, h: (event: unknown, ctx: unknown) => unknown) => {
+        if (event === "tool_call") handler = h;
+      },
+    } as unknown as ExtensionAPI;
+    factory(api);
+    if (!handler) throw new Error("tool_call handler not registered");
+    return handler;
+  }
+
+  function uiCtx(): { ctx: unknown; notes: { message: string; type?: string }[] } {
+    const notes: { message: string; type?: string }[] = [];
+    const ctx = {
+      hasUI: true,
+      ui: {
+        notify: (message: string, type?: string) => {
+          notes.push({ message, type });
+        },
+      },
+    };
+    return { ctx, notes };
+  }
+
+  it("mutates the command and emits a 🔧 bt notification naming the flags", () => {
+    const handler = loadHook();
+    const { ctx, notes } = uiCtx();
+    const event = {
+      toolName: "bash",
+      input: { command: 'gh pr create --title "T `x`" --body "uses `y`"' },
+    };
+    handler(event, ctx);
+
+    expect(event.input.command).toBe("gh pr create --title 'T `x`' --body 'uses `y`'");
+    expect(notes).toHaveLength(1);
+    const message = notes[0]?.message ?? "";
+    expect(message).toContain("🔧 bt"); // same signature as every other tool
+    expect(message).toContain("--body");
+    expect(message).toContain("--title");
+    expect(notes[0]?.type).toBe("info");
+  });
+
+  it("does not notify on a pass-through command", () => {
+    const handler = loadHook();
+    const { ctx, notes } = uiCtx();
+    const event = { toolName: "bash", input: { command: "gh pr view 1" } };
+    handler(event, ctx);
+
+    expect(event.input.command).toBe("gh pr view 1");
+    expect(notes).toHaveLength(0);
+  });
+
+  it("ignores non-bash tool calls", () => {
+    const handler = loadHook();
+    const { ctx, notes } = uiCtx();
+    const event = { toolName: "read", input: { path: "x" } };
+    handler(event, ctx);
+
+    expect(notes).toHaveLength(0);
+  });
+
+  it("still rewrites without a UI (no throw, no toast)", () => {
+    const handler = loadHook();
+    const event = { toolName: "bash", input: { command: 'gh pr create --body "uses `z`"' } };
+    // ctx.hasUI is false → skip the toast, but the command must still be fixed.
+    handler(event, { hasUI: false });
+    expect(event.input.command).toBe("gh pr create --body 'uses `z`'");
+  });
 });

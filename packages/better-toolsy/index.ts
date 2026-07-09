@@ -679,6 +679,19 @@ const GH_SUBCOMMANDS = new Set(["pr", "issue", "release"]);
 const COMMAND_SEPARATORS = new Set(["&&", "||", "|", ";"]);
 const ATTACHED_FLAG = /^(--body|--title|--notes)=/;
 
+// Map each flag alias to its canonical long name, so the visible message can
+// report which flags were normalized (e.g. `-b` and `--body` both report
+// `--body`). FLAG_ORDER gives a stable display order.
+const CANONICAL_FLAG: Record<string, string> = {
+  "--body": "--body",
+  "-b": "--body",
+  "--title": "--title",
+  "-t": "--title",
+  "--notes": "--notes",
+  "-n": "--notes",
+};
+const FLAG_ORDER = ["--body", "--title", "--notes"];
+
 type Word = { start: number; end: number; text: string };
 
 /** POSIX-safe single-quoting: close, escaped-quote, reopen around each `'`. */
@@ -756,24 +769,32 @@ function hasUnescapedShellActive(inner: string): boolean {
 
 /**
  * Re-quote shell-unsafe `gh pr/issue/release` --body/--title/--notes values as
- * single-quoted. Returns the (possibly) rewritten command and whether anything
- * changed. Never throws; on any ambiguity returns `{ command, changed: false }`.
+ * single-quoted. Returns the (possibly) rewritten command, whether anything
+ * changed, and the canonical long names of the flags that were normalized (for
+ * the visible message). Never throws; on any ambiguity returns
+ * `{ command, changed: false, flags: [] }`.
  */
-export function makeGhBodySafe(command: string): { command: string; changed: boolean } {
+export function makeGhBodySafe(command: string): {
+  command: string;
+  changed: boolean;
+  flags: string[];
+} {
   const words = tokenizeWords(command);
-  if (!words) return { command, changed: false };
+  if (!words) return { command, changed: false, flags: [] };
 
   // Walk simple-command segments (split on &&/||/|/;). Only act on flags inside
   // a segment whose command name is `gh` (or `…/gh`) and that names a pr/issue/
   // release subcommand — this is what keeps us off unrelated `-n/-b/-t`.
   const edits: { start: number; end: number; text: string }[] = [];
+  const flagsSeen = new Set<string>();
   let cmdName: string | null = null;
   let cmdIsGh = false;
   let ghSubSeen = false;
 
-  const considerValue = (start: number, end: number, dq: string) => {
+  const considerValue = (flag: string, start: number, end: number, dq: string) => {
     if (!hasUnescapedShellActive(dq)) return;
     edits.push({ start, end, text: singleQuote(unescapeDoubleQuoted(dq)) });
+    flagsSeen.add(CANONICAL_FLAG[flag] ?? flag);
   };
 
   for (let w = 0; w < words.length; w++) {
@@ -796,7 +817,7 @@ export function makeGhBodySafe(command: string): { command: string; changed: boo
     if (ATTACHED_FLAG.test(word.text)) {
       const eq = word.text.indexOf("=");
       const dq = asDoubleQuoted(word.text.slice(eq + 1));
-      if (dq != null) considerValue(word.start + eq + 1, word.end, dq);
+      if (dq != null) considerValue(word.text.slice(0, eq), word.start + eq + 1, word.end, dq);
       continue;
     }
     // Separated form: --body "…"
@@ -804,17 +825,17 @@ export function makeGhBodySafe(command: string): { command: string; changed: boo
       const value = words[w + 1] as Word;
       if (!COMMAND_SEPARATORS.has(value.text)) {
         const dq = asDoubleQuoted(value.text);
-        if (dq != null) considerValue(value.start, value.end, dq);
+        if (dq != null) considerValue(word.text, value.start, value.end, dq);
       }
     }
   }
 
-  if (edits.length === 0) return { command, changed: false };
+  if (edits.length === 0) return { command, changed: false, flags: [] };
   // Apply right-to-left so earlier spans keep their original indices.
   edits.sort((a, b) => b.start - a.start);
   let out = command;
   for (const e of edits) out = out.slice(0, e.start) + e.text + out.slice(e.end);
-  return { command: out, changed: true };
+  return { command: out, changed: true, flags: FLAG_ORDER.filter((f) => flagsSeen.has(f)) };
 }
 
 // ── Extension factory ──────────────────────────────────────────────────
@@ -904,19 +925,25 @@ export default function (pi: ExtensionAPI): void {
   // Rewrite shell-unsafe `gh …--body/--title/--notes` before the built-in bash
   // tool runs. `event.input` is mutable in place (Pi re-runs no validation), so
   // we patch `command` directly. Fully defensive: any error leaves it untouched.
-  pi.on("tool_call", (event) => {
+  pi.on("tool_call", (event, ctx) => {
     if (!isToolCallEventType("bash", event)) return;
     try {
-      const { command, changed } = makeGhBodySafe(event.input.command);
-      if (changed) {
-        event.input.command = command;
-        // Observable in Pi's extension logs. `pi.notify(msg, "info")` is
-        // available if an in-session toast is ever wanted (kept off — it would
-        // fire on every PR create).
-        console.error(
-          "[better-toolsy] normalized shell-unsafe gh --body/--title/--notes to single-quoted form",
-        );
-      }
+      const { command, changed, flags } = makeGhBodySafe(event.input.command);
+      if (!changed) return;
+      event.input.command = command;
+
+      // Report which flags were normalized (falls back to the full list if,
+      // defensively, none were captured). `${flagList} → single-quoted form`.
+      const flagList = flags.length > 0 ? flags.join(", ") : "--body/--title/--notes";
+      const detail = `normalized shell-unsafe gh ${flagList} → single-quoted form`;
+
+      // Surface in-session with the same 🔧 bt signature every other
+      // better-toolsy tool stamps (ctx.ui.notify is a plain-text toast, so we
+      // prefix the FINGERPRINT constant rather than a themed badge). Guarded by
+      // hasUI so headless/CI runs skip the toast but still get the log below.
+      if (ctx?.hasUI) ctx.ui.notify(`${FINGERPRINT} ${detail}`, "info");
+      // Always logged for non-interactive / CI runs.
+      console.error(`[better-toolsy] ${detail}`);
     } catch {
       // fail-safe: never mutate the command on error
     }
