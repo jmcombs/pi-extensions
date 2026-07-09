@@ -86,10 +86,10 @@ the pi-subagents path). The provider streams the completion through pi's own
 
 ```bash
 # Globally (recommended)
-pi install @jmcombs/pi-relay
+pi install npm:@jmcombs/pi-relay
 
 # For a single session, without installing
-pi -e ./packages/relay
+pi -e npm:@jmcombs/pi-relay
 ```
 
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
