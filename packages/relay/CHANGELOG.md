@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.0.0...relay/v1.1.0) (2026-07-12)
+
+
+### Features
+
+* **relay:** add Grok Build CLI driver (relay-grok) ([#134](https://github.com/jmcombs/pi-extensions/issues/134)) ([b984d9e](https://github.com/jmcombs/pi-extensions/commit/b984d9e6e9406aef486689f341acc5287b390c88))
+
 ## 1.0.0 (2026-07-09)
 
 
