@@ -11,33 +11,40 @@
 
 > **Relay roles** for the [Pi coding agent](https://pi.dev): run any Pi **subagent**
 > on an **external coding agent** instead of a local model — just by setting its
-> `model`. Relay registers a pi **provider** (`relay-claude`); a subagent whose
-> `model` is `relay-claude/opus` routes through relay to a headless **Claude Opus**
-> via `claude -p`, which runs its own tool loop and returns the final result.
+> `model`. Relay registers pi **providers** (`relay-claude`, `relay-grok`); a
+> subagent whose `model` is `relay-claude/opus` or `relay-grok/grok-4.5` routes
+> through relay to a headless **Claude Opus** (`claude -p`) or **Grok Build**
+> (`grok -p`), which runs its own tool loop and returns the final result.
 
-> **Not affiliated with or endorsed by Anthropic. Claude and Opus are trademarks
-> of Anthropic, PBC.**
+> **Not affiliated with or endorsed by Anthropic or xAI. Claude and Opus are
+> trademarks of Anthropic, PBC; Grok is a trademark of xAI.**
 
 ## How It Works
 
 A **relay role** is an existing pi-subagent (its persona `.md` + referenced
 `SKILL.md`s). Nothing about the subagent changes except the processor:
 
-- **Trigger + model** — set a subagent's `model` to `relay-claude/opus`. pi's
-  native `resolveModel` routes the completion to relay's registered provider →
-  `claudeDriver` → `claude -p … --model opus`.
+- **Trigger + model** — set a subagent's `model` to `relay-claude/opus` or
+  `relay-grok/grok-4.5`. pi's native `resolveModel` routes the completion to
+  relay's registered provider → `claudeDriver`/`grokDriver` → `claude -p …
+  --model opus` / `grok -p … --model grok-4.5`.
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
   a skill injection into the (child) session's system prompt, where skills are
   `<available_skills>` **references** (name/description/location). Relay reads each
   referenced `SKILL.md` and **inlines its full content** into the prompt it writes
-  to `claude`'s `--system-prompt-file`, so the methodology is guaranteed present
-  (deterministic — our code writes the file; no model re-echo, no drift).
-- **Tools** — the driver maps the subagent's pi tools to `claude`'s
-  `--allowedTools` (`read → Read`, `bash → Bash`, `edit → Edit`, `write → Write`,
+  via the backend's own system-prompt mechanism (`claude`'s
+  `--system-prompt-file`, or `grok`'s inline `--system-prompt-override`/`--rules`),
+  so the methodology is guaranteed present (deterministic — no model re-echo, no
+  drift).
+- **Tools** — each driver maps the subagent's pi tools onto its backend's own
+  permission model (`read → Read`, `bash → Bash`, `edit → Edit`, `write → Write`,
   `grep → Grep`, `find → Glob`); pi-only tools with no external equivalent (e.g.
-  `subagent`, `ls`) are dropped. The map is a **driver** function (D10).
+  `subagent`, `ls`) are dropped. Claude gets `--allowedTools`; Grok gets one
+  `--allow <Tool>` flag per tool plus `--permission-mode dontAsk` (fail-closed —
+  unlisted tools are silently declined, never a hang or a blanket bypass). The map
+  is a **driver** function (D10).
 - **Single-turn** — the relayed subagent has no pi-side tools; the external agent
-  runs its **own** tool loop. One provider completion = one full `claude -p` run
+  runs its **own** tool loop. One provider completion = one full headless CLI run
   returning the final assistant text. pi's native subagent-async layer delivers
   the result.
 
@@ -47,28 +54,38 @@ no inline prompt.
 
 ## Backend
 
-The verify backend is **Claude Opus only**, reached through the subscription
-`claude -p` CLI (billed to your Claude subscription via `oauthAccount` — never the
-Anthropic API, never a local model). The verify role is **read-only**: `claude` is
-invoked with a scoped `--allowedTools` allowlist and **never** with
-`--dangerously-skip-permissions`. On a cut run (wall-cap or abort) relay surfaces
-an **UNVERIFIED** error result — it **never** auto-passes.
+The **verify** quality bar is **Claude Opus only** (D1), reached through the
+subscription `claude -p` CLI (billed to your Claude subscription via
+`oauthAccount` — never the Anthropic API, never a local model). The verify role
+is **read-only**: `claude` is invoked with a scoped `--allowedTools` allowlist and
+**never** with `--dangerously-skip-permissions`. On a cut run (wall-cap or abort)
+relay surfaces an **UNVERIFIED** error result — it **never** auto-passes.
+
+`relay-grok` (Grok Build, `grok -p`) is a second live driver available for generic
+subagent dispatch — it does **not** change the verify quality bar. Per D1, a new
+backend only becomes verify-eligible after it clears the accuracy benchmark; until
+then, route the `verifier` role to `relay-claude/opus` and use `relay-grok` for
+other subagents. Grok is invoked with `--permission-mode dontAsk` plus one
+`--allow <Tool>` per allowed tool (verified fail-closed and non-interactive —
+**never** `--always-approve` or `--permission-mode auto`/`bypassPermissions`).
 
 A driver/adapter seam (`AgentDriver` in `drivers/claude.ts`) keeps the provider
-backend-agnostic. `claudeDriver` is the live implementation and owns the
-pi→Claude tool-name map (D10); `drivers/codex.ts` is a documented seam-only stub
-(`codex exec`, `-s read-only`) for a future OpenAI Codex backend. `roles/resolver.ts`
-is backend-neutral: it inlines skill references to full content
-(`expandSkillReferences`) and resolves a persona+skills role from disk (used off
-the pi-subagents path). The provider streams the completion through pi's own
-`createAssistantMessageEventStream()` (`@earendil-works/pi-ai`).
+backend-agnostic. `claudeDriver` and `grokDriver` are the live implementations,
+each owning its own pi→backend tool-name map (D10); `drivers/codex.ts` is a
+documented seam-only stub (`codex exec`, `-s read-only`) for a future OpenAI Codex
+backend. `roles/resolver.ts` is backend-neutral: it inlines skill references to
+full content (`expandSkillReferences`) and resolves a persona+skills role from
+disk (used off the pi-subagents path). The provider streams the completion
+through pi's own `createAssistantMessageEventStream()` (`@earendil-works/pi-ai`).
 
 ## Requirements
 
 - Pi (loads the extension via jiti — no build step)
 - Node `>= 22.0.0`
 - The [`claude`](https://claude.com/claude-code) CLI on `PATH`, authenticated via
-  your Claude subscription (`oauthAccount`)
+  your Claude subscription (`oauthAccount`), for `relay-claude`
+- The `grok` (Grok Build) CLI on `PATH`, authenticated (`grok login` or
+  `XAI_API_KEY`), for `relay-grok`
 
 ## Configuration
 
@@ -97,27 +114,29 @@ path, project-scoped install, and filtering options.
 
 ## Usage
 
-Relay registers the `relay-claude` **provider**; you use it by pointing a subagent
-(or a whole session) at it through `model`:
+Relay registers the `relay-claude` and `relay-grok` **providers**; you use either
+by pointing a subagent (or a whole session) at it through `model`:
 
 ```bash
 # Route a whole session through the relay provider
 pi --model relay-claude/opus "…"
+pi --model relay-grok/grok-4.5 "…"
 ```
 
 To run an existing subagent through relay, set its `model` frontmatter to
-`relay-claude/opus` and make relay discoverable in the subagent's child pi (an
-installed package, or the agent's `extensions` field). The flagship example is the
-`verifier` subagent — `model: relay-claude/opus` with a read-only tool set.
+`relay-claude/opus` or `relay-grok/grok-4.5` and make relay discoverable in the
+subagent's child pi (an installed package, or the agent's `extensions` field). The
+flagship example is the `verifier` subagent — `model: relay-claude/opus` with a
+read-only tool set (D1: verify stays Claude-Opus-only).
 
 ## Extending — adding a driver
 
-Relay is backend-agnostic through the `AgentDriver` seam (D10). `claudeDriver` is the
-sole live implementation; `drivers/codex.ts` is a documented seam-only stub for a future
-OpenAI Codex backend. To add a driver for another coding agent (Codex, Gemini CLI, …) —
-the `AgentDriver` API, the pi→backend tool-name mapping, the read-only/fail-safe
-constraints, and a step-by-step guide — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) in
-this package.
+Relay is backend-agnostic through the `AgentDriver` seam (D10). `claudeDriver` and
+`grokDriver` are the live implementations; `drivers/codex.ts` is a documented
+seam-only stub for a future OpenAI Codex backend. To add a driver for another coding
+agent (Codex, Gemini CLI, …) — the `AgentDriver` API, the pi→backend tool-name
+mapping, the read-only/fail-safe constraints, and a step-by-step guide — see
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) in this package.
 
 ## Development
 
@@ -130,6 +149,7 @@ this package's [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the driver seam.
 npm ci
 npm run check                       # full quality gate
 node packages/relay/scripts/harness.mjs   # manual provider proof vs. real `claude -p`
+node packages/relay/scripts/harness.mjs --model relay-grok/grok-4.5   # same, vs. real `grok -p`
 ```
 
 ## License

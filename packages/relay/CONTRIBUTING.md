@@ -1,9 +1,10 @@
 # Contributing to `@jmcombs/pi-relay` — adding a driver
 
 `@jmcombs/pi-relay` runs a Pi subagent on an **external coding-agent CLI** through a small,
-backend-agnostic seam — the **`AgentDriver`** (Locked Decision **D10**). The live implementation
-is `claudeDriver` (headless Claude Opus via `claude -p`). This document is how to add a driver for
-a **different** coding agent (e.g. OpenAI Codex, Gemini CLI).
+backend-agnostic seam — the **`AgentDriver`** (Locked Decision **D10**). The live implementations
+are `claudeDriver` (headless Claude Opus via `claude -p`) and `grokDriver` (headless Grok Build via
+`grok -p`). This document is how to add a driver for a **different** coding agent (e.g. OpenAI
+Codex, Gemini CLI).
 
 For monorepo-wide conventions (the `npm run check` quality gate, Conventional Commits, releases,
 Trusted Publishing), see the [repo-root `CONTRIBUTING.md`](../../CONTRIBUTING.md). This file covers
@@ -65,15 +66,27 @@ backend is a **driver** concern, because backends express permissions differentl
   Claude equivalent (`subagent`, `ls`) are dropped.
 - **Codex** has *no* per-tool allowlist; its read-only guarantee is the **sandbox** (`-s read-only`),
   so the neutral list is advisory. See `drivers/codex.ts` for the full field-by-field mapping.
+- **Grok Build** uses the *same* capitalized tool names as Claude, but through permission **rule**
+  flags rather than a tool-set flag: `grokDriver` passes `--permission-mode dontAsk` (fail-closed —
+  confirmed via direct testing that an unlisted tool is silently declined, never a hang or an
+  auto-approve) plus one `--allow <Tool>` per mapped tool — **not** a single space-joined value,
+  which was confirmed to silently fail. Do **not** reach for `--tools`/`--disallowed-tools`: passing
+  either reproducibly breaks session creation in the tested CLI version, independent of the value
+  given. Never use `--permission-mode auto`/`bypassPermissions` or `--always-approve` — confirmed to
+  auto-approve every tool call with no allowlist, the Grok analogue of
+  `--dangerously-skip-permissions`.
 
 Keep the map a small `Record<string, string>` beside the driver, and drop unmapped names (preserve
-order, de-duplicate) — mirror `CLAUDE_TOOL_NAME_MAP` / `mapToolNames` in `drivers/claude.ts`.
+order, de-duplicate) — mirror `CLAUDE_TOOL_NAME_MAP` / `mapToolNames` in `drivers/claude.ts` (or
+`GROK_TOOL_NAME_MAP` in `drivers/grok.ts`).
 
 ## Steps to add a driver
 
 1. **Create `drivers/<backend>.ts`.** Implement `AgentDriver`; import the shared `DriverInvocation` /
-   `DriverResult` types from `./claude.js`. Use `drivers/codex.ts` — a documented, unwired stub — as
-   the field-by-field template.
+   `DriverResult` types from `./claude.js`. Use `drivers/codex.ts` (a documented, unwired stub) or
+   `drivers/grok.ts` (a live, wired-in implementation) as the field-by-field template — `grok.ts` is
+   the better reference if your backend's permission model turns out to differ from its `--help`
+   text once you actually run it (see the Grok bullet above for what that looked like in practice).
 2. **Map tools + express read-only (D2)** the way your backend does — allowlist, sandbox flag, etc.
    Never add a permission-bypass flag.
 3. **Implement `parseResult`** — read your backend's structured output (a JSON / JSONL envelope) and

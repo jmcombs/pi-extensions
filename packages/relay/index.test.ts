@@ -13,6 +13,11 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterAll, describe, expect, it } from "vitest";
 import { type AgentDriver, claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
+import {
+  grokDriver,
+  mapToolName as mapGrokToolName,
+  mapToolNames as mapGrokToolNames,
+} from "./drivers/grok.js";
 import factory from "./index.js";
 import { streamViaDriver } from "./provider.js";
 import { expandSkillReferences, parseRoleFile, resolveRole } from "./roles/resolver.js";
@@ -54,10 +59,9 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     const { api, providers } = createApiStub();
     factory(api);
 
-    expect(providers).toHaveLength(1);
-    const provider = providers[0];
-    if (!provider) throw new Error("no provider registered");
-    expect(provider.name).toBe("relay-claude");
+    expect(providers).toHaveLength(2);
+    const provider = providers.find((p) => p.name === "relay-claude");
+    if (!provider) throw new Error("relay-claude provider not registered");
     expect(provider.config.api).toBe("relay-claude");
     expect(typeof provider.config.streamSimple).toBe("function");
     // baseUrl + apiKey are required by pi's provider validation but unused.
@@ -65,6 +69,21 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     expect(provider.config.apiKey).toBeTruthy();
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
     expect(modelIds).toContain("opus");
+  });
+
+  it("registers the relay-grok provider with a custom streamSimple and grok-4.5 model", () => {
+    const { api, providers } = createApiStub();
+    factory(api);
+
+    expect(providers).toHaveLength(2);
+    const provider = providers.find((p) => p.name === "relay-grok");
+    if (!provider) throw new Error("relay-grok provider not registered");
+    expect(provider.config.api).toBe("relay-grok");
+    expect(typeof provider.config.streamSimple).toBe("function");
+    expect(provider.config.baseUrl).toBeTruthy();
+    expect(provider.config.apiKey).toBeTruthy();
+    const modelIds = (provider.config.models ?? []).map((m) => m.id);
+    expect(modelIds).toContain("grok-4.5");
   });
 });
 
@@ -221,6 +240,129 @@ describe("claudeDriver — read-only by declaration, NO OS sandbox (D12)", () =>
     expect(args[idx + 1]).toBe("Read Bash Grep Glob");
     // D2 still holds: never a permission-skip flag.
     expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+});
+
+describe("grokDriver — tool-name map (D10, in the driver)", () => {
+  it("maps pi tool names to Grok tool names", () => {
+    expect(mapGrokToolName("read")).toBe("Read");
+    expect(mapGrokToolName("BASH")).toBe("Bash");
+    expect(mapGrokToolName("edit")).toBe("Edit");
+    expect(mapGrokToolName("write")).toBe("Write");
+    expect(mapGrokToolName("grep")).toBe("Grep");
+    expect(mapGrokToolName("find")).toBe("Glob");
+  });
+
+  it("drops the phantom `glob` and other pi-only tools (`ls`, `subagent`)", () => {
+    expect(mapGrokToolName("glob")).toBeUndefined();
+    expect(mapGrokToolName("ls")).toBeUndefined();
+    expect(mapGrokToolName("subagent")).toBeUndefined();
+    expect(mapGrokToolNames(["read", "bash", "subagent", "read"])).toEqual(["Read", "Bash"]);
+  });
+
+  it("buildArgs emits one `--allow <Tool>` per mapped tool, not a joined list", () => {
+    const args = grokDriver.buildArgs({
+      task: "t",
+      model: "grok-4.5",
+      tools: ["read", "bash", "grep", "find", "subagent"],
+    });
+    // Verified empirically: a single space-joined --allow value silently fails,
+    // so each tool must be its own --allow flag.
+    expect(args.filter((a) => a === "--allow")).toHaveLength(4);
+    const allowed = args.flatMap((a, i) => (a === "--allow" ? [args[i + 1]] : []));
+    expect(allowed).toEqual(["Read", "Bash", "Grep", "Glob"]);
+  });
+
+  it("buildArgs includes the base headless/non-interactive flags", () => {
+    const args = grokDriver.buildArgs({ task: "t", model: "grok-4.5" });
+    expect(args).toEqual(
+      expect.arrayContaining([
+        "-p",
+        "t",
+        "--output-format",
+        "json",
+        "--model",
+        "grok-4.5",
+        "--no-auto-update",
+        "--permission-mode",
+        "dontAsk",
+      ]),
+    );
+  });
+
+  it("never emits the broken --tools/--disallowed-tools flags or a permission-bypass mode", () => {
+    const args = grokDriver.buildArgs({
+      task: "t",
+      model: "grok-4.5",
+      tools: ["read", "bash", "grep", "find"],
+    });
+    // --tools/--disallowed-tools reproducibly break session creation (D2: avoid).
+    expect(args).not.toContain("--tools");
+    expect(args).not.toContain("--disallowed-tools");
+    // D2: never a blanket bypass — verified to auto-approve everything unscoped.
+    expect(args).not.toContain("--always-approve");
+    expect(args).not.toContain("auto");
+    expect(args).not.toContain("bypassPermissions");
+  });
+
+  it("maps systemPromptFile + systemPromptMode onto --system-prompt-override / --rules", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-grok-test-"));
+    const file = path.join(tmp, "system-prompt.md");
+    fs.writeFileSync(file, "PERSONA BODY.");
+    try {
+      const replaceArgs = grokDriver.buildArgs({
+        task: "t",
+        model: "grok-4.5",
+        systemPromptFile: file,
+        systemPromptMode: "replace",
+      });
+      const replaceIdx = replaceArgs.indexOf("--system-prompt-override");
+      expect(replaceIdx).toBeGreaterThanOrEqual(0);
+      expect(replaceArgs[replaceIdx + 1]).toBe("PERSONA BODY.");
+      expect(replaceArgs).not.toContain("--rules");
+
+      const appendArgs = grokDriver.buildArgs({
+        task: "t",
+        model: "grok-4.5",
+        systemPromptFile: file,
+        systemPromptMode: "append",
+      });
+      const appendIdx = appendArgs.indexOf("--rules");
+      expect(appendIdx).toBeGreaterThanOrEqual(0);
+      expect(appendArgs[appendIdx + 1]).toBe("PERSONA BODY.");
+      expect(appendArgs).not.toContain("--system-prompt-override");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("grokDriver — parseResult (D6 fail-safe)", () => {
+  it("parses a clean EndTurn envelope as a pass", () => {
+    const envelope = JSON.stringify({
+      text: "the answer",
+      stopReason: "EndTurn",
+      sessionId: "s",
+      requestId: "r",
+      thought: "...",
+    });
+    expect(grokDriver.parseResult(envelope)).toEqual({ result: "the answer", isError: false });
+  });
+
+  it("treats a `type: error` envelope as an error, surfacing its message", () => {
+    const envelope = JSON.stringify({ type: "error", message: "boom" });
+    expect(grokDriver.parseResult(envelope)).toEqual({ result: "boom", isError: true });
+  });
+
+  it("treats a non-EndTurn stopReason (e.g. a blocked/cancelled tool call) as UNVERIFIED", () => {
+    const envelope = JSON.stringify({ text: "", stopReason: "Cancelled", sessionId: "s" });
+    const parsed = grokDriver.parseResult(envelope);
+    expect(parsed.isError).toBe(true);
+  });
+
+  it("treats unparseable/empty stdout as an error with no result (D6)", () => {
+    expect(grokDriver.parseResult("")).toEqual({ result: "", isError: true });
+    expect(grokDriver.parseResult("not json")).toEqual({ result: "", isError: true });
   });
 });
 
