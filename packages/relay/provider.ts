@@ -1,13 +1,14 @@
 /**
- * provider.ts — registers the `relay-claude` pi provider (Option B, Phase 3).
+ * provider.ts — registers the `relay-claude` and `relay-grok` pi providers.
  *
  * A pi-subagent runs on an external coding agent simply by setting its `model` to
- * `relay-claude/<id>` (e.g. `relay-claude/opus`). pi's native `resolveModel` routes
- * that model to the custom `streamSimple` handler registered here; the handler
- * runs ONE headless `claude -p` through {@link claudeDriver} and streams the
- * external agent's final assistant text back as the completion.
+ * `relay-claude/<id>` (e.g. `relay-claude/opus`) or `relay-grok/<id>` (e.g.
+ * `relay-grok/grok-4.5`). pi's native `resolveModel` routes that model to the
+ * custom `streamSimple` handler registered here; the handler runs ONE headless CLI
+ * invocation through the backend's {@link AgentDriver} (`claudeDriver`/`grokDriver`)
+ * and streams the external agent's final assistant text back as the completion.
  *
- * ── Single completion = one full `claude -p` run (single-turn) ──
+ * ── Single completion = one full headless CLI run (single-turn) ──
  * The relayed subagent has NO pi-side tools; the external agent runs its OWN tool
  * loop and returns final text. So `streamSimple` emits exactly one assistant
  * message (`stop`), the child pi agent loop ends after one turn, and pi's native
@@ -18,10 +19,11 @@
  * pi-subagents assembles the subagent persona body + a skill INJECTION into the
  * child pi's system prompt, which arrives here as `context.systemPrompt`. pi
  * injects skills as `<available_skills>` *references* (name/description/location),
- * expecting an on-demand `Read`. A headless `claude -p` may never read them, so we
+ * expecting an on-demand `Read`. A headless CLI run may never read them, so we
  * {@link expandSkillReferences | inline each referenced `SKILL.md`'s full body}
- * before relaying the prompt to `claude` via `--system-prompt-file` (deterministic;
- * no re-echo, no drift). See `roles/resolver.ts` for the off-path fallback resolver.
+ * before relaying the prompt to the backend via its own system-prompt mechanism
+ * (deterministic; no re-echo, no drift). See `roles/resolver.ts` for the off-path
+ * fallback resolver.
  *
  * ── Stream (D11: use pi's API, never reinvent) ──
  * The completion is delivered through pi's own
@@ -30,8 +32,8 @@
  * contract. Provider types are derived from `@earendil-works/pi-coding-agent`'s
  * `ProviderConfig`.
  *
- * Not affiliated with or endorsed by Anthropic. Claude and Opus are trademarks of
- * Anthropic, PBC.
+ * Not affiliated with or endorsed by Anthropic or xAI. Claude and Opus are
+ * trademarks of Anthropic, PBC; Grok is a trademark of xAI.
  */
 
 import { spawn } from "node:child_process";
@@ -41,6 +43,7 @@ import * as path from "node:path";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { type AgentDriver, claudeDriver } from "./drivers/claude.js";
+import { grokDriver } from "./drivers/grok.js";
 import { expandSkillReferences } from "./roles/resolver.js";
 
 // ── Types derived from pi's ProviderConfig (resolve via its nested pi-ai) ──────
@@ -77,6 +80,18 @@ const RELAY_CLAUDE_MODELS = [
   { id: "opus", name: "Relay Claude Opus" },
   { id: "sonnet", name: "Relay Claude Sonnet" },
   { id: "haiku", name: "Relay Claude Haiku" },
+] as const;
+
+/** The pi provider name. `model: relay-grok/<id>` routes to this provider. */
+export const RELAY_GROK_PROVIDER = "relay-grok";
+
+/**
+ * Models exposed by the provider. The pi model id after the slash (`grok-4.5`,
+ * `grok-composer-2.5-fast`) is passed through as the driver's `--model` value.
+ */
+const RELAY_GROK_MODELS = [
+  { id: "grok-4.5", name: "Relay Grok 4.5" },
+  { id: "grok-composer-2.5-fast", name: "Relay Grok Composer 2.5 Fast" },
 ] as const;
 
 /** Resolve the configured wall-cap in milliseconds (D6). */
@@ -328,4 +343,31 @@ export function registerRelayClaudeProvider(pi: ExtensionAPI): void {
     })),
   };
   pi.registerProvider(RELAY_CLAUDE_PROVIDER, config);
+}
+
+/** Register the `relay-grok` provider on the given pi extension API. */
+export function registerRelayGrokProvider(pi: ExtensionAPI): void {
+  const config: ProviderConfig = {
+    name: "Relay (Grok)",
+    // `api` is required when registering a custom `streamSimple` handler.
+    api: RELAY_GROK_PROVIDER,
+    // baseUrl + apiKey are required by provider validation when models are
+    // defined, but are UNUSED here: the streamSimple handler shells out to
+    // `grok -p`, which authenticates via its own cached login/API key, never
+    // an API key or network baseUrl from relay.
+    baseUrl: "http://relay.invalid",
+    apiKey: "relay-unused",
+    streamSimple: (model, context, options: RelayStreamOptions) =>
+      streamViaDriver(grokDriver, model, context, options?.signal),
+    models: RELAY_GROK_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      reasoning: false,
+      input: ["text"] as ("text" | "image")[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 64_000,
+    })),
+  };
+  pi.registerProvider(RELAY_GROK_PROVIDER, config);
 }
