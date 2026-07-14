@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/headroom/v1.0.0...headroom/v1.0.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* **headroom:** oh-my-pi AuthStorage compatibility, quieter health checks ([#136](https://github.com/jmcombs/pi-extensions/issues/136)) ([639cb97](https://github.com/jmcombs/pi-extensions/commit/639cb97a2d0b2370e56da2fc05b5f2666b5a01fd))
+
 ## 1.0.0 (2026-06-29)
 
 
