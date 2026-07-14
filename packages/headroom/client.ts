@@ -5,9 +5,10 @@
  * client to the local Python Headroom proxy). This module owns:
  *
  *   - `resolveConfig()` — resolves the proxy base URL + optional API key from
- *     (in precedence order) an explicit argument, `AuthStorage` under the
- *     "headroom" key, the `HEADROOM_BASE_URL` / `HEADROOM_API_KEY` environment
- *     variables, and finally the default `http://127.0.0.1:8787`.
+ *     (in precedence order) an explicit argument, `AuthStorage.getApiKey()`,
+ *     the `HEADROOM_BASE_URL` / `HEADROOM_API_KEY` environment variables, and
+ *     finally the default `http://127.0.0.1:8787`.
+ *
  *   - `getClient()` — a memoized `HeadroomClient` instance.
  *   - `isHealthy()` — a short-TTL cached health probe that resolves `false` on
  *     any error and **never throws** (LD3).
@@ -45,16 +46,20 @@ export interface ResolvedConfig {
 /**
  * Resolve the proxy configuration.
  *
- * Precedence: explicit arg → `AuthStorage("headroom")` → environment
- * (`HEADROOM_BASE_URL` / `HEADROOM_API_KEY`) → default `http://127.0.0.1:8787`.
+ * Base URL precedence: explicit arg → `HEADROOM_BASE_URL` env → default
+ * (`http://127.0.0.1:8787`).
+ *
+ * API key precedence: explicit arg → `AuthStorage.getApiKey("headroom")` →
+ * `HEADROOM_API_KEY` env → undefined.
+ *
+ * The API key is read through `getApiKey()` — the portable `AuthStorage`
+ * accessor — rather than a stored credential object, so resolution works
+ * across SDK variants. The lookup is best-effort and never throws (LD3).
  */
 export async function resolveConfig(args: ResolveConfigArgs = {}): Promise<ResolvedConfig> {
   const auth = args.authStorage ?? AuthStorage.create();
 
-  const stored = auth.get("headroom");
-  const storedBaseUrl = stored?.type === "api_key" ? stored.env?.HEADROOM_BASE_URL : undefined;
-  const baseUrl =
-    args.baseUrl ?? storedBaseUrl ?? process.env.HEADROOM_BASE_URL ?? DEFAULT_BASE_URL;
+  const baseUrl = args.baseUrl ?? process.env.HEADROOM_BASE_URL ?? DEFAULT_BASE_URL;
 
   let apiKey = args.apiKey;
   if (!apiKey) {
@@ -64,6 +69,8 @@ export async function resolveConfig(args: ResolveConfigArgs = {}): Promise<Resol
       apiKey = undefined;
     }
   }
+  // Only accept a real string key; fall back to the environment otherwise.
+  if (typeof apiKey !== "string") apiKey = undefined;
   apiKey = apiKey ?? process.env.HEADROOM_API_KEY;
 
   return { baseUrl, apiKey };
@@ -93,7 +100,7 @@ export function getClient(args?: ResolveConfigArgs): Promise<HeadroomClient> {
   return clientPromise;
 }
 
-/** Reset the memoized client + health cache (test/teardown helper). */
+/** Reset memoized client + health cache (test/teardown helper). */
 export function resetClient(): void {
   clientPromise = undefined;
   healthCache = undefined;
@@ -117,7 +124,13 @@ export async function isHealthy(args?: ResolveConfigArgs): Promise<boolean> {
     const client = await getClient(args);
     const status = await client.health();
     value = status?.status === "healthy";
-  } catch {
+  } catch (error) {
+    // Developer diagnostics only — goes to pi's debug log, not the TUI. The
+    // user-facing passthrough notice is emitted once at the session_start call
+    // site via ctx.ui.notify. Quiet by default; opt in with HEADROOM_DEBUG.
+    if (process.env.HEADROOM_DEBUG) {
+      console.error("[headroom] health check failed:", error);
+    }
     value = false;
   }
 

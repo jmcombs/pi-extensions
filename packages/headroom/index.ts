@@ -53,7 +53,7 @@ import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { HeadroomClient, type OpenAIMessage, type RetrieveResult, simulate } from "headroom-ai";
 import { type Static, Type } from "typebox";
 import { augmentWithAutoRetrieve } from "./autoretrieve.js";
-import { getClient, isHealthy, resolveConfig } from "./client.js";
+import { getClient, isHealthy, resetClient, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
 import { filterByQuery } from "./query.js";
 import {
@@ -882,7 +882,15 @@ export default function (pi: ExtensionAPI): void {
 
     if (noticeShown) return;
     try {
-      const healthy = await isHealthy({ authStorage });
+      // Retry health check up to 3 times with 500ms backoff to handle
+      // startup race where proxy binds after Pi loads extensions (LD3).
+      let healthy = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) resetClient();
+        healthy = await isHealthy({ authStorage });
+        if (healthy) break;
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 500));
+      }
       if (!healthy) {
         const cfg = await resolveConfig({ authStorage });
         noticeShown = true;

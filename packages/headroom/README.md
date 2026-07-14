@@ -150,7 +150,10 @@ it:
   wrapped in defensive `try/catch`; any error returns the original conversation
   unchanged.
 - A single non-fatal warning at session start tells you the proxy is unreachable
-  so you know you are in passthrough mode.
+  so you know you are in passthrough mode. The check retries briefly (up to 3
+  attempts, 500 ms apart) to absorb the startup race where the proxy binds just
+  after Pi loads extensions; only if all attempts fail is the notice shown. Set
+  `HEADROOM_DEBUG=1` to log the underlying probe error to Pi's debug log.
 
 ### Savings model
 
@@ -163,12 +166,25 @@ it:
 
 ## Configuration
 
-The proxy endpoint and optional API key are resolved in this order:
+The base URL and optional API key are resolved **independently**.
+
+**Base URL** (first match wins):
 
 1. An explicit argument passed to the client (used internally).
-2. `AuthStorage` under the `headroom` key (`~/.pi/agent/auth.json`).
-3. The `HEADROOM_BASE_URL` / `HEADROOM_API_KEY` environment variables.
-4. Default base URL `http://127.0.0.1:8787`.
+2. The `HEADROOM_BASE_URL` environment variable.
+3. Default `http://127.0.0.1:8787`.
+
+**API key** (first match wins):
+
+1. An explicit argument passed to the client (used internally).
+2. `AuthStorage.getApiKey("headroom")` (`~/.pi/agent/auth.json`).
+3. The `HEADROOM_API_KEY` environment variable.
+4. Otherwise unset.
+
+The key is read through the portable `getApiKey()` accessor (rather than a stored
+credential object) so resolution works across Pi SDK variants, including oh-my-pi.
+The base URL is **not** read from `auth.json` — set it via `HEADROOM_BASE_URL` or
+rely on the default.
 
 A local proxy typically needs **no** API key. Configure one only if you front the
 proxy with authentication.
@@ -178,16 +194,24 @@ proxy with authentication.
 ```bash
 export HEADROOM_BASE_URL="http://127.0.0.1:8787"
 export HEADROOM_API_KEY="…"   # only if your proxy requires it
+export HEADROOM_DEBUG=1        # optional: log health-probe errors to Pi's debug log
 ```
 
+`HEADROOM_DEBUG` (any non-empty value) surfaces the underlying error whenever a
+health probe fails — written to Pi's debug log, not the TUI. Leave it unset for
+normal use: a down proxy is an expected, non-fatal state, so the extension stays
+quiet apart from the single passthrough notice.
+
 ### `~/.pi/agent/auth.json`
+
+Used for the **API key only** (via `getApiKey("headroom")`); the base URL is not
+read from here.
 
 ```json
 {
   "headroom": {
     "type": "api_key",
-    "key": "HEADROOM_API_KEY",
-    "env": { "HEADROOM_BASE_URL": "http://127.0.0.1:8787" }
+    "key": "HEADROOM_API_KEY"
   }
 }
 ```

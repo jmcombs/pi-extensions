@@ -149,8 +149,9 @@ LD7. The `session_start` notice must be non-fatal and fire at most once per sess
    `"headroom-ai"`; `peerDependencies` keep `@earendil-works/pi-coding-agent`, `@earendil-works/pi-tui`,
    `typebox` at `"*"`; `keywords` include `pi-package`; `version` `0.0.0`; `private` removed only in
    Phase 7 (stays for Phase 1).
-3. `packages/headroom/client.ts`: exports `resolveConfig()` (arg → `AuthStorage("headroom")` →
-   `HEADROOM_BASE_URL`/`HEADROOM_API_KEY` → default `http://127.0.0.1:8787`), a memoized
+3. `packages/headroom/client.ts`: exports `resolveConfig()` (base URL: arg → `HEADROOM_BASE_URL` →
+   default `http://127.0.0.1:8787`; API key: arg → `AuthStorage.getApiKey("headroom")` →
+   `HEADROOM_API_KEY` → unset), a memoized
    `getClient()` returning a `HeadroomClient`, and `isHealthy(): Promise<boolean>` (short-TTL cached
    `health()` probe that resolves `false` on any error, never throws).
 4. `packages/headroom/index.ts`: default factory registers commands `headroom-status` and
