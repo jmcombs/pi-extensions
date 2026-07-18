@@ -107,11 +107,11 @@ Interactively onboards a secret (redesigned UX, **ADR 0005**):
    Esc) returns `{ ok: false, message: "Kept your existing {label} key. Nothing
    changed." }` without touching anything.
 2. **Branches on 1Password availability** (`is1PasswordAvailable()`):
-   - **`op` available →** a source menu with three options: **Find it in
+   - **`op` available →** a source menu with three options: **Locate in
      1Password** (the live vault → item → field picker, auto-skipping the field
      step for single-credential items), or **Enter a 1Password reference** (a
      validated `op://vault/item/field` path) — both stored as `!op read '<ref>'`;
-     or **Paste the key directly** — a **masked** literal entry (the value is never
+     or **Type or paste the key** — a **masked** literal entry (the value is never
      drawn on screen), stored as a literal provider-shaped entry.
    - **`op` not available →** the same masked literal entry, plus a nudge to
      install the 1Password CLI to keep keys in the vault.

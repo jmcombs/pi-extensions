@@ -633,7 +633,7 @@ export async function pickOpReferenceSimple(ctx: UiContext): Promise<string | nu
     const parsed = JSON.parse(stdout || "[]") as OpVault[];
     vaultNames = parsed.map((v) => v.name).sort((a, b) => a.localeCompare(b));
   } catch {
-    ctx.ui.notify("Couldn't reach 1Password. Make sure it's unlocked, then try again.", "warning");
+    ctx.ui.notify("Couldn't reach 1Password — make sure it's unlocked.", "warning");
     ctx.ui.setStatus("1p-onboard", undefined);
     return null;
   }

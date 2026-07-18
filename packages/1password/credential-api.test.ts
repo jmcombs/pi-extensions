@@ -314,13 +314,13 @@ describe("onboardSecret source branches (ADR 0005)", () => {
       const { ui } = scriptedUi(["tvly-plain-key"]); // no source menu; straight to input
       const res = await onboardSecret({ ui }, { name: "tavily", label: "Tavily" });
       expect(res.ok).toBe(true);
-      expect(res.message).toMatch(/Tavily is set up/);
-      expect(res.message).toMatch(/Install the 1Password CLI/);
+      expect(res.message).toMatch(/Tavily is set up, stored locally/);
+      expect(res.message).toMatch(/Install 1Password CLI to use your vault/);
       expect((await readAuth()).tavily).toEqual({ type: "api_key", key: "tvly-plain-key" });
     });
   });
 
-  it("op available → Paste the key directly writes a literal entry + verify wiring", async () => {
+  it("op available → Type or paste the key writes a literal entry + verify wiring", async () => {
     const binDir = await writeFakeOp();
     await withPath(`${binDir}:${process.env.PATH ?? ""}`, async () => {
       const { ui } = scriptedUi(["paste", "sk-live-abc123"]);

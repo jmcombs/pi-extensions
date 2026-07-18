@@ -54,10 +54,10 @@ UI-primitive fixes. Copy is drop-in with `{label}` / `{name}` interpolation.
    `Kept your existing {label} key. Nothing changed.` without touching anything.
 2. **Branch on `is1PasswordAvailable()`:**
    - **Available →** a source menu (`Set up your {label} key`) with three
-     description-backed options — **Find it in 1Password** (the browse picker,
+     description-backed options — **Locate in 1Password** (the browse picker,
      with cleaned titles, a single "type to filter" help line, and **auto-skip of
      the field step** when the item has exactly one credential-type field),
-     **Paste the key directly** (masked literal entry), and **Enter a 1Password
+     **Type or paste the key** (masked literal entry), and **Enter a 1Password
      reference** (plaintext, since an `op://` path is a pointer not a secret,
      validated `^op://<vault>/<item>/<field>$`).
    - **Not available →** straight to the same masked literal entry.

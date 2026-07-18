@@ -114,13 +114,11 @@ const CANCELLED: OnboardResult = { ok: false, message: "Onboarding cancelled." }
 /**
  * Prompt for a literal API key on a **masked** screen — one bullet per typed
  * character, the value never drawn on screen (ADR 0005). Shared by the
- * "Paste the key directly" source and the op-unavailable branch.
+ * "Type or paste the key" source and the op-unavailable branch.
  */
 async function promptMaskedKey(ctx: UiContext, label: string): Promise<string | undefined> {
   return inputInBorderedPopup(ctx, {
     title: `Enter your ${label} API key`,
-    prompt:
-      "Paste your key. It's stored only on this machine and never shown to the AI.\nYour typing stays hidden.",
     helpText: "Enter to save • Esc = cancel",
     mask: true,
   });
@@ -153,7 +151,7 @@ async function saveAndReport(
     }
     return {
       ok: true,
-      message: `Saved, but 1Password couldn't read that reference yet. Check the vault/item/field or unlock 1Password, then run /${opts.name}_onboard again.`,
+      message: `Saved. 1Password couldn't read it yet — unlock it, or check the reference.`,
     };
   }
 
@@ -162,12 +160,12 @@ async function saveAndReport(
       ok: true,
       message: opAvailable
         ? `${opts.label} is set up. Your key is stored locally on this machine.`
-        : `${opts.label} is set up (stored locally). Install the 1Password CLI to keep keys in your vault instead.`,
+        : `${opts.label} is set up, stored locally. Install 1Password CLI to use your vault.`,
     };
   }
   return {
     ok: true,
-    message: `Saved, but the key looks empty. Run /${opts.name}_onboard to re-enter it.`,
+    message: `Saved, but the key looks empty — re-run onboarding to fix it.`,
   };
 }
 
@@ -179,8 +177,8 @@ async function saveAndReport(
  *    isn't set, offer *Replace it* / *Keep the current key*; keeping (or Esc)
  *    returns without touching anything.
  * 2. **Branch on {@link is1PasswordAvailable}:**
- *    - **available →** a source menu: *Find it in 1Password* (live vault → item →
- *      field browse, storing `!op read '<ref>'`), *Paste the key directly* (masked
+ *    - **available →** a source menu: *Locate in 1Password* (live vault → item →
+ *      field browse, storing `!op read '<ref>'`), *Type or paste the key* (masked
  *      literal entry), or *Enter a 1Password reference* (validated `op://` path).
  *    - **not available →** straight to masked literal entry.
  * 3. **Write, then verify** the entry resolves and report a friendly outcome.
@@ -227,18 +225,18 @@ export async function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promi
       items: [
         {
           value: "browse",
-          label: "Find it in 1Password",
-          description: "Browse your vaults and pick the item — recommended",
+          label: "Locate in 1Password",
+          description: "Browse your vaults and select item",
         },
         {
           value: "paste",
-          label: "Paste the key directly",
-          description: "Enter the secret value yourself",
+          label: "Type or paste the key",
+          description: "Manually insert your key",
         },
         {
           value: "ref",
           label: "Enter a 1Password reference",
-          description: "Advanced: type an op://vault/item/field path",
+          description: "Advanced: an op://vault/item/field path",
         },
         { value: "cancel", label: "Cancel" },
       ],
@@ -263,7 +261,7 @@ export async function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promi
     // source === "ref" — an op:// path is a pointer, not a secret → plaintext input.
     const ref = await inputInBorderedPopup(ctx, {
       title: `1Password reference for ${opts.label}`,
-      prompt: "Paste the op:// path to the field holding your key.",
+      prompt: "Enter the op:// reference to your key's field.",
       defaultValue: "op://Vault/Item/field",
       helpText: "Format op://vault/item/field • Enter to confirm • Esc = cancel",
     });
