@@ -194,8 +194,8 @@ warm-on-load, existing 1p behavior unchanged.
   `resolveSecret` handles both a provider-shaped object (`.key`) and a bare string.
 - **D4 shape:** writer produces `{[name]:{type:"api_key",key:"!op read '<ref>'"}}` (vault) or `{[name]:{type:"api_key",key:"<literal>"}}` (manual).
 - **D6 onboarding:** `onboardSecret` branches on `is1PasswordAvailable()`
-  (`getOpStatus` → available && signedIn): vault picker / manual `op://` when
-  available; manual key entry + install-nudge when not.
+  (`getOpStatus` → available && configured, per ADR 0003): vault picker / manual
+  `op://` when available; manual key entry + install-nudge when not.
 - **Concurrency:** the provider-shaped writer serializes with a file lock
   (`proper-lockfile` declared in the 1p package `dependencies` if not resolvable,
   **or** an atomic temp-write+rename with an O_EXCL guard) — the existing
@@ -205,7 +205,7 @@ warm-on-load, existing 1p behavior unchanged.
 ### Actionable TODOs
 
 - [ ] Create `packages/1password/credential-api.ts` exporting, each with JSDoc:
-  - `is1PasswordAvailable(): Promise<boolean>` — `getOpStatus()` → `available && signedIn`.
+  - `is1PasswordAvailable(): Promise<boolean>` — `getOpStatus()` → `available && configured` (per ADR 0003).
   - `resolveSecret(name): Promise<string | undefined>` — `readFile(auth.json)`; `const e = parsed[name]; return resolveShellValue(typeof e === "string" ? e : e?.key)`.
   - `onboardSecret(ctx, opts: { name; label }): Promise<{ ok; message }>` — branch per D6; write via the locked provider-shaped writer.
   - `changeSecret(ctx, opts)` — as onboard with overwrite=true.
