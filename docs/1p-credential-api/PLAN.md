@@ -343,10 +343,10 @@ onboarding flow **reviewed live and approved by the maintainer**.
 
 ### Actionable TODOs
 
-- [ ] `packages/grok-search/package.json`: add `@jmcombs/pi-1password` to `dependencies`.
-- [ ] `packages/grok-search/index.ts`: remove `AuthStorage`; import the API; implement the three-id precedence; onboarding → `onboardSecret(ctx, { name: "grok", label: "Grok / xAI" })`.
-- [ ] If the edited path touches the latent returned-`isError` no-op (relay D9 / `memory/pi-0808-auth-migration`), fix it; otherwise leave for its own issue.
-- [ ] `packages/grok-search/README.md`: 1Password integration + xai/xai_search/grok precedence; embed the onboarding mermaid (D15).
+- [x] `packages/grok-search/package.json`: add `@jmcombs/pi-1password` to `dependencies`.
+- [x] `packages/grok-search/index.ts`: remove `AuthStorage`; import the API; implement the three-id precedence; onboarding → `onboardSecret(ctx, { name: "grok", label: "Grok / xAI" })`.
+- [x] If the edited path touches the latent returned-`isError` no-op (relay D9 / `memory/pi-0808-auth-migration`), fix it; otherwise leave for its own issue.
+- [x] `packages/grok-search/README.md`: 1Password integration + xai/xai_search/grok precedence; embed the onboarding mermaid (D15).
 
 ### Testing Gates
 
@@ -601,7 +601,7 @@ and a row here before implementation.
 - [x] **P2** 1Password credential API exported (incl. `is1PasswordAvailable`); warm-on-load; locked writer; JSDoc + `API.md`.
 - [x] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
 - [x] **P4** tavily-search migrated (env fallback kept).
-- [ ] **P5** grok-search migrated (xai/xai_search/grok precedence).
+- [x] **P5** grok-search migrated (xai/xai_search/grok precedence).
 - [ ] **P6** headroom migrated (both files + test seam); **full repo green**.
 - [ ] **P7** `_template` + `TEMPLATE.md` teach the API pattern.
 - [ ] **P8** relay proven under oh-my-pi in isolation; result documented.
@@ -645,3 +645,4 @@ a human closes it out-of-band.
 | Live onboarding review (/context7_setup) | Phase 3 | pi-onboard-tui | human (maintainer live review) | DISCHARGED |
 | Live search end-to-end (context7_search) | Phase 3 | op-live | human (maintainer live check) | DISCHARGED |
 | Live tavily search (resolveSecret / tavily_search) | Phase 4 | op-live | human (maintainer live check) | DISCHARGED |
+| Live grok search (resolveSecret xai_search/xai/grok / grok_search) | Phase 5 | op-live | human (maintainer live check) | DISCHARGED |
