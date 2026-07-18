@@ -3,18 +3,22 @@
  *
  * Registers `context7_search` and `context7_get_docs` tools that let the LLM
  * find and retrieve version-aware documentation and code snippets from the
- * Context7 API. If no Context7 API key is configured, the tool prompts the user
- * interactively via the TUI (never leaking the key into the agent's context).
- * The key can also be set manually by running `/context7_onboard`.
+ * Context7 API. Credentials are handled entirely through the imported
+ * `@jmcombs/pi-1password` credential API (`resolveSecret` / `onboardSecret`),
+ * so the key is never leaked into the agent's context.
  *
- * Supported configuration (if not using interactive prompt):
- *    1. `AuthStorage` under the "context7" key (`~/.pi/agent/auth.json`)
- *    2. Auto-prompt via the TUI if no key is found
+ * Credential handling:
+ *    1. `resolveSecret("context7")` reads `~/.pi/agent/auth.json` and resolves the
+ *       stored entry (literal key or `!op read 'op://…'` reference) fresh on each use.
+ *    2. If nothing is stored, the tool auto-invokes `onboardSecret`, which branches
+ *       on 1Password availability — the live vault picker when `op` is configured,
+ *       manual API-key entry otherwise — then re-resolves.
+ *    3. `/context7_onboard` runs the same onboarding flow on demand.
  */
 
-import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
-import { confirmInBorderedPopup, inputInBorderedPopup } from "./ui/bordered-popups.js";
 
 const CONTEXT7_API_BASE = "https://context7.com/api/v2";
 
@@ -112,46 +116,12 @@ function formatDocs(data: Context7DocsResponse, query: string): string {
 // -- Extension factory
 
 export default function (pi: ExtensionAPI): void {
-  const authStorage = AuthStorage.create();
   // -- /context7_onboard (user-facing command)
   pi.registerCommand("context7_onboard", {
     description: "Securely save your Context7 API key (input never visible to LLM).",
     handler: async (_args, ctx) => {
-      ctx.ui.notify("Context7 Onboarding", "info");
-
-      const existing = await authStorage.getApiKey("context7");
-      if (existing) {
-        const overwrite = await confirmInBorderedPopup(ctx, {
-          title: "Context7 API key already exists, overwrite?",
-          message: "A Context7 API key is already saved. Overwrite it?",
-        });
-        if (!overwrite) {
-          ctx.ui.notify("Context7 onboarding cancelled.", "warning");
-          return;
-        }
-      }
-
-      const apiKey = await inputInBorderedPopup(ctx, {
-        title: "Context7 Onboarding",
-        prompt: "Enter your Context7 API key:",
-        helpText: "Enter to confirm • Esc = cancel",
-      });
-
-      if (!apiKey) {
-        ctx.ui.notify("Context7 onboarding cancelled.", "warning");
-        return;
-      }
-
-      authStorage.set("context7", {
-        type: "api_key" as const,
-        key: apiKey,
-      });
-      authStorage.removeRuntimeApiKey("context7");
-      const errs = authStorage.drainErrors();
-      if (errs.length > 0) {
-        ctx.ui.notify(`onboard ERRORS: ${errs.map((e) => e.message).join("; ")}`, "warning");
-      }
-      ctx.ui.notify("Context7 API key saved successfully.", "info");
+      const result = await onboardSecret(ctx, { name: "context7", label: "Context7" });
+      ctx.ui.notify(result.message, result.ok ? "info" : "warning");
     },
   });
 
@@ -165,96 +135,24 @@ export default function (pi: ExtensionAPI): void {
       "Always prefer this tool over general web search when you need accurate, version-aware information for coding or development tasks.",
     parameters: context7SearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      let apiKey = await authStorage.getApiKey("context7");
-
+      let apiKey = await resolveSecret("context7");
       if (!apiKey) {
-        const entered = await inputInBorderedPopup(ctx, {
-          title: "Context7 Authentication",
-          prompt: "Enter your Context7 API key:",
-          helpText: "Enter to confirm • Esc = cancel",
-        });
-        if (!entered) {
-          ctx.ui.notify("Context7 search cancelled.", "warning");
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Search cancelled: no Context7 API key provided.",
-              },
-            ],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
+        const r = await onboardSecret(ctx, { name: "context7", label: "Context7" });
+        if (r.ok) {
+          apiKey = await resolveSecret("context7");
         }
-
-        // Always use the entered value for this request (supports raw keys and !op read)
-        apiKey = entered;
-
-        const savePermanently = await confirmInBorderedPopup(ctx, {
-          title: "Save API Key?",
-          message:
-            "Save this value permanently in auth.json?\n\n" +
-            "Note: 1Password references (!op read ...) only resolve when saved permanently. " +
-            "Choosing No will store the resolved secret for this session only.",
-        });
-
-        if (savePermanently === null) {
-          // User cancelled the confirmation dialog — abort the entire key entry
-          ctx.ui.notify("Context7 authentication cancelled.", "warning");
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  "The user explicitly cancelled Context7 authentication. " +
-                  "Do not attempt to use context7_search or context7_get_docs again in this session " +
-                  "without the user re-initiating the flow.",
-              },
-            ],
-            details: { error: "cancelled" },
-            isError: true,
-          };
-        }
-
-        if (savePermanently) {
-          authStorage.set("context7", {
-            type: "api_key" as const,
-            key: entered,
-          });
-          authStorage.removeRuntimeApiKey("context7");
-          const errs = authStorage.drainErrors();
-          if (errs.length > 0) {
-            ctx.ui.notify(
-              `[context7] search save ERRORS: ${errs.map((e) => e.message).join("; ")}`,
-              "warning",
-            );
-          }
-        } else {
-          let keyForRuntime = entered;
-          if (entered.trim().startsWith("!op read")) {
-            // Temporarily store the reference so AuthStorage resolves it via the normal path (1Password, etc.)
-            authStorage.set("context7", { type: "api_key" as const, key: entered });
-            const resolved = await authStorage.getApiKey("context7");
-            authStorage.remove("context7");
-            if (resolved) {
-              keyForRuntime = resolved;
-            }
-          }
-          authStorage.setRuntimeApiKey("context7", keyForRuntime);
-        }
-        apiKey = (await authStorage.getApiKey("context7")) ?? entered;
-        if (!apiKey) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Failed to resolve Context7 API key. Check your shell configuration.",
-              },
-            ],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
-        }
+      }
+      if (!apiKey) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Search cancelled: no Context7 API key provided.",
+            },
+          ],
+          details: { error: "missing_api_key" },
+          isError: true,
+        };
       }
 
       try {
@@ -377,96 +275,24 @@ export default function (pi: ExtensionAPI): void {
       "You should usually call context7_search first to obtain the correct Library ID. Prefer this tool when you need reliable, current technical documentation rather than general explanations.",
     parameters: context7GetDocsSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      let apiKey = await authStorage.getApiKey("context7");
-
+      let apiKey = await resolveSecret("context7");
       if (!apiKey) {
-        const entered = await inputInBorderedPopup(ctx, {
-          title: "Context7 Authentication",
-          prompt: "Enter your Context7 API key:",
-          helpText: "Enter to confirm • Esc = cancel",
-        });
-        if (!entered) {
-          ctx.ui.notify("Context7 documentation retrieval cancelled.", "warning");
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Documentation retrieval cancelled: no Context7 API key provided.",
-              },
-            ],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
+        const r = await onboardSecret(ctx, { name: "context7", label: "Context7" });
+        if (r.ok) {
+          apiKey = await resolveSecret("context7");
         }
-
-        // Always use the entered value for this request (supports raw keys and !op read)
-        apiKey = entered;
-
-        const savePermanently = await confirmInBorderedPopup(ctx, {
-          title: "Save API Key?",
-          message:
-            "Save this value permanently in auth.json?\n\n" +
-            "Note: 1Password references (!op read ...) only resolve when saved permanently. " +
-            "Choosing No will store the resolved secret for this session only.",
-        });
-
-        if (savePermanently === null) {
-          // User cancelled the confirmation dialog — abort the entire key entry
-          ctx.ui.notify("Context7 authentication cancelled.", "warning");
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  "The user explicitly cancelled Context7 authentication. " +
-                  "Do not attempt to use context7_search or context7_get_docs again in this session " +
-                  "without the user re-initiating the flow.",
-              },
-            ],
-            details: { error: "cancelled" },
-            isError: true,
-          };
-        }
-
-        if (savePermanently) {
-          authStorage.set("context7", {
-            type: "api_key" as const,
-            key: entered,
-          });
-          authStorage.removeRuntimeApiKey("context7");
-          const errs = authStorage.drainErrors();
-          if (errs.length > 0) {
-            ctx.ui.notify(
-              `get_docs save ERRORS: ${errs.map((e) => e.message).join("; ")}`,
-              "warning",
-            );
-          }
-        } else {
-          let keyForRuntime = entered;
-          if (entered.trim().startsWith("!op read")) {
-            // Temporarily store the reference so AuthStorage resolves it via the normal path (1Password, etc.)
-            authStorage.set("context7", { type: "api_key" as const, key: entered });
-            const resolved = await authStorage.getApiKey("context7");
-            authStorage.remove("context7");
-            if (resolved) {
-              keyForRuntime = resolved;
-            }
-          }
-          authStorage.setRuntimeApiKey("context7", keyForRuntime);
-        }
-        apiKey = (await authStorage.getApiKey("context7")) ?? entered;
-        if (!apiKey) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Failed to resolve Context7 API key. Check your shell configuration.",
-              },
-            ],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
-        }
+      }
+      if (!apiKey) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Documentation retrieval cancelled: no Context7 API key provided.",
+            },
+          ],
+          details: { error: "missing_api_key" },
+          isError: true,
+        };
       }
 
       try {

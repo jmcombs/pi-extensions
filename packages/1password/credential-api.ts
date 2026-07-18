@@ -20,7 +20,7 @@
  * See docs/1p-credential-api/API.md for the full reference.
  */
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   deleteAuthEntry,
   getOpStatus,
@@ -30,6 +30,19 @@ import {
   writeProviderAuthEntry,
 } from "./index.js";
 import { inputInBorderedPopup, selectInBorderedPopup } from "./ui/bordered-popups.js";
+
+/**
+ * The minimal context capability the onboarding surface needs: just `ui`.
+ *
+ * Typing to `Pick<ExtensionContext, "ui">` (rather than the whole
+ * `ExtensionContext` or the narrower command-only context) keeps these
+ * functions callable from **every** pi entry point that exposes `ctx.ui` —
+ * command handlers, tool `execute()`, and event/shortcut handlers — and from a
+ * bare `{ ui }` test double, without demanding the ~15 unrelated context members
+ * they never touch. This is the least-coupled signature and it makes the ctx
+ * path unit-testable (ADR 0004).
+ */
+export type UiContext = Pick<ExtensionContext, "ui">;
 
 /** Options accepted by {@link onboardSecret} / {@link changeSecret}. */
 export interface OnboardOptions {
@@ -95,103 +108,186 @@ export async function resolveSecret(name: string): Promise<string | undefined> {
   return resolved ?? undefined;
 }
 
+/** Verbatim cancel outcome used everywhere the user backs out (D-UX / ADR 0005). */
+const CANCELLED: OnboardResult = { ok: false, message: "Onboarding cancelled." };
+
 /**
- * Interactively onboard a secret, branching on 1Password availability (D6).
- *
- * - **`op` available and signed in →** prompt for a 1Password reference (live vault
- *   → item → field picker, or a manually typed `op://…`), then store it as a
- *   `!op read '<ref>'` entry (provider-shaped, D4).
- * - **`op` not available →** prompt for the literal API key, store it as a literal
- *   provider-shaped entry, and nudge the user to install/enable the 1Password
- *   extension to unlock vault integration and the startup unlock.
- *
- * No user-entered value or resolved secret is ever returned or logged. Refuses to
- * overwrite an existing entry unless `opts.overwrite` (or {@link changeSecret}) is
- * used.
- *
- * @param ctx The extension command context (drives the onboarding UI).
- * @param opts `{ name, label, overwrite? }`.
- * @returns `{ ok, message }` describing the outcome (never the secret).
+ * Prompt for a literal API key on a **masked** screen — one bullet per typed
+ * character, the value never drawn on screen (ADR 0005). Shared by the
+ * "Type or paste the key" source and the op-unavailable branch.
  */
-export async function onboardSecret(
-  ctx: ExtensionCommandContext,
+async function promptMaskedKey(ctx: UiContext, label: string): Promise<string | undefined> {
+  return inputInBorderedPopup(ctx, {
+    title: `Enter your ${label} API key`,
+    helpText: "Enter to save • Esc = cancel",
+    mask: true,
+  });
+}
+
+/**
+ * Write the entry, then verify it resolves (post-save verify, ADR 0005) and return
+ * a friendly, human-only outcome message. Never surfaces `changeSecret`,
+ * `auth.json`, or the raw `name` (except inside a `/{name}_onboard` command token).
+ */
+async function saveAndReport(
   opts: OnboardOptions,
+  storedValue: string,
+  overwrite: boolean,
+  kind: "ref" | "literal",
+  opAvailable: boolean,
 ): Promise<OnboardResult> {
-  const overwrite = opts.overwrite ?? false;
+  const res = await writeProviderAuthEntry(opts.name, storedValue, { overwrite });
+  if (!res.success) {
+    return { ok: false, message: `Couldn't save your ${opts.label} key. Please try again.` };
+  }
 
-  if (await is1PasswordAvailable()) {
-    const method = await selectInBorderedPopup(ctx, {
-      title: `Add "${opts.label}" via 1Password`,
-      items: [
-        { value: "lookup", label: "Look it up in 1Password (vault → item → field)" },
-        { value: "manual", label: "Type the op:// reference manually" },
-        { value: "cancel", label: "Cancel" },
-      ],
-      helpText: "↑↓ • Enter • Esc = cancel",
-      maxVisible: 5,
-    });
-    if (!method || method === "cancel") {
-      return { ok: false, message: "Onboarding cancelled." };
-    }
-
-    let opRef: string | null = null;
-    if (method === "lookup") {
-      opRef = await pickOpReferenceSimple(ctx);
-    } else {
-      const manual = await inputInBorderedPopup(ctx, {
-        title: `${opts.label} — op:// reference`,
-        prompt: "Enter the full 1Password secret reference.",
-        defaultValue: "op://Vault/Item/field",
-        helpText: "Must start with op:// • Enter to confirm • Esc = cancel",
-      });
-      opRef = manual?.startsWith("op://") ? manual : null;
-    }
-    if (!opRef) {
-      return { ok: false, message: "Onboarding cancelled — no 1Password reference provided." };
-    }
-
-    const res = await writeProviderAuthEntry(opts.name, `!op read '${opRef}'`, { overwrite });
-    if (!res.success) {
-      return { ok: false, message: res.message };
+  const verified = await verifySecret(opts.name);
+  if (kind === "ref") {
+    if (verified.ok) {
+      return {
+        ok: true,
+        message: `${opts.label} is set up. Your key stays in 1Password and unlocks on demand.`,
+      };
     }
     return {
       ok: true,
-      message: `Saved "${opts.name}" as a 1Password reference. It resolves fresh via \`op read\` on each use.`,
+      message: `Saved. 1Password couldn't read it yet — unlock it, or check the reference.`,
     };
   }
 
-  // 1Password unavailable → manual literal API-key entry + install nudge.
-  const key = await inputInBorderedPopup(ctx, {
-    title: `${opts.label} — API key`,
-    prompt: `Paste your ${opts.label} API key. It is stored locally in auth.json (0600) and never shown to the model.`,
-    helpText: "Enter to confirm • Esc = cancel",
-  });
-  if (!key) {
-    return { ok: false, message: "Onboarding cancelled." };
-  }
-
-  const res = await writeProviderAuthEntry(opts.name, key, { overwrite });
-  if (!res.success) {
-    return { ok: false, message: res.message };
+  if (verified.ok) {
+    return {
+      ok: true,
+      message: opAvailable
+        ? `${opts.label} is set up. Your key is stored locally on this machine.`
+        : `${opts.label} is set up, stored locally. Install 1Password CLI to use your vault.`,
+    };
   }
   return {
     ok: true,
-    message: `Saved "${opts.name}" as a local API key. Install and sign in to the 1Password extension (\`op\`) to unlock vault references and the startup unlock.`,
+    message: `Saved, but the key looks empty — re-run onboarding to fix it.`,
   };
+}
+
+/**
+ * Interactively onboard a secret (redesigned UX, ADR 0005).
+ *
+ * Order of operations:
+ * 1. **Existing-key gate first** — if `name` already has a value and `overwrite`
+ *    isn't set, offer *Replace it* / *Keep the current key*; keeping (or Esc)
+ *    returns without touching anything.
+ * 2. **Branch on {@link is1PasswordAvailable}:**
+ *    - **available →** a source menu: *Locate in 1Password* (live vault → item →
+ *      field browse, storing `!op read '<ref>'`), *Type or paste the key* (masked
+ *      literal entry), or *Enter a 1Password reference* (validated `op://` path).
+ *    - **not available →** straight to masked literal entry.
+ * 3. **Write, then verify** the entry resolves and report a friendly outcome.
+ *
+ * No user-entered value or resolved secret is ever returned or logged; messages
+ * never leak `auth.json`, `changeSecret`, or the raw `name` (outside a
+ * `/{name}_onboard` token). Refuses to overwrite unless `opts.overwrite` (or
+ * {@link changeSecret}) is used.
+ *
+ * @param ctx The extension context (drives the onboarding UI; works from command
+ *   handlers, tool `execute()`, and a `{ ui }` double alike).
+ * @param opts `{ name, label, overwrite? }`.
+ * @returns `{ ok, message }` describing the outcome (never the secret).
+ */
+export async function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult> {
+  let overwrite = opts.overwrite ?? false;
+
+  // 1. Existing-key gate FIRST — before any source/browse work.
+  if (!overwrite) {
+    const parsed = await readAuthJson();
+    if (parsed[opts.name] !== undefined) {
+      const choice = await selectInBorderedPopup(ctx, {
+        title: `${opts.label} is already set up`,
+        items: [
+          { value: "replace", label: "Replace it" },
+          { value: "keep", label: "Keep the current key" },
+        ],
+        helpText: "↑↓ • Enter • Esc = keep current",
+        maxVisible: 5,
+      });
+      if (choice !== "replace") {
+        return { ok: false, message: `Kept your existing ${opts.label} key. Nothing changed.` };
+      }
+      overwrite = true;
+    }
+  }
+
+  const opAvailable = await is1PasswordAvailable();
+
+  // 2. Branch on 1Password availability.
+  if (opAvailable) {
+    const source = await selectInBorderedPopup(ctx, {
+      title: `Set up your ${opts.label} key`,
+      items: [
+        {
+          value: "browse",
+          label: "Locate in 1Password",
+          description: "Browse your vaults and select item",
+        },
+        {
+          value: "paste",
+          label: "Type or paste the key",
+          description: "Manually insert your key",
+        },
+        {
+          value: "ref",
+          label: "Enter a 1Password reference",
+          description: "Advanced: an op://vault/item/field path",
+        },
+        { value: "cancel", label: "Cancel" },
+      ],
+      helpText: "↑↓ • Enter • Esc = cancel",
+      maxVisible: 6,
+    });
+    if (!source || source === "cancel") return CANCELLED;
+
+    if (source === "browse") {
+      // pickOpReferenceSimple owns its own one-voice error/empty notifications.
+      const opRef = await pickOpReferenceSimple(ctx);
+      if (!opRef) return CANCELLED;
+      return saveAndReport(opts, `!op read '${opRef}'`, overwrite, "ref", true);
+    }
+
+    if (source === "paste") {
+      const key = await promptMaskedKey(ctx, opts.label);
+      if (!key) return CANCELLED;
+      return saveAndReport(opts, key, overwrite, "literal", true);
+    }
+
+    // source === "ref" — an op:// path is a pointer, not a secret → plaintext input.
+    const ref = await inputInBorderedPopup(ctx, {
+      title: `1Password reference for ${opts.label}`,
+      prompt: "Enter the op:// reference to your key's field.",
+      defaultValue: "op://Vault/Item/field",
+      helpText: "Format op://vault/item/field • Enter to confirm • Esc = cancel",
+    });
+    if (!ref) return CANCELLED;
+    if (!/^op:\/\/[^/]+\/[^/]+\/[^/]+$/.test(ref)) {
+      ctx.ui.notify("That doesn't look complete — use op://vault/item/field.", "warning");
+      return CANCELLED;
+    }
+    return saveAndReport(opts, `!op read '${ref}'`, overwrite, "ref", true);
+  }
+
+  // Branch B — 1Password not available → straight to masked literal entry.
+  const key = await promptMaskedKey(ctx, opts.label);
+  if (!key) return CANCELLED;
+  return saveAndReport(opts, key, overwrite, "literal", false);
 }
 
 /**
  * Change an existing secret: {@link onboardSecret} with `overwrite: true`. Runs the
  * same availability-branched flow and replaces any current entry for `opts.name`.
  *
- * @param ctx The extension command context.
+ * @param ctx The extension context.
  * @param opts `{ name, label }` (overwrite is forced on).
  * @returns `{ ok, message }`.
  */
-export async function changeSecret(
-  ctx: ExtensionCommandContext,
-  opts: OnboardOptions,
-): Promise<OnboardResult> {
+export async function changeSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult> {
   return onboardSecret(ctx, { ...opts, overwrite: true });
 }
 
