@@ -2,16 +2,22 @@
  * @jmcombs/pi-tavily-search — Real-time web search for the Pi coding agent.
  *
  * Registers a `tavily_search` tool that the LLM can call to perform a Tavily
- * web search. If no Tavily API key is configured, the tool prompts the user
- * interactively via the TUI (never leaking the key into the agent's context).
- * The key can also be set manually by running `/tavily_authenticate`.
+ * web search. Credentials are handled entirely through the imported
+ * `@jmcombs/pi-1password` credential API (`resolveSecret` / `onboardSecret`),
+ * so the key is never leaked into the agent's context.
  *
- * Supported configuration (if not using interactive prompt):
- *    1. `AuthStorage` under the "tavily" key (`~/.pi/agent/auth.json`)
- *    2. The `TAVILY_API_KEY` environment variable
+ * Credential handling:
+ *    1. `resolveSecret("tavily")` reads `~/.pi/agent/auth.json` and resolves the
+ *       stored entry (literal key or `!op read 'op://…'` reference) fresh on each
+ *       use; the `TAVILY_API_KEY` environment variable is the fallback.
+ *    2. If nothing is stored, the tool auto-invokes `onboardSecret`, which branches
+ *       on 1Password availability — the live vault picker when `op` is configured,
+ *       manual API-key entry otherwise — then re-resolves.
+ *    3. `/tavily_authenticate` runs the same onboarding flow on demand.
  */
 
-import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
 
 const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
@@ -66,20 +72,13 @@ function formatResults(data: TavilySearchResponse, query: string): string {
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  const authStorage = AuthStorage.create();
-
-  // Register /tavily_authenticate command for manual key entry.
+  // Register /tavily_authenticate command for onboarding the key on demand.
   // The input is captured by the TUI and never enters the LLM's context.
   pi.registerCommand("tavily_authenticate", {
     description: "Securely save your Tavily API key (input never visible to LLM).",
     handler: async (_args, ctx) => {
-      const apiKey = await ctx.ui.input("Enter your Tavily API key:");
-      if (apiKey) {
-        authStorage.set("tavily", { type: "api_key" as const, key: apiKey });
-        ctx.ui.notify("Tavily API key saved successfully.", "info");
-      } else {
-        ctx.ui.notify("Authentication cancelled.", "warning");
-      }
+      const result = await onboardSecret(ctx, { name: "tavily", label: "Tavily" });
+      ctx.ui.notify(result.message, result.ok ? "info" : "warning");
     },
   });
 
@@ -90,32 +89,22 @@ export default function (pi: ExtensionAPI): void {
       "Performs a web search using the Tavily API to get real-time information from the internet.",
     parameters: tavilySearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      let apiKey = (await authStorage.getApiKey("tavily")) ?? process.env.TAVILY_API_KEY;
+      let apiKey = (await resolveSecret("tavily")) ?? process.env.TAVILY_API_KEY;
 
-      // Auto-authenticate: prompt for key if none is configured
+      // Auto-onboard: run the availability-branched onboarding flow if no key is
+      // configured, then re-resolve (env fallback preserved).
       if (!apiKey) {
-        const newKey = await ctx.ui.input("Enter your Tavily API key:");
-        if (!newKey) {
-          return {
-            content: [{ type: "text", text: "Search cancelled: no Tavily API key provided." }],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
+        const r = await onboardSecret(ctx, { name: "tavily", label: "Tavily" });
+        if (r.ok) {
+          apiKey = (await resolveSecret("tavily")) ?? process.env.TAVILY_API_KEY;
         }
-        authStorage.set("tavily", { type: "api_key" as const, key: newKey });
-        apiKey = await authStorage.getApiKey("tavily");
-        if (!apiKey) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Failed to resolve Tavily API key. Check your shell configuration.",
-              },
-            ],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
-        }
+      }
+      if (!apiKey) {
+        return {
+          content: [{ type: "text", text: "Search cancelled: no Tavily API key provided." }],
+          details: { error: "missing_api_key" },
+          isError: true,
+        };
       }
 
       try {
