@@ -38,6 +38,9 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "dependencies": {
+    "@jmcombs/pi-1password": "^1.0.2"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "typebox": "*"

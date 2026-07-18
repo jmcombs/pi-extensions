@@ -33,7 +33,7 @@ in `credential-api.ts`.
 - **Never leaks secrets.** No function returns or logs a user-entered value or a
   resolved secret except `resolveSecret`, whose entire job is to hand the secret to
   its caller. `verifySecret` reports only whether a value resolved.
-- **Additive.** The existing `1p_run` / `1password_onboard` / `1password_diagnose`
+- **Additive.** The existing `1p_run` / `1password_setup` / `1password_diagnose`
   tools and the transparent bash spawn-hook env injection are unchanged.
 
 ## Storage shape (D4)
@@ -54,7 +54,7 @@ Legacy **bare-string** entries (`{"context7": "!op read '…'"}` or a plain lite
 continue to resolve on read — `resolveSecret` handles both shapes. The
 provider-shaped writer serializes writes with a file lock (an `O_EXCL` lockfile
 plus atomic temp-write + rename), so concurrent onboards never corrupt
-`auth.json`; the older top-level `!op read` writer used by `/1password_onboard`
+`auth.json`; the older top-level `!op read` writer used by `/1password_setup`
 remains for that command.
 
 Values that begin with `!op read '…'` are also swept at startup by the

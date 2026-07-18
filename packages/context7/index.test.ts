@@ -88,6 +88,6 @@ describe("@jmcombs/pi-context7", () => {
 
     expect(log.tools).toContain("context7_search");
     expect(log.tools).toContain("context7_get_docs");
-    expect(log.commands).toContain("context7_onboard");
+    expect(log.commands).toContain("context7_setup");
   });
 });

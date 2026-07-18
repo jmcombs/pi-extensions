@@ -13,7 +13,7 @@
  *    2. If nothing is stored, the tool auto-invokes `onboardSecret`, which branches
  *       on 1Password availability — the live vault picker when `op` is configured,
  *       manual API-key entry otherwise — then re-resolves.
- *    3. `/context7_onboard` runs the same onboarding flow on demand.
+ *    3. `/context7_setup` runs the same onboarding flow on demand.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -116,9 +116,9 @@ function formatDocs(data: Context7DocsResponse, query: string): string {
 // -- Extension factory
 
 export default function (pi: ExtensionAPI): void {
-  // -- /context7_onboard (user-facing command)
-  pi.registerCommand("context7_onboard", {
-    description: "Securely save your Context7 API key (input never visible to LLM).",
+  // -- /context7_setup (user-facing command)
+  pi.registerCommand("context7_setup", {
+    description: "Set up or update your Context7 API key (never shown to the agent).",
     handler: async (_args, ctx) => {
       const result = await onboardSecret(ctx, { name: "context7", label: "Context7" });
       ctx.ui.notify(result.message, result.ok ? "info" : "warning");
@@ -175,7 +175,7 @@ export default function (pi: ExtensionAPI): void {
                   type: "text",
                   text:
                     "Context7 API error: 401 Unauthorized. Your Context7 API key " +
-                    "may be missing or invalid. Run /context7_onboard to configure it.",
+                    "may be missing or invalid. Run /context7_setup to configure it.",
                 },
               ],
               details: { status: 401 },
@@ -314,7 +314,7 @@ export default function (pi: ExtensionAPI): void {
                   type: "text",
                   text:
                     "Context7 API error: 401 Unauthorized. Your Context7 API key " +
-                    "may be missing or invalid. Run /context7_onboard to configure it.",
+                    "may be missing or invalid. Run /context7_setup to configure it.",
                 },
               ],
               details: { status: 401 },

@@ -181,7 +181,7 @@ warm-on-load, existing 1p behavior unchanged.
   provider-shaped writer; conditional warm-on-load; **JSDoc on every export** and a
   reference doc `docs/1p-credential-api/API.md`.
 - **Out:** any consumer changes (P3+). Do not remove or alter the existing `1p_run`
-  / `1password_onboard` / diagnose tools or the spawn-hook env injection.
+  / `1password_setup` / diagnose tools or the spawn-hook env injection.
   **Carve-out (ADR 0003):** `1p_run`'s availability gating is corrected in this
   phase to stop hard-blocking on `op whoami`/`signedIn` (a false-negative under the
   desktop-app biometric integration) — it now gates on `configured` and attempts
@@ -258,14 +258,14 @@ onboarding flow **reviewed live and approved by the maintainer**.
 - No user-entered value or resolved secret ever appears in LLM-visible text.
 - **D13:** normal `refactor(context7):` commit (no `!`); README documents the change.
 - **Live review (hard gate):** the phase is **not done** until the maintainer runs
-  `/context7_onboard` in a live pi session with the agent and approves the flow;
+  `/context7_setup` in a live pi session with the agent and approves the flow;
   apply any requested adjustments before merge.
 
 ### Actionable TODOs
 
 - [x] `packages/context7/package.json`: add `"@jmcombs/pi-1password"` to `dependencies`; no `auth.ts` in `files`; peer `@earendil-works/pi-coding-agent` stays `"*"`.
 - [x] `packages/context7/index.ts`: remove `AuthStorage`/`ModelRuntime`; `import { resolveSecret, onboardSecret } from "@jmcombs/pi-1password";`
-  - `/context7_onboard` → `await onboardSecret(ctx, { name: "context7", label: "Context7" })`; surface `{ ok, message }`.
+  - `/context7_setup` → `await onboardSecret(ctx, { name: "context7", label: "Context7" })`; surface `{ ok, message }`.
   - both tools' `execute()` → `let apiKey = await resolveSecret("context7"); if (!apiKey) { const r = await onboardSecret(ctx, { name: "context7", label: "Context7" }); if (r.ok) apiKey = await resolveSecret("context7"); } if (!apiKey) return <isError missing_api_key>;`
 - [x] Delete `packages/context7/auth.ts` / `auth.test.ts` if any remain.
 - [x] `packages/context7/README.md`: **Requirements/What's new** — 1Password integration via `@jmcombs/pi-1password`; onboarding branches on `op` availability; existing keys still resolve. Embed the onboarding-flow mermaid (D15).
@@ -276,9 +276,9 @@ onboarding flow **reviewed live and approved by the maintainer**.
 | --- | --- | --- |
 | Typecheck context7 | `npx tsc -p packages/context7/tsconfig.json --noEmit` | exit 0 |
 | Lint context7 | `npx biome check packages/context7` | no errors |
-| Smoke test (needs: pi-ext-load) | `npx vitest run packages/context7` | passes; registers `context7_search`, `context7_get_docs`, `context7_onboard` |
+| Smoke test (needs: pi-ext-load) | `npx vitest run packages/context7` | passes; registers `context7_search`, `context7_get_docs`, `context7_setup` |
 | No old-API residue | `grep -rn "AuthStorage\|ModelRuntime" packages/context7` | no matches |
-| **Live onboarding review + approval (needs: pi-onboard-tui)** | maintainer runs `/context7_onboard` live with the agent (both `op`-available and, if feasible, `op`-absent branches) | maintainer explicitly approves the flow; adjustments applied |
+| **Live onboarding review + approval (needs: pi-onboard-tui)** | maintainer runs `/context7_setup` live with the agent (both `op`-available and, if feasible, `op`-absent branches) | maintainer explicitly approves the flow; adjustments applied |
 | Live search end-to-end (needs: op-live) | maintainer: `pi -ne -e packages/context7/index.ts --model <cloud> -p "context7_search for react; reply the first library id"` | returns a real library id |
 
 ### Definition of Done — see Appendix C.
@@ -592,6 +592,7 @@ and a row here before implementation.
 | [0003](../decisions/0003-op-availability-detects-configuration-not-session.md) | `op` availability detects configuration, not live session (fixes `is1PasswordAvailable` + `1p_run`) | Accepted |
 | [0004](../decisions/0004-onboardsecret-accepts-extension-context.md) | Onboarding surface (`onboardSecret`/`changeSecret`/`pickOpReferenceSimple` + bordered-popup helpers) takes the minimal `UiContext = Pick<ExtensionContext, "ui">` capability, so it is callable from tool `execute()`, command/event handlers, and a `{ ui }` test double | Accepted |
 | [0005](../decisions/0005-onboarding-ux-redesign.md) | Onboarding UX redesign: upfront overwrite gate, three description-backed sources (browse / paste / op:// reference) with masked literal entry + field-step auto-skip + `op://` validation, and post-save verify; adds a masked-input primitive and fixes the `confirm` message / multi-line prompt bugs | Accepted |
+| [0006](../decisions/0006-credential-setup-command-naming.md) | Credential-setup command naming: the setup command is `{brand-slug}_setup` across all extensions (incl. 1Password); consumer setup-command descriptions unified to `Set up or update your {label} API key (never shown to the agent).`; `setup` chosen over `onboard`/`authenticate` (sets or updates); diagnose/run commands out of scope | Accepted |
 
 ## Appendix B — Master TODO index (verifier-ticked)
 
@@ -640,5 +641,5 @@ a human closes it out-of-band.
 | Gate | Deferred at | Needs | Discharge by | Status |
 | --- | --- | --- | --- | --- |
 | Live availability + resolve (is1PasswordAvailable / resolveSecret) | Phase 2 | op-live | human (maintainer live check) | DISCHARGED |
-| Live onboarding review (/context7_onboard) | Phase 3 | pi-onboard-tui | human (maintainer live review) | DISCHARGED |
+| Live onboarding review (/context7_setup) | Phase 3 | pi-onboard-tui | human (maintainer live review) | DISCHARGED |
 | Live search end-to-end (context7_search) | Phase 3 | op-live | human (maintainer live check) | DISCHARGED |
