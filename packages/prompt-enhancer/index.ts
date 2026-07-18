@@ -22,7 +22,12 @@ import { type Dirent, promises as fs, type Stats } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { type Api, complete, type Message, type Model } from "@earendil-works/pi-ai";
+// Pi's extension loader aliases the bare "@earendil-works/pi-ai" specifier to
+// pi-ai's compat entry, which re-exports the package index plus `complete`.
+// Importing the compat subpath directly is the same module at runtime, but it
+// is the only specifier whose *types* match what Pi actually injects — the
+// package index does not export `complete`.
+import { type Api, complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import {
   BorderedLoader,
   type ExtensionAPI,
