@@ -18,6 +18,7 @@
   "types": "./index.ts",
   "files": [
     "index.ts",
+    "credential-api.ts",
     "data/",
     "ui/",
     "README.md",
