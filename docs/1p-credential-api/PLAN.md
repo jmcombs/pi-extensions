@@ -204,19 +204,19 @@ warm-on-load, existing 1p behavior unchanged.
 
 ### Actionable TODOs
 
-- [ ] Create `packages/1password/credential-api.ts` exporting, each with JSDoc:
+- [x] Create `packages/1password/credential-api.ts` exporting, each with JSDoc:
   - `is1PasswordAvailable(): Promise<boolean>` — `getOpStatus()` → `available && configured` (per ADR 0003).
   - `resolveSecret(name): Promise<string | undefined>` — `readFile(auth.json)`; `const e = parsed[name]; return resolveShellValue(typeof e === "string" ? e : e?.key)`.
   - `onboardSecret(ctx, opts: { name; label }): Promise<{ ok; message }>` — branch per D6; write via the locked provider-shaped writer.
   - `changeSecret(ctx, opts)` — as onboard with overwrite=true.
   - `verifySecret(name): Promise<{ ok; resolved; error? }>` — resolves and reports whether `op read` yields a value (never returns the value).
   - `deleteSecret(name): Promise<{ ok }>` — removes `parsed[name]` under the lock.
-- [ ] In `packages/1password/index.ts`, refactor `resolveShellValue` (L194), the writer (`addAuthEntry`, L294), `getOpStatus` (L75), and `pickOpReferenceSimple` (L541) so `credential-api.ts` reuses them; add the **locked** provider-shaped writer.
-- [ ] Add `warmOpSessionIfNeeded()` to `index.ts` and wire into `session_start` (L374) + initial load (L354): scan all values (top-level string OR nested `.key`) for `/^!op read /`; if any, one best-effort `op read '<firstRef>'` (try/catch, value discarded).
-- [ ] Re-export from `index.ts`: `export { resolveSecret, onboardSecret, changeSecret, verifySecret, deleteSecret, is1PasswordAvailable } from "./credential-api.js";`
-- [ ] Add `credential-api.ts` to `packages/1password/package.json` `files`.
-- [ ] Create `packages/1password/credential-api.test.ts`: non-mocking round-trip vs a **temp** `auth.json` — provider-shaped `!echo resolved-secret` → `resolveSecret` returns `resolved-secret`; `!exit 1` → `undefined`, never the raw string; `deleteSecret` removes; `warmOpSessionIfNeeded` selects a nested `.key`.
-- [ ] Create `docs/1p-credential-api/API.md`: reference for all six exports — signature, behavior, return shape, error/fail-closed semantics, and the D4 storage shape.
+- [x] In `packages/1password/index.ts`, refactor `resolveShellValue` (L194), the writer (`addAuthEntry`, L294), `getOpStatus` (L75), and `pickOpReferenceSimple` (L541) so `credential-api.ts` reuses them; add the **locked** provider-shaped writer.
+- [x] Add `warmOpSessionIfNeeded()` to `index.ts` and wire into `session_start` (L374) + initial load (L354): scan all values (top-level string OR nested `.key`) for `/^!op read /`; if any, one best-effort `op read '<firstRef>'` (try/catch, value discarded).
+- [x] Re-export from `index.ts`: `export { resolveSecret, onboardSecret, changeSecret, verifySecret, deleteSecret, is1PasswordAvailable } from "./credential-api.js";`
+- [x] Add `credential-api.ts` to `packages/1password/package.json` `files`.
+- [x] Create `packages/1password/credential-api.test.ts`: non-mocking round-trip vs a **temp** `auth.json` — provider-shaped `!echo resolved-secret` → `resolveSecret` returns `resolved-secret`; `!exit 1` → `undefined`, never the raw string; `deleteSecret` removes; `warmOpSessionIfNeeded` selects a nested `.key`.
+- [x] Create `docs/1p-credential-api/API.md`: reference for all six exports — signature, behavior, return shape, error/fail-closed semantics, and the D4 storage shape.
 
 ### Testing Gates
 
@@ -594,7 +594,7 @@ and a row here before implementation.
 ## Appendix B — Master TODO index (verifier-ticked)
 
 - [x] **P1** Baseline reset; prompt-enhancer `/compat`; dep alignment.
-- [ ] **P2** 1Password credential API exported (incl. `is1PasswordAvailable`); warm-on-load; locked writer; JSDoc + `API.md`.
+- [x] **P2** 1Password credential API exported (incl. `is1PasswordAvailable`); warm-on-load; locked writer; JSDoc + `API.md`.
 - [ ] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
 - [ ] **P4** tavily-search migrated (env fallback kept).
 - [ ] **P5** grok-search migrated (xai/xai_search/grok precedence).
@@ -637,4 +637,4 @@ a human closes it out-of-band.
 
 | Gate | Deferred at | Needs | Discharge by | Status |
 | --- | --- | --- | --- | --- |
-| — | — | — | — | — |
+| Live availability + resolve (is1PasswordAvailable / resolveSecret) | Phase 2 | op-live | human (maintainer live check) | DISCHARGED |
