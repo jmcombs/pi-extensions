@@ -14,7 +14,7 @@
  */
 
 import { exec } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,19 @@ import {
   inputInBorderedPopup,
   selectInBorderedPopup,
 } from "./ui/bordered-popups.js";
+
+// ── Public stateless credential API (D1/D3) ────────────────────────────
+// The 1Password extension is the credential authority: consumer extensions
+// import these from "@jmcombs/pi-1password" and never touch pi internals.
+// See docs/1p-credential-api/API.md.
+export {
+  changeSecret,
+  deleteSecret,
+  is1PasswordAvailable,
+  onboardSecret,
+  resolveSecret,
+  verifySecret,
+} from "./credential-api.js";
 
 const execAsync = promisify(exec);
 
@@ -72,7 +85,12 @@ interface OpField {
   type?: string;
 }
 
-async function getOpStatus(): Promise<OpStatus> {
+/**
+ * Probe the `op` CLI: whether it is installed, its version, and whether the
+ * current account session is signed in. Runs `op --version` + `op whoami`
+ * fresh on every call (no cached state). Reused by {@link is1PasswordAvailable}.
+ */
+export async function getOpStatus(): Promise<OpStatus> {
   try {
     const { stdout } = await execAsync("op --version", { encoding: "utf8" });
     const version = stdout.trim();
@@ -191,7 +209,13 @@ const KNOWN_PROVIDER_KEYS = new Set([
   "xiaomi-token-plan-sgp",
 ]);
 
-async function resolveShellValue(raw: unknown): Promise<string | null> {
+/**
+ * Resolve a single stored auth value to its concrete secret. A `!op read '<ref>'`
+ * value runs the 1Password CLI; any other `!<cmd>` runs in a minimal shell; a bare
+ * literal is returned as-is. Fails closed (returns `null`) on any error. Reused by
+ * {@link resolveSecret} and {@link warmOpSessionIfNeeded}.
+ */
+export async function resolveShellValue(raw: unknown): Promise<string | null> {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
 
@@ -334,6 +358,337 @@ async function addAuthEntry(
   return { success: true, message: "Entry added.", path: authPath };
 }
 
+// ── Stateless auth.json access + locked provider-shaped writer (D3/D4) ──
+
+/** Absolute path to the agent's auth.json (honors PI_CODING_AGENT_DIR). */
+function getAuthFilePath(): string {
+  return join(getAgentDir(), "auth.json");
+}
+
+/**
+ * Read and parse auth.json fresh, returning the top-level object (or `{}` if the
+ * file is missing / unreadable / not a JSON object). No caching — every call hits
+ * disk, per the stateless contract (D3).
+ */
+export async function readAuthJson(): Promise<Record<string, unknown>> {
+  try {
+    const raw = await readFile(getAuthFilePath(), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Missing or invalid → behave as an empty store.
+  }
+  return {};
+}
+
+/** Result of a locked provider-shaped write. */
+export interface ProviderWriteResult {
+  readonly success: boolean;
+  readonly message: string;
+  readonly alreadyExists?: boolean;
+}
+
+/**
+ * Acquire an exclusive advisory lock via an `O_EXCL` lockfile next to auth.json.
+ * Retries with jittered backoff; force-clears a lock older than the timeout
+ * (treated as stale). Returns a release function that removes the lockfile.
+ */
+async function acquireAuthLock(lockPath: string): Promise<() => Promise<void>> {
+  const timeoutMs = 5000;
+  const start = Date.now();
+  for (;;) {
+    try {
+      // "wx" = O_CREAT | O_EXCL | O_WRONLY — fails if the lockfile already exists.
+      const handle = await open(lockPath, "wx");
+      await handle.close();
+      return async (): Promise<void> => {
+        try {
+          await unlink(lockPath);
+        } catch {
+          // Already gone — nothing to release.
+        }
+      };
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST") throw e;
+      if (Date.now() - start > timeoutMs) {
+        // Presumed stale (holder crashed); clear it and retry.
+        try {
+          await unlink(lockPath);
+        } catch {
+          // Someone else cleared it first.
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25 + Math.floor(Math.random() * 25)));
+    }
+  }
+}
+
+/**
+ * Read-modify-write auth.json under an exclusive lock, then commit atomically via
+ * temp-write + rename. `mutator` returns the next object to persist, or `null` to
+ * abort with no write. Every intermediate file is chmod 0600.
+ */
+async function mutateAuthFileLocked(
+  mutator: (current: Record<string, unknown>) => Record<string, unknown> | null,
+): Promise<{ changed: boolean }> {
+  const authDir = getAgentDir();
+  const authPath = join(authDir, "auth.json");
+  const lockPath = `${authPath}.lock`;
+
+  await mkdir(authDir, { recursive: true });
+  const release = await acquireAuthLock(lockPath);
+  try {
+    let current: Record<string, unknown> = {};
+    try {
+      const raw = await readFile(authPath, "utf8");
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        current = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Missing or invalid JSON → start fresh.
+    }
+
+    const next = mutator(current);
+    if (next === null) return { changed: false };
+
+    const content = `${JSON.stringify(next, null, 2)}\n`;
+    const tmpPath = `${authPath}.tmp.${process.pid}.${Math.random().toString(36).slice(2)}`;
+    try {
+      await writeFile(tmpPath, content, { encoding: "utf8", mode: 0o600 });
+      await chmod(tmpPath, 0o600);
+      await rename(tmpPath, authPath);
+      await chmod(authPath, 0o600);
+    } catch (e) {
+      try {
+        await unlink(tmpPath);
+      } catch {
+        // Temp file may not exist — ignore.
+      }
+      throw e;
+    }
+    return { changed: true };
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * Write a provider-shaped entry `{[name]:{type:"api_key",key}}` to auth.json under
+ * the lock (D4). `key` is either a `!op read '<ref>'` command (vault) or a literal
+ * secret (manual). Refuses to clobber an existing key unless `overwrite` is set.
+ */
+export async function writeProviderAuthEntry(
+  name: string,
+  key: string,
+  options: { overwrite?: boolean } = {},
+): Promise<ProviderWriteResult> {
+  let alreadyExists = false;
+  const { changed } = await mutateAuthFileLocked((current) => {
+    alreadyExists = Object.hasOwn(current, name);
+    if (alreadyExists && !options.overwrite) return null;
+    return { ...current, [name]: { type: "api_key", key } };
+  });
+  if (!changed) {
+    return {
+      success: false,
+      alreadyExists: true,
+      message: `Key "${name}" already exists in auth.json. Use changeSecret (overwrite) or remove it first.`,
+    };
+  }
+  return { success: true, message: "Entry saved." };
+}
+
+/**
+ * Remove `parsed[name]` from auth.json under the lock. `ok` is `true` when an entry
+ * was present and removed, `false` when there was nothing to remove.
+ */
+export async function deleteAuthEntry(name: string): Promise<{ ok: boolean }> {
+  let existed = false;
+  await mutateAuthFileLocked((current) => {
+    if (!Object.hasOwn(current, name)) {
+      existed = false;
+      return null;
+    }
+    existed = true;
+    const next = { ...current };
+    delete next[name];
+    return next;
+  });
+  return { ok: existed };
+}
+
+/**
+ * Scan all auth.json values — top-level strings AND nested provider-shaped `.key`
+ * values (D7; `loadShellEnvMap` inspects neither nested keys nor provider ids) —
+ * for the first `!op read ` reference. Returns the trimmed value or `null`.
+ */
+export function findFirstOpRef(parsed: Record<string, unknown>): string | null {
+  for (const value of Object.values(parsed)) {
+    const candidate =
+      typeof value === "string"
+        ? value
+        : value && typeof value === "object" && !Array.isArray(value)
+          ? (value as { key?: unknown }).key
+          : undefined;
+    if (typeof candidate === "string" && /^!op read /.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Warm the 1Password account session on load (D7/D8). Scans auth.json for any
+ * `!op read ` reference and, if one exists, runs a single best-effort `op read`
+ * (value discarded) so the OS-level biometric prompt lands at startup. Silent and
+ * fail-closed: never throws, does nothing when there are no vault references.
+ */
+export async function warmOpSessionIfNeeded(): Promise<void> {
+  try {
+    const parsed = await readAuthJson();
+    const firstRef = findFirstOpRef(parsed);
+    if (!firstRef) return;
+    const ref = firstRef.replace(/^!op read\s+/, "").replace(/^['"]|['"]$/g, "");
+    try {
+      await execAsync(`op read "${ref}"`, {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: 15000,
+      });
+    } catch {
+      // Best effort — a failed warm-up must not disrupt startup.
+    }
+  } catch {
+    // Never let warm-on-load throw.
+  }
+}
+
+/**
+ * Interactive vault → item → field picker (custom bordered TUI) that returns a
+ * fully-qualified `op://Vault/Item/field` reference or `null` on cancel. Used by
+ * both the `/1password_onboard` command and the public {@link onboardSecret} flow.
+ */
+export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promise<string | null> {
+  ctx.ui.setStatus("1p-onboard", "Loading vaults...");
+  let vaultNames: string[] = [];
+  try {
+    const { stdout } = await execAsync(`op vault list --format json`, {
+      encoding: "utf8",
+      timeout: 20000,
+    });
+    const parsed = JSON.parse(stdout || "[]") as OpVault[];
+    vaultNames = parsed.map((v) => v.name).sort((a, b) => a.localeCompare(b));
+  } catch {
+    ctx.ui.notify("Failed to load vaults from 1Password.", "error");
+    ctx.ui.setStatus("1p-onboard", undefined);
+    return null;
+  }
+  ctx.ui.setStatus("1p-onboard", undefined);
+
+  if (vaultNames.length === 0) {
+    ctx.ui.notify("No vaults found in 1Password.", "warning");
+    return null;
+  }
+
+  const vaultItems = [
+    ...vaultNames.map((name) => ({ value: name, label: name })),
+    { value: "__cancel", label: "Cancel" },
+  ];
+  const chosenVault = await selectInBorderedPopup(ctx, {
+    title: "Select 1Password vault",
+    items: vaultItems,
+    helpText: "↑↓ • Enter • Esc = cancel • Type to filter",
+    maxVisible: 14,
+  });
+  if (!chosenVault || chosenVault === "__cancel") return null;
+
+  ctx.ui.setStatus("1p-onboard", `Loading items from ${chosenVault}...`);
+  let items: OpItem[] = [];
+  try {
+    const cmd = `op item list --vault ${JSON.stringify(chosenVault)} --categories "API Credential,Login,Secure Note,Password" --format json`;
+    const { stdout } = await execAsync(cmd, {
+      encoding: "utf8",
+      timeout: 25000,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    const parsed = JSON.parse(stdout || "[]") as OpItem[];
+    items = parsed.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  } catch {
+    ctx.ui.notify("Failed to load items.", "error");
+    ctx.ui.setStatus("1p-onboard", undefined);
+    return null;
+  }
+  ctx.ui.setStatus("1p-onboard", undefined);
+
+  if (items.length === 0) {
+    ctx.ui.notify("No matching items in that vault.", "warning");
+    return null;
+  }
+
+  const itemItems = [
+    ...items.map((it) => ({
+      value: it.id,
+      label: `${it.title}${it.category ? ` — ${it.category}` : ""}`,
+    })),
+    { value: "__cancel", label: "Cancel" },
+  ];
+  const chosenItemId = await selectInBorderedPopup(ctx, {
+    title: `Select item in ${chosenVault}`,
+    items: itemItems,
+    helpText: "↑↓ • Enter • Esc = cancel • Type to filter (can be long)",
+    maxVisible: 16,
+  });
+  if (!chosenItemId || chosenItemId === "__cancel") return null;
+
+  const chosenItem = items.find((it) => it.id === chosenItemId);
+  if (!chosenItem) return null;
+
+  ctx.ui.setStatus("1p-onboard", "Loading fields...");
+  let fields: { label: string; type?: string }[] = [];
+  try {
+    const { stdout } = await execAsync(
+      `op item get ${JSON.stringify(chosenItem.id)} --format json`,
+      {
+        encoding: "utf8",
+        timeout: 15000,
+      },
+    );
+    const full = JSON.parse(stdout || "null") as { fields?: OpField[] } | null;
+    fields = full?.fields?.filter(Boolean) ?? [];
+  } catch {
+    ctx.ui.notify("Failed to load fields.", "error");
+    ctx.ui.setStatus("1p-onboard", undefined);
+    return null;
+  }
+  ctx.ui.setStatus("1p-onboard", undefined);
+
+  if (fields.length === 0) {
+    ctx.ui.notify("Selected item has no fields.", "warning");
+    return null;
+  }
+
+  const fieldItems = [
+    ...fields.map((f) => ({
+      value: f.label,
+      label: `${f.label} (${f.type ?? "text"})`,
+    })),
+    { value: "__cancel", label: "Cancel" },
+  ];
+  const chosenFieldLabel = await selectInBorderedPopup(ctx, {
+    title: `Select field for "${chosenItem.title}"`,
+    items: fieldItems,
+    helpText: "↑↓ • Enter • Esc = cancel",
+    maxVisible: 12,
+  });
+  if (!chosenFieldLabel || chosenFieldLabel === "__cancel") return null;
+
+  return `op://${chosenVault}/${chosenItem.title}/${chosenFieldLabel}`;
+}
+
 // ── Tool schemas ───────────────────────────────────────────────────────
 
 const runSchema = Type.Object({
@@ -356,6 +711,11 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // Load curated list for /1password_onboard
   curatedPlugins = await loadCuratedPlugins();
 
+  // Warm the 1Password account session if any auth.json value uses `!op read`
+  // (D7/D8) so the OS-level biometric prompt lands once, at startup. No-op and
+  // silent when there are no vault references.
+  await warmOpSessionIfNeeded();
+
   // ── Bash tool wrapper with transparent 1P env injection ───────────────
   const cwd = process.cwd();
   const injectedBash = createBashTool(cwd, {
@@ -374,6 +734,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   pi.on("session_start", async () => {
     currentShellEnv = await loadShellEnvMap();
     curatedPlugins = await loadCuratedPlugins();
+    await warmOpSessionIfNeeded();
   });
 
   // ── 1p_run ───────────────────────────────────────────────────────────
@@ -536,121 +897,8 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // This should be revisited when better support exists or a different pattern
   // is found. Tracked as a follow-up issue.
 
-  // Local helper: vault → item → field picker using the custom bordered TUI.
-  // Long lists benefit from live filtering. Esc (or picking Cancel) backs out.
-  async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promise<string | null> {
-    ctx.ui.setStatus("1p-onboard", "Loading vaults...");
-    let vaultNames: string[] = [];
-    try {
-      const { stdout } = await execAsync(`op vault list --format json`, {
-        encoding: "utf8",
-        timeout: 20000,
-      });
-      const parsed = JSON.parse(stdout || "[]") as OpVault[];
-      vaultNames = parsed.map((v) => v.name).sort((a, b) => a.localeCompare(b));
-    } catch {
-      ctx.ui.notify("Failed to load vaults from 1Password.", "error");
-      ctx.ui.setStatus("1p-onboard", undefined);
-      return null;
-    }
-    ctx.ui.setStatus("1p-onboard", undefined);
-
-    if (vaultNames.length === 0) {
-      ctx.ui.notify("No vaults found in 1Password.", "warning");
-      return null;
-    }
-
-    const vaultItems = [
-      ...vaultNames.map((name) => ({ value: name, label: name })),
-      { value: "__cancel", label: "Cancel" },
-    ];
-    const chosenVault = await selectInBorderedPopup(ctx, {
-      title: "Select 1Password vault",
-      items: vaultItems,
-      helpText: "↑↓ • Enter • Esc = cancel • Type to filter",
-      maxVisible: 14,
-    });
-    if (!chosenVault || chosenVault === "__cancel") return null;
-
-    ctx.ui.setStatus("1p-onboard", `Loading items from ${chosenVault}...`);
-    let items: OpItem[] = [];
-    try {
-      const cmd = `op item list --vault ${JSON.stringify(chosenVault)} --categories "API Credential,Login,Secure Note,Password" --format json`;
-      const { stdout } = await execAsync(cmd, {
-        encoding: "utf8",
-        timeout: 25000,
-        maxBuffer: 8 * 1024 * 1024,
-      });
-      const parsed = JSON.parse(stdout || "[]") as OpItem[];
-      items = parsed.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    } catch {
-      ctx.ui.notify("Failed to load items.", "error");
-      ctx.ui.setStatus("1p-onboard", undefined);
-      return null;
-    }
-    ctx.ui.setStatus("1p-onboard", undefined);
-
-    if (items.length === 0) {
-      ctx.ui.notify("No matching items in that vault.", "warning");
-      return null;
-    }
-
-    const itemItems = [
-      ...items.map((it) => ({
-        value: it.id,
-        label: `${it.title}${it.category ? ` — ${it.category}` : ""}`,
-      })),
-      { value: "__cancel", label: "Cancel" },
-    ];
-    const chosenItemId = await selectInBorderedPopup(ctx, {
-      title: `Select item in ${chosenVault}`,
-      items: itemItems,
-      helpText: "↑↓ • Enter • Esc = cancel • Type to filter (can be long)",
-      maxVisible: 16,
-    });
-    if (!chosenItemId || chosenItemId === "__cancel") return null;
-
-    const chosenItem = items.find((it) => it.id === chosenItemId);
-    if (!chosenItem) return null;
-
-    ctx.ui.setStatus("1p-onboard", "Loading fields...");
-    let fields: { label: string; type?: string }[] = [];
-    try {
-      const { stdout } = await execAsync(
-        `op item get ${JSON.stringify(chosenItem.id)} --format json`,
-        { encoding: "utf8", timeout: 15000 },
-      );
-      const full = JSON.parse(stdout || "null") as { fields?: OpField[] } | null;
-      fields = full?.fields?.filter(Boolean) ?? [];
-    } catch {
-      ctx.ui.notify("Failed to load fields.", "error");
-      ctx.ui.setStatus("1p-onboard", undefined);
-      return null;
-    }
-    ctx.ui.setStatus("1p-onboard", undefined);
-
-    if (fields.length === 0) {
-      ctx.ui.notify("Selected item has no fields.", "warning");
-      return null;
-    }
-
-    const fieldItems = [
-      ...fields.map((f) => ({
-        value: f.label,
-        label: `${f.label} (${f.type ?? "text"})`,
-      })),
-      { value: "__cancel", label: "Cancel" },
-    ];
-    const chosenFieldLabel = await selectInBorderedPopup(ctx, {
-      title: `Select field for "${chosenItem.title}"`,
-      items: fieldItems,
-      helpText: "↑↓ • Enter • Esc = cancel",
-      maxVisible: 12,
-    });
-    if (!chosenFieldLabel || chosenFieldLabel === "__cancel") return null;
-
-    return `op://${chosenVault}/${chosenItem.title}/${chosenFieldLabel}`;
-  }
+  // Vault → item → field picker now lives at module scope as the exported
+  // pickOpReferenceSimple (reused by the public onboardSecret API).
 
   // ── /1password_onboard — fully custom bordered TUI onboarding (curated + manual + vault/item/field)
   pi.registerCommand("1password_onboard", {

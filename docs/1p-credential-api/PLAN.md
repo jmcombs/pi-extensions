@@ -92,7 +92,7 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 - **Branch ↔ commit-type symmetry**, Conventional Commits scoped to the package.
   Consumer migrations are **not** breaking (D13) → no `!`:
   - P1 `chore/pi-0808-baseline` → `chore(deps):` / `fix(prompt-enhancer):`
-  - P2 `feat/1password-credential-api` → `feat(1password):`
+  - P2 `feat/1password-api-exports` → `feat(1password):` (phase branch PRs into the long-lived `feat/1password-credential-api` integration branch; renamed from `feat/1password-credential-api` to avoid colliding with that integration-branch name)
   - P3 `refactor/context7-1password-api` → `refactor(context7):`
   - P4 `refactor/tavily-1password-api` → `refactor(tavily-search):`
   - P5 `refactor/grok-search-1password-api` → `refactor(grok-search):`
@@ -221,7 +221,7 @@ warm-on-load, existing 1p behavior unchanged.
 | Lint 1p package | `npx biome check packages/1password` | no errors |
 | API round-trip (needs: op-sentinel) | `npx vitest run packages/1password` | all pass, incl. `!echo`/`!exit 1`/delete/warm-scan |
 | Secretlint clean | `npx secretlint "packages/1password/**"` | no findings |
-| Cross-package import resolves | `node -e "import('@jmcombs/pi-1password').then(m=>console.log(typeof m.resolveSecret, typeof m.is1PasswordAvailable))"` (repo root) | prints `function function` |
+| Cross-package import resolves | `npx tsx -e "import('@jmcombs/pi-1password').then(m=>console.log(typeof m.resolveSecret, typeof m.is1PasswordAvailable))"` (repo root) | prints `function function` |
 | API.md documents all six exports | `for f in resolveSecret onboardSecret changeSecret verifySecret deleteSecret is1PasswordAvailable; do grep -q "$f" docs/1p-credential-api/API.md || echo MISSING $f; done` | no `MISSING` output |
 | Live resolve of a real ref (needs: op-live) | maintainer runs `resolveSecret("context7")` in a pi session | returns the real key |
 
@@ -583,6 +583,7 @@ and a row here before implementation.
 | ADR | Title | Status |
 | --- | --- | --- |
 | [0001](../decisions/0001-integration-branch-for-baseline-red-migration.md) | Integration branch for the baseline-red AuthStorage migration | Accepted |
+| [0002](../decisions/0002-ts-aware-gate5-cross-package-import.md) | TS-aware loader for Phase 2 Gate 5 (cross-package import) | Accepted |
 
 ## Appendix B — Master TODO index (verifier-ticked)
 
