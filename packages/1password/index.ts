@@ -53,7 +53,19 @@ const execAsync = promisify(exec);
 interface OpStatus {
   available: boolean;
   version: string | null;
+  /**
+   * DIAGNOSTIC ONLY. Whether `op whoami` reports a live CLI session. Under the
+   * 1Password desktop-app biometric integration this is `false` for a cold
+   * invocation even when `op read` works — so it MUST NOT gate availability
+   * (ADR 0003). Surfaced in diagnostics; never used for access decisions.
+   */
   signedIn: boolean;
+  /**
+   * Whether an `op` auth path is CONFIGURED (service-account token, Connect env,
+   * or a desktop/CLI account). This — not `signedIn` — is what gates availability
+   * (D6 / ADR 0003). Determined passively: no unlock, no Touch ID prompt.
+   */
+  configured: boolean;
   account: Record<string, unknown> | null;
 }
 
@@ -86,42 +98,72 @@ interface OpField {
 }
 
 /**
- * Probe the `op` CLI: whether it is installed, its version, and whether the
- * current account session is signed in. Runs `op --version` + `op whoami`
- * fresh on every call (no cached state). Reused by {@link is1PasswordAvailable}.
+ * Whether an `op` auth path is CONFIGURED, checked passively (no unlock, no Touch
+ * ID). True when any of: `OP_SERVICE_ACCOUNT_TOKEN` is set; both `OP_CONNECT_HOST`
+ * and `OP_CONNECT_TOKEN` are set; or `op account list --format=json` exits 0 and
+ * parses to a non-empty array. Any failure/timeout/unparsable output ⇒ `false`;
+ * never throws. See ADR 0003. Never logs secret values.
+ */
+async function isOpConfigured(): Promise<boolean> {
+  if ((process.env.OP_SERVICE_ACCOUNT_TOKEN ?? "").length > 0) return true;
+  if (
+    (process.env.OP_CONNECT_HOST ?? "").length > 0 &&
+    (process.env.OP_CONNECT_TOKEN ?? "").length > 0
+  ) {
+    return true;
+  }
+  try {
+    const { stdout } = await execAsync("op account list --format=json", {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    const parsed: unknown = JSON.parse(stdout);
+    return Array.isArray(parsed) && parsed.length > 0;
+  } catch {
+    // Non-zero exit, timeout, or unparsable output → treat as not configured.
+    return false;
+  }
+}
+
+/**
+ * Probe the `op` CLI. Runs `op --version` (→ `available`), `op whoami` (→
+ * `signedIn`, DIAGNOSTIC ONLY — see below), and {@link isOpConfigured} (→
+ * `configured`) fresh on every call. Reused by {@link is1PasswordAvailable}.
+ *
+ * `signedIn` from `op whoami` is unreliable for gating: under the 1Password
+ * desktop-app biometric integration it returns non-zero for a cold CLI invocation
+ * even when `op read` works. Availability therefore gates on `configured`, not
+ * `signedIn` (ADR 0003); the account session is unlocked lazily on the first
+ * `op read`. All `op` probes use a 5s timeout and never throw.
  */
 export async function getOpStatus(): Promise<OpStatus> {
+  let version: string | null = null;
   try {
-    const { stdout } = await execAsync("op --version", { encoding: "utf8" });
-    const version = stdout.trim();
-
-    try {
-      const { stdout: whoamiOut } = await execAsync("op whoami --format json", {
-        encoding: "utf8",
-      });
-      const whoami = JSON.parse(whoamiOut) as Record<string, unknown>;
-      return {
-        available: true,
-        version,
-        signedIn: true,
-        account: whoami,
-      };
-    } catch {
-      return {
-        available: true,
-        version,
-        signedIn: false,
-        account: null,
-      };
-    }
+    const { stdout } = await execAsync("op --version", { encoding: "utf8", timeout: 5000 });
+    version = stdout.trim();
   } catch {
-    return {
-      available: false,
-      version: null,
-      signedIn: false,
-      account: null,
-    };
+    return { available: false, version: null, signedIn: false, configured: false, account: null };
   }
+
+  // signedIn — DIAGNOSTIC ONLY (see the OpStatus.signedIn doc + ADR 0003). A
+  // non-zero `op whoami` is expected under app-integration and is NOT a gate.
+  let signedIn = false;
+  let account: Record<string, unknown> | null = null;
+  try {
+    const { stdout: whoamiOut } = await execAsync("op whoami --format json", {
+      encoding: "utf8",
+      timeout: 5000,
+    });
+    account = JSON.parse(whoamiOut) as Record<string, unknown>;
+    signedIn = true;
+  } catch {
+    signedIn = false;
+    account = null;
+  }
+
+  const configured = await isOpConfigured();
+
+  return { available: true, version, signedIn, configured, account };
 }
 
 async function inspectPluginIfRelevant(command: string): Promise<PluginInspection | null> {
@@ -163,17 +205,22 @@ function formatOpStatus(status: OpStatus): string {
   if (!status.available) {
     return "1Password CLI (`op`) is not available in PATH.";
   }
-  if (!status.signedIn) {
-    return `op ${status.version ?? "unknown"} is installed but you are not signed in.`;
+  if (!status.configured) {
+    return `op ${status.version ?? "unknown"} is installed but no 1Password account is configured. Run 'op signin', or set OP_SERVICE_ACCOUNT_TOKEN (or OP_CONNECT_HOST + OP_CONNECT_TOKEN).`;
   }
   const acct = status.account ?? {};
   const name =
     (acct.name as string | undefined) ??
     (acct.email as string | undefined) ??
     (acct.account_uuid as string | undefined) ??
-    "unknown";
-  const url = (acct.url as string | undefined) ?? "unknown account";
-  return `op ${status.version ?? "unknown"} — signed in as ${name} (${url})`;
+    null;
+  const url = (acct.url as string | undefined) ?? null;
+  if (status.signedIn && name) {
+    return `op ${status.version ?? "unknown"} — signed in as ${name}${url ? ` (${url})` : ""}`;
+  }
+  // Configured but no live CLI session (typical under the desktop-app biometric
+  // integration) — the account session unlocks on the first `op read`.
+  return `op ${status.version ?? "unknown"} — 1Password account configured (session unlocks on first use).`;
 }
 
 // ── Shell env loading from ~/.pi/agent/auth.json (top-level keys per user choice A) ──
@@ -754,15 +801,19 @@ export default async function (pi: ExtensionAPI): Promise<void> {
           details: { error: "op not found", opStatus: status },
         };
       }
-      if (!status.signedIn) {
+      // Gate on configuration, not `signedIn` (ADR 0003): `op whoami` is an
+      // unreliable session probe under app-integration. When an account is
+      // configured we ATTEMPT the run and let `op` unlock lazily; sign-in
+      // guidance is surfaced only if the run itself fails with an auth error.
+      if (!status.configured) {
         return {
           content: [
             {
               type: "text",
-              text: `1p_run failed: ${formatOpStatus(status)}\n\nPlease run 'op signin' in your terminal.`,
+              text: `1p_run failed: ${formatOpStatus(status)}\n\nConfigure 1Password (run 'op signin' in your terminal, or set a service-account token), then try again.`,
             },
           ],
-          details: { error: "not signed in", opStatus: status },
+          details: { error: "not configured", opStatus: status },
         };
       }
 
@@ -793,6 +844,15 @@ export default async function (pi: ExtensionAPI): Promise<void> {
         const diagnostic = formatOpStatus(status);
 
         let helpful = `Command failed under 1Password injection.\n\n${diagnostic}`;
+
+        // Advisory only: surface sign-in guidance when the failure itself looks
+        // like an auth/session error (not as a pre-block — ADR 0003).
+        if (
+          /sign\s?in|not signed in|unauthor|authenticat|session (?:expired|is not)/i.test(rawError)
+        ) {
+          helpful +=
+            "\n\nThis looks like an authentication issue — run 'op signin' in your terminal (or check your service-account token), then retry.";
+        }
 
         if (pluginInfo) {
           helpful += `\n\nPlugin status for "${pluginInfo.plugin}":\n${pluginInfo.output ?? pluginInfo.error ?? ""}`;

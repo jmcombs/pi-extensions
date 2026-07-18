@@ -149,18 +149,27 @@ Removes `parsed[name]` from `auth.json` under the file lock.
 - **Returns** `{ ok: true }` when an entry was present and removed, `{ ok: false }`
   when there was nothing to remove.
 
-## `is1PasswordAvailable()` (D6)
+## `is1PasswordAvailable()` (D6 / ADR 0003)
 
 ```ts
 function is1PasswordAvailable(): Promise<boolean>
 ```
 
-Whether 1Password vault integration is usable **right now**: the `op` CLI is
-installed **and** an account session is signed in (via `getOpStatus()` →
-`available && signedIn`). Runs `op --version` + `op whoami` fresh. Used to branch
+Whether 1Password vault integration is usable: the `op` CLI is installed **and**
+an auth path is **configured** (via `getOpStatus()` → `available && configured`).
+`configured` is true when any of: `OP_SERVICE_ACCOUNT_TOKEN` is set; both
+`OP_CONNECT_HOST` and `OP_CONNECT_TOKEN` are set; or `op account list` returns a
+non-empty account list.
+
+It deliberately does **not** gate on `op whoami`/`signedIn`. Under the 1Password
+desktop-app biometric integration, `op whoami` reports a false "not signed in" for
+a cold CLI invocation even though `op read` works — so `signedIn` is retained for
+diagnostics only and never gates access. The check is **passive**: no unlock and
+**no Touch ID prompt at check time**; the account session unlocks lazily on the
+first `op read` (the startup warm-on-load, D7/D8, triggers it once). Used to branch
 onboarding between the vault picker and manual key entry.
 
-- **Returns** `true` when `op` is available and signed in, otherwise `false`.
+- **Returns** `true` when `op` is available and configured, otherwise `false`.
 
 ---
 

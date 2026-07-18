@@ -60,16 +60,20 @@ export interface DeleteResult {
 }
 
 /**
- * Whether 1Password vault integration is usable right now: the `op` CLI is
- * installed **and** an account session is signed in (D6). Runs `op --version` +
- * `op whoami` fresh. Used to branch onboarding between the vault picker and
- * manual key entry.
+ * Whether 1Password vault integration is usable: the `op` CLI is installed
+ * **and** an auth path is **configured** (D6 / ADR 0003) — a service-account
+ * token, 1Password Connect env, or a desktop/CLI account. It does **not** gate on
+ * `op whoami`/`signedIn`, which reports a false "not signed in" for cold CLI
+ * invocations under the desktop-app biometric integration even when `op read`
+ * works. The check is passive: no unlock and no Touch ID prompt at check time;
+ * the account session unlocks lazily on the first `op read`. Used to branch
+ * onboarding between the vault picker and manual key entry.
  *
- * @returns `true` when `op` is available and signed in, otherwise `false`.
+ * @returns `true` when `op` is available and configured, otherwise `false`.
  */
 export async function is1PasswordAvailable(): Promise<boolean> {
   const status = await getOpStatus();
-  return status.available && status.signedIn;
+  return status.available && status.configured;
 }
 
 /**

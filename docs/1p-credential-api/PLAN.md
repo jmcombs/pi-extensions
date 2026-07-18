@@ -53,7 +53,7 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 | D3  | Stateless API | Exported functions read `auth.json` + run `op` **fresh** on every call; they must **not** rely on any module-level session state. pi loads each extension in its own jiti with `moduleCache: false` (`loader.js:314–315`), so a consumer's `import` is a fresh module instance. Verified empirically. |
 | D4  | Storage shape | Provider-shaped entry keyed by **logical name**: `{"context7": {"type":"api_key","key":"!op read 'op://…'"}}`. Keeps existing `auth.json` entries working; stays out of the bash spawn-hook env. (Maintainer Q1.) |
 | D5  | Read path | `resolveSecret(name)` = `readFile(auth.json)` → `parsed[name]` → `resolveShellValue(entry.key ?? entry)`. **No `ModelRuntime`, no `AuthStorage`, no `readStoredCredential`.** Reads couple only to the local file + the `op` CLI. Handles both provider-shaped objects and bare literal strings. |
-| D6  | Onboarding = availability-branched | `onboardSecret` checks `is1PasswordAvailable()` (= `op` installed **and** signed in, via `getOpStatus`). **Available →** the live vault picker (`pickOpReferenceSimple`) / manual `op://` entry, writing an `!op read` entry. **Not available →** manual API-key entry (written as a literal, provider-shaped, D4) **plus** a nudge that installing/enabling the 1Password extension unlocks vault integration. Existing literal + `!op read` keys already in `auth.json` resolve on read either way (D5). (Maintainer flowchart; supersedes the earlier "1Password-only" answer.) |
+| D6  | Onboarding = availability-branched | `onboardSecret` checks `is1PasswordAvailable()` (= `op` installed **and** an auth path **configured** — service-account token, Connect env, or a desktop/CLI account via `op account list`; **not** gated on `op whoami`/`signedIn`, which false-negatives under the desktop-app biometric integration — see ADR 0003). **Available →** the live vault picker (`pickOpReferenceSimple`) / manual `op://` entry, writing an `!op read` entry. **Not available →** manual API-key entry (written as a literal, provider-shaped, D4) **plus** a nudge that installing/enabling the 1Password extension unlocks vault integration. Existing literal + `!op read` keys already in `auth.json` resolve on read either way (D5). (Maintainer flowchart; supersedes the earlier "1Password-only" answer.) |
 | D7  | Warm-on-load | On `session_start`, scan **all** `auth.json` values (top-level strings **and** nested provider-shaped `.key`) for an `!op read` reference; if **any** exists, run **one** warm-up `op read` (value discarded) to unlock the account session; if none, stay silent. (Maintainer Q3.) |
 | D8  | "Prompt once" property | The single-prompt-then-never-again behavior is the **1Password desktop-app biometric session** held by `op` — OS-level, process-independent. Preserved automatically by calling `op read`; D7 guarantees the prompt lands at startup. Verified. |
 | D9  | pi peer ranges | pi-runtime peers stay `"*"`; **never pin a version floor there** — inert under pi's install (`--omit=peer`). No load-time version guard (reads use only `readFile` + `op`). |
@@ -182,6 +182,11 @@ warm-on-load, existing 1p behavior unchanged.
   reference doc `docs/1p-credential-api/API.md`.
 - **Out:** any consumer changes (P3+). Do not remove or alter the existing `1p_run`
   / `1password_onboard` / diagnose tools or the spawn-hook env injection.
+  **Carve-out (ADR 0003):** `1p_run`'s availability gating is corrected in this
+  phase to stop hard-blocking on `op whoami`/`signedIn` (a false-negative under the
+  desktop-app biometric integration) — it now gates on `configured` and attempts
+  the run, same root-cause fix as `is1PasswordAvailable`. Onboarding/diagnose and
+  the spawn-hook are otherwise unchanged (diagnose may still show `signedIn` as info).
 
 ### Architectural Constraints
 
@@ -584,6 +589,7 @@ and a row here before implementation.
 | --- | --- | --- |
 | [0001](../decisions/0001-integration-branch-for-baseline-red-migration.md) | Integration branch for the baseline-red AuthStorage migration | Accepted |
 | [0002](../decisions/0002-ts-aware-gate5-cross-package-import.md) | TS-aware loader for Phase 2 Gate 5 (cross-package import) | Accepted |
+| [0003](../decisions/0003-op-availability-detects-configuration-not-session.md) | `op` availability detects configuration, not live session (fixes `is1PasswordAvailable` + `1p_run`) | Accepted |
 
 ## Appendix B — Master TODO index (verifier-ticked)
 
