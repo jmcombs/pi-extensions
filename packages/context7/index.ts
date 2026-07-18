@@ -151,7 +151,6 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: "missing_api_key" },
-          isError: true,
         };
       }
 
@@ -179,7 +178,6 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 401 },
-              isError: true,
             };
           }
           if (response.status === 429) {
@@ -193,7 +191,6 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 429 },
-              isError: true,
             };
           }
 
@@ -212,7 +209,6 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
-            isError: true,
           };
         }
 
@@ -259,7 +255,6 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: message },
-          isError: true,
         };
       }
     },
@@ -291,7 +286,6 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: "missing_api_key" },
-          isError: true,
         };
       }
 
@@ -318,7 +312,6 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 401 },
-              isError: true,
             };
           }
           if (response.status === 429) {
@@ -332,7 +325,6 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 429 },
-              isError: true,
             };
           }
 
@@ -351,7 +343,6 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
-            isError: true,
           };
         }
 
@@ -370,7 +361,6 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: message },
-          isError: true,
         };
       }
     },
