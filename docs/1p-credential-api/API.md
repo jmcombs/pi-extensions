@@ -100,20 +100,34 @@ interface OnboardResult  { ok: boolean; message: string }
 function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>
 ```
 
-Interactively onboards a secret, **branching on 1Password availability**
-(`is1PasswordAvailable()`):
+Interactively onboards a secret (redesigned UX, **ADR 0005**):
 
-- **`op` available and signed in →** prompt for a 1Password reference — the live
-  vault → item → field picker, or a manually typed `op://…` — and store it as a
-  `!op read '<ref>'` provider-shaped entry.
-- **`op` not available →** prompt for the literal API key, store it as a literal
-  provider-shaped entry, and nudge the user to install/enable the 1Password
-  extension to unlock vault integration and the startup warm-up.
+1. **Existing-key gate first.** If `name` already has a value and `overwrite` isn't
+   set, the user is asked to *Replace it* or *Keep the current key*; keeping (or
+   Esc) returns `{ ok: false, message: "Kept your existing {label} key. Nothing
+   changed." }` without touching anything.
+2. **Branches on 1Password availability** (`is1PasswordAvailable()`):
+   - **`op` available →** a source menu with three options: **Find it in
+     1Password** (the live vault → item → field picker, auto-skipping the field
+     step for single-credential items), or **Enter a 1Password reference** (a
+     validated `op://vault/item/field` path) — both stored as `!op read '<ref>'`;
+     or **Paste the key directly** — a **masked** literal entry (the value is never
+     drawn on screen), stored as a literal provider-shaped entry.
+   - **`op` not available →** the same masked literal entry, plus a nudge to
+     install the 1Password CLI to keep keys in the vault.
+3. **Post-save verify.** After a successful write, the entry is resolved once
+   (`verifySecret`) to confirm it works; the returned `message` reflects the
+   outcome.
 
-- **Returns** `{ ok, message }`. `message` is safe to surface to the user; it never
-  contains the entered value or a resolved secret.
+- **Returns** `{ ok, message }`. `message` is safe to surface to the user (context7
+  and the other consumers simply `notify` it); it never contains the entered value,
+  a resolved secret, `auth.json`, `changeSecret`, or the raw `name` (outside a
+  `/{name}_onboard` token). Post-save verify sub-warnings ("Saved, but …") are
+  returned with `ok: true` so the caller still re-resolves. Interstitial failures
+  (browse errors, an incomplete `op://` path) are notified directly, then the flow
+  returns the verbatim `Onboarding cancelled.`
 - Refuses to overwrite an existing entry unless `opts.overwrite` is set (use
-  `changeSecret`).
+  `changeSecret`), which pre-selects Replace.
 
 ## `changeSecret(ctx, opts)`
 

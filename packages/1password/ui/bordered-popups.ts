@@ -103,6 +103,8 @@ export async function selectInBorderedPopup<T = string>(
   ctx: UiContext,
   opts: {
     title: string;
+    /** Optional body text shown above the list. Split on `\n` into lines. */
+    message?: string;
     items: { value: T; label: string; description?: string }[];
     helpText?: string;
     maxVisible?: number;
@@ -177,8 +179,18 @@ export async function selectInBorderedPopup<T = string>(
         dispose?(): void;
       } = {
         render(width: number) {
-          const listLines = currentList ? currentList.render(Math.max(20, width - 4)) : [];
-          return renderBorderedBox(width, opts.title, listLines, help, theme, truncateToWidthFn);
+          const innerWidth = Math.max(20, width - 4);
+          const body: string[] = [];
+          if (opts.message) {
+            for (const line of opts.message.split("\n")) {
+              body.push(theme.fg("text", line));
+            }
+            body.push("");
+          }
+          if (currentList) {
+            body.push(...currentList.render(innerWidth));
+          }
+          return renderBorderedBox(width, opts.title, body, help, theme, truncateToWidthFn);
         },
         invalidate() {
           container.invalidate();
@@ -215,6 +227,7 @@ export async function confirmInBorderedPopup(
 
   const choice = await selectInBorderedPopup(ctx, {
     title: opts.title,
+    message: opts.message,
     items,
     helpText: "↑↓ • Enter to confirm • Esc = cancel",
     maxVisible: 5,
@@ -226,6 +239,12 @@ export async function confirmInBorderedPopup(
 /**
  * Bordered popup text input powered by Pi's Editor component.
  * Good for free-text entry while staying inside the custom popup aesthetic.
+ *
+ * When `mask` is set the popup renders one `•` per typed code point **instead of**
+ * the Editor's own glyphs — the secret is never drawn on screen. The Editor is
+ * still used as the (headless) input model so key decoding, paste, and submit all
+ * work; we simply never call `editor.render()` in masked mode, so no plaintext is
+ * ever emitted. `prompt` is split on `\n` so a multi-line notice renders in full.
  */
 export async function inputInBorderedPopup(
   ctx: UiContext,
@@ -234,6 +253,8 @@ export async function inputInBorderedPopup(
     prompt?: string;
     defaultValue?: string;
     helpText?: string;
+    /** Render typed input as `•` bullets instead of the plaintext value. */
+    mask?: boolean;
   },
 ): Promise<string | undefined> {
   const help = opts.helpText ?? "Enter to confirm • Esc = cancel";
@@ -244,6 +265,7 @@ export async function inputInBorderedPopup(
     invalidate(): void;
     handleInput(d: string): void;
     setText(s: string): void;
+    getText(): string;
     onSubmit: (value: string) => void;
   }
 
@@ -290,12 +312,19 @@ export async function inputInBorderedPopup(
           const body: string[] = [];
 
           if (opts.prompt) {
-            body.push(theme.fg("text", opts.prompt));
+            for (const line of opts.prompt.split("\n")) {
+              body.push(theme.fg("text", line));
+            }
             body.push("");
           }
 
-          const editorLines = editor.render(innerWidth);
-          body.push(...editorLines);
+          if (opts.mask) {
+            // Never draw the Editor's glyphs; render one bullet per code point.
+            const masked = "•".repeat([...editor.getText()].length);
+            body.push(theme.fg("text", masked));
+          } else {
+            body.push(...editor.render(innerWidth));
+          }
 
           return renderBorderedBox(width, opts.title, body, help, theme, truncateToWidthFn);
         },
