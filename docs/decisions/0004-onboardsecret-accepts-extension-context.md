@@ -1,6 +1,6 @@
-# 0004 — `onboardSecret` accepts `ExtensionContext`, not `ExtensionCommandContext`
+# 0004 — Onboarding surface takes the minimal `UiContext` capability
 
-- Status: Proposed (pending orchestrator/maintainer review)
+- Status: Accepted (maintainer-approved amended design)
 - Phase: 3 (context7 → 1Password credential API), surfacing a Phase 2 defect
 - Date: 2026-07-18
 
@@ -66,35 +66,68 @@ Alternatives considered and rejected:
 
 ## Decision
 
-Widen the `ctx` parameter of the onboarding surface from
-`ExtensionCommandContext` to the base **`ExtensionContext`** — the minimum type
-each function actually needs — so the API is callable from both command handlers
-(`ExtensionCommandContext` is-a `ExtensionContext`) and tool `execute()`
-(`ExtensionContext` directly), matching the API.md contract.
+Type the onboarding surface to the **minimal UI capability it actually uses** —
+`ctx.ui` — rather than any whole concrete context. A single shared alias is the
+source of truth:
 
-Files changed in `packages/1password/`:
+```ts
+// packages/1password/credential-api.ts (exported)
+export type UiContext = Pick<ExtensionContext, "ui">;
+```
 
-- `credential-api.ts` — `onboardSecret(ctx: ExtensionContext, …)`,
-  `changeSecret(ctx: ExtensionContext, …)`, and the type import.
-- `index.ts` — `pickOpReferenceSimple(ctx: ExtensionContext)` and the type import.
+The `ctx` parameter of every function on the onboarding path becomes `UiContext`.
+
+An earlier revision of this ADR widened these params from
+`ExtensionCommandContext` to the whole `ExtensionContext`; the maintainer
+reviewed it and **approved an amended, narrower design**. `ExtensionContext`
+works, but it demands ~15 unrelated context members these functions never touch
+and it forbids a `{ ui }` test double — which is exactly the seam whose absence
+let the original over-narrowing ship unnoticed. `Pick<ExtensionContext, "ui">` is
+**strictly less coupled**: it is satisfied by a command handler ctx, a tool
+`execute()` ctx, an event/shortcut handler ctx, **and** a bare `{ ui }` fake, so
+the ctx path is finally unit-testable.
+
+Files changed in `packages/1password/` (all pure type-annotation changes):
+
+- `credential-api.ts` — defines and exports `UiContext`; `onboardSecret` and
+  `changeSecret` take `ctx: UiContext`.
+- `index.ts` — `pickOpReferenceSimple(ctx: UiContext)`, importing the alias from
+  `./credential-api.js` (single source of truth); dropped the now-unused
+  `ExtensionContext` import.
 - `ui/bordered-popups.ts` — `selectInBorderedPopup`, `confirmInBorderedPopup`,
-  `inputInBorderedPopup` `ctx` params and the type import.
+  `inputInBorderedPopup` take `ctx: UiContext` (imported from
+  `../credential-api.js`).
+- `docs/1p-credential-api/API.md` — the `onboardSecret` / `changeSecret`
+  signatures and the "call from a tool `execute()`" consumer-wiring example now
+  show `UiContext`.
 
-This is a **pure type-annotation widening**: no runtime behavior changes, and all
-existing callers (the `/1password_onboard` command handler, which passes an
-`ExtensionCommandContext`) remain valid.
+No runtime behavior changes, and all existing callers (the `/1password_onboard`
+command handler passing an `ExtensionCommandContext`, and context7's tool
+`execute()` passing an `ExtensionContext`) remain valid — both structurally
+satisfy `UiContext`.
 
 ## Consequences
 
 - context7's Phase 3 literal wiring typechecks (`tsc -p packages/context7` exit 0);
-  the 1Password package remains green (`tsc`, `biome`, `vitest` all pass, 27 tests).
-- The credential API now matches its own documented usage from `execute()`, so the
-  later consumer migrations (P4 tavily-search, P5 grok-search, P6 headroom) that
-  reuse the same auto-onboard-on-miss pattern inherit the corrected signature and
-  need no further change here.
+  the 1Password package remains green (`tsc`, `biome`, `vitest` all pass).
+- The onboarding surface is now **decoupled from any concrete context type** — it
+  depends only on the `ui` capability. It is callable, without a cast, from
+  command handlers, tool `execute()`, event/shortcut handlers, and plain `{ ui }`
+  doubles. The credential API matches its own documented `execute()` usage.
+- **The ctx path is now unit-testable**, closing the gap that hid the original
+  bug. `credential-api.test.ts` gains: (a) a compile-level regression asserting
+  `onboardSecret` is callable from an `ExtensionContext` (tool `execute()`), an
+  `ExtensionCommandContext` (command handler), and a bare `{ ui }` double — the
+  `tsc` gate fails if any callsite regresses; and (b) a runtime test that drives
+  the manual-entry branch (`is1PasswordAvailable()` forced false via an
+  `op`-less `PATH`) through a `{ ui }` fake against a temp `auth.json`, asserting
+  the D4 provider-shaped literal is written. That runtime test would have caught
+  the original defect.
+- The later consumer migrations (P4 tavily-search, P5 grok-search, P6 headroom)
+  reuse the same auto-onboard-on-miss pattern and inherit the corrected signature
+  unchanged.
 - No Locked Decision is altered; no gate is weakened. The change is additive and
   behavior-preserving.
-- **For review:** the fix lands in the P2 package from a P3 branch. If the
-  orchestrator/maintainer prefers it split into a separate P2 follow-up commit,
-  the type edits are isolated and can be cherry-picked out; the context7 changes
-  depend only on the widened signature, not on where the commit lives.
+- The fix lands in the P2 package from a P3 branch (transparently, via this ADR).
+  The type edits are isolated and could be split into a P2 follow-up if desired;
+  the context7 changes depend only on the signature, not on where it lives.

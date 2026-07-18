@@ -89,10 +89,15 @@ if (!apiKey) {
 ## `onboardSecret(ctx, opts)` (D6)
 
 ```ts
+// The minimal context capability the onboarding surface needs — just `ui`.
+// Satisfied by a command handler ctx, a tool `execute()` ctx, an event/shortcut
+// handler ctx, or a bare `{ ui }` test double (ADR 0004).
+type UiContext = Pick<ExtensionContext, "ui">;
+
 interface OnboardOptions { name: string; label: string; overwrite?: boolean }
 interface OnboardResult  { ok: boolean; message: string }
 
-function onboardSecret(ctx: ExtensionCommandContext, opts: OnboardOptions): Promise<OnboardResult>
+function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>
 ```
 
 Interactively onboards a secret, **branching on 1Password availability**
@@ -113,7 +118,7 @@ Interactively onboards a secret, **branching on 1Password availability**
 ## `changeSecret(ctx, opts)`
 
 ```ts
-function changeSecret(ctx: ExtensionCommandContext, opts: OnboardOptions): Promise<OnboardResult>
+function changeSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>
 ```
 
 Same as `onboardSecret` with `overwrite: true` — runs the identical
@@ -197,6 +202,11 @@ if (!apiKey) {
 }
 if (!apiKey) return { /* isError: missing_api_key */ };
 ```
+
+The `ctx` passed here is the tool's `execute()` context. Because `onboardSecret`
+takes `UiContext` (`Pick<ExtensionContext, "ui">`), the same call works verbatim
+from a command handler, an event/shortcut handler, or a `{ ui }` test double — no
+casting required.
 
 See the step-by-step integration guide (`INTEGRATION.md`, added in a later phase)
 for a full worked example.

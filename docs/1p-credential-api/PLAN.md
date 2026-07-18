@@ -590,7 +590,7 @@ and a row here before implementation.
 | [0001](../decisions/0001-integration-branch-for-baseline-red-migration.md) | Integration branch for the baseline-red AuthStorage migration | Accepted |
 | [0002](../decisions/0002-ts-aware-gate5-cross-package-import.md) | TS-aware loader for Phase 2 Gate 5 (cross-package import) | Accepted |
 | [0003](../decisions/0003-op-availability-detects-configuration-not-session.md) | `op` availability detects configuration, not live session (fixes `is1PasswordAvailable` + `1p_run`) | Accepted |
-| [0004](../decisions/0004-onboardsecret-accepts-extension-context.md) | `onboardSecret`/`changeSecret`/`pickOpReferenceSimple` accept `ExtensionContext` (not `ExtensionCommandContext`) so the API is callable from tool `execute()` per P3's literal TODO | Proposed |
+| [0004](../decisions/0004-onboardsecret-accepts-extension-context.md) | Onboarding surface (`onboardSecret`/`changeSecret`/`pickOpReferenceSimple` + bordered-popup helpers) takes the minimal `UiContext = Pick<ExtensionContext, "ui">` capability, so it is callable from tool `execute()`, command/event handlers, and a `{ ui }` test double | Accepted |
 
 ## Appendix B — Master TODO index (verifier-ticked)
 

@@ -14,8 +14,9 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { deleteSecret, resolveSecret, verifySecret } from "./credential-api.js";
+import { deleteSecret, onboardSecret, resolveSecret, verifySecret } from "./credential-api.js";
 import { findFirstOpRef, warmOpSessionIfNeeded, writeProviderAuthEntry } from "./index.js";
 
 let dir: string;
@@ -145,6 +146,58 @@ describe("changeSecret overwrite semantics", () => {
     const res = await writeProviderAuthEntry("demo", "!echo new", { overwrite: true });
     expect(res.success).toBe(true);
     expect(await resolveSecret("demo")).toBe("new");
+  });
+});
+
+describe("onboarding ctx typing (ADR 0004 regression)", () => {
+  it("onboardSecret is callable from every ctx that exposes `ui` — no cast", () => {
+    // Compile-level regression for the bug that hid behind the original
+    // ExtensionCommandContext over-narrowing: onboardSecret takes
+    // UiContext = Pick<ExtensionContext, "ui">, so it accepts a tool `execute()`
+    // ctx (typed ExtensionContext), a command handler ctx
+    // (ExtensionCommandContext), and a bare `{ ui }` test double alike. These
+    // arrows are type-checked by the `tsc` gate; their bodies are never invoked,
+    // so no real UI is driven here. If any callsite regressed to requiring the
+    // wider/narrower context, this file would fail to typecheck.
+    const callsites = {
+      fromToolExecute: (ctx: ExtensionContext) => onboardSecret(ctx, { name: "d", label: "D" }),
+      fromCommandHandler: (ctx: ExtensionCommandContext) =>
+        onboardSecret(ctx, { name: "d", label: "D" }),
+      fromUiDouble: (ctx: { ui: ExtensionContext["ui"] }) =>
+        onboardSecret(ctx, { name: "d", label: "D" }),
+    };
+    expect(Object.keys(callsites)).toHaveLength(3);
+  });
+});
+
+describe("onboardSecret manual-entry branch (runtime, op unavailable)", () => {
+  it("writes the D4 provider-shaped literal via a bare `{ ui }` double", async () => {
+    // Force is1PasswordAvailable() → false deterministically by pointing PATH at
+    // a directory with no `op` binary, so `op --version` fails and getOpStatus
+    // reports available=false. This drives the manual-entry branch on any
+    // machine, including one where 1Password IS configured. This is the exact
+    // path (ctx.ui-only, no command context) that the original typing made
+    // untestable and that hid ADR 0004's bug.
+    const prevPath = process.env.PATH;
+    process.env.PATH = dir;
+    try {
+      // Bare `{ ui }` double: `custom` is what inputInBorderedPopup awaits; it
+      // returns the "entered" key directly (bypassing the render callback).
+      const ui = {
+        custom: async () => "manual-test-key",
+        notify: () => {},
+        setStatus: () => {},
+      } as unknown as ExtensionContext["ui"];
+
+      const res = await onboardSecret({ ui }, { name: "demo", label: "Demo" });
+
+      expect(res.ok).toBe(true);
+      expect((await readAuth()).demo).toEqual({ type: "api_key", key: "manual-test-key" });
+      expect(await resolveSecret("demo")).toBe("manual-test-key");
+    } finally {
+      if (prevPath === undefined) delete process.env.PATH;
+      else process.env.PATH = prevPath;
+    }
   });
 });
 

@@ -31,6 +31,19 @@ import {
 } from "./index.js";
 import { inputInBorderedPopup, selectInBorderedPopup } from "./ui/bordered-popups.js";
 
+/**
+ * The minimal context capability the onboarding surface needs: just `ui`.
+ *
+ * Typing to `Pick<ExtensionContext, "ui">` (rather than the whole
+ * `ExtensionContext` or the narrower command-only context) keeps these
+ * functions callable from **every** pi entry point that exposes `ctx.ui` —
+ * command handlers, tool `execute()`, and event/shortcut handlers — and from a
+ * bare `{ ui }` test double, without demanding the ~15 unrelated context members
+ * they never touch. This is the least-coupled signature and it makes the ctx
+ * path unit-testable (ADR 0004).
+ */
+export type UiContext = Pick<ExtensionContext, "ui">;
+
 /** Options accepted by {@link onboardSecret} / {@link changeSecret}. */
 export interface OnboardOptions {
   /** Logical name the secret is stored and resolved under (e.g. `"context7"`). */
@@ -114,10 +127,7 @@ export async function resolveSecret(name: string): Promise<string | undefined> {
  * @param opts `{ name, label, overwrite? }`.
  * @returns `{ ok, message }` describing the outcome (never the secret).
  */
-export async function onboardSecret(
-  ctx: ExtensionContext,
-  opts: OnboardOptions,
-): Promise<OnboardResult> {
+export async function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult> {
   const overwrite = opts.overwrite ?? false;
 
   if (await is1PasswordAvailable()) {
@@ -189,10 +199,7 @@ export async function onboardSecret(
  * @param opts `{ name, label }` (overwrite is forced on).
  * @returns `{ ok, message }`.
  */
-export async function changeSecret(
-  ctx: ExtensionContext,
-  opts: OnboardOptions,
-): Promise<OnboardResult> {
+export async function changeSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult> {
   return onboardSecret(ctx, { ...opts, overwrite: true });
 }
 

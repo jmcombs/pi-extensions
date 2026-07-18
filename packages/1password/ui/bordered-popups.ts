@@ -51,7 +51,8 @@
  * are still perfectly acceptable and require less code.
  */
 
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { UiContext } from "../credential-api.js";
 
 // No static imports from @earendil-works/pi-tui are used for types.
 // We rely on inference for ctx.ui.custom callback parameters (sourced via the
@@ -99,7 +100,7 @@ export function renderBorderedBox(
  * Returns the chosen `.value` or `null` (on cancel / Esc).
  */
 export async function selectInBorderedPopup<T = string>(
-  ctx: ExtensionContext,
+  ctx: UiContext,
   opts: {
     title: string;
     items: { value: T; label: string; description?: string }[];
@@ -121,8 +122,8 @@ export async function selectInBorderedPopup<T = string>(
     onCancel: () => void;
   }
 
-  // Let inference provide the exact callback parameter types from the
-  // ExtensionCommandContext (via coding-agent peer). Explicit annotations
+  // Let inference provide the exact callback parameter types from
+  // `ctx.ui.custom` (via the coding-agent peer). Explicit annotations
   // referencing TUI/KeybindingsManager etc. from pi-tui trigger the
   // "separate declarations of private property" tsc error in the monorepo.
   return await ctx.ui.custom<T | null>(
@@ -197,7 +198,7 @@ export async function selectInBorderedPopup<T = string>(
 
 /** Yes/No (or custom labels) confirmation inside a bordered popup. */
 export async function confirmInBorderedPopup(
-  ctx: ExtensionContext,
+  ctx: UiContext,
   opts: {
     title: string;
     message?: string;
@@ -227,7 +228,7 @@ export async function confirmInBorderedPopup(
  * Good for free-text entry while staying inside the custom popup aesthetic.
  */
 export async function inputInBorderedPopup(
-  ctx: ExtensionContext,
+  ctx: UiContext,
   opts: {
     title: string;
     prompt?: string;
