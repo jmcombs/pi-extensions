@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   createBashTool,
   createLocalBashOperations,
@@ -619,7 +619,7 @@ export async function warmOpSessionIfNeeded(): Promise<void> {
  * fully-qualified `op://Vault/Item/field` reference or `null` on cancel. Used by
  * both the `/1password_onboard` command and the public {@link onboardSecret} flow.
  */
-export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promise<string | null> {
+export async function pickOpReferenceSimple(ctx: ExtensionContext): Promise<string | null> {
   ctx.ui.setStatus("1p-onboard", "Loading vaults...");
   let vaultNames: string[] = [];
   try {

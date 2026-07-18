@@ -20,7 +20,7 @@
  * See docs/1p-credential-api/API.md for the full reference.
  */
 
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   deleteAuthEntry,
   getOpStatus,
@@ -109,12 +109,13 @@ export async function resolveSecret(name: string): Promise<string | undefined> {
  * overwrite an existing entry unless `opts.overwrite` (or {@link changeSecret}) is
  * used.
  *
- * @param ctx The extension command context (drives the onboarding UI).
+ * @param ctx The extension context (drives the onboarding UI; works from both
+ *   command handlers and tool `execute()`).
  * @param opts `{ name, label, overwrite? }`.
  * @returns `{ ok, message }` describing the outcome (never the secret).
  */
 export async function onboardSecret(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   opts: OnboardOptions,
 ): Promise<OnboardResult> {
   const overwrite = opts.overwrite ?? false;
@@ -184,12 +185,12 @@ export async function onboardSecret(
  * Change an existing secret: {@link onboardSecret} with `overwrite: true`. Runs the
  * same availability-branched flow and replaces any current entry for `opts.name`.
  *
- * @param ctx The extension command context.
+ * @param ctx The extension context.
  * @param opts `{ name, label }` (overwrite is forced on).
  * @returns `{ ok, message }`.
  */
 export async function changeSecret(
-  ctx: ExtensionCommandContext,
+  ctx: ExtensionContext,
   opts: OnboardOptions,
 ): Promise<OnboardResult> {
   return onboardSecret(ctx, { ...opts, overwrite: true });
