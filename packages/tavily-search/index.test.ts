@@ -75,7 +75,7 @@ describe("@jmcombs/pi-tavily-search", () => {
     expect(typeof factory).toBe("function");
   });
 
-  it("registers exactly one tool and one authentication command", () => {
+  it("registers exactly one tool and one setup command", () => {
     const { api, commands, tools } = createApiStub();
     factory(api);
 
@@ -85,7 +85,7 @@ describe("@jmcombs/pi-tavily-search", () => {
     expect(tools[0]?.description).toMatch(/tavily/i);
 
     expect(commands).toHaveLength(1);
-    expect(commands[0]?.name).toBe("tavily_authenticate");
+    expect(commands[0]?.name).toBe("tavily_setup");
     expect(commands[0]?.description).toMatch(/tavily/i);
   });
 

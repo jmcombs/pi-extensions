@@ -92,7 +92,7 @@ avoids a double/contradictory notification while keeping context7 untouched.
   reference path, field-step auto-skip, and a post-save resolve check.
 - The new masked-input primitive and the `confirm`/multi-line `prompt` fixes are
   reusable by any extension using these helpers.
-- **Tracked follow-up:** the separate shell-plugin `/1password_onboard` command in
+- **Tracked follow-up:** the separate shell-plugin `/1password_setup` command in
   `packages/1password/index.ts` still uses the older inline prompts. It should
   later adopt the same pattern (masked entry, upfront overwrite, source menu,
   post-save verify). Out of scope for this Phase 3 change; filed here so it is not
