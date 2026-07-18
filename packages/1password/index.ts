@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   createBashTool,
   createLocalBashOperations,
@@ -27,6 +27,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 
+import type { UiContext } from "./credential-api.js";
 import {
   confirmInBorderedPopup,
   inputInBorderedPopup,
@@ -619,7 +620,9 @@ export async function warmOpSessionIfNeeded(): Promise<void> {
  * fully-qualified `op://Vault/Item/field` reference or `null` on cancel. Used by
  * both the `/1password_onboard` command and the public {@link onboardSecret} flow.
  */
-export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promise<string | null> {
+export async function pickOpReferenceSimple(ctx: UiContext): Promise<string | null> {
+  const browseHelp = "↑↓ • Enter • Esc = cancel • Type to filter";
+
   ctx.ui.setStatus("1p-onboard", "Loading vaults...");
   let vaultNames: string[] = [];
   try {
@@ -630,14 +633,14 @@ export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promi
     const parsed = JSON.parse(stdout || "[]") as OpVault[];
     vaultNames = parsed.map((v) => v.name).sort((a, b) => a.localeCompare(b));
   } catch {
-    ctx.ui.notify("Failed to load vaults from 1Password.", "error");
+    ctx.ui.notify("Couldn't reach 1Password — make sure it's unlocked.", "warning");
     ctx.ui.setStatus("1p-onboard", undefined);
     return null;
   }
   ctx.ui.setStatus("1p-onboard", undefined);
 
   if (vaultNames.length === 0) {
-    ctx.ui.notify("No vaults found in 1Password.", "warning");
+    ctx.ui.notify("No vaults found in your 1Password account.", "warning");
     return null;
   }
 
@@ -646,9 +649,9 @@ export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promi
     { value: "__cancel", label: "Cancel" },
   ];
   const chosenVault = await selectInBorderedPopup(ctx, {
-    title: "Select 1Password vault",
+    title: "Choose a vault",
     items: vaultItems,
-    helpText: "↑↓ • Enter • Esc = cancel • Type to filter",
+    helpText: browseHelp,
     maxVisible: 14,
   });
   if (!chosenVault || chosenVault === "__cancel") return null;
@@ -665,14 +668,14 @@ export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promi
     const parsed = JSON.parse(stdout || "[]") as OpItem[];
     items = parsed.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
   } catch {
-    ctx.ui.notify("Failed to load items.", "error");
+    ctx.ui.notify(`Couldn't load items from "${chosenVault}". Try again.`, "warning");
     ctx.ui.setStatus("1p-onboard", undefined);
     return null;
   }
   ctx.ui.setStatus("1p-onboard", undefined);
 
   if (items.length === 0) {
-    ctx.ui.notify("No matching items in that vault.", "warning");
+    ctx.ui.notify(`No API keys or logins found in "${chosenVault}".`, "warning");
     return null;
   }
 
@@ -684,9 +687,9 @@ export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promi
     { value: "__cancel", label: "Cancel" },
   ];
   const chosenItemId = await selectInBorderedPopup(ctx, {
-    title: `Select item in ${chosenVault}`,
+    title: `Choose an item in ${chosenVault}`,
     items: itemItems,
-    helpText: "↑↓ • Enter • Esc = cancel • Type to filter (can be long)",
+    helpText: browseHelp,
     maxVisible: 16,
   });
   if (!chosenItemId || chosenItemId === "__cancel") return null;
@@ -707,33 +710,55 @@ export async function pickOpReferenceSimple(ctx: ExtensionCommandContext): Promi
     const full = JSON.parse(stdout || "null") as { fields?: OpField[] } | null;
     fields = full?.fields?.filter(Boolean) ?? [];
   } catch {
-    ctx.ui.notify("Failed to load fields.", "error");
+    ctx.ui.notify("Couldn't load that item's fields. Try again.", "warning");
     ctx.ui.setStatus("1p-onboard", undefined);
     return null;
   }
   ctx.ui.setStatus("1p-onboard", undefined);
 
   if (fields.length === 0) {
-    ctx.ui.notify("Selected item has no fields.", "warning");
+    ctx.ui.notify("That item has no fields to use.", "warning");
     return null;
   }
 
-  const fieldItems = [
-    ...fields.map((f) => ({
-      value: f.label,
-      label: `${f.label} (${f.type ?? "text"})`,
-    })),
-    { value: "__cancel", label: "Cancel" },
-  ];
-  const chosenFieldLabel = await selectInBorderedPopup(ctx, {
-    title: `Select field for "${chosenItem.title}"`,
-    items: fieldItems,
-    helpText: "↑↓ • Enter • Esc = cancel",
-    maxVisible: 12,
-  });
-  if (!chosenFieldLabel || chosenFieldLabel === "__cancel") return null;
+  // Auto-skip the field step when the item has exactly one credential-type field
+  // (a concealed value, or a label like password / credential / api key / secret /
+  // token) — the overwhelmingly common case for an API-key item.
+  const credentialFields = fields.filter(isCredentialField);
+  let chosenFieldLabel: string | null;
+  if (credentialFields.length === 1) {
+    chosenFieldLabel = credentialFields[0]?.label ?? null;
+  } else {
+    const fieldItems = [
+      ...fields.map((f) => ({
+        value: f.label,
+        label: `${f.label} (${f.type ?? "text"})`,
+      })),
+      { value: "__cancel", label: "Cancel" },
+    ];
+    chosenFieldLabel = await selectInBorderedPopup(ctx, {
+      title: "Which field holds the key?",
+      items: fieldItems,
+      helpText: browseHelp,
+      maxVisible: 12,
+    });
+    if (!chosenFieldLabel || chosenFieldLabel === "__cancel") return null;
+  }
+  if (!chosenFieldLabel) return null;
 
   return `op://${chosenVault}/${chosenItem.title}/${chosenFieldLabel}`;
+}
+
+/**
+ * Heuristic: does this 1Password field hold a credential value? True for a
+ * concealed field, or a label naming a password / credential / api key / secret /
+ * token. Uses only the field's label and type — never its value — so nothing
+ * secret is read here.
+ */
+function isCredentialField(field: { label: string; type?: string }): boolean {
+  const type = (field.type ?? "").toUpperCase();
+  const label = field.label.toLowerCase();
+  return type === "CONCEALED" || /password|credential|api[\s_-]?key|secret|token/.test(label);
 }
 
 // ── Tool schemas ───────────────────────────────────────────────────────
