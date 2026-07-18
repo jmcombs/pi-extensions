@@ -10,7 +10,7 @@ Tavily search now handles your API key through the
 API, which installs automatically as a dependency. What this means for you:
 
 - **Onboarding branches on 1Password availability.** If the `op` CLI is installed and an
-  account is configured, `/tavily_authenticate` opens a live **vault → item → field
+  account is configured, `/tavily_setup` opens a live **vault → item → field
   picker** (or lets you type an `op://…` reference) and stores it as a `!op read '…'`
   entry that resolves fresh on every use. If `op` is not available, it falls back to
   **manual API-key entry** and nudges you to enable the 1Password extension for vault
@@ -25,7 +25,7 @@ API, which installs automatically as a dependency. What this means for you:
 
 ```mermaid
 flowchart TD
-    A["/tavily_authenticate or first tool use"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
+    A["/tavily_setup or first tool use"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
     B -- "Yes" --> C["Live vault → item → field picker<br/>or manual op:// reference"]
     C --> D["Store !op read 'op://…' entry"]
     B -- "No" --> E["Manual API-key entry<br/>+ nudge to enable 1Password"]
@@ -54,7 +54,7 @@ available) to get one, then configure it using one of the methods below.
   five formatted results (title, URL, content) plus the raw API response under
   `details.raw`. The tool is callable by the LLM whenever it needs current
   information from the public web.
-- **Command**: `/tavily_authenticate` — runs the `@jmcombs/pi-1password` onboarding flow
+- **Command**: `/tavily_setup` — runs the `@jmcombs/pi-1password` onboarding flow
   to save (or update) your Tavily key. The input is never visible to the LLM.
 
 ## Configuration
@@ -68,12 +68,12 @@ The `tavily_search` tool resolves the key in this order:
 If neither is set, the tool automatically runs onboarding (the availability branch above)
 on first use, then re-resolves — preserving the "prompt on first use" experience.
 
-### Option 1 — `/tavily_authenticate` (recommended)
+### Option 1 — `/tavily_setup` (recommended)
 
 Run the command and follow the flow:
 
 ```
-/tavily_authenticate
+/tavily_setup
 ```
 
 - When the `op` CLI is available, pick your key from the live vault picker (or paste an

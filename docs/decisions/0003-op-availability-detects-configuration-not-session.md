@@ -65,7 +65,7 @@ cause) within Phase 2 rather than deferring it.
 - The interactive account **unlock is deferred to the first `op read`** (warm-on-
   load, D7/D8, still triggers it once at startup). No availability check performs
   an unlock or a Touch ID prompt.
-- `1password_onboard`, `1password_diagnose`, and the bash spawn-hook are otherwise
+- `1password_setup`, `1password_diagnose`, and the bash spawn-hook are otherwise
   unchanged; diagnostics may still display `signedIn` as informational.
 - Never log secret values (service-account tokens, Connect tokens).
 

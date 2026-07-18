@@ -101,7 +101,7 @@ Files changed in `packages/1password/` (all pure type-annotation changes):
   signatures and the "call from a tool `execute()`" consumer-wiring example now
   show `UiContext`.
 
-No runtime behavior changes, and all existing callers (the `/1password_onboard`
+No runtime behavior changes, and all existing callers (the `/1password_setup`
 command handler passing an `ExtensionCommandContext`, and context7's tool
 `execute()` passing an `ExtensionContext`) remain valid — both structurally
 satisfy `UiContext`.

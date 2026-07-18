@@ -17,13 +17,13 @@ Real-time documentation for the Pi coding agent via [Context7](https://context7.
 
 Context7 now handles your API key through the [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) credential API, which installs automatically as a dependency. What this means for you:
 
-- **Onboarding branches on 1Password availability.** If the `op` CLI is installed and an account is configured, `/context7_onboard` opens a live **vault → item → field picker** (or lets you type an `op://…` reference) and stores it as a `!op read '…'` entry that resolves fresh on every use. If `op` is not available, it falls back to **manual API-key entry** and nudges you to enable the 1Password extension for vault integration.
+- **Onboarding branches on 1Password availability.** If the `op` CLI is installed and an account is configured, `/context7_setup` opens a live **vault → item → field picker** (or lets you type an `op://…` reference) and stores it as a `!op read '…'` entry that resolves fresh on every use. If `op` is not available, it falls back to **manual API-key entry** and nudges you to enable the 1Password extension for vault integration.
 - **Existing keys keep working.** Any Context7 key already in `~/.pi/agent/auth.json` — a literal key or an `!op read` reference — continues to resolve unchanged. No migration action is required.
 - **The key is never exposed to the model.** Entry happens entirely in the TUI, and only the resolved value is used to call the Context7 API.
 
 ```mermaid
 flowchart TD
-    A["/context7_onboard or first tool use"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
+    A["/context7_setup or first tool use"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
     B -- "Yes" --> C["Live vault → item → field picker<br/>or manual op:// reference"]
     C --> D["Store !op read 'op://…' entry"]
     B -- "No" --> E["Manual API-key entry<br/>+ nudge to enable 1Password"]
@@ -46,7 +46,7 @@ Get better library documentation in your agent in under a minute.
 2. Configure your Context7 API key:
 
    ```
-   /context7_onboard
+   /context7_setup
    ```
 
    The command opens the onboarding flow above — a 1Password vault picker when `op` is available, or a secure manual-entry prompt otherwise. The value is never visible to the LLM.
@@ -68,12 +68,12 @@ This extension registers two tools:
 
 Both tools resolve the key through `resolveSecret("context7")` from `@jmcombs/pi-1password`, reading `~/.pi/agent/auth.json` fresh on each call (a literal key or an `!op read` reference). If no key is stored, the tool automatically runs onboarding (the availability branch above), then re-resolves — preserving the "prompt on first use" experience. The key is never leaked into the LLM context.
 
-## /context7_onboard
+## /context7_setup
 
 Run this command to configure (or update) your Context7 API key at any time:
 
 ```
-/context7_onboard
+/context7_setup
 ```
 
 It delegates to the `@jmcombs/pi-1password` onboarding flow, which:
@@ -96,7 +96,7 @@ Examples of good prompts:
 
 ## Checking Status
 
-`/context7_onboard` will not silently overwrite an existing key — if one is already stored it reports that and leaves it in place. To rotate a key, remove the existing `context7` entry from `~/.pi/agent/auth.json` (or update it through the `@jmcombs/pi-1password` extension), then run `/context7_onboard` again.
+`/context7_setup` will not silently overwrite an existing key — if one is already stored it reports that and leaves it in place. To rotate a key, remove the existing `context7` entry from `~/.pi/agent/auth.json` (or update it through the `@jmcombs/pi-1password` extension), then run `/context7_setup` again.
 
 ## Development
 

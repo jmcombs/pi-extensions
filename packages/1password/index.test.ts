@@ -82,7 +82,7 @@ describe("@jmcombs/pi-1password", () => {
     expect(typeof factory).toBe("function");
   });
 
-  it("registers its expected tools and the /1password_onboard command", async () => {
+  it("registers its expected tools and the /1password_setup command", async () => {
     const { api, log } = createApiStub();
     await factory(api);
 
@@ -93,6 +93,6 @@ describe("@jmcombs/pi-1password", () => {
     expect(log.tools).toContain("1p_run");
 
     // The guided onboarding command for adding new !op read entries to auth.json
-    expect(log.commands).toContain("1password_onboard");
+    expect(log.commands).toContain("1password_setup");
   }, 30000); // factory does real fs reads (curated list + ~/.pi/agent/auth.json) which can be slow in the test harness
 });

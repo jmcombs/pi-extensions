@@ -27,7 +27,7 @@ Get transparent credential injection in under a minute:
 
 3. In any Pi chat, type:
    ```
-   /1password_onboard
+   /1password_setup
    ```
 
 The command opens a beautiful guided interface (with live filtering and consistent styling) that lets you:
@@ -44,7 +44,7 @@ Run `/1password_diagnose` anytime to see which variables are currently active.
 
 This extension works by storing **references** (never the raw secrets) in `~/.pi/agent/auth.json` using the `!op read` syntax.
 
-The easiest way to create these entries is with the guided `/1password_onboard` command shown above.
+The easiest way to create these entries is with the guided `/1password_setup` command shown above.
 
 You can also manage entries manually if you prefer:
 
@@ -65,12 +65,12 @@ Result: the agent can run `gh auth status`, `gh repo view ...`, `aws sts get-cal
 
 `/1password_diagnose` will show exactly which vars are active (names only).
 
-## /1password_onboard
+## /1password_setup
 
 Run this command for a polished, guided setup experience:
 
 ```
-/1password_onboard
+/1password_setup
 ```
 
 It provides a filterable, bordered interface that walks you through:
@@ -124,7 +124,7 @@ You need a working 1Password CLI that Pi can talk to:
 
 ### Weekly Maintenance of Supported Tools
 
-This extension maintains a curated list of 60+ 1Password shell plugins. A weekly GitHub Actions workflow fetches the latest data from 1password.dev, updates `data/shell-plugins.json`, and opens a PR for review. This keeps `/1password_onboard` current without manual maintenance.
+This extension maintains a curated list of 60+ 1Password shell plugins. A weekly GitHub Actions workflow fetches the latest data from 1password.dev, updates `data/shell-plugins.json`, and opens a PR for review. This keeps `/1password_setup` current without manual maintenance.
 
 ## Development / Local Testing
 

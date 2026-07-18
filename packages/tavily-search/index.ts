@@ -13,7 +13,7 @@
  *    2. If nothing is stored, the tool auto-invokes `onboardSecret`, which branches
  *       on 1Password availability — the live vault picker when `op` is configured,
  *       manual API-key entry otherwise — then re-resolves.
- *    3. `/tavily_authenticate` runs the same onboarding flow on demand.
+ *    3. `/tavily_setup` runs the same onboarding flow on demand.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -72,10 +72,10 @@ function formatResults(data: TavilySearchResponse, query: string): string {
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  // Register /tavily_authenticate command for onboarding the key on demand.
+  // Register /tavily_setup command for onboarding the key on demand.
   // The input is captured by the TUI and never enters the LLM's context.
-  pi.registerCommand("tavily_authenticate", {
-    description: "Securely save your Tavily API key (input never visible to LLM).",
+  pi.registerCommand("tavily_setup", {
+    description: "Set up or update your Tavily API key (never shown to the agent).",
     handler: async (_args, ctx) => {
       const result = await onboardSecret(ctx, { name: "tavily", label: "Tavily" });
       ctx.ui.notify(result.message, result.ok ? "info" : "warning");
