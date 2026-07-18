@@ -86,9 +86,7 @@ describe("@jmcombs/pi-grok-search", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    // TODO: replace these expectations with the names this extension actually
-    // registers.
     expect(log.tools).toContain("grok_search");
-    expect(log.commands).toContain("grok_authenticate");
+    expect(log.commands).toContain("grok_setup");
   });
 });

@@ -2,16 +2,29 @@
  * @jmcombs/pi-grok-search — Real-time web search for the Pi coding agent via xAI Grok.
  *
  * Registers a `grok_search` tool that the LLM can call to perform a Grok-powered
- * web search. If no xAI API key is configured, the tool prompts the user
- * interactively via the TUI (never leaking the key into the agent's context).
- * The key can also be set manually by running `/grok_authenticate`.
+ * web search. Credentials are handled entirely through the imported
+ * `@jmcombs/pi-1password` credential API (`resolveSecret` / `onboardSecret`), so the
+ * key is never leaked into the agent's context.
  *
- * Supported configuration (if not using interactive prompt):
- *    1. `AuthStorage` under the "grok" key (`~/.pi/agent/auth.json`)
- *    2. The `XAI_API_KEY` environment variable
+ * Credential handling (D12 three-id precedence):
+ *    1. `resolveSecret("xai_search")` — a dedicated Grok search key, if set.
+ *    2. `resolveSecret("xai")` — the real xAI model-provider key, reused as-is
+ *       (never overwritten by onboarding).
+ *    3. `resolveSecret("grok")` — the id onboarding writes.
+ *    Each reads `~/.pi/agent/auth.json` fresh on every call (a literal key or an
+ *    `!op read 'op://…'` reference). If none resolves, the tool auto-invokes
+ *    `onboardSecret` (writing the `grok` id), which branches on 1Password
+ *    availability — the live vault picker when `op` is configured, manual API-key
+ *    entry otherwise — then re-resolves. `/grok_setup` runs the same onboarding
+ *    flow on demand.
+ *
+ * Error contract (ADR 0007): user-facing recoverable errors (missing key, 401,
+ * 429, network, non-2xx) are reported via `content[]` + `details` — never a
+ * returned `isError` (which pi ignores on a returned result) and never a throw.
  */
 
-import { AuthStorage, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
 
 const XAI_RESPONSES_ENDPOINT = "https://api.x.ai/v1/responses";
@@ -29,6 +42,19 @@ export type GrokSearchInput = Static<typeof grokSearchSchema>;
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
+/**
+ * Resolve the xAI key in D12 precedence: a dedicated `xai_search` key, else the
+ * real `xai` provider key, else the onboarding-written `grok` id. Each entry is
+ * resolved fresh (literal or `!op read`) and never surfaces to the LLM.
+ */
+async function resolveGrokKey(): Promise<string | undefined> {
+  return (
+    (await resolveSecret("xai_search")) ??
+    (await resolveSecret("xai")) ??
+    (await resolveSecret("grok"))
+  );
+}
+
 function formatResults(content: string, query: string): string {
   if (!content || content.trim().length === 0) {
     return `No search results found for "${query}".`;
@@ -39,29 +65,15 @@ function formatResults(content: string, query: string): string {
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  const authStorage = AuthStorage.create();
-
-  // Register /grok_authenticate command for manual key entry.
+  // -- /grok_setup (user-facing command)
   // The input is captured by the TUI and never enters the LLM's context.
-  pi.registerCommand("grok_authenticate", {
-    description: "Securely save your xAI API key (input never visible to LLM).",
+  // Onboarding writes the `grok` id — it never overwrites the shared real `xai`
+  // provider key.
+  pi.registerCommand("grok_setup", {
+    description: "Set up or update your Grok / xAI API key (never shown to the agent).",
     handler: async (_args, ctx) => {
-      const existing = await authStorage.getApiKey("xai");
-      if (existing) {
-        const reuse = await ctx.ui.input("Found existing xAI API key. Reuse it? (Yes/No):");
-        if (reuse?.toLowerCase() === "yes") {
-          authStorage.remove("xai_search");
-          ctx.ui.notify("Reusing existing xAI key.", "info");
-          return;
-        }
-      }
-      const apiKey = await ctx.ui.input("Enter your xAI API key:");
-      if (apiKey) {
-        authStorage.set("xai_search", { type: "api_key" as const, key: apiKey });
-        ctx.ui.notify("xAI API key saved successfully under xai_search.", "info");
-      } else {
-        ctx.ui.notify("Authentication cancelled.", "warning");
-      }
+      const result = await onboardSecret(ctx, { name: "grok", label: "Grok / xAI" });
+      ctx.ui.notify(result.message, result.ok ? "info" : "warning");
     },
   });
 
@@ -73,35 +85,26 @@ export default function (pi: ExtensionAPI): void {
       "Performs real-time web research using xAI Grok. Call this to get up-to-date information on topics beyond your training cutoff, verify facts, or perform complex synthesis of live web data when reasoning and multi-source analysis are required.",
     parameters: grokSearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      let apiKey =
-        (await authStorage.getApiKey("xai_search")) ??
-        (await authStorage.getApiKey("xai")) ??
-        process.env.XAI_API_KEY;
+      let apiKey = await resolveGrokKey();
 
-      // Auto-authenticate: prompt for key if none is configured
+      // Auto-onboard: run the availability-branched onboarding flow if no key is
+      // configured, then re-resolve. Onboarding writes the `grok` id.
       if (!apiKey) {
-        const newKey = await ctx.ui.input("Enter your xAI API key:");
-        if (!newKey) {
-          return {
-            content: [{ type: "text", text: "Search cancelled: no xAI API key provided." }],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
+        const r = await onboardSecret(ctx, { name: "grok", label: "Grok / xAI" });
+        if (r.ok) {
+          apiKey = await resolveGrokKey();
         }
-        authStorage.set("grok", { type: "api_key" as const, key: newKey });
-        apiKey = await authStorage.getApiKey("grok");
-        if (!apiKey) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: "Failed to resolve xAI API key. Check your shell configuration.",
-              },
-            ],
-            details: { error: "missing_api_key" },
-            isError: true,
-          };
-        }
+      }
+      if (!apiKey) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Search cancelled: no xAI API key provided. Run /grok_setup to configure one.",
+            },
+          ],
+          details: { error: "missing_api_key" },
+        };
       }
 
       try {
@@ -120,6 +123,33 @@ export default function (pi: ExtensionAPI): void {
         });
 
         if (!response.ok) {
+          if (response.status === 401) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "xAI API error: 401 Unauthorized. Your xAI API key may be missing " +
+                    "or invalid. Run /grok_setup to configure it.",
+                },
+              ],
+              details: { status: 401 },
+            };
+          }
+          if (response.status === 429) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text:
+                    "xAI API error: 429 Too Many Requests. You are being rate limited — " +
+                    "please wait a moment and try again.",
+                },
+              ],
+              details: { status: 429 },
+            };
+          }
+
           const errorText = await response.text();
           return {
             content: [
@@ -129,7 +159,6 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
-            isError: true,
           };
         }
 
@@ -147,7 +176,6 @@ export default function (pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: `Error performing Grok search: ${message}` }],
           details: { error: message },
-          isError: true,
         };
       }
     },

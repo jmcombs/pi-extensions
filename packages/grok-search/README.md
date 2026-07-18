@@ -11,6 +11,38 @@
 A [Pi coding agent](https://pi.dev) extension that adds real-time web search via the
 [xAI Grok Agent Tools API](https://docs.x.ai/docs/guides/tools/overview).
 
+## What's New — 1Password credential integration
+
+Grok search now handles your xAI API key through the
+[`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) credential
+API, which installs automatically as a dependency. What this means for you:
+
+- **Onboarding branches on 1Password availability.** If the `op` CLI is installed and an
+  account is configured, `/grok_setup` opens a live **vault → item → field picker** (or
+  lets you type an `op://…` reference) and stores it as a `!op read '…'` entry that
+  resolves fresh on every use. If `op` is not available, it falls back to **manual
+  API-key entry** and nudges you to enable the 1Password extension for vault integration.
+- **Existing keys keep working.** Any `xai_search`, `xai`, or `grok` key already in
+  `~/.pi/agent/auth.json` — a literal key or an `!op read` reference — continues to
+  resolve unchanged. No migration action is required.
+- **The key is never exposed to the model.** Entry happens entirely in the TUI, and only
+  the resolved value is used to call the xAI API.
+
+```mermaid
+flowchart TD
+    A["/grok_setup or first tool use"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
+    B -- "Yes" --> C["Live vault → item → field picker<br/>or manual op:// reference"]
+    C --> D["Store !op read 'op://…' entry"]
+    B -- "No" --> E["Manual API-key entry<br/>+ nudge to enable 1Password"]
+    E --> F["Store literal api_key entry"]
+    D --> G["resolveSecret precedence:<br/>xai_search ?? xai ?? grok<br/>resolves fresh on each tool call"]
+    F --> G
+    G --> H["Bearer token → xAI API<br/>(never shown to the LLM)"]
+```
+
+> `/grok_setup` writes the **`grok`** id, so it never overwrites the shared real
+> `xai` model-provider key.
+
 ## Install
 
 ```bash
@@ -21,22 +53,54 @@ pi install npm:@jmcombs/pi-grok-search
 pi -e npm:@jmcombs/pi-grok-search
 ```
 
-An xAI API key is required. [Sign up at x.ai](https://x.ai) to get one, then configure it using one of the methods below.
+An xAI API key is required. [Sign up at x.ai](https://x.ai) to get one, then configure it
+with `/grok_setup` (or one of the methods below).
 
 ## What It Adds
 
-- **Tool**: `grok_search` — performs a web search using the xAI Grok Agent Tools API to get real-time information from the internet. The tool is callable by the LLM whenever it needs current information from the public web.
+- **Tool**: `grok_search` — performs a web search using the xAI Grok Agent Tools API to
+  get real-time information from the internet. The tool is callable by the LLM whenever it
+  needs current information from the public web.
+- **Command**: `/grok_setup` — runs the `@jmcombs/pi-1password` onboarding flow to save
+  (or update) your Grok / xAI key. The input is never visible to the LLM.
 
 ## Configuration
 
-You must configure an xAI API key. Pi resolves the key in this order:
+The `grok_search` tool resolves the key through `@jmcombs/pi-1password` in this
+precedence, reading `~/.pi/agent/auth.json` fresh on each call:
 
-1. `AuthStorage` under the `xai_search` key (preferred when using a dedicated key) or `xai` key (reuses your existing xAI model provider key) — **recommended**.
-2. The `XAI_API_KEY` environment variable.
+1. `resolveSecret("xai_search")` — a **dedicated** Grok search key, if you keep one
+   separate. **Preferred.**
+2. `resolveSecret("xai")` — the **real xAI model-provider key**, reused as-is. Grok search
+   never overwrites this key; it only reads it.
+3. `resolveSecret("grok")` — the id `/grok_setup` writes when you onboard a key here.
 
-### Option 1 — `~/.pi/agent/auth.json` (recommended)
+Each entry may be a literal key or an `!op read 'op://…'` reference. If none resolves, the
+tool automatically runs onboarding (the availability branch above) on first use, then
+re-resolves — preserving the "prompt on first use" experience.
 
-#### Plain key (dedicated)
+### Option 1 — `/grok_setup` (recommended)
+
+Run the command and follow the flow:
+
+```
+/grok_setup
+```
+
+- When the `op` CLI is available, pick your key from the live vault picker (or paste an
+  `op://vault/item/field` reference); it is stored as a `!op read '…'` entry under the
+  `grok` id that resolves fresh on every use.
+- When `op` is not available, enter the key on a masked prompt; it is stored as a literal
+  `api_key` entry under the `grok` id.
+
+Either way the value is written to `~/.pi/agent/auth.json` (`0600`) and never shown to the
+model. The `grok` id is written so your shared `xai` provider key stays untouched.
+
+### Option 2 — edit `~/.pi/agent/auth.json` directly
+
+The stored entry is provider-shaped. Any of these resolve (highest precedence first):
+
+#### Dedicated key (`xai_search`)
 
 ```json
 {
@@ -47,7 +111,7 @@ You must configure an xAI API key. Pi resolves the key in this order:
 }
 ```
 
-#### Reuse existing xAI key (from model provider)
+#### Reuse your existing xAI provider key (`xai`)
 
 ```json
 {
@@ -58,13 +122,13 @@ You must configure an xAI API key. Pi resolves the key in this order:
 }
 ```
 
-#### Shell-resolved key (macOS Keychain)
+#### Onboarding-written key (`grok`)
 
 ```json
 {
-  "xai_search": {
+  "grok": {
     "type": "api_key",
-    "key": "!security find-generic-password -ws xai_search"
+    "key": "xai-..."
   }
 }
 ```
@@ -80,31 +144,38 @@ You must configure an xAI API key. Pi resolves the key in this order:
 }
 ```
 
+#### Shell-resolved key (macOS Keychain)
+
+```json
+{
+  "xai_search": {
+    "type": "api_key",
+    "key": "!security find-generic-password -ws xai_search"
+  }
+}
+```
+
 The `!`-prefixed value is executed by your shell at lookup time, so no secret is
 ever stored on disk in plaintext.
-
-### Option 2 — environment variable
-
-```bash
-export XAI_API_KEY="xai-..."
-```
 
 ## Behavior Notes
 
 - Uses the current xAI Responses + Agent Tools API (`web_search` tool).
 - The tool honors Pi's abort signal — pressing **Esc** during a search cancels the
   HTTP request.
-- If the API key is missing the tool returns an error result with a helpful
-  configuration hint instead of throwing.
-- Non-2xx responses from xAI surface as tool errors (with status, status text,
-  and response body) rather than throwing.
-- Running `/grok_authenticate` allows you to choose between reusing your existing `xai` key or storing a dedicated key under `xai_search`.
+- If the API key is missing the tool returns a result guiding you to `/grok_setup`
+  instead of throwing.
+- 401 / 429 / other non-2xx responses from xAI surface as tool results (with status and
+  a helpful hint) rather than throwing. Recoverable errors are reported through the tool's
+  `content` so the agent can guide you, never via a returned `isError` (which pi ignores —
+  see [ADR 0007](../../docs/decisions/0007-tool-error-results-no-returned-iserror.md)).
 
 ## Requirements
 
-- Pi `>= 0.72.0` (uses `AuthStorage` and `ExtensionAPI`)
+- Pi `>= 0.80.8` (credentials via the `@jmcombs/pi-1password` API and `ExtensionAPI`)
 - Node `>= 22.0.0`
 - An xAI API key
+- Optional: the `op` (1Password) CLI for vault-backed onboarding and startup unlock
 
 ## Development
 
