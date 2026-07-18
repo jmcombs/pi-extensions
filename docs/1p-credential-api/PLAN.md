@@ -263,12 +263,12 @@ onboarding flow **reviewed live and approved by the maintainer**.
 
 ### Actionable TODOs
 
-- [ ] `packages/context7/package.json`: add `"@jmcombs/pi-1password"` to `dependencies`; no `auth.ts` in `files`; peer `@earendil-works/pi-coding-agent` stays `"*"`.
-- [ ] `packages/context7/index.ts`: remove `AuthStorage`/`ModelRuntime`; `import { resolveSecret, onboardSecret } from "@jmcombs/pi-1password";`
+- [x] `packages/context7/package.json`: add `"@jmcombs/pi-1password"` to `dependencies`; no `auth.ts` in `files`; peer `@earendil-works/pi-coding-agent` stays `"*"`.
+- [x] `packages/context7/index.ts`: remove `AuthStorage`/`ModelRuntime`; `import { resolveSecret, onboardSecret } from "@jmcombs/pi-1password";`
   - `/context7_onboard` → `await onboardSecret(ctx, { name: "context7", label: "Context7" })`; surface `{ ok, message }`.
   - both tools' `execute()` → `let apiKey = await resolveSecret("context7"); if (!apiKey) { const r = await onboardSecret(ctx, { name: "context7", label: "Context7" }); if (r.ok) apiKey = await resolveSecret("context7"); } if (!apiKey) return <isError missing_api_key>;`
-- [ ] Delete `packages/context7/auth.ts` / `auth.test.ts` if any remain.
-- [ ] `packages/context7/README.md`: **Requirements/What's new** — 1Password integration via `@jmcombs/pi-1password`; onboarding branches on `op` availability; existing keys still resolve. Embed the onboarding-flow mermaid (D15).
+- [x] Delete `packages/context7/auth.ts` / `auth.test.ts` if any remain.
+- [x] `packages/context7/README.md`: **Requirements/What's new** — 1Password integration via `@jmcombs/pi-1password`; onboarding branches on `op` availability; existing keys still resolve. Embed the onboarding-flow mermaid (D15).
 
 ### Testing Gates
 
@@ -597,7 +597,7 @@ and a row here before implementation.
 
 - [x] **P1** Baseline reset; prompt-enhancer `/compat`; dep alignment.
 - [x] **P2** 1Password credential API exported (incl. `is1PasswordAvailable`); warm-on-load; locked writer; JSDoc + `API.md`.
-- [ ] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
+- [x] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
 - [ ] **P4** tavily-search migrated (env fallback kept).
 - [ ] **P5** grok-search migrated (xai/xai_search/grok precedence).
 - [ ] **P6** headroom migrated (both files + test seam); **full repo green**.
@@ -640,3 +640,5 @@ a human closes it out-of-band.
 | Gate | Deferred at | Needs | Discharge by | Status |
 | --- | --- | --- | --- | --- |
 | Live availability + resolve (is1PasswordAvailable / resolveSecret) | Phase 2 | op-live | human (maintainer live check) | DISCHARGED |
+| Live onboarding review (/context7_onboard) | Phase 3 | pi-onboard-tui | human (maintainer live review) | DISCHARGED |
+| Live search end-to-end (context7_search) | Phase 3 | op-live | human (maintainer live check) | DISCHARGED |
