@@ -149,9 +149,9 @@ plan fixes in P3–P6).
 
 ### Actionable TODOs
 
-- [ ] Discard `ModelRuntime` WIP: `git checkout -- packages/context7/index.ts packages/context7/package.json packages/context7/README.md packages/_template/package.json packages/_template/README.md TEMPLATE.md` and delete untracked `packages/context7/auth.ts`, `packages/context7/auth.test.ts`, `packages/_template/auth.ts` if present.
-- [ ] Confirm `packages/prompt-enhancer/index.ts` imports `complete` (and `Api`/`Message`/`Model`) from **`@earendil-works/pi-ai/compat`** (not the bare `@earendil-works/pi-ai`); pi's loader aliases the bare specifier to `compat`, so `/compat` is the same module at runtime and the only one that typechecks.
-- [ ] Keep root `package.json` + `package-lock.json` pi-version alignment; `npm install` to reconcile.
+- [x] Discard `ModelRuntime` WIP: `git checkout -- packages/context7/index.ts packages/context7/package.json packages/context7/README.md packages/_template/package.json packages/_template/README.md TEMPLATE.md` and delete untracked `packages/context7/auth.ts`, `packages/context7/auth.test.ts`, `packages/_template/auth.ts` if present.
+- [x] Confirm `packages/prompt-enhancer/index.ts` imports `complete` (and `Api`/`Message`/`Model`) from **`@earendil-works/pi-ai/compat`** (not the bare `@earendil-works/pi-ai`); pi's loader aliases the bare specifier to `compat`, so `/compat` is the same module at runtime and the only one that typechecks.
+- [x] Keep root `package.json` + `package-lock.json` pi-version alignment; `npm install` to reconcile.
 
 ### Testing Gates
 
@@ -586,7 +586,7 @@ and a row here before implementation.
 
 ## Appendix B — Master TODO index (verifier-ticked)
 
-- [ ] **P1** Baseline reset; prompt-enhancer `/compat`; dep alignment.
+- [x] **P1** Baseline reset; prompt-enhancer `/compat`; dep alignment.
 - [ ] **P2** 1Password credential API exported (incl. `is1PasswordAvailable`); warm-on-load; locked writer; JSDoc + `API.md`.
 - [ ] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
 - [ ] **P4** tavily-search migrated (env fallback kept).
