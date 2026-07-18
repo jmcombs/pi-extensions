@@ -304,9 +304,9 @@ onboarding flow **reviewed live and approved by the maintainer**.
 
 ### Actionable TODOs
 
-- [ ] `packages/tavily-search/package.json`: add `@jmcombs/pi-1password` to `dependencies`.
-- [ ] `packages/tavily-search/index.ts`: remove `AuthStorage`; import the API; onboarding → `onboardSecret(ctx, { name: "tavily", label: "Tavily" })`; tool auth → `resolveSecret("tavily")` with the env fallback.
-- [ ] `packages/tavily-search/README.md`: 1Password integration + retained env fallback; embed the onboarding mermaid (D15).
+- [x] `packages/tavily-search/package.json`: add `@jmcombs/pi-1password` to `dependencies`.
+- [x] `packages/tavily-search/index.ts`: remove `AuthStorage`; import the API; onboarding → `onboardSecret(ctx, { name: "tavily", label: "Tavily" })`; tool auth → `resolveSecret("tavily")` with the env fallback.
+- [x] `packages/tavily-search/README.md`: 1Password integration + retained env fallback; embed the onboarding mermaid (D15).
 
 ### Testing Gates
 
@@ -599,7 +599,7 @@ and a row here before implementation.
 - [x] **P1** Baseline reset; prompt-enhancer `/compat`; dep alignment.
 - [x] **P2** 1Password credential API exported (incl. `is1PasswordAvailable`); warm-on-load; locked writer; JSDoc + `API.md`.
 - [x] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
-- [ ] **P4** tavily-search migrated (env fallback kept).
+- [x] **P4** tavily-search migrated (env fallback kept).
 - [ ] **P5** grok-search migrated (xai/xai_search/grok precedence).
 - [ ] **P6** headroom migrated (both files + test seam); **full repo green**.
 - [ ] **P7** `_template` + `TEMPLATE.md` teach the API pattern.
@@ -643,3 +643,4 @@ a human closes it out-of-band.
 | Live availability + resolve (is1PasswordAvailable / resolveSecret) | Phase 2 | op-live | human (maintainer live check) | DISCHARGED |
 | Live onboarding review (/context7_setup) | Phase 3 | pi-onboard-tui | human (maintainer live review) | DISCHARGED |
 | Live search end-to-end (context7_search) | Phase 3 | op-live | human (maintainer live check) | DISCHARGED |
+| Live tavily search (resolveSecret / tavily_search) | Phase 4 | op-live | human (maintainer live check) | DISCHARGED |
