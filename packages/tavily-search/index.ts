@@ -103,7 +103,6 @@ export default function (pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Search cancelled: no Tavily API key provided." }],
           details: { error: "missing_api_key" },
-          isError: true,
         };
       }
 
@@ -130,7 +129,6 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
-            isError: true,
           };
         }
 
@@ -144,7 +142,6 @@ export default function (pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: `Error performing Tavily search: ${message}` }],
           details: { error: message },
-          isError: true,
         };
       }
     },
