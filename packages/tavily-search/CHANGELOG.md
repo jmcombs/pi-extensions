@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v2.1.0...tavily-search/v3.0.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tavily-search:** pi 0.80.8 removed the AuthStorage API this extension used to store and read its API key. Credentials now resolve through the @jmcombs/pi-1password credential API, a hard dependency that installs automatically. Onboarding is availability-branched (1Password vault picker when `op` is configured, masked manual entry otherwise). Existing Tavily keys in ~/.pi/agent/auth.json keep resolving unchanged — no migration action is required.
+
+### Documentation
+
+* **tavily-search:** note AuthStorage removal and 1Password credential-API migration ([2219357](https://github.com/jmcombs/pi-extensions/commit/22193577c32bc0ff32be6da4fedebd55805dd1db))
+
 ## [2.1.0](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v2.0.1...tavily-search/v2.1.0) (2026-05-20)
 
 
