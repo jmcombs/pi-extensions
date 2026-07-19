@@ -710,7 +710,7 @@ and a row here before implementation.
 - [x] **P7** `_template` + `TEMPLATE.md` teach the API pattern. Merged **#147 → `072b555`**.
 - [x] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. Merged **#148 → `9c5350a`**. Live gate **PASS** (API-key mechanics path; subscription `oauthAccount` variant an optional follow-up). Surfaced + fixed an **omp-only** `string[]` `systemPrompt` crash (pi unaffected). **Automated load/registration folded into P11** (narrowed, ADR 0009).
 - [x] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; `doc-render` gate **DISCHARGED** (maintainer previewed + approved). Merged **#149 → `a30b501`**. Docs made self-contained (no plan/ADR/phase refs); dependency de-pinned to `npm install`. (Before/after diagram dropped — no prior published API to migrate from.)
-- [ ] **P10** Per-package release comms (D13 a–d) complete across all four READMEs + clean release-note inputs. MIGRATION.md considered + dropped (no prior published API → non-breaking, not a migration).
+- [x] **P10** Per-package release comms (D13 a–d) complete across all four READMEs + clean release-note inputs. Merged **#150 → `a67dbf4`**. MIGRATION.md considered + dropped (no prior published API → non-breaking, not a migration).
 - [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
 
 ## Appendix C — Definition of Done (every phase)
