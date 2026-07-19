@@ -13,6 +13,12 @@
 
 Real-time documentation for the Pi coding agent via [Context7](https://context7.com). Gives the agent access to up-to-date, version-aware docs and code examples without polluting context with outdated information.
 
+## Breaking changes in v2.0.0
+
+- **`AuthStorage` is gone.** Pi 0.80.8 removed the `AuthStorage` API this extension used to store and read its API key. Credentials now resolve through the [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) **credential API**, which this package now depends on directly and **installs automatically** — no separate install step.
+- **Availability-branched onboarding.** When the `op` CLI is installed and an account is configured, setup opens a 1Password **vault → item → field picker**; when `op` is unavailable it falls back to **masked manual key entry**.
+- **Existing keys keep working.** Any Context7 key already in `~/.pi/agent/auth.json` — a literal value or an `!op read` reference — resolves unchanged. No migration action is required.
+
 ## What's New — 1Password credential integration
 
 Context7 now handles your API key through the [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) credential API, which installs automatically as a dependency. What this means for you:
