@@ -49,12 +49,17 @@ export type Platform = "pi" | "oh-my-pi";
 
 /**
  * A surface list is either present on BOTH hosts (`string[]`) or split into
- * cross-host (`both`) plus PI-ONLY (`piOnly`) members. `piOnly` members are
- * asserted PRESENT on pi and ABSENT on oh-my-pi — this is how a host API that an
- * extension feature-detects (e.g. `@jmcombs/pi-1password`'s `user_bash` hook, gated
- * on `createLocalBashOperations`) is validated as pi-only by design.
+ * cross-host (`both`) plus per-host members. `piOnly` members are asserted PRESENT
+ * on pi and ABSENT on oh-my-pi; `ompOnly` members the reverse. This is how a host
+ * API that an extension feature-detects (e.g. `@jmcombs/pi-1password`'s `user_bash`
+ * hook, gated on `createLocalBashOperations`) is validated as pi-only by design.
+ *
+ * The assertion is STRICT (exact-set): for each category, the ACTUAL registered
+ * members must equal the platform-resolved expected set — anything MISSING and
+ * anything EXTRA both fail. So every registered member of every non-private package
+ * MUST appear here; an incomplete entry fails loudly rather than passing on a subset.
  */
-export type SurfaceList = string[] | { both?: string[]; piOnly?: string[] };
+export type SurfaceList = string[] | { both?: string[]; piOnly?: string[]; ompOnly?: string[] };
 
 /** The expected, platform-aware surface for one package. */
 export interface Expected {
@@ -68,39 +73,47 @@ export interface Expected {
   note: string;
 }
 
-// ── Per-package expected-surface table (data-driven, platform-aware) ───────
+// ── Per-package expected-surface table (data-driven, platform-aware, STRICT) ──
 //
-// Keyed by package directory name. Verified against a REAL pi load before being
-// encoded here. Every non-`private` package MUST have an entry — a package with
-// no entry is a FAILURE (keeps this table honest as packages are added).
+// Keyed by package directory name. The COMPLETE registered surface of each
+// non-private package, verified against a REAL load on BOTH pi and stock oh-my-pi
+// before being encoded. Because the assertion is exact-set (extras fail too), every
+// entry must be complete: a package with no entry, a missing member, OR an
+// undeclared extra member all FAIL. Categories a package registers nothing for are
+// omitted (they must then be actually empty).
 //
-// | package         | tools                                   | commands / handlers / shortcuts / providers                          |
-// | --------------- | --------------------------------------- | -------------------------------------------------------------------- |
-// | 1password       | bash, 1p_diagnose                       | handler session_start (both) + user_bash (PI-ONLY, feature-detected) |
-// | better-toolsy   | ls, read, grep, find, edit, write       | tools only                                                           |
-// | blue-psl-10k    | —                                       | handlers + one command                                              |
-// | context7        | context7_search, context7_get_docs      | setup command                                                       |
-// | grok-search     | grok_search                             | setup command                                                       |
-// | headroom        | headroom_retrieve                       | setup command                                                       |
-// | notify          | —                                       | handlers + one command                                              |
-// | prompt-enhancer | — (no tools)                            | commands + handlers + shortcuts                                     |
-// | relay           | —                                       | providers only (relay-claude, relay-grok), via stub                 |
-// | tavily-search   | tavily_search                           | setup command                                                       |
+// The only pi-vs-omp difference across all ten packages is 1password's `user_bash`
+// handler (pi-only, feature-detected on `createLocalBashOperations`).
+//
+// | package         | tools                             | commands                                                   | handlers                                                 | shortcuts / providers                 |
+// | --------------- | --------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- |
+// | 1password       | bash, 1p_diagnose                 | 1password_diagnose, 1password_setup                        | session_start (both) + user_bash (PI-ONLY)               | —                                     |
+// | better-toolsy   | ls, read, grep, find, edit, write | —                                                          | tool_call                                                | —                                     |
+// | blue-psl-10k    | —                                 | blue-psl-restore-footer                                    | session_start, model_select, turn_end, thinking_level_select | —                                 |
+// | context7        | context7_search, context7_get_docs| context7_setup                                             | —                                                        | —                                     |
+// | grok-search     | grok_search                       | grok_setup                                                 | —                                                        | —                                     |
+// | headroom        | headroom_retrieve                 | headroom-status, headroom_setup, headroom-stats, headroom-simulate | context, session_start                          | —                                     |
+// | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_end, agent_end     | —                                     |
+// | prompt-enhancer | —                                 | enhance, enhance-model, enhance-revert                     | session_start, session_shutdown, model_select, input     | shortcuts ctrl+shift+p, ctrl+shift+z  |
+// | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok (via stub) |
+// | tavily-search   | tavily_search                     | tavily_setup                                               | —                                                        | —                                     |
 
 export const EXPECTED: Record<string, Expected> = {
   "1password": {
     tools: ["bash", "1p_diagnose"],
+    commands: ["1password_diagnose", "1password_setup"],
     handlers: { both: ["session_start"], piOnly: ["user_bash"] },
-    note: "tools bash + 1p_diagnose; session_start handler; user_bash pi-only (feature-detected)",
+    note: "tools bash + 1p_diagnose; commands 1password_diagnose + 1password_setup; session_start handler; user_bash handler pi-only (feature-detected)",
   },
   "better-toolsy": {
     tools: ["ls", "read", "grep", "find", "edit", "write"],
-    note: "tools only: ls, read, grep, find, edit, write",
+    handlers: ["tool_call"],
+    note: "tools ls/read/grep/find/edit/write; tool_call handler",
   },
   "blue-psl-10k": {
     commands: ["blue-psl-restore-footer"],
     handlers: ["session_start", "model_select", "turn_end", "thinking_level_select"],
-    note: "footer handlers + blue-psl-restore-footer command",
+    note: "footer/lifecycle handlers + blue-psl-restore-footer command",
   },
   context7: {
     tools: ["context7_search", "context7_get_docs"],
@@ -114,8 +127,9 @@ export const EXPECTED: Record<string, Expected> = {
   },
   headroom: {
     tools: ["headroom_retrieve"],
-    commands: ["headroom_setup"],
-    note: "setup command + headroom_retrieve tool",
+    commands: ["headroom-status", "headroom_setup", "headroom-stats", "headroom-simulate"],
+    handlers: ["context", "session_start"],
+    note: "setup/status/stats/simulate commands + headroom_retrieve tool + context/session_start handlers",
   },
   notify: {
     commands: ["notify"],
@@ -221,15 +235,21 @@ export async function captureProviders(factory: Factory): Promise<string[]> {
 
 // ── Evaluation ───────────────────────────────────────────────────────────────
 
+/** Members expected PRESENT on this platform (both + the platform's own-only). */
 function presentRequired(list: SurfaceList | undefined, platform: Platform): string[] {
   if (!list) return [];
   if (Array.isArray(list)) return list;
-  return [...(list.both ?? []), ...(platform === "pi" ? (list.piOnly ?? []) : [])];
+  return [
+    ...(list.both ?? []),
+    ...(platform === "pi" ? (list.piOnly ?? []) : []),
+    ...(platform === "oh-my-pi" ? (list.ompOnly ?? []) : []),
+  ];
 }
 
+/** Members expected ABSENT on this platform (the OTHER platform's own-only). */
 function absentRequired(list: SurfaceList | undefined, platform: Platform): string[] {
   if (!list || Array.isArray(list)) return [];
-  return platform === "oh-my-pi" ? (list.piOnly ?? []) : [];
+  return platform === "oh-my-pi" ? (list.piOnly ?? []) : (list.ompOnly ?? []);
 }
 
 export interface EvalResult {
@@ -239,10 +259,16 @@ export interface EvalResult {
 }
 
 /**
- * Pure surface check for one package. `ext` is `undefined` when the package did
- * not load (⇒ a failure). `providers` is the captured provider list (empty if the
- * package declares none). No I/O — unit-testable and the core of the failure
+ * Pure, STRICT surface check for one package. `ext` is `undefined` when the package
+ * did not load (⇒ a failure). `providers` is the captured provider list (empty if
+ * the package declares none). No I/O — unit-testable and the core of the failure
  * semantics.
+ *
+ * For EACH category (tools, commands, handlers, shortcuts, providers) the ACTUAL
+ * registered set must EQUAL the platform-resolved expected set: any expected member
+ * that is MISSING and any actual member that is EXTRA (not expected) both fail. A
+ * `piOnly` member is expected-present on pi and expected-absent on oh-my-pi, so on
+ * oh-my-pi it surfaces as an EXTRA if the extension wrongly registers it there.
  */
 export function evaluatePackage(
   platform: Platform,
@@ -276,24 +302,36 @@ export function evaluatePackage(
   for (const [cat, map] of cats) {
     const want = presentRequired(expected[cat], platform);
     const wantAbsent = absentRequired(expected[cat], platform);
+    const wantSet = new Set(want);
+    const actual = [...map.keys()];
+
+    // Missing: expected-present but not registered.
     for (const key of want) {
       if (!map.has(key)) failures.push(`missing ${cat}:${key}`);
     }
-    for (const key of wantAbsent) {
-      if (map.has(key)) failures.push(`unexpected ${cat}:${key} (must be pi-only)`);
+    // Extra: registered but not in the platform-resolved expected set. This also
+    // catches a `piOnly`/`ompOnly` member registered on the wrong host.
+    for (const key of actual) {
+      if (!wantSet.has(key)) failures.push(`unexpected ${cat}:${key}`);
     }
+
     if (want.length > 0 || wantAbsent.length > 0) {
       const shown = [...want, ...wantAbsent.map((k) => `!${k}`)];
       parts.push(`${cat}[${shown.join(",")}]`);
     }
   }
 
-  if (expected.providers) {
-    for (const p of expected.providers) {
-      if (!providers.includes(p)) failures.push(`missing provider:${p}`);
-    }
-    parts.push(`providers[${expected.providers.join(",")}]`);
+  // Providers are not exposed by the loader; the captured set (from the stub) must
+  // EQUAL the expected providers exactly — extra/rogue providers fail too.
+  const wantProviders = expected.providers ?? [];
+  const wantProviderSet = new Set(wantProviders);
+  for (const p of wantProviders) {
+    if (!providers.includes(p)) failures.push(`missing provider:${p}`);
   }
+  for (const p of providers) {
+    if (!wantProviderSet.has(p)) failures.push(`unexpected provider:${p}`);
+  }
+  if (wantProviders.length > 0) parts.push(`providers[${wantProviders.join(",")}]`);
 
   return { pass: failures.length === 0, failures, summary: parts.join(" ") };
 }

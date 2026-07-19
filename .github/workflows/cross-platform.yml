@@ -27,8 +27,6 @@ jobs:
   cross-platform:
     name: Cross-Platform Loaders (pi + stock oh-my-pi)
     runs-on: ubuntu-latest
-    env:
-      PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,10 +48,15 @@ jobs:
           fi
           echo "op absent (good)"
 
-      - name: pi loader smoke (real pi, op absent)
+      # $RUNNER_TEMP is a standard step env var (the `runner` context is not
+      # available in a job-level `env:`, which would fail the workflow at parse).
+      - name: Throwaway agent dir (never the real ~/.pi)
         run: |
-          mkdir -p "$PI_CODING_AGENT_DIR"
-          npx tsx docker/pi-smoke.mts
+          echo "PI_CODING_AGENT_DIR=$RUNNER_TEMP/pi-agent" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/pi-agent"
+
+      - name: pi loader smoke (real pi, op absent)
+        run: npx tsx docker/pi-smoke.mts
 
       # Pin Bun — the runtime oh-my-pi declares — so the omp loader runs on a fixed engine.
       - uses: oven-sh/setup-bun@v2

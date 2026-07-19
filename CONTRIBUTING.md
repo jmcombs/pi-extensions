@@ -146,21 +146,26 @@ a package's surface, fails the check loudly (non-zero exit).
 
 ### Expected surface per extension
 
-| Extension         | Registers                                                                                                   |
-| ----------------- | ----------------------------------------------------------------------------------------------------------- |
-| `1password`       | tools `bash`, `1p_diagnose`; a `session_start` handler; a `user_bash` handler **on pi only** (see gotcha 2) |
-| `better-toolsy`   | tools `ls`, `read`, `grep`, `find`, `edit`, `write`                                                          |
-| `blue-psl-10k`    | footer/lifecycle handlers + the `blue-psl-restore-footer` command                                           |
-| `context7`        | the `context7_setup` command + `context7_search`, `context7_get_docs` tools                                  |
-| `grok-search`     | the `grok_setup` command + the `grok_search` tool                                                           |
-| `headroom`        | the `headroom_setup` command + the `headroom_retrieve` tool                                                 |
-| `notify`          | lifecycle handlers + the `notify` command                                                                   |
-| `prompt-enhancer` | the `enhance` / `enhance-model` / `enhance-revert` commands, session/model/input handlers, and the `ctrl+shift+p` / `ctrl+shift+z` shortcuts (no tools) |
-| `relay`           | the `relay-claude` and `relay-grok` **providers** (captured via a stub host API — providers are not exposed by the loader result) |
-| `tavily-search`   | the `tavily_setup` command + the `tavily_search` tool                                                       |
+This is the **complete** registered surface of each extension — the validation is
+exact-set, so anything **missing or extra** fails. The only per-host difference is
+`1password`'s `user_bash` handler (pi-only; see gotcha 2).
+
+| Extension         | Tools                                     | Commands                                                              | Handlers                                                       | Shortcuts / Providers                              |
+| ----------------- | ----------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------- |
+| `1password`       | `bash`, `1p_diagnose`                     | `1password_diagnose`, `1password_setup`                              | `session_start`; `user_bash` **on pi only**                    | —                                                  |
+| `better-toolsy`   | `ls`, `read`, `grep`, `find`, `edit`, `write` | —                                                                | `tool_call`                                                    | —                                                  |
+| `blue-psl-10k`    | —                                         | `blue-psl-restore-footer`                                            | `session_start`, `model_select`, `turn_end`, `thinking_level_select` | —                                          |
+| `context7`        | `context7_search`, `context7_get_docs`    | `context7_setup`                                                     | —                                                              | —                                                  |
+| `grok-search`     | `grok_search`                             | `grok_setup`                                                         | —                                                              | —                                                  |
+| `headroom`        | `headroom_retrieve`                       | `headroom-status`, `headroom_setup`, `headroom-stats`, `headroom-simulate` | `context`, `session_start`                               | —                                                  |
+| `notify`          | —                                         | `notify`                                                             | `agent_start`, `turn_end`, `tool_execution_end`, `agent_end`   | —                                                  |
+| `prompt-enhancer` | —                                         | `enhance`, `enhance-model`, `enhance-revert`                        | `session_start`, `session_shutdown`, `model_select`, `input`   | shortcuts `ctrl+shift+p`, `ctrl+shift+z`           |
+| `relay`           | —                                         | —                                                                   | —                                                              | providers `relay-claude`, `relay-grok` (via a stub host API — providers are not exposed by the loader result) |
+| `tavily-search`   | `tavily_search`                           | `tavily_setup`                                                      | —                                                              | —                                                  |
 
 The table lives in the harness (`docker/smoke-harness.mts`) as the data it validates
-against; keep it in sync when you add or change a package's surface.
+against; keep it in sync when you add or change a package's surface — because the check
+is exact-set, an incomplete entry fails rather than silently passing on a subset.
 
 ### Two cross-host gotchas the harness guards
 
