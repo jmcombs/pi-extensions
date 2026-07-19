@@ -33,8 +33,10 @@ in `credential-api.ts`.
 - **Never leaks secrets.** No function returns or logs a user-entered value or a
   resolved secret except `resolveSecret`, whose entire job is to hand the secret to
   its caller. `verifySecret` reports only whether a value resolved.
-- **Additive.** The existing `1p_run` / `1password_setup` / `1password_diagnose`
-  tools and the transparent bash spawn-hook env injection are unchanged.
+- **Additive.** The `1password_setup` / `1password_diagnose` tools and the
+  transparent bash spawn-hook env injection are unchanged. (The `1p_run` tool was
+  later retired — see ADR 0008; the transparent `createBashTool` injection and the
+  feature-detected `user_bash` hook remain.)
 
 ## Storage shape (D4)
 

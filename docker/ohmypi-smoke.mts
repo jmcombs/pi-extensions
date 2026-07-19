@@ -1,20 +1,18 @@
 /**
- * oh-my-pi smoke proof — real omp loads the LOCAL headroom extension with `op`
- * absent (ADR 0008 interactive rig). Run under **Bun** (omp's engine).
+ * oh-my-pi smoke proof — real STOCK omp loads the LOCAL context7 + headroom
+ * extensions with `op` absent (ADR 0008 interactive rig). Run under **Bun**.
  *
- * It drives omp's OWN extension loader (`loadExtensions` from
+ * Drives omp's OWN extension loader (`loadExtensions` from
  * `@oh-my-pi/pi-coding-agent/.../extensibility/extensions`, the exact function omp
- * startup uses) — path passed in `OMP_LOADER` — against `packages/headroom/index.ts`
- * and enumerates what it registered. Proves omp loads the LOCAL workspace copy,
- * registers `headroom_setup` / `headroom_retrieve` / `session_start`, and that the
- * loaded code + its `@jmcombs/pi-1password` dependency are the workspace copies.
+ * startup uses) — path passed in `OMP_LOADER` — against the two LOCAL extensions
+ * and enumerates what they registered. Proves stock (unpatched) omp loads the
+ * workspace copies, registers their commands/tools, and that the shared
+ * `@jmcombs/pi-1password` dependency is the workspace copy.
  *
- * Note on resolution (see docker/README.md / ADR 0008): omp hard-remaps
- * `@earendil-works/pi-coding-agent` to its own legacy shim, which omits
- * `createLocalBashOperations` (imported by @jmcombs/pi-1password). The image build
- * adds a **container-only exports override** re-exporting the REAL symbol from the
- * installed `@earendil-works/pi-coding-agent@0.80.9`; this smoke verifies the
- * result. No product source is modified.
+ * This works on STOCK omp because `@jmcombs/pi-1password` now feature-detects
+ * `createLocalBashOperations` (namespace import; `user_bash` hook only when
+ * present) instead of statically importing it — so it links under omp's compat
+ * shim, which omits that export. No product source is patched in the image.
  *
  * Prints one `OHMYPI-SMOKE:` line; exits non-zero on any failure.
  */
@@ -27,21 +25,35 @@ function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
 }
 
+type LoadedExt = {
+  resolvedPath?: string;
+  path?: string;
+  commands: Map<string, unknown>;
+  tools: Map<string, unknown>;
+  handlers: Map<string, unknown>;
+};
+
 const results: Record<string, string> = {
   agent: "oh-my-pi",
   "omp-version": process.env.OMP_VERSION ?? "unknown",
   "op-absent": "fail",
-  "ext-load": "fail",
-  setup: "fail",
-  retrieve: "fail",
+  context7: "fail",
+  context7_setup: "fail",
+  context7_search: "fail",
+  context7_get_docs: "fail",
+  headroom: "fail",
+  headroom_setup: "fail",
+  headroom_retrieve: "fail",
   session_start: "fail",
+  "local-context7": "?",
   "local-headroom": "?",
   "local-1password": "?",
   reason: "",
 };
 
 function line(): string {
-  return `OHMYPI-SMOKE: agent=${results.agent} omp-version=${results["omp-version"]} op-absent=${results["op-absent"]} ext-load=${results["ext-load"]} setup=${results.setup} retrieve=${results.retrieve} session_start=${results.session_start} local-headroom=${results["local-headroom"]} local-1password=${results["local-1password"]}${results.reason ? ` reason="${results.reason}"` : ""}`;
+  const k = Object.keys(results).filter((key) => key !== "reason" || results.reason);
+  return `OHMYPI-SMOKE: ${k.map((key) => `${key}=${key === "reason" ? `"${results[key]}"` : results[key]}`).join(" ")}`;
 }
 
 async function main(): Promise<void> {
@@ -57,69 +69,72 @@ async function main(): Promise<void> {
   const loaderPath = process.env.OMP_LOADER;
   assert(!!loaderPath, "OMP_LOADER env not set");
 
-  // omp's real loader (imported by absolute path from Bun's global install).
   const { loadExtensions } = (await import(loaderPath as string)) as {
     loadExtensions: (
       paths: string[],
       cwd: string,
     ) => Promise<{
-      extensions: Array<{
-        resolvedPath?: string;
-        path?: string;
-        commands: Map<string, unknown>;
-        tools: Map<string, unknown>;
-        handlers: Map<string, unknown>;
-      }>;
+      extensions: LoadedExt[];
       errors: Array<{ path: string; error: string }>;
     }>;
   };
 
   const cwd = "/app";
-  const result = await loadExtensions(["/app/packages/headroom/index.ts"], cwd);
-  const ext = result.extensions.find((e) =>
-    (e.resolvedPath ?? e.path ?? "").includes("packages/headroom"),
+  const result = await loadExtensions(
+    ["/app/packages/context7/index.ts", "/app/packages/headroom/index.ts"],
+    cwd,
   );
-  if (!ext) {
-    results["ext-load"] = "BLOCKED";
+  const find = (needle: string): LoadedExt | undefined =>
+    result.extensions.find((e) => (e.resolvedPath ?? e.path ?? "").includes(needle));
+
+  const c7 = find("packages/context7");
+  const hr = find("packages/headroom");
+  if (!c7 || !hr) {
     results.reason = (result.errors[0]?.error ?? "unknown load error")
       .replace(/\s+/g, " ")
       .slice(0, 200);
+    if (!c7) results.context7 = "BLOCKED";
+    if (!hr) results.headroom = "BLOCKED";
     return;
   }
-  results["ext-load"] = "ok";
 
-  assert(ext.commands.has("headroom_setup"), "headroom_setup not registered");
-  results.setup = "ok";
-  assert(ext.tools.has("headroom_retrieve"), "headroom_retrieve not registered");
-  results.retrieve = "ok";
-  assert(ext.handlers.has("session_start"), "session_start not registered");
-  results.session_start = "ok";
+  results.context7 = "ok";
+  results.context7_setup = c7.commands.has("context7_setup") ? "ok" : "missing";
+  results.context7_search = c7.tools.has("context7_search") ? "ok" : "missing";
+  results.context7_get_docs = c7.tools.has("context7_get_docs") ? "ok" : "missing";
+  results["local-context7"] = realpathSync(c7.resolvedPath ?? (c7.path as string));
 
-  const resolvedHeadroom = realpathSync(ext.resolvedPath ?? (ext.path as string));
-  assert(
-    resolvedHeadroom.includes("packages/headroom"),
-    `headroom not workspace: ${resolvedHeadroom}`,
-  );
-  results["local-headroom"] = resolvedHeadroom;
+  results.headroom = "ok";
+  results.headroom_setup = hr.commands.has("headroom_setup") ? "ok" : "missing";
+  results.headroom_retrieve = hr.tools.has("headroom_retrieve") ? "ok" : "missing";
+  results.session_start = hr.handlers.has("session_start") ? "ok" : "missing";
+  results["local-headroom"] = realpathSync(hr.resolvedPath ?? (hr.path as string));
 
   const require = createRequire(import.meta.url);
-  const opPkgReal = realpathSync(require.resolve("@jmcombs/pi-1password"));
-  assert(opPkgReal.includes("packages/1password"), `1password not workspace: ${opPkgReal}`);
-  results["local-1password"] = opPkgReal;
+  results["local-1password"] = realpathSync(require.resolve("@jmcombs/pi-1password"));
+}
+
+function allOk(): boolean {
+  return (
+    results["op-absent"] === "ok" &&
+    results.context7 === "ok" &&
+    results.context7_setup === "ok" &&
+    results.context7_search === "ok" &&
+    results.context7_get_docs === "ok" &&
+    results.headroom === "ok" &&
+    results.headroom_setup === "ok" &&
+    results.headroom_retrieve === "ok" &&
+    results.session_start === "ok" &&
+    results["local-context7"].includes("packages/context7") &&
+    results["local-headroom"].includes("packages/headroom") &&
+    results["local-1password"].includes("packages/1password")
+  );
 }
 
 main()
   .then(() => {
     console.log(line());
-    const ok =
-      results["op-absent"] === "ok" &&
-      results["ext-load"] === "ok" &&
-      results.setup === "ok" &&
-      results.retrieve === "ok" &&
-      results.session_start === "ok" &&
-      results["local-headroom"].includes("packages/headroom") &&
-      results["local-1password"].includes("packages/1password");
-    process.exit(ok ? 0 : 1);
+    process.exit(allOk() ? 0 : 1);
   })
   .catch((err) => {
     if (!results.reason) {

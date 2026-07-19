@@ -92,18 +92,17 @@ Two non-interactive smoke proofs guard against handing over another false positi
 
 ```
 PI-SMOKE: agent=pi op-absent=ok headroom-loaded=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
-OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok ext-load=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
+OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok context7=ok context7_setup=ok context7_search=ok context7_get_docs=ok headroom=ok headroom_setup=ok headroom_retrieve=ok session_start=ok local-context7=/app/packages/context7/index.ts local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
 ```
 
-Both agents load the LOCAL headroom extension (+ LOCAL `@jmcombs/pi-1password`)
-with `op` absent, register `headroom_setup` / `headroom_retrieve` /
-`session_start`, and their interactive TUIs start to a usable prompt with a
-**placeholder model** (`--provider openai --model gpt-4o --api-key placeholder` +
-`PI_OFFLINE=1`; omp additionally needs `OMP_SKIP_SETUP=1` to skip its first-run
-wizard) — `/headroom_setup` never calls the model, so there is no "configure a
-model" wall.
+Both agents load the LOCAL `context7` + `headroom` extensions (+ LOCAL
+`@jmcombs/pi-1password`) with `op` absent, register their setup commands + tools,
+and their interactive TUIs start to a usable prompt with a **placeholder model**
+(`--provider openai --model gpt-4o --api-key placeholder` + `PI_OFFLINE=1`; omp
+additionally needs `OMP_SKIP_SETUP=1` to skip its first-run wizard) — the setup
+commands never call the model, so there is no "configure a model" wall.
 
-### oh-my-pi resolution mechanism (container-level, no product change)
+### oh-my-pi compatibility — product-level feature-detect (STOCK omp, no image patch)
 
 omp does **not** resolve `@earendil-works/pi-coding-agent` to the real npm package.
 Its `installLegacyPiSpecifierShim` registers a **process-global `Bun.plugin`
@@ -112,35 +111,42 @@ Its `installLegacyPiSpecifierShim` registers a **process-global `Bun.plugin`
 remaps it to omp's own `legacy-pi-coding-agent-shim.ts` — **by design**, so plugins
 share omp's single module/tool registry. There is **no env/flag/config override**,
 and the hook intercepts before filesystem resolution, so pinning/deduping/symlinking
-the real package cannot win (maintainer Options 1 & 2 are impossible). omp's shim
-re-exports `createBashTool` + `getAgentDir` but has **no `createLocalBashOperations`
-at all** (omp exposes no equivalent), which `@jmcombs/pi-1password` imports at module
-top-level for its `1p_run` bash tool — so the ESM link failed and headroom could not
-load under omp.
+the real package cannot win. omp's shim re-exports `createBashTool` + `getAgentDir`
+but has **no `createLocalBashOperations` at all** (omp exposes no equivalent), which
+`@jmcombs/pi-1password` originally imported as a **static named import** at module
+top-level — so the ESM link failed and every consumer of `@jmcombs/pi-1password`
+(context7, headroom, …) could not load under omp.
 
-The fix is **container-level only** (maintainer Option 3 — "exports override in the
-container image build"): the image appends one line to omp's shim re-exporting the
-**REAL** `createLocalBashOperations` from the genuine
-`@earendil-works/pi-coding-agent@0.80.9` already installed in `node_modules`, using
-an **absolute-path import** (which the bare-specifier filter does not intercept):
+**The fix is in the product, at the resolution layer, not in the container.**
+`@jmcombs/pi-1password` keeps `createBashTool`/`getAgentDir` as static named imports
+(present on omp's shim) but accesses `createLocalBashOperations` through a
+**namespace import** (`import * as piRuntime from "@earendil-works/pi-coding-agent"`),
+so a missing member is `undefined` at runtime rather than a hard link error. The
+`user_bash` hook (transparent 1P injection for user `!bash`) is registered **only
+when the member is present**:
 
 ```ts
-// [container-only, ADR 0008] surface the real pi export omp's shim omits.
-export { createLocalBashOperations } from "/app/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/index.js";
+if (typeof piRuntime.createLocalBashOperations === "function") {
+  pi.on("user_bash", () => ({ operations: piRuntime.createLocalBashOperations() }));
+}
 ```
 
-This surfaces the real symbol from the real runtime — not a stub — and touches
-**only** the third-party omp shim inside the image. `packages/**` product source is
-unchanged; everything else still resolves through omp's shim, preserving its
-single-runtime invariant. omp is pinned (`@17.0.5`) so the shim path is stable, and
-the build fails if omp ever ships the export itself (so the override can be dropped).
+This is behaviour-preserving on real pi (hook registers, `!`-injection works —
+verified `user_bash=true`) and lets the module link + load on stock omp, where the
+hook is simply skipped (`user_bash=false`) while the transparent agent-bash
+injection (`createBashTool`) and `1p_diagnose` remain. The rig therefore validates
+against **stock, unpatched omp** — the real-world proof — with **no image-level shim
+patch**. As part of the same change the LLM-facing **`1p_run` tool was retired** (the
+transparent `createBashTool` injection covers running commands under 1P), removing
+the last non-load-critical consumer of `createLocalBashOperations`.
 
 Interactive-rig artifacts:
 
-- `docker/interactive-onboarding.Dockerfile` (+ `.dockerignore`)
+- `docker/interactive-onboarding.Dockerfile` (+ `.dockerignore`) — installs real pi
+  and **stock** oh-my-pi; no shim patch.
 - `docker/pi-smoke.mts`, `docker/ohmypi-smoke.mts`, `docker/smoke-both.sh`
-- `docker/run-pi.sh`, `docker/run-ohmypi.sh`
-- `docker/README.md` — build/run/onboard steps for both agents + the omp blocker.
+- `docker/run-pi.sh`, `docker/run-ohmypi.sh` — load context7 + headroom on each agent.
+- `docker/README.md` — build/run/onboard steps for both agents.
 
 ## Consequences
 
@@ -149,17 +155,19 @@ Interactive-rig artifacts:
   must be green before the migration merges.
 - The **real-pi / real-oh-my-pi interactive onboarding** validation is a
   **human-verify** gate (capability `pi-onboard-offline`, like `pi-onboard-tui` /
-  `op-live`): the maintainer walks `/headroom_setup` in the op-less container via
-  `docker/run-pi.sh` / `docker/run-ohmypi.sh`. Its non-interactive companions
-  (`PI-SMOKE` / `OHMYPI-SMOKE`) are automated and prove both agents load the LOCAL
-  extension.
+  `op-live`): the maintainer walks `/context7_setup` and `/headroom_setup` in the
+  op-less container via `docker/run-pi.sh` / `docker/run-ohmypi.sh`. Its
+  non-interactive companions (`PI-SMOKE` / `OHMYPI-SMOKE`) are automated and prove
+  both agents load the LOCAL extensions.
 - The offline/degraded path is proven at two levels: the credential LOGIC (headless
-  check) and BOTH real agents loading the workspace extension, not just via `PATH`
+  check) and BOTH real agents loading the workspace extensions, not just via `PATH`
   manipulation in unit tests.
-- **oh-my-pi now loads the extension** via a container-only exports override (above),
-  surfacing the real `createLocalBashOperations`. No `packages/**` product source is
-  changed — the override lives only in the image build.
-- No product code changed: this ADR adds validation + a container-image resolution
-  override only. Neither container touches the host `~/.pi` (throwaway
+- **Stock oh-my-pi now loads our extensions** thanks to the product-level
+  feature-detect in `@jmcombs/pi-1password` (no image-level shim patch).
+- **`1p_run` retired** from `@jmcombs/pi-1password` (transparent `createBashTool`
+  injection supersedes it); its tests + the `1p_diagnose` description / docs are
+  updated. Historical records (ADR 0003, Phase 2 scope, CHANGELOG) are left intact.
+- The only product change is `packages/1password/index.ts` (feature-detect +
+  `1p_run` retirement). Neither container touches the host `~/.pi` (throwaway
   `PI_CODING_AGENT_DIR`, no volume mounts), consistent with the isolation posture of
   D14.
