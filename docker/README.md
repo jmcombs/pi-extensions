@@ -3,7 +3,7 @@
 Isolated container harnesses for validations that must run away from the
 maintainer's real environment. Both harnesses run with the 1Password CLI (`op`)
 **absent** and **no access to the host `~/.pi`** (throwaway `PI_CODING_AGENT_DIR`,
-no volume mounts). See `docs/decisions/0008-offline-credential-validation.md`.
+no volume mounts).
 
 There are **two levels** of validation:
 
@@ -120,5 +120,4 @@ The fix is **in the product, not the container**: `@jmcombs/pi-1password` access
 `user_bash` hook only when the member is present. A missing member is then `undefined`
 at runtime instead of a link error, so the module loads on omp's shim unmodified. On
 real pi the member exists, the hook registers, and `!`-injection is unchanged. The
-image installs **stock omp** (pinned `17.0.5`) with **no shim patch**. See
-`docs/decisions/0008-offline-credential-validation.md`.
+image installs **stock omp** (pinned `17.0.5`) with **no shim patch**.

@@ -1,4 +1,4 @@
-# Interactive onboarding rig — real pi + STOCK oh-my-pi, `op` absent (ADR 0008).
+# Interactive onboarding rig — real pi + STOCK oh-my-pi, `op` absent.
 #
 # A node:22 image where the maintainer can launch REAL pi and REAL (stock, unpatched)
 # oh-my-pi with the LOCAL workspace `context7` + `headroom` extensions loaded and
@@ -33,7 +33,7 @@ RUN HUSKY=0 npm ci
 # Bun — the runtime oh-my-pi declares (engines.bun) — then oh-my-pi itself (pinned).
 # STOCK omp: no shim patch. The product-level feature-detect in @jmcombs/pi-1password
 # (namespace import of createLocalBashOperations, absent on omp's compat shim) lets
-# our extensions link and load under omp unmodified — see ADR 0008 / docker/README.md.
+# our extensions link and load under omp unmodified — see docker/README.md.
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun \
   && bun install -g @oh-my-pi/pi-coding-agent@17.0.5

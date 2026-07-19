@@ -1,4 +1,4 @@
-# Offline (no-`op`) credential validation image — ADR 0008.
+# Offline (no-`op`) credential validation image.
 #
 # A node:22 base with the 1Password CLI (`op`) intentionally NOT installed and no
 # access to the host `~/.pi`. The workspace is installed fresh on Linux (macOS
