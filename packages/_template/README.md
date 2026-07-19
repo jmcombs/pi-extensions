@@ -46,58 +46,89 @@ path, project-scoped install, and filtering options.
 
 ## Configuration
 
-<!-- Delete this section if your extension does not need any configuration. -->
+<!-- Delete this section — and drop the `@jmcombs/pi-1password` dependency from
+     package.json — if your extension needs no secrets. -->
 
 ### API Keys / Secrets
 
-If this extension calls a third-party service, store the credential using one
-of Pi's recommended auth storage methods. **Never** hard-code API keys or commit
-them to source control.
+If this extension calls a third-party service, handle its credential through the
+[`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+credential API. **Never** hard-code API keys or commit them to source control,
+and never surface a key (entered or resolved) in LLM-visible text.
 
-#### Option 1 — Environment variable
+`@jmcombs/pi-1password` exports a small, stateless credential surface —
+`resolveSecret` reads `~/.pi/agent/auth.json` and resolves the stored entry
+(either a literal key or an `!op read 'op://…'` reference) fresh on every call;
+`onboardSecret` runs the setup flow, which **branches on 1Password availability**
+(a live vault → item → field picker when the `op` CLI is configured, secure
+masked manual entry otherwise). Existing `auth.json` keys — literals and
+`!op read` references alike — keep resolving unchanged.
 
-```bash
-export EXAMPLE_API_KEY="…"
-```
+This is the same pattern the shipped extensions use;
+`packages/context7/index.ts` is the reference implementation.
 
-#### Option 2 — `~/.pi/agent/auth.json`
+#### 1. Declare the dependency
+
+`packages/_template/package.json` already lists it as an illustration:
 
 ```json
 {
-  "example": {
-    "type": "api_key",
-    "key": "EXAMPLE_API_KEY"
+  "dependencies": {
+    "@jmcombs/pi-1password": "^1.0.2"
   }
 }
 ```
 
-#### Option 3 — Shell-resolved secret (macOS Keychain, 1Password, pass, etc.)
+It is a hard `dependencies` entry (never a peer): pi installs extensions with
+`--omit=peer`, so a peer would not be installed and the import would fail. The
+dependency auto-installs, so the credential API is always importable.
 
-```json
-{
-  "example": {
-    "type": "api_key",
-    "key": "!security find-generic-password -ws 'example'"
-  }
-}
-```
+#### 2. Register a `<slug>_setup` command
 
-```json
-{
-  "example": {
-    "type": "api_key",
-    "key": "!op read 'op://Personal/example/credential'"
-  }
-}
-```
-
-The extension reads the key with:
+By convention (ADR 0006) the credential-setup command is named
+`{brand-slug}_setup` and delegates to `onboardSecret`:
 
 ```ts
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
-const auth = AuthStorage.create();
-const apiKey = (await auth.getApiKey("example")) ?? process.env.EXAMPLE_API_KEY;
+import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
+
+pi.registerCommand("example_setup", {
+  description: "Set up or update your Example API key (never shown to the agent).",
+  handler: async (_args, ctx) => {
+    const result = await onboardSecret(ctx, { name: "example", label: "Example" });
+    ctx.ui.notify(result.message, result.ok ? "info" : "warning");
+  },
+});
 ```
+
+#### 3. Resolve on use, with auto-onboard on a miss
+
+Inside a tool's `execute()`, resolve the key; if it is missing, run onboarding
+once and re-resolve. This preserves the "prompt on first use" experience without
+ever leaking the key to the model:
+
+```ts
+async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+  let apiKey = await resolveSecret("example");
+  if (!apiKey) {
+    const r = await onboardSecret(ctx, { name: "example", label: "Example" });
+    if (r.ok) {
+      apiKey = await resolveSecret("example");
+    }
+  }
+  if (!apiKey) {
+    return {
+      content: [{ type: "text", text: "Cancelled: no Example API key provided." }],
+      details: { error: "missing_api_key" },
+    };
+  }
+
+  // …use `apiKey` to call the third-party service…
+}
+```
+
+For the full walkthrough — architecture, the onboarding availability branch, the
+resolve sequence, and a worked context7 example with diagrams — see the developer
+integration guide (added in Phase 9): `docs/1p-credential-api/INTEGRATION.md`.
 
 ## Requirements
 
