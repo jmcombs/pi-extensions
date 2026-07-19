@@ -1,7 +1,7 @@
 {
   "packages/1password": "2.0.0",
   "packages/tavily-search": "3.0.0",
-  "packages/prompt-enhancer": "2.0.1",
+  "packages/prompt-enhancer": "2.0.2",
   "packages/notify": "1.1.0",
   "packages/grok-search": "2.0.0",
   "packages/context7": "2.0.0",
