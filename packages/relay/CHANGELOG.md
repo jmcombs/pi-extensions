@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.0...relay/v1.1.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **relay:** normalize oh-my-pi string[] systemPrompt so relay roles dispatch ([6d275d3](https://github.com/jmcombs/pi-extensions/commit/6d275d36aa471b9461db51111a9c09d7cebfb1eb))
+
 ## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.0.0...relay/v1.1.0) (2026-07-12)
 
 
