@@ -19,6 +19,13 @@
 > **Not affiliated with or endorsed by Anthropic or xAI. Claude and Opus are
 > trademarks of Anthropic, PBC; Grok is a trademark of xAI.**
 
+## Fixes
+
+- **Dispatching under oh-my-pi no longer crashes.** On oh-my-pi a subagent's
+  `systemPrompt` arrives as a `string[]` rather than a plain string; relay now
+  normalizes it before building the backend prompt, so relay roles dispatch
+  cleanly under both pi and oh-my-pi.
+
 ## How It Works
 
 A **relay role** is an existing pi-subagent (its persona `.md` + referenced
