@@ -14,6 +14,14 @@
 # model + PI_OFFLINE=1 get past model selection. The setup commands never call the
 # model, so there is no "configure a model / provider" wall.
 #
+# IMPORTANT — do NOT pass `--no-extensions` here. Unlike pi (where `-ne` disables
+# discovery but still loads explicit `-e` paths), omp DISCARDS the `-e` paths when
+# `--no-extensions` is set: `cliExtensionPaths = noExtensions ? [] : extensions`
+# (omp `src/cli/models-cli.ts`). With `--no-extensions`, our extensions never load
+# and `/context7_setup` / `/headroom_setup` fall through to the model as chat. We
+# omit the flag; the throwaway (empty) agent dir means discovery finds nothing else,
+# so only these two `-e` extensions load.
+#
 # Run INSIDE the container:
 #   docker run --rm -it pi-ext-interactive:latest bash docker/run-ohmypi.sh
 set -uo pipefail
@@ -33,7 +41,6 @@ echo "   (op is absent → masked manual key entry; the key is never shown to th
 echo
 
 exec omp \
-  --no-extensions \
   -e /app/packages/context7/index.ts \
   -e /app/packages/headroom/index.ts \
   --provider openai --model gpt-4o --api-key placeholder-not-used-for-onboarding \

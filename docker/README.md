@@ -64,6 +64,12 @@ are gates: they prove real pi and **stock** oh-my-pi load the LOCAL `context7` +
 `headroom` extensions (+ LOCAL `@jmcombs/pi-1password`) with `op` absent and register
 their setup commands + tools from the workspace copies.
 
+> **Registration ≠ TUI routing.** These smokes prove the commands *register*; they
+> do not prove the running TUI *surfaces and routes* them. That is the interactive
+> walkthrough below (PTY-verified: `/context7_setup` + `/headroom_setup` open the
+> masked manual-entry UI on both agents). A launch-flag gotcha matters here — see
+> the omp note below.
+
 ### Walk `/context7_setup` + `/headroom_setup` in real pi (op absent)
 
 ```bash
@@ -89,6 +95,14 @@ docker run --rm -it pi-ext-interactive:latest bash docker/run-ohmypi.sh
 #   /context7_setup  and/or  /headroom_setup   → masked manual key entry (op absent),
 #   written to the throwaway $PI_CODING_AGENT_DIR/auth.json (never ~/.pi).
 ```
+
+> **omp launch-flag gotcha.** `run-ohmypi.sh` must **not** pass `--no-extensions`.
+> Unlike pi (where `-ne` keeps explicit `-e` paths), omp *discards* the `-e` paths
+> when `--no-extensions` is set (`cliExtensionPaths = noExtensions ? [] : extensions`,
+> omp `src/cli/models-cli.ts`) — so the extensions never load and `/context7_setup` /
+> `/headroom_setup` fall through to the model as chat. The script omits the flag; the
+> empty throwaway agent dir means discovery finds nothing else, so only the two `-e`
+> extensions load. (`run-pi.sh` keeps `--no-extensions` — correct on pi.)
 
 **Why this works on STOCK (unpatched) oh-my-pi.** omp registers a process-global
 `Bun.plugin` `onResolve` hook that **hard-remaps** every

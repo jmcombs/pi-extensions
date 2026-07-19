@@ -140,6 +140,28 @@ patch**. As part of the same change the LLM-facing **`1p_run` tool was retired**
 transparent `createBashTool` injection covers running commands under 1P), removing
 the last non-load-critical consumer of `createLocalBashOperations`.
 
+### Loader registration ≠ TUI routing; the omp `--no-extensions` gotcha
+
+The non-interactive smokes drive each agent's loader API (`discoverAndLoadExtensions`
+/ `loadExtensions`) and prove the commands **register** — necessary but **not
+sufficient**: they don't prove the running TUI **surfaces and routes** those slash
+commands. A live check found `/context7_setup` in omp's TUI was sent to the model as
+chat (401 on the placeholder key), not invoked.
+
+Root cause was a **launch-flag** issue in `run-ohmypi.sh`, not the product or omp's
+router. omp's `--no-extensions` **discards the explicit `-e` paths**
+(`cliExtensionPaths = noExtensions ? [] : extensions`, omp `src/cli/models-cli.ts`),
+so with that flag our extensions never loaded and their commands fell through to the
+model. This differs from pi, where `-ne`/`--no-extensions` disables discovery but
+**still loads explicit `-e` paths**. Fix: `run-ohmypi.sh` omits `--no-extensions`
+(the throwaway, empty agent dir means discovery finds nothing else, so only the two
+`-e` extensions load); `run-pi.sh` keeps it (correct + cleaner isolation on pi).
+
+**PTY-verified on both agents** (op absent): `/context7_setup` and `/headroom_setup`
+open the masked manual-entry onboarding UI ("Enter your … API key … Esc = cancel"),
+and headroom's `session_start` passthrough notice fires — real TUI routing, not just
+loader registration.
+
 Interactive-rig artifacts:
 
 - `docker/interactive-onboarding.Dockerfile` (+ `.dockerignore`) — installs real pi

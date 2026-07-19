@@ -12,6 +12,10 @@
 # throwaway provider/model/key purely to get past model selection; you never hit a
 # "configure a model" wall. PI_OFFLINE=1 skips startup network. Swap in a real
 # --api-key if you also want the model to answer.
+#
+# `--no-extensions` is SAFE on pi: it disables discovery but still loads explicit
+# `-e` paths, so only these two extensions load and `/context7_setup` /
+# `/headroom_setup` are invocable in the TUI. (omp differs — see run-ohmypi.sh.)
 set -euo pipefail
 
 # Keep pi + bun bins on PATH even under a login shell.
