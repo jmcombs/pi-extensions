@@ -151,12 +151,12 @@ describe("@jmcombs/pi-headroom", () => {
     expect(typeof factory).toBe("function");
   });
 
-  it("registers its status + auth commands and a session_start handler", () => {
+  it("registers its status + setup commands and a session_start handler", () => {
     const { api, log } = createApiStub();
     factory(api);
 
     expect(log.commands).toContain("headroom-status");
-    expect(log.commands).toContain("headroom-authenticate");
+    expect(log.commands).toContain("headroom_setup");
     expect(log.events).toContain("session_start");
   });
 

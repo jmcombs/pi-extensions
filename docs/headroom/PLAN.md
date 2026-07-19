@@ -150,21 +150,23 @@ LD7. The `session_start` notice must be non-fatal and fire at most once per sess
    `typebox` at `"*"`; `keywords` include `pi-package`; `version` `0.0.0`; `private` removed only in
    Phase 7 (stays for Phase 1).
 3. `packages/headroom/client.ts`: exports `resolveConfig()` (base URL: arg → `HEADROOM_BASE_URL` →
-   default `http://127.0.0.1:8787`; API key: arg → `AuthStorage.getApiKey("headroom")` →
+   default `http://127.0.0.1:8787`; API key: arg → the stored `headroom` credential via
+   `resolveSecret("headroom")` from `@jmcombs/pi-1password` (injectable as `resolveKey` for tests) →
    `HEADROOM_API_KEY` → unset), a memoized
    `getClient()` returning a `HeadroomClient`, and `isHealthy(): Promise<boolean>` (short-TTL cached
    `health()` probe that resolves `false` on any error, never throws).
 4. `packages/headroom/index.ts`: default factory registers commands `headroom-status` and
-   `headroom-authenticate`, plus a `session_start` handler emitting the one-time proxy-down notice.
+   `headroom_setup` (delegating to `onboardSecret` from `@jmcombs/pi-1password`), plus a
+   `session_start` handler emitting the one-time proxy-down notice.
 5. `packages/headroom/index.test.ts`: smoke test asserts the factory registers `headroom-status`,
-   `headroom-authenticate`, and a `session_start` event (registration surface only, no network).
+   `headroom_setup`, and a `session_start` event (registration surface only, no network).
 
 **Testing Gates:**
 
 | # | Method | Command | Expected |
 | - | ------ | ------- | -------- |
 | 1.1 | AUTO | `npm run check` | exit 0; lint, typecheck, vitest, version check, secretlint, audit all pass |
-| 1.2 | AUTO | `npm run test -- packages/headroom` | smoke test passes; asserts `headroom-status`, `headroom-authenticate`, `session_start` registered |
+| 1.2 | AUTO | `npm run test -- packages/headroom` | smoke test passes; asserts `headroom-status`, `headroom_setup`, `session_start` registered |
 | 1.3 | HEADLESS | Node: import `isHealthy` from `client.ts` with proxy **up** | resolves `true` |
 | 1.4 | HEADLESS | Node: import `isHealthy` from `client.ts` with proxy **down** | resolves `false` within ~3s, no throw |
 | 1.5 | HEADLESS-RPC | `node docs/headroom/rpc-verify.mjs ./packages/headroom "/headroom-status"` (proxy up) | an `info` notify reporting healthy + proxy version |

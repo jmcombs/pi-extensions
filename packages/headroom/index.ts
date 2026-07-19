@@ -13,9 +13,12 @@
  * prerequisite documented in the README.
  *
  * Commands:
- *   - `/headroom-status`       — report proxy health + version + mode + key
+ *   - `/headroom-status` — report proxy health + version + mode + key
  *     settings + session and proxy lifetime savings.
- *   - `/headroom-authenticate` — securely store the proxy API key.
+ *   - `/headroom_setup`  — set up or update the proxy API key via the
+ *     `@jmcombs/pi-1password` credential API (1Password vault picker when `op`
+ *     is available, masked manual entry otherwise); the key is never shown to
+ *     the agent.
  *
  * Tools:
  *   - `headroom_retrieve` — recover content that lossy compression elided, via
@@ -43,17 +46,13 @@
  *     the status display + proxy snapshot.
  */
 
-import {
-  AuthStorage,
-  type ExtensionAPI,
-  type ExtensionContext,
-  type Theme,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
+import { onboardSecret } from "@jmcombs/pi-1password";
 import { HeadroomClient, type OpenAIMessage, type RetrieveResult, simulate } from "headroom-ai";
 import { type Static, Type } from "typebox";
 import { augmentWithAutoRetrieve } from "./autoretrieve.js";
-import { getClient, isHealthy, resetClient, resolveConfig } from "./client.js";
+import { getClient, isHealthy, type ResolveKey, resetClient, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
 import { filterByQuery } from "./query.js";
 import {
@@ -517,12 +516,12 @@ interface RetrieveToolResult {
  */
 export async function retrieveExecute(
   params: RetrieveInput,
-  args: { authStorage?: AuthStorage; client?: RetrieveClient } = {},
+  args: { resolveKey?: ResolveKey; client?: RetrieveClient } = {},
 ): Promise<RetrieveToolResult> {
   const hash = params.hash;
   const query = params.query;
   try {
-    const client = args.client ?? (await getClient({ authStorage: args.authStorage }));
+    const client = args.client ?? (await getClient({ resolveKey: args.resolveKey }));
     // Always fetch the full original (it is content-addressed and local). We
     // filter client-side rather than rely on the proxy's semantic query search,
     // which misses ordinary substrings (e.g. `txn 147`).
@@ -633,8 +632,6 @@ function renderRetrieveResult(
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  const authStorage = AuthStorage.create();
-
   // Fires at most once per session (the factory runs once per session). We
   // only flip the flag when we actually emit a notice, so a proxy that goes
   // down after a healthy start still surfaces a single warning.
@@ -683,7 +680,7 @@ export default function (pi: ExtensionAPI): void {
     proxyRefreshInFlight = true;
     void (async () => {
       try {
-        const cfg = await resolveConfig({ authStorage });
+        const cfg = await resolveConfig();
         proxySnapshot = await getProxyStatus(cfg.baseUrl, cfg.apiKey);
         proxySnapshotAt = Date.now();
         renderStatusDisplay(ctx);
@@ -734,7 +731,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Recover original content that Headroom's lossy compression elided. When a tool result shows a marker naming this tool with a `hash=<hash>`, call this with that hash. Pass a `query` describing the specific detail you need (an id, hostname, error, filename, …) to get back just the matching line(s) instead of the whole original — recommended for large outputs.",
     parameters: retrieveSchema,
-    execute: (_toolCallId, params) => retrieveExecute(params, { authStorage }),
+    execute: (_toolCallId, params) => retrieveExecute(params),
     renderCall: (args, theme) => renderRetrieveCall(args, theme),
     renderResult: (result, options, theme, context) =>
       renderRetrieveResult(result, context.isError, options.expanded, theme),
@@ -744,7 +741,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Report Headroom proxy health, version, mode, key settings, and session + proxy token savings.",
     handler: async (_args, ctx) => {
-      const cfg = await resolveConfig({ authStorage });
+      const cfg = await resolveConfig();
       // Read-only status snapshot (LD9): health + version + mode + tuning +
       // proxy lifetime savings. Refresh the cached snapshot so the command and
       // the persistent widget agree.
@@ -763,16 +760,14 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("headroom-authenticate", {
-    description: "Securely save your Headroom proxy API key (input never visible to LLM).",
+  pi.registerCommand("headroom_setup", {
+    description: "Set up or update your Headroom API key (never shown to the agent).",
     handler: async (_args, ctx) => {
-      const apiKey = await ctx.ui.input("Enter your Headroom proxy API key:");
-      if (apiKey) {
-        authStorage.set("headroom", { type: "api_key" as const, key: apiKey });
-        ctx.ui.notify("Headroom API key saved successfully.", "info");
-      } else {
-        ctx.ui.notify("Authentication cancelled.", "warning");
-      }
+      // Delegates to the 1Password credential API, which owns the availability
+      // branch (vault picker when `op` is configured, masked manual entry
+      // otherwise). The key is written to auth.json and never exposed to the LLM.
+      const result = await onboardSecret(ctx, { name: "headroom", label: "Headroom" });
+      ctx.ui.notify(result.message, result.ok ? "info" : "warning");
     },
   });
 
@@ -784,7 +779,7 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Show detailed Headroom statistics: session + lifetime savings, request counts, proxy tuning, and a per-strategy breakdown.",
     handler: async (_args, ctx) => {
-      const cfg = await resolveConfig({ authStorage });
+      const cfg = await resolveConfig();
       const stats = await getDetailedStats(cfg.baseUrl, cfg.apiKey);
       const report = formatStatsReport({ ...stats, baseUrl: cfg.baseUrl }, sessionTokensSaved);
       ctx.ui.notify(report, stats.reachable ? "info" : "warning");
@@ -806,7 +801,7 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       try {
-        const cfg = await resolveConfig({ authStorage });
+        const cfg = await resolveConfig();
         const raw = await simulate(buildSimulationMessages(blob), {
           baseUrl: cfg.baseUrl,
           apiKey: cfg.apiKey,
@@ -835,12 +830,12 @@ export default function (pi: ExtensionAPI): void {
         updateDisplay(ctx);
         return;
       }
-      if (!(await isHealthy({ authStorage }))) {
+      if (!(await isHealthy())) {
         updateDisplay(ctx);
         return;
       }
 
-      const cfg = await resolveConfig({ authStorage });
+      const cfg = await resolveConfig();
       const { messages, tokensSaved } = await compressMessages(event.messages, {
         model: ctx.model?.id,
         baseUrl: cfg.baseUrl,
@@ -857,7 +852,7 @@ export default function (pi: ExtensionAPI): void {
       // so recall is model-independent. Only touches messages on a real match;
       // never throws (the helper swallows retrieve errors, LD3).
       if (pi.getFlag(AUTORETRIEVE_DISABLE_FLAG) !== true) {
-        const client = await getClient({ authStorage });
+        const client = await getClient();
         const augmented = await augmentWithAutoRetrieve(messages, client, {
           maxMarkers: AUTORETRIEVE_MAX_MARKERS,
         });
@@ -887,12 +882,12 @@ export default function (pi: ExtensionAPI): void {
       let healthy = false;
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) resetClient();
-        healthy = await isHealthy({ authStorage });
+        healthy = await isHealthy();
         if (healthy) break;
         if (attempt < 2) await new Promise((r) => setTimeout(r, 500));
       }
       if (!healthy) {
-        const cfg = await resolveConfig({ authStorage });
+        const cfg = await resolveConfig();
         noticeShown = true;
         ctx.ui.notify(
           `Headroom proxy not reachable at ${cfg.baseUrl}; running in passthrough mode (no compression). ${PROXY_START_HINT}`,
