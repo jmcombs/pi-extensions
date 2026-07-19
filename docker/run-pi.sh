@@ -2,7 +2,7 @@
 #
 # Launch REAL pi with the LOCAL workspace context7 + headroom extensions so you can
 # walk `/context7_setup` and `/headroom_setup` onboarding with `op` absent
-# (ADR 0008 interactive rig).
+# (interactive rig).
 #
 # Run this INSIDE the interactive container:
 #   docker run --rm -it pi-ext-interactive:latest bash docker/run-pi.sh

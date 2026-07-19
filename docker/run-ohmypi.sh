@@ -2,13 +2,13 @@
 #
 # Launch REAL (stock, unpatched) oh-my-pi (omp) with the LOCAL workspace context7 +
 # headroom extensions so you can walk `/context7_setup` and `/headroom_setup`
-# onboarding with `op` absent (ADR 0008 interactive rig).
+# onboarding with `op` absent (interactive rig).
 #
 # Why this works on STOCK omp: omp hard-remaps `@earendil-works/pi-coding-agent` to
 # its own legacy shim, which omits `createLocalBashOperations`. `@jmcombs/pi-1password`
 # now FEATURE-DETECTS that symbol (namespace import; registers the `user_bash` hook
 # only when present), so it links + loads under omp's compat shim unmodified — no
-# image-level shim patch. See docker/README.md / ADR 0008. No product source hack.
+# image-level shim patch. See docker/README.md. No product source hack.
 #
 # omp's first-run setup wizard is skipped with OMP_SKIP_SETUP=1, and a placeholder
 # model + PI_OFFLINE=1 get past model selection. The setup commands never call the

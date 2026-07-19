@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Non-interactive extension load check for the op-absent rig (ADR 0008/0009).
+# Non-interactive extension load check for the op-absent rig.
 # Both are GATES: each agent's OWN real extension loader must load EVERY
 # auto-discovered, non-private packages/* extension (+ their LOCAL
 # @jmcombs/pi-1password) with `op` absent and register each package's expected,
@@ -11,7 +11,7 @@
 #   - pi:       pi's real loader (@earendil-works/pi-coding-agent).
 #   - oh-my-pi: STOCK omp's real loader — unpatched. Loading works because the
 #               extensions feature-detect optional pi host APIs (createLocalBash-
-#               Operations et al.); see docker/README.md / ADR 0008/0009.
+#               Operations et al.); see docker/README.md.
 #
 # Overall exit status is non-zero if EITHER gate fails.
 set -uo pipefail

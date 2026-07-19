@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Offline (no-`op`) credential validation harness — ADR 0008.
+# Offline (no-`op`) credential validation harness.
 #
 # Builds an op-less Docker image and runs the offline credential check inside it,
 # asserting the single OFFLINE-CREDS line reports all-ok. The container has NO

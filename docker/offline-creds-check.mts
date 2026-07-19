@@ -1,5 +1,5 @@
 /**
- * Offline (no-`op`) credential validation — ADR 0008.
+ * Offline (no-`op`) credential validation.
  *
  * Runs INSIDE the op-less Docker container (`docker/offline-creds.Dockerfile`)
  * with a throwaway agent directory pointed at by `PI_CODING_AGENT_DIR` — never

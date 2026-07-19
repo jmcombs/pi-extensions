@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Phase 8 (narrowed, ADR 0009) — launch STOCK oh-my-pi (omp) with the LOCAL
+# Launch STOCK oh-my-pi (omp) with the LOCAL
 # `packages/relay` extension loaded and the `relay-claude/opus` model preselected,
 # ready for the maintainer's LIVE subscription-Opus dispatch under omp (the human
 # `claude-sub` gate). This script does NOT run the dispatch — the maintainer sends
@@ -17,7 +17,7 @@
 # ── Auth (the `claude` CLI needs a Claude login; keep ~/.pi untouched) ──
 # The container is op-less and uses a throwaway PI_CODING_AGENT_DIR (never ~/.pi).
 # The ONLY extra state needed is a Claude login for the `claude` CLI. Pick ONE
-# when you start the container (see docs/1p-credential-api/relay-ohmypi-results.md):
+# when you start the container:
 #
 #   (A) RECOMMENDED for the subscription (`claude-sub`) gate — mount your host
 #       Claude login READ-ONLY (exposes only ~/.claude, never ~/.pi):
