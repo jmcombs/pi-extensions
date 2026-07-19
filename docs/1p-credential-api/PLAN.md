@@ -700,7 +700,7 @@ and a row here before implementation.
 - [x] **P4** tavily-search migrated (env fallback kept).
 - [x] **P5** grok-search migrated (xai/xai_search/grok precedence).
 - [x] **P6** headroom migrated (both files + test seam); **full repo green**. Merged **#145 → `849f76f`**. ADR-0008 offline gate **DISCHARGED** and the `pi-onboard-offline` human gate **DISCHARGED** (maintainer validated `/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent); the headroom `op-live` retrieve gate was **WAIVED** by the maintainer.
-- [ ] **P7** `_template` + `TEMPLATE.md` teach the API pattern.
+- [x] **P7** `_template` + `TEMPLATE.md` teach the API pattern. Merged **#147 → `072b555`**.
 - [ ] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. **Automated load/registration folded into P11** (narrowed, ADR 0009).
 - [ ] **P9** Developer `INTEGRATION.md` + `API.md` with ≥4 mermaid diagrams; diagrams reviewed.
 - [ ] **P10** Migration guide authored; release notes verified across all four.
