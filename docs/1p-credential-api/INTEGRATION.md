@@ -17,7 +17,6 @@ adopt the API; read `API.md` for exact signatures and return shapes.
 - [Worked example — context7](#worked-example--context7)
 - [The onboarding flow](#the-onboarding-flow)
 - [The resolve sequence](#the-resolve-sequence)
-- [Before and after](#before-and-after)
 - [Portability — pi and oh-my-pi](#portability--pi-and-oh-my-pi)
 - [Troubleshooting](#troubleshooting)
 - [Advanced and reference](#advanced-and-reference)
@@ -81,20 +80,17 @@ initialize.
 
 ### 1. Add the dependency
 
-In your package's `package.json`, add `@jmcombs/pi-1password` to
-**`dependencies`** (a hard dependency — never `peerDependencies`, which
-pi does not install):
+Install `@jmcombs/pi-1password` as a regular dependency — this records the
+current version in your `package.json` automatically:
 
-```jsonc
-{
-  "dependencies": {
-    "@jmcombs/pi-1password": "^1.0.2"
-  }
-}
+```bash
+npm install @jmcombs/pi-1password
 ```
 
-Leave your pi-runtime peers (`@earendil-works/*`) at `"*"` — do not pin
-a version floor there.
+It must be a hard **`dependencies`** entry, never `peerDependencies`: pi
+installs extensions with `--omit=peer`, so a peer would not be installed and
+the import would fail. Leave your pi-runtime peers (`@earendil-works/*`) at
+`"*"` — do not pin a version floor there.
 
 ### 2. Import the two functions
 
@@ -290,25 +286,6 @@ flowchart TD
 The key takeaways: `op read` is **not** unconditional (a bare literal never
 touches `op`), and any failure fails **closed** — `resolveShellValue` returns
 `null` and `resolveSecret` returns `undefined`, never the unresolved raw string.
-
-## Before and after
-
-The migration replaces three now-removed pi symbols with a single import.
-
-```mermaid
-flowchart LR
-    subgraph Before["Before — removed in pi 0.80.8"]
-        direction TB
-        A1["AuthStorage.create()"]
-        A2["readStoredCredential()"]
-        A3["ModelRuntime"]
-    end
-    subgraph After["After — @jmcombs/pi-1password"]
-        direction TB
-        B1["import { resolveSecret, onboardSecret }<br/>from '@jmcombs/pi-1password'"]
-    end
-    Before ==>|migrate| After
-```
 
 ## Portability — pi and oh-my-pi
 

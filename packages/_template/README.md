@@ -69,14 +69,10 @@ This is the same pattern the shipped extensions use;
 
 #### 1. Declare the dependency
 
-`packages/_template/package.json` already lists it as an illustration:
+Install it as a regular dependency (this records the current version for you):
 
-```json
-{
-  "dependencies": {
-    "@jmcombs/pi-1password": "^1.0.2"
-  }
-}
+```bash
+npm install @jmcombs/pi-1password
 ```
 
 It is a hard `dependencies` entry (never a peer): pi installs extensions with
