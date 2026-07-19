@@ -71,6 +71,7 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 | node-toolchain  | yes    | `tsc -p <pkg>/tsconfig.json`, `biome check`, `vitest run` all run locally. |
 | pi-ext-load     | yes    | Loading a factory via the vitest smoke-test stub (no model call) proves registration without throwing. |
 | op-sentinel     | yes    | `resolveShellValue` with a `!echo …` sentinel exercises command resolution without 1Password. |
+| docker-offline  | yes    | A `node` container with **no `op` binary** and **no host `~/.pi` access** (throwaway `PI_CODING_AGENT_DIR`, no volume mounts); Docker available on the maintainer's machine. Proves the offline/degraded credential path (ADR 0008). |
 | ohmypi-env      | no     | oh-my-pi stood up in a throwaway Docker container (or brew + isolated HOME) per run; never touches `~/.pi`. Provisionable. |
 | op-live         | human  | A live `op read` of a real 1Password vault ref needs the maintainer's authenticated 1Password session + Touch ID; not automatable. |
 | pi-onboard-tui  | human  | The interactive onboarding TUI (vault picker / manual branch) can only be driven and reviewed by a person in a live pi session. |
@@ -365,7 +366,10 @@ onboarding flow **reviewed live and approved by the maintainer**.
 ## Phase 6 — headroom → 1Password API (+ full-repo green)
 
 **Entry:** P2, P3. **Shippable as:** `headroom` on the API and the **full repo
-typecheck/test green** — the terminal consumer.
+typecheck/test green** — the terminal consumer. The **offline (no-`op`) credential
+validation (ADR 0008) must pass before this phase merges** — a Docker container
+with no `op` binary and no host `~/.pi` access proves the extension loads and the
+credential API adds/resolves a key with `op` absent.
 
 **Skills:** phase-build, testing-standards, git-hygiene, repo-layout, typescript-standards
 
@@ -402,6 +406,7 @@ typecheck/test green** — the terminal consumer.
 | **Full-repo tests** | `npm run test` | all pass |
 | **Full quality gate** | `npm run check` | exit 0 |
 | No `AuthStorage` anywhere | `grep -rln "AuthStorage" packages --include=*.ts` | no matches |
+| **Offline credential path (no `op`)** (needs: docker-offline) | `bash scripts/test-offline-credentials.sh` | prints `OFFLINE-CREDS: … all-ok` and exits 0 — extension loads, `available=false`, add-key/resolve-literal/keyless ok, `!op read` ref → `undefined` (ADR 0008); **must pass before merge** |
 | Live retrieve (needs: op-live) | maintainer drives a headroom retrieve in a pi session | resolves `headroom` and succeeds |
 
 ### Definition of Done — see Appendix C.
@@ -594,6 +599,7 @@ and a row here before implementation.
 | [0005](../decisions/0005-onboarding-ux-redesign.md) | Onboarding UX redesign: upfront overwrite gate, three description-backed sources (browse / paste / op:// reference) with masked literal entry + field-step auto-skip + `op://` validation, and post-save verify; adds a masked-input primitive and fixes the `confirm` message / multi-line prompt bugs | Accepted |
 | [0006](../decisions/0006-credential-setup-command-naming.md) | Credential-setup command naming: the setup command is `{brand-slug}_setup` across all extensions (incl. 1Password); consumer setup-command descriptions unified to `Set up or update your {label} API key (never shown to the agent).`; `setup` chosen over `onboard`/`authenticate` (sets or updates); diagnose/run commands out of scope | Accepted |
 | [0007](../decisions/0007-tool-error-results-no-returned-iserror.md) | Consumer tool error results report via `content` + `details`, never a returned `isError` (pi ignores it — only a thrown `execute()` flags an error); no `throw` for user-facing recoverable errors (missing key / 401 / 429 / network). Removed the no-op `isError` from grok-search, context7, tavily-search; headroom born correct at P6 | Accepted |
+| [0008](../decisions/0008-offline-credential-validation.md) | Offline (no-`op`) credential validation: a Docker container with **no `op` binary** and **no host `~/.pi` access** proves the extension loads, `is1PasswordAvailable()`→false, a key is added/resolved without `op`, an `!op read` ref fails closed to `undefined`, and keyless proxies still work. Must-pass gate on the Phase 6 merge | Accepted |
 
 ## Appendix B — Master TODO index (verifier-ticked)
 
