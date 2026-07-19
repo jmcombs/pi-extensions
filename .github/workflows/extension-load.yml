@@ -1,9 +1,9 @@
-name: Cross-Platform Validation
+name: Extension Load Check
 
-# Advisory (informational) cross-platform loader validation. Runner-native (no
-# Docker): it drives real pi's loader and stock oh-my-pi's loader over every
-# non-private packages/* extension with `op` absent and asserts each package's
-# expected, platform-aware surface.
+# Advisory (informational) extension load check. Runner-native (no Docker): it
+# drives real pi's loader and stock oh-my-pi's loader over every non-private
+# packages/* extension with `op` absent and asserts each package loads and
+# registers its expected, platform-aware surface.
 #
 # This job is ADVISORY — it is intentionally NOT in the "Protect main" required-
 # check set (still exactly Quality Gate (Node 22), Quality Gate (Node 24), Commit
@@ -24,8 +24,8 @@ permissions:
   contents: read
 
 jobs:
-  cross-platform:
-    name: Cross-Platform Loaders (pi + stock oh-my-pi)
+  extension-load:
+    name: Extensions load + register (pi + oh-my-pi, no op)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

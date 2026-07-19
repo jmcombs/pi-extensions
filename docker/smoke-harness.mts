@@ -1,5 +1,5 @@
 /**
- * Package-agnostic cross-platform validation harness.
+ * Package-agnostic extension load check harness.
  *
  * Shared engine behind the two op-absent smokes (`pi-smoke.mts` on real pi,
  * `ohmypi-smoke.mts` on stock oh-my-pi). It:
@@ -372,7 +372,7 @@ function matchExt(exts: LoadedExt[], dir: string): LoadedExt | undefined {
  */
 export async function runHarness(opts: RunOptions): Promise<number> {
   const { platform, repoRoot, cwd, summaryPrefix } = opts;
-  console.log(`== ${platform} cross-platform validation (op absent) ==`);
+  console.log(`== ${platform} extension load check (op absent) ==`);
 
   if (!opIsAbsent()) {
     console.error(`FAIL: op is present — this environment must be op-less for ${platform}`);

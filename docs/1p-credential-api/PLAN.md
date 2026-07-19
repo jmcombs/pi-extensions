@@ -500,7 +500,7 @@ work.
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| relay loads + registers providers on stock omp | (**P11** — `npm run validate:cross-platform`) | covered by Phase 11's harness; not re-implemented here |
+| relay loads + registers providers on stock omp | (**P11** — `npm run validate:extension-load`) | covered by Phase 11's harness; not re-implemented here |
 | Live dispatch under oh-my-pi (needs: claude-sub) | maintainer runs a relay dispatch inside the isolated env | returns a verdict/result |
 | Result documented | `test -s docs/1p-credential-api/relay-ohmypi-results.md` | non-empty with version + outcome + P11 pointer |
 | relay unit tests still green | `npx vitest run packages/relay` | all pass |
@@ -608,7 +608,7 @@ release PRs go out. **No separate migration guide** — see the Objectives note.
 ## Phase 11 — Contributor cross-platform validation (pi + stock oh-my-pi)
 
 **Entry:** P6 (supersedes P8's automated portion). **Shippable as:** a
-package-agnostic harness + a local `npm run validate:cross-platform` command and an
+package-agnostic harness + a local `npm run validate:extension-load` command and an
 **advisory** runner-native CI job, proving every shipped extension loads and
 registers its own declared surface on **real pi** and **stock oh-my-pi** with `op`
 absent — a regression guard (all 10 shipped packages pass today; relay needs no
@@ -624,7 +624,7 @@ feature-detect — ADR 0009).
   `pi.extensions` (**iterate the array — do not hardcode one path**) and asserts, on
   **BOTH real pi and stock oh-my-pi** (`op` absent), that each in-scope package
   **loads without error** and **registers its own expected per-package surface**
-  (platform-aware; ADR 0009). Add a local `npm run validate:cross-platform` (Docker
+  (platform-aware; ADR 0009). Add a local `npm run validate:extension-load` (Docker
   path — guarantees op-absence on contributor machines that may have `op`), an
   **advisory** runner-native CI job, and CONTRIBUTING docs.
 - **Out:** the interactive onboarding PTY walkthrough and any `op`-available path
@@ -654,20 +654,20 @@ feature-detect — ADR 0009).
 ### Actionable TODOs
 
 - [ ] Generalize `docker/pi-smoke.mts` + `docker/ohmypi-smoke.mts` (and the shared enumeration used by `docker/smoke-both.sh`) into a package-agnostic harness that reads every `packages/*/package.json` `pi.extensions` array and iterates it; drives each in-scope extension through pi's loader and stock omp's loader (op absent) and asserts its enumerated expected surface (relay via the stub-`ExtensionAPI` `registerProvider` capture).
-- [ ] Add `scripts/validate-cross-platform.sh` and a `"validate:cross-platform"` script in the root `package.json` (**does not exist today**) that runs the Docker path (`docker/interactive-onboarding.Dockerfile`) so op-absence is guaranteed locally.
-- [ ] Add a **runner-native, advisory** job in a **separate** workflow `.github/workflows/cross-platform.yml` (`npm ci` → pi-loader smoke; `setup-bun` pinned + `bun install -g @oh-my-pi/pi-coding-agent@17.0.5` → omp-loader smoke). A separate file keeps the existing required jobs + `pull_request: [main]` trigger in `ci.yml` UNTOUCHED. The new workflow triggers on `pull_request` into **`main` AND `feat/1password-credential-api`** (so the advisory job runs on PRs into both while the migration is in flight). The job is **advisory** — do NOT add it to the branch-protection required-check set.
-- [ ] Document in `CONTRIBUTING.md`: the `npm run validate:cross-platform` command, what it proves (every shipped extension loads + registers its declared surface on pi and stock omp, op absent), and the gotchas — omp's `--no-extensions` **discards** explicit `-e` paths (unlike pi) and the `@jmcombs/pi-1password` `createLocalBashOperations` **feature-detect** (`user_bash` pi-only).
+- [ ] Add `scripts/validate-extension-load.sh` and a `"validate:extension-load"` script in the root `package.json` (**does not exist today**) that runs the Docker path (`docker/interactive-onboarding.Dockerfile`) so op-absence is guaranteed locally.
+- [ ] Add a **runner-native, advisory** job in a **separate** workflow `.github/workflows/extension-load.yml` (`npm ci` → pi-loader smoke; `setup-bun` pinned + `bun install -g @oh-my-pi/pi-coding-agent@17.0.5` → omp-loader smoke). A separate file keeps the existing required jobs + `pull_request: [main]` trigger in `ci.yml` UNTOUCHED. The new workflow triggers on `pull_request` into **`main` AND `feat/1password-credential-api`** (so the advisory job runs on PRs into both while the migration is in flight). The job is **advisory** — do NOT add it to the branch-protection required-check set.
+- [ ] Document in `CONTRIBUTING.md`: the `npm run validate:extension-load` command, what it proves (every shipped extension loads + registers its declared surface on pi and stock omp, op absent), and the gotchas — omp's `--no-extensions` **discards** explicit `-e` paths (unlike pi) and the `@jmcombs/pi-1password` `createLocalBashOperations` **feature-detect** (`user_bash` pi-only).
 - [ ] Author a **per-package expected-surface table** (in the harness and/or CONTRIBUTING) enumerating the surfaces above, including the `_template` `private` exclusion.
-- [ ] Confirm **zero product-code changes** (`git diff --stat` touches only `docker/`, `scripts/`, `.github/workflows/` (the new `cross-platform.yml`), `package.json` scripts, `CONTRIBUTING.md`, docs — never `packages/*/index.ts`).
+- [ ] Confirm **zero product-code changes** (`git diff --stat` touches only `docker/`, `scripts/`, `.github/workflows/` (the new `extension-load.yml`), `package.json` scripts, `CONTRIBUTING.md`, docs — never `packages/*/index.ts`).
 
 ### Testing Gates
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| Cross-platform validation passes (needs: docker-offline) | `npm run validate:cross-platform` | each in-scope package **PASS on pi AND stock omp** against its expected surface; `_template` **skipped + logged**; exit 0 |
-| Unexpected non-load fails loudly (needs: docker-offline) | `npm run validate:cross-platform` (with a package that fails to load / registers nothing expected) | **non-zero** exit (failure, not skip) |
-| Advisory CI job present + green (needs: ci-runner) | inspect `.github/workflows/cross-platform.yml`; the runner-native job on the phase PR | job exists (advisory, **not** in the required set) and is green |
-| Isolation clean | `grep -rnE "\.pi\b|-v |--mount|--volume" scripts/validate-cross-platform.sh docker/*smoke*.mts .github/workflows/*.yml` | only throwaway/`PI_CODING_AGENT_DIR` paths + op-absence checks; no bind of the real `~/.pi` |
+| Cross-platform validation passes (needs: docker-offline) | `npm run validate:extension-load` | each in-scope package **PASS on pi AND stock omp** against its expected surface; `_template` **skipped + logged**; exit 0 |
+| Unexpected non-load fails loudly (needs: docker-offline) | `npm run validate:extension-load` (with a package that fails to load / registers nothing expected) | **non-zero** exit (failure, not skip) |
+| Advisory CI job present + green (needs: ci-runner) | inspect `.github/workflows/extension-load.yml`; the runner-native job on the phase PR | job exists (advisory, **not** in the required set) and is green |
+| Isolation clean | `grep -rnE "\.pi\b|-v |--mount|--volume" scripts/validate-extension-load.sh docker/*smoke*.mts .github/workflows/*.yml` | only throwaway/`PI_CODING_AGENT_DIR` paths + op-absence checks; no bind of the real `~/.pi` |
 | Zero product changes | `git diff --stat feat/1password-credential-api -- packages/*/index.ts` | empty |
 
 ### Definition of Done — see Appendix C.
@@ -711,7 +711,7 @@ and a row here before implementation.
 - [x] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. Merged **#148 → `9c5350a`**. Live gate **PASS** (API-key mechanics path; subscription `oauthAccount` variant an optional follow-up). Surfaced + fixed an **omp-only** `string[]` `systemPrompt` crash (pi unaffected). **Automated load/registration folded into P11** (narrowed, ADR 0009).
 - [x] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; `doc-render` gate **DISCHARGED** (maintainer previewed + approved). Merged **#149 → `a30b501`**. Docs made self-contained (no plan/ADR/phase refs); dependency de-pinned to `npm install`. (Before/after diagram dropped — no prior published API to migrate from.)
 - [x] **P10** Per-package release comms (D13 a–d) complete across all four READMEs + clean release-note inputs. Merged **#150 → `a67dbf4`**. MIGRATION.md considered + dropped (no prior published API → non-breaking, not a migration).
-- [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
+- [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:extension-load` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
 
 ## Appendix C — Definition of Done (every phase)
 

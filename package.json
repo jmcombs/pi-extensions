@@ -31,7 +31,7 @@
     "check": "npm run lint && npm run typecheck && npm run test && npm run check:versions && npm run security",
     "update:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts",
     "check:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts --check",
-    "validate:cross-platform": "bash scripts/validate-cross-platform.sh",
+    "validate:extension-load": "bash scripts/validate-extension-load.sh",
     "prepare": "husky"
   },
   "engines": {

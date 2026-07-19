@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Non-interactive cross-platform validation for the op-absent rig (ADR 0008/0009).
+# Non-interactive extension load check for the op-absent rig (ADR 0008/0009).
 # Both are GATES: each agent's OWN real extension loader must load EVERY
 # auto-discovered, non-private packages/* extension (+ their LOCAL
 # @jmcombs/pi-1password) with `op` absent and register each package's expected,

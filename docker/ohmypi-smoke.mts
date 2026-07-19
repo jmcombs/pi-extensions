@@ -1,5 +1,5 @@
 /**
- * Cross-platform validation — STOCK oh-my-pi side (op absent). Run under Bun.
+ * Extension load check — STOCK oh-my-pi side (op absent). Run under Bun.
  *
  * Thin wrapper over the package-agnostic harness (`smoke-harness.mts`). Drives
  * omp's OWN extension loader (`loadExtensions` from

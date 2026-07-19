@@ -1,5 +1,5 @@
 /**
- * Cross-platform validation — REAL pi side (op absent).
+ * Extension load check — REAL pi side (op absent).
  *
  * Thin wrapper over the package-agnostic harness (`smoke-harness.mts`). Drives
  * pi's OWN public extension loader — `discoverAndLoadExtensions` from

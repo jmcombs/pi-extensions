@@ -46,15 +46,15 @@ docker build -f docker/interactive-onboarding.Dockerfile -t pi-ext-interactive:l
 ### Non-interactive smoke proofs (both agents)
 
 ```bash
-docker run --rm pi-ext-interactive:latest        # or: npm run validate:cross-platform
-# == pi cross-platform validation (op absent) ==
+docker run --rm pi-ext-interactive:latest        # or: npm run validate:extension-load
+# == pi extension load check (op absent) ==
 # SKIP: packages/_template (@jmcombs/pi-EXTENSION_NAME) — private:true
 # PASS pi 1password: tools[bash,1p_diagnose] handlers[session_start,user_bash]
 # PASS pi context7: tools[context7_search,context7_get_docs] commands[context7_setup]
 # … (one PASS line per non-private package) …
 # PASS pi relay: providers[relay-claude,relay-grok]
 # PI-SMOKE: platform=pi packages=10 pass=10 fail=0 skipped=1
-# == oh-my-pi cross-platform validation (op absent) ==
+# == oh-my-pi extension load check (op absent) ==
 # PASS oh-my-pi 1password: tools[bash,1p_diagnose] handlers[session_start,!user_bash]
 # … (user_bash is pi-only: asserted ABSENT on oh-my-pi, shown as !user_bash) …
 # OHMYPI-SMOKE: platform=oh-my-pi omp-version=omp/17.0.5 packages=10 pass=10 fail=0 skipped=1

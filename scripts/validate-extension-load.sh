@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Cross-platform contributor validation — the Docker path.
+# Extension load check — the Docker path.
 #
 # Builds the op-less interactive-onboarding image and runs the non-interactive
-# cross-platform smokes inside it, proving that EVERY non-private packages/*
+# extension-load smokes inside it, proving that EVERY non-private packages/*
 # extension loads and registers its expected, platform-aware surface on BOTH real
 # pi AND stock oh-my-pi with the 1Password CLI (`op`) absent.
 #
@@ -13,12 +13,12 @@
 # op-absence is guaranteed regardless of the host. The runner-native CI job
 # proves the same two loaders on a runner where `op` is already absent.
 #
-# Usage: npm run validate:cross-platform   (or: bash scripts/validate-cross-platform.sh)
+# Usage: npm run validate:extension-load   (or: bash scripts/validate-extension-load.sh)
 # Exits non-zero if either loader fails to load a package or register its surface.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IMAGE="pi-ext-cross-platform:latest"
+IMAGE="pi-ext-extension-load:latest"
 DOCKERFILE="docker/interactive-onboarding.Dockerfile"
 
 export DOCKER_BUILDKIT=1
@@ -31,14 +31,14 @@ fi
 echo "==> Building $IMAGE (no op binary, isolated)…"
 docker build -f "$REPO_ROOT/$DOCKERFILE" -t "$IMAGE" "$REPO_ROOT"
 
-echo "==> Running cross-platform validation (no host ~/.pi mounted, no volumes)…"
+echo "==> Running extension load check (no host ~/.pi mounted, no volumes)…"
 set +e
 docker run --rm "$IMAGE" bash docker/smoke-both.sh
 RUN_EXIT=$?
 set -e
 
 if [ "$RUN_EXIT" -ne 0 ]; then
-  echo "FAIL: cross-platform validation exited $RUN_EXIT" >&2
+  echo "FAIL: extension load check exited $RUN_EXIT" >&2
   exit 1
 fi
 

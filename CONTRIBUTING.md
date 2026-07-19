@@ -121,28 +121,34 @@ intentional change so the doc and the ruleset stay in sync.
   and verifies it registers the expected resources against a minimal `ExtensionAPI` stub built
   from real types.
 
-## Cross-Platform Validation
+## Extension Load Check
 
 These extensions must load on **two** hosts: [pi](https://github.com/earendil-works/pi-coding-agent)
 (`@earendil-works/pi-coding-agent`) and **oh-my-pi** (`@oh-my-pi/pi-coding-agent`, a
-Bun-targeted fork). A single command proves every shipped extension still works on both:
+Bun-targeted fork). A single command checks that every shipped extension still **loads
+and registers** its declared surface on both:
 
 ```bash
-npm run validate:cross-platform
+npm run validate:extension-load
 ```
 
 It builds an isolated container with **no `op` binary** and no access to your real
 `~/.pi`, then drives each host's **own** real extension loader over every non-private
 `packages/*` extension and asserts that each one **loads without error** and
-**registers exactly its expected surface**. Running through Docker is deliberate: your
-machine may have the 1Password CLI (`op`) installed, and this validation must prove the
-extensions behave when `op` is absent — the container guarantees that regardless of your
-host. An **advisory** (informational, non-blocking) GitHub Actions job runs the same two
-loaders runner-native on every pull request.
+**registers exactly its expected surface** on pi and stock oh-my-pi. Running through
+Docker is deliberate: your machine may have the 1Password CLI (`op`) installed, and this
+check must prove the extensions load when `op` is absent — the container guarantees that
+regardless of your host. An **advisory** (informational, non-blocking) GitHub Actions job
+runs the same two loaders runner-native on every pull request.
 
 A package marked `private: true` (e.g. the extension template) is **excluded and logged**
 — it is never silently skipped. Any unexpected failure to load, or a missing/extra part of
 a package's surface, fails the check loudly (non-zero exit).
+
+**What a green run does and does not prove.** A pass here means every extension **loads
+and registers** its declared surface with `op` absent — it does **not** exercise
+`op`-backed credential resolution (fetching a real secret from 1Password and using it).
+That remains a separate, manual check run against a live `op` session.
 
 ### Expected surface per extension
 
