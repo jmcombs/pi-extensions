@@ -583,17 +583,19 @@ accurate release notes across every migrated package before the release PRs go o
 ### Actionable TODOs
 
 - [ ] Create `docs/1p-credential-api/MIGRATION.md`: what changed (AuthStorage removed in pi 0.80.8) and why; per-package: now integrates with `@jmcombs/pi-1password`; existing `auth.json` keys keep working (literals + `!op read`); onboarding branches on `op` availability; enable the 1p extension for vault integration + startup unlock; upgrade steps. **Author the before/after (`AuthStorage`/`readStoredCredential`/`ModelRuntime` → 1p API) mermaid diagram here** (it belongs to the migration story, not the integration guide) — this is the 4th D15 diagram.
-- [ ] Confirm each migrated README (context7, tavily-search, grok-search, headroom) has the D13 a–d section.
-- [ ] Link `MIGRATION.md` and `INTEGRATION.md` from the root `README.md` package table.
+- [ ] Confirm each migrated README (context7, tavily-search, grok-search, headroom) states the D13 a–d comms — in the **README prose only**. CHANGELOGs are release-please-generated from commit subjects; **do NOT hand-edit them**.
+- [ ] Link `MIGRATION.md` (and confirm `INTEGRATION.md` / `API.md`) from the root `README.md` **1Password credential API section** — not the package table.
 
 ### Testing Gates
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| Migration guide covers all four | `for p in context7 tavily grok headroom; do grep -qi "$p" docs/1p-credential-api/MIGRATION.md || echo MISSING $p; done` | no `MISSING` |
-| READMEs describe the integration | `grep -rl "@jmcombs/pi-1password" packages/{context7,tavily-search,grok-search,headroom}/README.md` | all four |
-| Root README links the guides | `grep -E "MIGRATION.md|INTEGRATION.md" README.md` | both matched |
+| Migration guide covers all four + diagram + reassurances | `grep -q '^```mermaid' docs/1p-credential-api/MIGRATION.md && for p in context7 tavily grok headroom; do grep -qi "$p" docs/1p-credential-api/MIGRATION.md \|\| echo MISSING $p; done; grep -qiE "keep working\|resolve unchanged\|No migration action" docs/1p-credential-api/MIGRATION.md \|\| echo MISSING existing-keys; grep -qiE "startup\|warm\|unlock" docs/1p-credential-api/MIGRATION.md \|\| echo MISSING warm-unlock` | before/after mermaid present; no `MISSING` output |
+| READMEs carry the a–d comms (per-anchor) | `for p in context7 tavily-search grok-search headroom; do f=packages/$p/README.md; grep -qi "credential integration" "$f" \|\| echo "$p MISSING-a"; { grep -qi vault "$f" && grep -qi manual "$f"; } \|\| echo "$p MISSING-b"; grep -qiE "keep working\|resolve unchanged\|No migration action" "$f" \|\| echo "$p MISSING-c"; { grep -qiE "install\|enable" "$f" && grep -q "@jmcombs/pi-1password" "$f" && grep -qiE "startup\|warm\|unlock" "$f"; } \|\| echo "$p MISSING-d"; done` | no `MISSING` output |
+| Root README links the guides | `grep -q MIGRATION.md README.md && grep -q INTEGRATION.md README.md` | both present (exit 0) |
+| No plan/apparatus refs leak into user docs | `grep -rnE 'Locked Decision\|\bD[0-9]+\b\|ADR[ -]?[0-9]\|Phase [0-9]\|PLAN\.md\|docs/decisions/' docs/1p-credential-api/MIGRATION.md packages/{context7,tavily-search,grok-search,headroom}/README.md` | no matches |
 | Repo green | `npm run check` | exit 0 |
+| Before/after diagram renders + guide reads correctly (needs: doc-render) | maintainer previews `MIGRATION.md` (GitHub / mermaid preview) | the before/after diagram renders; the upgrade guide reads correctly — **authoritative human gate** |
 
 ### Definition of Done — see Appendix C.
 
