@@ -71,7 +71,8 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 | node-toolchain  | yes    | `tsc -p <pkg>/tsconfig.json`, `biome check`, `vitest run` all run locally. |
 | pi-ext-load     | yes    | Loading a factory via the vitest smoke-test stub (no model call) proves registration without throwing. |
 | op-sentinel     | yes    | `resolveShellValue` with a `!echo …` sentinel exercises command resolution without 1Password. |
-| docker-offline  | yes    | A `node` container with **no `op` binary** and **no host `~/.pi` access** (throwaway `PI_CODING_AGENT_DIR`, no volume mounts); Docker available on the maintainer's machine. Proves the offline/degraded credential path (ADR 0008). |
+| docker-offline  | yes    | A `node` container with **no `op` binary** and **no host `~/.pi` access** (throwaway `PI_CODING_AGENT_DIR`, no volume mounts); Docker available on the maintainer's machine. Proves the offline/degraded credential **logic** and that **real pi** loads the LOCAL extension (`PI-SMOKE`) — ADR 0008. |
+| pi-onboard-offline | human | Real **pi** (and, when unblocked, **oh-my-pi**) onboarding walked in the op-less interactive container (`docker/run-pi.sh`): a person completes `/headroom_setup` with `op` absent and eyeballs the masked manual-entry TUI. oh-my-pi is currently **blocked** by a `@jmcombs/pi-1password` compat gap (ADR 0008; escalated). |
 | ohmypi-env      | no     | oh-my-pi stood up in a throwaway Docker container (or brew + isolated HOME) per run; never touches `~/.pi`. Provisionable. |
 | op-live         | human  | A live `op read` of a real 1Password vault ref needs the maintainer's authenticated 1Password session + Touch ID; not automatable. |
 | pi-onboard-tui  | human  | The interactive onboarding TUI (vault picker / manual branch) can only be driven and reviewed by a person in a live pi session. |
@@ -406,7 +407,10 @@ credential API adds/resolves a key with `op` absent.
 | **Full-repo tests** | `npm run test` | all pass |
 | **Full quality gate** | `npm run check` | exit 0 |
 | No `AuthStorage` anywhere | `grep -rln "AuthStorage" packages --include=*.ts` | no matches |
-| **Offline credential path (no `op`)** (needs: docker-offline) | `bash scripts/test-offline-credentials.sh` | prints `OFFLINE-CREDS: … all-ok` and exits 0 — extension loads, `available=false`, add-key/resolve-literal/keyless ok, `!op read` ref → `undefined` (ADR 0008); **must pass before merge** |
+| **Offline credential path (no `op`)** (needs: docker-offline) | `bash scripts/test-offline-credentials.sh` | prints `OFFLINE-CREDS: … all-ok` and exits 0 — credential logic degrades correctly with `op` absent (ADR 0008); **must pass before merge** |
+| **Real pi loads the LOCAL extension (no `op`)** (needs: docker-offline) | `docker run --rm pi-ext-interactive:latest` | prints `PI-SMOKE: … headroom-loaded=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom…` — real pi's loader registers the workspace extension (ADR 0008) |
+| Real onboarding walkthrough (no `op`) (needs: pi-onboard-offline) | maintainer runs `docker/run-pi.sh`, walks `/headroom_setup` with `op` absent | masked manual entry completes; key written to the throwaway `auth.json`; **human-verify** |
+| oh-my-pi onboarding (no `op`) (needs: pi-onboard-offline) | maintainer runs `docker/run-ohmypi.sh` | **BLOCKED** — omp's legacy shim lacks `createLocalBashOperations` that `@jmcombs/pi-1password` imports; escalated (ADR 0008), fix out of Phase 6 scope |
 | Live retrieve (needs: op-live) | maintainer drives a headroom retrieve in a pi session | resolves `headroom` and succeeds |
 
 ### Definition of Done — see Appendix C.

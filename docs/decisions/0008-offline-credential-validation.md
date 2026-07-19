@@ -68,15 +68,77 @@ Artifacts:
 - `docker/offline-creds.Dockerfile` (+ `docker/offline-creds.Dockerfile.dockerignore`)
 - `docker/offline-creds-check.mts`
 - `scripts/test-offline-credentials.sh` (build + run + assert)
-- `docker/README.md` — how to run it, and how to drive `headroom_setup`
-  **interactively** in the same op-less container to eyeball the real TUI.
+
+## Two levels of validation (honesty note)
+
+The headless check above is a **fast automated gate on the credential LOGIC**. It
+does **not** launch real pi or let a human complete onboarding — it stubs the TUI
+and calls the credential functions directly. It answers "does the credential logic
+degrade correctly with `op` absent?", not "does real pi, with our extension
+installed, actually onboard with `op` absent?".
+
+For the second question we add a **separate interactive rig**
+(`docker/interactive-onboarding.Dockerfile`) — a `node:22` image, still with **no
+`op`** and **no host `~/.pi`**, that installs **real pi**
+(`@earendil-works/pi-coding-agent`, the pinned root devDep) and **real oh-my-pi**
+(`@oh-my-pi/pi-coding-agent`, run under Bun, the engine it declares), COPYs the
+**LOCAL** monorepo, and `npm ci`s it so both agents load the **workspace**
+`packages/headroom` + `@jmcombs/pi-1password` (the branch code), not the
+npm-published packages. The maintainer can then walk `/headroom_setup` in the real
+TUI with `op` absent via `docker/run-pi.sh` / `docker/run-ohmypi.sh`.
+
+Two non-interactive smoke proofs guard against handing over another false positive
+(they drive each agent's OWN real extension loader, not a stub):
+
+```
+PI-SMOKE: agent=pi op-absent=ok headroom-loaded=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
+OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok ext-load=BLOCKED reason="… createLocalBashOperations not found …"
+```
+
+Real pi loads the LOCAL headroom extension with `op` absent, registers
+`headroom_setup` / `headroom_retrieve` / `session_start`, and its interactive TUI
+starts to a usable prompt with a **placeholder model** (`--provider openai --model
+gpt-4o --api-key placeholder` + `PI_OFFLINE=1`) — `/headroom_setup` never calls the
+model, so there is no "configure a model" wall. Confirmed: the loaded code is the
+workspace copy, and the `session_start` handler fires (proxy-offline notice).
+
+### oh-my-pi finding (escalated)
+
+oh-my-pi **installs and runs** cleanly under Bun, but currently **cannot load our
+extension**. omp's `legacy-pi-coding-agent-shim.ts` re-exports `createBashTool` and
+`getAgentDir` but **not `createLocalBashOperations`**, which
+`@jmcombs/pi-1password/index.ts` imports at module top-level (for its `1p_run` bash
+tool). The ESM link therefore fails and headroom — any consumer of
+`@jmcombs/pi-1password` — does not load under omp, so `/headroom_setup` is
+unavailable there. This is a real oh-my-pi compatibility gap in the **merged
+Phase-2 1Password package** (out of Phase 6 scope). A minimal fix is to make
+`@jmcombs/pi-1password` import the bash operations **lazily** (dynamic import inside
+the `1p_run` tool) so the credential API loads without them. **Escalated** for a
+decision; likely folded into the Phase 8 oh-my-pi compatibility work.
+
+Interactive-rig artifacts:
+
+- `docker/interactive-onboarding.Dockerfile` (+ `.dockerignore`)
+- `docker/pi-smoke.mts`, `docker/ohmypi-smoke.mts`, `docker/smoke-both.sh`
+- `docker/run-pi.sh`, `docker/run-ohmypi.sh`
+- `docker/README.md` — build/run/onboard steps for both agents + the omp blocker.
 
 ## Consequences
 
-- Phase 6 gains a **must-pass** Testing Gate (`bash scripts/test-offline-credentials.sh`,
-  capability `docker-offline`) that must be green before the migration merges.
-- The offline/degraded path is now proven end-to-end in a real op-less, isolated
-  environment — not just via `PATH` manipulation in unit tests.
-- No product code changed: this ADR adds validation only. The container never
-  touches the host `~/.pi` (throwaway `PI_CODING_AGENT_DIR`, no volume mounts),
-  consistent with the isolation posture of D14.
+- Phase 6 gains a **must-pass automated** Testing Gate on the credential logic
+  (`bash scripts/test-offline-credentials.sh`, capability `docker-offline`) that
+  must be green before the migration merges.
+- The **real-pi interactive onboarding** validation is a **human-verify** gate
+  (capability `pi-onboard-offline`, like `pi-onboard-tui` / `op-live`): the
+  maintainer walks `/headroom_setup` in the op-less container via `docker/run-pi.sh`.
+  Its non-interactive companion (`PI-SMOKE`) is automated and proves real pi loads
+  the LOCAL extension.
+- The offline/degraded path is proven at two levels: the credential LOGIC (headless
+  check) and REAL pi loading the workspace extension (`PI-SMOKE`), not just via
+  `PATH` manipulation in unit tests.
+- **oh-my-pi onboarding is blocked** by the `createLocalBashOperations` gap above
+  and is **escalated**, not shipped as working. The rig reproduces the blocker
+  honestly (`OHMYPI-SMOKE: ext-load=BLOCKED`).
+- No product code changed: this ADR adds validation only. Neither container touches
+  the host `~/.pi` (throwaway `PI_CODING_AGENT_DIR`, no volume mounts), consistent
+  with the isolation posture of D14.
