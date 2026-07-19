@@ -72,28 +72,36 @@ spawn step; `npx vitest run packages/relay` → 29 passed (6 new regression test
 the omp shape + `normalizeSystemPrompt`). The actual `claude -p` round-trip remains
 the maintainer's live `claude-sub` gate below.
 
-## Live dispatch (human `claude-sub` gate — TODO: fill after the maintainer runs it)
+## Live dispatch (human `claude-sub` gate — **PASS**, maintainer-run)
 
-The maintainer runs a real turn through relay to subscription Opus under omp; the
-turn routes `omp -> resolveModel(relay-claude/opus) -> relay streamSimple ->
+The maintainer ran real turns through relay to Opus under stock omp; each turn routes
+`omp -> resolveModel(relay-claude/opus) -> relay streamSimple ->
 claude -p <task> --output-format json --model opus` and streams the final Opus text
-back. relay passes **no** auth; `claude` authenticates via its own login.
+back. relay passes **no** auth; `claude` authenticates via its own login. Run on the
+**fixed** relay (commit normalizing omp's `string[]` `systemPrompt`).
 
-- **Auth path used:** `TODO` — one of: (A) mounted `~/.claude:ro` (subscription
-  oauthAccount = the `claude-sub` gate), (B) `claude login` inside the container,
-  or (C) `ANTHROPIC_API_KEY` (proves the same omp/relay mechanics, **not** the
-  subscription path).
-- **Exact dispatch performed:** `TODO` — the prompt sent (e.g. `Reply with exactly:
-  RELAY-OMP-OK`) and the model (`relay-claude/opus`).
-- **Outcome — did subscription Opus return a result under omp?** `TODO: PASS / FAIL`
-  — the final assistant text relay streamed back (verbatim), and whether it matched
-  the prompt.
-- **Latency / notes:** `TODO` (a single `claude -p` verify is ~50-80 s; relay's
-  heartbeat keeps the run visibly active under omp's stall detection).
-- **Any gap found under omp:** `TODO` — e.g. did the provider stream, heartbeat, or
-  wall-cap behave differently under omp vs pi? If a real break is found, file a
-  follow-up issue and link it here (relay code is modified only for a genuine break,
-  D14 / `memory/use-pi-public-apis`).
+- **Environment:** stock `omp v17.0.5`, op absent, throwaway agent dir (host `~/.pi`
+  not mounted / not touched). Model preselected `relay-claude/opus` (status bar
+  `⬢ Relay Claude Opus`).
+- **Auth path used:** **(C) `ANTHROPIC_API_KEY`** — this proves the full
+  omp → relay → `claude -p` → stream-back **dispatch mechanics** (the path that
+  crashed pre-fix). It does **not** exercise the subscription `oauthAccount` path;
+  the (A) `~/.claude:ro` subscription variant is left as an **optional follow-up** to
+  tick that specific `claude-sub` sub-variant.
+- **Dispatches performed + outcomes (verbatim):**
+  1. Prompt `RELAY-OMP-OK` → Opus replied **`RELAY-OMP-ACK`**. The exact turn that
+     crashed before the fix now completes and streams a reply — **no
+     `expandSkillReferences … .trim is not a function`**.
+  2. Prompt `In one short sentence, what model are you and what is 17 times 23?` →
+     Opus replied **"I'm Claude (Opus), and 17 × 23 = 391."** — correct model
+     identity and arithmetic, confirming the turn genuinely reached Opus (not a
+     swallowed error).
+- **Outcome — did Opus return a result under omp? PASS.** Both turns dispatched
+  through relay and streamed coherent Opus replies; no crash/error banner in the
+  session.
+- **Any gap found under omp:** **none** — the provider streamed and returned cleanly
+  under omp; the `string[]` `systemPrompt` fix is confirmed live. No follow-up issue
+  needed. (Optional: the subscription-`oauthAccount` variant remains un-run.)
 
 ## Maintainer recipe (exact commands)
 
