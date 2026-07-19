@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-relay",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Relay roles for Pi: run any Pi subagent on an external coding agent (headless Claude Opus via `claude -p`) through a provider seam, driven by the subagent's `model` field.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/relay",
   "repository": {
