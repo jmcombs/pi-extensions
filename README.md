@@ -71,6 +71,8 @@ npm run check
 This runs lint, format check, type check, tests, version validation, and security checks
 (`secretlint` + `npm audit --omit=dev`). All packages must pass.
 
+See [docs/ci.md](./docs/ci.md) for every CI check and what a green does and does not prove.
+
 ## Branch Protection
 
 The `main` branch is protected by a GitHub Repository Ruleset that requires PR review from
