@@ -703,7 +703,7 @@ and a row here before implementation.
 - [x] **P6** headroom migrated (both files + test seam); **full repo green**. Merged **#145 → `849f76f`**. ADR-0008 offline gate **DISCHARGED** and the `pi-onboard-offline` human gate **DISCHARGED** (maintainer validated `/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent); the headroom `op-live` retrieve gate was **WAIVED** by the maintainer.
 - [x] **P7** `_template` + `TEMPLATE.md` teach the API pattern. Merged **#147 → `072b555`**.
 - [x] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. Merged **#148 → `9c5350a`**. Live gate **PASS** (API-key mechanics path; subscription `oauthAccount` variant an optional follow-up). Surfaced + fixed an **omp-only** `string[]` `systemPrompt` crash (pi unaffected). **Automated load/registration folded into P11** (narrowed, ADR 0009).
-- [ ] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; diagrams reviewed. (Before/after diagram → P10 `MIGRATION.md`.)
+- [x] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; `doc-render` gate **DISCHARGED** (maintainer previewed + approved). Merged **#149 → `a30b501`**. Docs made self-contained (no plan/ADR/phase refs); dependency de-pinned to `npm install`. (Before/after diagram → P10 `MIGRATION.md`.)
 - [ ] **P10** Migration guide authored; release notes verified across all four.
 - [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
 
