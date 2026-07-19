@@ -46,23 +46,25 @@ docker build -f docker/interactive-onboarding.Dockerfile -t pi-ext-interactive:l
 ### Non-interactive smoke proofs (both agents)
 
 ```bash
-docker run --rm pi-ext-interactive:latest
-# == pi (GATE) ==
-# PI-SMOKE: agent=pi op-absent=ok context7=ok context7_setup=ok context7_search=ok \
-#   context7_get_docs=ok headroom=ok headroom_setup=ok headroom_retrieve=ok \
-#   session_start=ok local-context7=/app/packages/context7/index.ts \
-#   local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
-# == oh-my-pi (GATE) ==
-# OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok context7=ok context7_setup=ok \
-#   context7_search=ok context7_get_docs=ok headroom=ok headroom_setup=ok headroom_retrieve=ok \
-#   session_start=ok local-context7=/app/packages/context7/index.ts \
-#   local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
+docker run --rm pi-ext-interactive:latest        # or: npm run validate:cross-platform
+# == pi cross-platform validation (op absent) ==
+# SKIP: packages/_template (@jmcombs/pi-EXTENSION_NAME) — private:true
+# PASS pi 1password: tools[bash,1p_diagnose] handlers[session_start,user_bash]
+# PASS pi context7: tools[context7_search,context7_get_docs] commands[context7_setup]
+# … (one PASS line per non-private package) …
+# PASS pi relay: providers[relay-claude,relay-grok]
+# PI-SMOKE: platform=pi packages=10 pass=10 fail=0 skipped=1
+# == oh-my-pi cross-platform validation (op absent) ==
+# PASS oh-my-pi 1password: tools[bash,1p_diagnose] handlers[session_start,!user_bash]
+# … (user_bash is pi-only: asserted ABSENT on oh-my-pi, shown as !user_bash) …
+# OHMYPI-SMOKE: platform=oh-my-pi omp-version=omp/17.0.5 packages=10 pass=10 fail=0 skipped=1
 ```
 
 Each smoke drives that agent's **own** real extension loader (not a stub) and both
-are gates: they prove real pi and **stock** oh-my-pi load the LOCAL `context7` +
-`headroom` extensions (+ LOCAL `@jmcombs/pi-1password`) with `op` absent and register
-their setup commands + tools from the workspace copies.
+are gates: they prove real pi and **stock** oh-my-pi load **every** non-private
+`packages/*` extension (+ their LOCAL `@jmcombs/pi-1password`) with `op` absent and
+register each package's expected, platform-aware surface from the workspace copies.
+Discovery + the expected-surface table live in `docker/smoke-harness.mts`.
 
 > **Registration ≠ TUI routing.** These smokes prove the commands *register*; they
 > do not prove the running TUI *surfaces and routes* them. That is the interactive

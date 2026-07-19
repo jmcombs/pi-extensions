@@ -655,10 +655,10 @@ feature-detect — ADR 0009).
 
 - [ ] Generalize `docker/pi-smoke.mts` + `docker/ohmypi-smoke.mts` (and the shared enumeration used by `docker/smoke-both.sh`) into a package-agnostic harness that reads every `packages/*/package.json` `pi.extensions` array and iterates it; drives each in-scope extension through pi's loader and stock omp's loader (op absent) and asserts its enumerated expected surface (relay via the stub-`ExtensionAPI` `registerProvider` capture).
 - [ ] Add `scripts/validate-cross-platform.sh` and a `"validate:cross-platform"` script in the root `package.json` (**does not exist today**) that runs the Docker path (`docker/interactive-onboarding.Dockerfile`) so op-absence is guaranteed locally.
-- [ ] Add a **runner-native, advisory** job in `.github/workflows/ci.yml` (`npm ci` → pi-loader smoke; `setup-bun` pinned + `bun install -g @oh-my-pi/pi-coding-agent@17.0.5` → omp-loader smoke). **Note:** `ci.yml` currently triggers only on `pull_request: [main]`; state explicitly which PRs the advisory job runs on and make the trigger change explicit (it also runs on PRs into `feat/1password-credential-api` for this phase). The job is **advisory** — do NOT add it to the branch-protection required-check set.
+- [ ] Add a **runner-native, advisory** job in a **separate** workflow `.github/workflows/cross-platform.yml` (`npm ci` → pi-loader smoke; `setup-bun` pinned + `bun install -g @oh-my-pi/pi-coding-agent@17.0.5` → omp-loader smoke). A separate file keeps the existing required jobs + `pull_request: [main]` trigger in `ci.yml` UNTOUCHED. The new workflow triggers on `pull_request` into **`main` AND `feat/1password-credential-api`** (so the advisory job runs on PRs into both while the migration is in flight). The job is **advisory** — do NOT add it to the branch-protection required-check set.
 - [ ] Document in `CONTRIBUTING.md`: the `npm run validate:cross-platform` command, what it proves (every shipped extension loads + registers its declared surface on pi and stock omp, op absent), and the gotchas — omp's `--no-extensions` **discards** explicit `-e` paths (unlike pi) and the `@jmcombs/pi-1password` `createLocalBashOperations` **feature-detect** (`user_bash` pi-only).
 - [ ] Author a **per-package expected-surface table** (in the harness and/or CONTRIBUTING) enumerating the surfaces above, including the `_template` `private` exclusion.
-- [ ] Confirm **zero product-code changes** (`git diff --stat` touches only `docker/`, `scripts/`, `.github/workflows/ci.yml`, `package.json` scripts, `CONTRIBUTING.md`, docs — never `packages/*/index.ts`).
+- [ ] Confirm **zero product-code changes** (`git diff --stat` touches only `docker/`, `scripts/`, `.github/workflows/` (the new `cross-platform.yml`), `package.json` scripts, `CONTRIBUTING.md`, docs — never `packages/*/index.ts`).
 
 ### Testing Gates
 
@@ -666,8 +666,8 @@ feature-detect — ADR 0009).
 | --- | --- | --- |
 | Cross-platform validation passes (needs: docker-offline) | `npm run validate:cross-platform` | each in-scope package **PASS on pi AND stock omp** against its expected surface; `_template` **skipped + logged**; exit 0 |
 | Unexpected non-load fails loudly (needs: docker-offline) | `npm run validate:cross-platform` (with a package that fails to load / registers nothing expected) | **non-zero** exit (failure, not skip) |
-| Advisory CI job present + green (needs: ci-runner) | inspect `.github/workflows/ci.yml`; the runner-native job on the phase PR | job exists (advisory, **not** in the required set) and is green |
-| Isolation clean | `grep -rnE "\.pi\b|-v |--mount|--volume" scripts/validate-cross-platform.sh docker/*smoke*.mts .github/workflows/ci.yml` | only throwaway/`PI_CODING_AGENT_DIR` paths + op-absence checks; no bind of the real `~/.pi` |
+| Advisory CI job present + green (needs: ci-runner) | inspect `.github/workflows/cross-platform.yml`; the runner-native job on the phase PR | job exists (advisory, **not** in the required set) and is green |
+| Isolation clean | `grep -rnE "\.pi\b|-v |--mount|--volume" scripts/validate-cross-platform.sh docker/*smoke*.mts .github/workflows/*.yml` | only throwaway/`PI_CODING_AGENT_DIR` paths + op-absence checks; no bind of the real `~/.pi` |
 | Zero product changes | `git diff --stat feat/1password-credential-api -- packages/*/index.ts` | empty |
 
 ### Definition of Done — see Appendix C.

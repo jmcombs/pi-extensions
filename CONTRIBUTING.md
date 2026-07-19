@@ -121,6 +121,69 @@ intentional change so the doc and the ruleset stay in sync.
   and verifies it registers the expected resources against a minimal `ExtensionAPI` stub built
   from real types.
 
+## Cross-Platform Validation
+
+These extensions must load on **two** hosts: [pi](https://github.com/earendil-works/pi-coding-agent)
+(`@earendil-works/pi-coding-agent`) and **oh-my-pi** (`@oh-my-pi/pi-coding-agent`, a
+Bun-targeted fork). A single command proves every shipped extension still works on both:
+
+```bash
+npm run validate:cross-platform
+```
+
+It builds an isolated container with **no `op` binary** and no access to your real
+`~/.pi`, then drives each host's **own** real extension loader over every non-private
+`packages/*` extension and asserts that each one **loads without error** and
+**registers exactly its expected surface**. Running through Docker is deliberate: your
+machine may have the 1Password CLI (`op`) installed, and this validation must prove the
+extensions behave when `op` is absent — the container guarantees that regardless of your
+host. An **advisory** (informational, non-blocking) GitHub Actions job runs the same two
+loaders runner-native on every pull request.
+
+A package marked `private: true` (e.g. the extension template) is **excluded and logged**
+— it is never silently skipped. Any unexpected failure to load, or a missing/extra part of
+a package's surface, fails the check loudly (non-zero exit).
+
+### Expected surface per extension
+
+| Extension         | Registers                                                                                                   |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- |
+| `1password`       | tools `bash`, `1p_diagnose`; a `session_start` handler; a `user_bash` handler **on pi only** (see gotcha 2) |
+| `better-toolsy`   | tools `ls`, `read`, `grep`, `find`, `edit`, `write`                                                          |
+| `blue-psl-10k`    | footer/lifecycle handlers + the `blue-psl-restore-footer` command                                           |
+| `context7`        | the `context7_setup` command + `context7_search`, `context7_get_docs` tools                                  |
+| `grok-search`     | the `grok_setup` command + the `grok_search` tool                                                           |
+| `headroom`        | the `headroom_setup` command + the `headroom_retrieve` tool                                                 |
+| `notify`          | lifecycle handlers + the `notify` command                                                                   |
+| `prompt-enhancer` | the `enhance` / `enhance-model` / `enhance-revert` commands, session/model/input handlers, and the `ctrl+shift+p` / `ctrl+shift+z` shortcuts (no tools) |
+| `relay`           | the `relay-claude` and `relay-grok` **providers** (captured via a stub host API — providers are not exposed by the loader result) |
+| `tavily-search`   | the `tavily_setup` command + the `tavily_search` tool                                                       |
+
+The table lives in the harness (`docker/smoke-harness.mts`) as the data it validates
+against; keep it in sync when you add or change a package's surface.
+
+### Two cross-host gotchas the harness guards
+
+1. **oh-my-pi's `--no-extensions` discards explicit `-e` paths; pi keeps them.** On pi,
+   disabling discovery (`--no-extensions`) still loads any extension you name explicitly
+   with `-e`. On oh-my-pi the same flag throws the `-e` paths away, so nothing loads and a
+   slash command silently falls through to the model as chat. To load specific extensions
+   on oh-my-pi, pass `-e` **without** `--no-extensions` and rely on an empty throwaway
+   agent dir so discovery finds nothing else.
+
+2. **Extensions must feature-detect optional host APIs.** oh-my-pi remaps every
+   `@earendil-works/pi-coding-agent` import to its own compatibility shim, which exports
+   only a subset of pi's runtime — and there is no override. A **static named import** of a
+   symbol the shim lacks fails the module link and takes down the *entire* extension (and
+   every extension that imports it) on oh-my-pi. So reach optional host APIs through a
+   **namespace import plus a runtime check**, never a static named import. For example,
+   `@jmcombs/pi-1password` accesses `createLocalBashOperations` this way and registers its
+   `user_bash` hook (transparent 1Password injection for user `!` commands) **only when the
+   host provides that API** — present on pi, absent on oh-my-pi's shim. The module still
+   loads on both; the hook is simply pi-only, and the agent-facing bash tool and diagnostics
+   work everywhere. This is why the table above marks `user_bash` as pi-only, and the
+   harness asserts it **present on pi and absent on oh-my-pi**.
+
 ## Adding a New Extension
 
 1. Skim this file and `VERSIONING.md` if you haven't.

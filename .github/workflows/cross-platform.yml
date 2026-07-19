@@ -1,0 +1,77 @@
+name: Cross-Platform Validation
+
+# Advisory (informational) cross-platform loader validation. Runner-native (no
+# Docker): it drives real pi's loader and stock oh-my-pi's loader over every
+# non-private packages/* extension with `op` absent and asserts each package's
+# expected, platform-aware surface.
+#
+# This job is ADVISORY — it is intentionally NOT in the "Protect main" required-
+# check set (still exactly Quality Gate (Node 22), Quality Gate (Node 24), Commit
+# Messages). It lives in its own workflow so the required jobs and triggers in
+# ci.yml stay untouched. Promotion to a required check is a separate, future
+# decision that updates the docs and the ruleset together.
+#
+# Triggers on PRs into main AND into feat/1password-credential-api (the migration
+# integration branch), so the harness guards both while the migration is in flight.
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/1password-credential-api
+
+permissions:
+  contents: read
+
+jobs:
+  cross-platform:
+    name: Cross-Platform Loaders (pi + stock oh-my-pi)
+    runs-on: ubuntu-latest
+    env:
+      PI_CODING_AGENT_DIR: ${{ runner.temp }}/pi-agent
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Assert op is absent (this job must run op-less)
+        run: |
+          if command -v op >/dev/null 2>&1; then
+            echo "FAIL: op unexpectedly present on the runner ($(command -v op))" >&2
+            exit 1
+          fi
+          echo "op absent (good)"
+
+      - name: pi loader smoke (real pi, op absent)
+        run: |
+          mkdir -p "$PI_CODING_AGENT_DIR"
+          npx tsx docker/pi-smoke.mts
+
+      # Pin Bun — the runtime oh-my-pi declares — so the omp loader runs on a fixed engine.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install stock oh-my-pi (pinned) under Bun
+        run: bun install -g @oh-my-pi/pi-coding-agent@17.0.5
+
+      - name: oh-my-pi loader smoke (stock omp, op absent)
+        run: |
+          GLOBAL_NM="${BUN_INSTALL:-$HOME/.bun}/install/global/node_modules"
+          OMP_PKG="$GLOBAL_NM/@oh-my-pi/pi-coding-agent"
+          if [ ! -d "$OMP_PKG" ]; then
+            echo "FAIL: could not locate installed oh-my-pi at $OMP_PKG" >&2
+            exit 1
+          fi
+          export OMP_LOADER="$OMP_PKG/src/extensibility/extensions/loader.ts"
+          export OMP_VERSION="$(omp --version 2>/dev/null | tr -d '\n')"
+          echo "OMP_LOADER=$OMP_LOADER"
+          bun docker/ohmypi-smoke.mts
