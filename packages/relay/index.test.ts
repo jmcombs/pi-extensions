@@ -20,7 +20,12 @@ import {
 } from "./drivers/grok.js";
 import factory from "./index.js";
 import { streamViaDriver } from "./provider.js";
-import { expandSkillReferences, parseRoleFile, resolveRole } from "./roles/resolver.js";
+import {
+  expandSkillReferences,
+  normalizeSystemPrompt,
+  parseRoleFile,
+  resolveRole,
+} from "./roles/resolver.js";
 
 interface CapturedProvider {
   name: string;
@@ -179,6 +184,57 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
       for await (const event of stream) types.push(event.type);
       // Opt-out preserves the pre-fix shape: just `start` then `done`, no beats.
       expect(types).toEqual(["start", "done"]);
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+    }
+  });
+
+  it("does not throw on oh-my-pi's string[] systemPrompt and relays the joined text", async () => {
+    // Regression for the live-omp crash: `expandSkillReferences(context.systemPrompt).trim
+    // is not a function`. omp passes context.systemPrompt as a string[] (pi passes a
+    // string). The provider must normalize + write a correct --system-prompt-file, not throw.
+    let capturedPromptFile: string | undefined;
+    const captureDriver: AgentDriver = {
+      name: "capture",
+      bin: "node",
+      buildArgs: (invocation) => {
+        if (invocation.systemPromptFile) {
+          capturedPromptFile = fs.readFileSync(invocation.systemPromptFile, "utf8");
+        }
+        return ["-e", "process.stdout.write(JSON.stringify({ result: 'OK', is_error: false }))"];
+      },
+      parseResult: (stdout: string) => {
+        const envelope = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+        return { result: String(envelope.result ?? ""), isError: envelope.is_error === true };
+      },
+    };
+
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: ["You are `verifier`.", "Follow the methodology."],
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        captureDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const types: string[] = [];
+      let finalText = "";
+      for await (const event of stream) {
+        types.push(event.type);
+        if (event.type === "done") finalText = event.message?.content?.[0]?.text ?? "";
+      }
+      // Completed cleanly (no throw, no fail-safe error path).
+      expect(types).toEqual(["start", "done"]);
+      expect(finalText).toBe("OK");
+      // The string[] sections were joined losslessly (blank line) into the file.
+      expect(capturedPromptFile).toBe("You are `verifier`.\n\nFollow the methodology.");
     } finally {
       if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
       else process.env.PI_RELAY_HEARTBEAT_MS = previous;
@@ -448,5 +504,56 @@ describe("roles resolver — expandSkillReferences (fidelity)", () => {
   it("returns the prompt unchanged when there is no <available_skills> block", () => {
     expect(expandSkillReferences("just a persona, no skills")).toBe("just a persona, no skills");
     expect(expandSkillReferences(undefined)).toBe("");
+  });
+
+  it("tolerates oh-my-pi's string[] systemPrompt (joins sections, still inlines skills)", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-skills-arr-"));
+    roots.push(root);
+    const skillFile = path.join(root, "phase-verify", "SKILL.md");
+    fs.mkdirSync(path.dirname(skillFile), { recursive: true });
+    fs.writeFileSync(skillFile, "ARRAY-SHAPE METHODOLOGY BODY.");
+
+    // The exact runtime shape omp passes to a custom provider's streamSimple:
+    // context.systemPrompt is a string[] of sections (real pi passes one string).
+    const systemPrompt: string[] = [
+      "You are `verifier`. Persona section.",
+      [
+        "<available_skills>",
+        "  <skill>",
+        "    <name>phase-verify</name>",
+        `    <location>${skillFile}</location>`,
+        "  </skill>",
+        "</available_skills>",
+      ].join("\n"),
+    ];
+
+    const expanded = expandSkillReferences(systemPrompt);
+    expect(typeof expanded).toBe("string"); // never throws / never a non-string
+    expect(expanded).toContain("You are `verifier`. Persona section.");
+    expect(expanded).toContain("ARRAY-SHAPE METHODOLOGY BODY."); // skill inlined
+    // Sections joined with a blank line (omp's separator) — no content lost.
+    expect(expanded).toContain("Persona section.\n\n<available_skills>");
+  });
+});
+
+describe("roles resolver — normalizeSystemPrompt (pi string vs omp string[])", () => {
+  it("returns a string unchanged (real pi 0.80.9 shape)", () => {
+    expect(normalizeSystemPrompt("a single system prompt")).toBe("a single system prompt");
+  });
+
+  it("joins a string[] with blank lines (oh-my-pi shape)", () => {
+    expect(normalizeSystemPrompt(["one", "two", "three"])).toBe("one\n\ntwo\n\nthree");
+  });
+
+  it("returns '' for undefined / null (no system prompt)", () => {
+    expect(normalizeSystemPrompt(undefined)).toBe("");
+    expect(normalizeSystemPrompt(null)).toBe("");
+  });
+
+  it("never corrupts an unexpected object into '[object Object]'", () => {
+    expect(normalizeSystemPrompt({ text: "nope" })).toBe("");
+    expect(normalizeSystemPrompt(42)).toBe("");
+    // Non-string array members are dropped, not String()'d.
+    expect(normalizeSystemPrompt(["keep", 5, { x: 1 }, "also"])).toBe("keep\n\nalso");
   });
 });

@@ -57,6 +57,32 @@ export interface ExpandSkillOptions {
 }
 
 /**
+ * Normalize a provider `context.systemPrompt` to a single string.
+ *
+ * pi's public `Context.systemPrompt` type (`@earendil-works/pi-ai`) is
+ * `string | undefined`, and real pi (0.80.9) passes a single **string**.
+ * **oh-my-pi diverges**: its runtime assembles the system prompt as a
+ * **`string[]`** of sections (its own `systemPrompt: string[]`), so calling
+ * `.trim()` / feeding it straight into {@link expandSkillReferences} throws
+ * (`… .trim is not a function`) under omp. We normalize both shapes here — without
+ * lossily `String(obj)`-ing an object into `"[object Object]"` — so relay's live
+ * dispatch works on either runtime:
+ *
+ * - `string`          → returned unchanged (pi).
+ * - `string[]`        → its string sections joined with a blank line (omp); this
+ *   matches omp's own section separator and loses no content.
+ * - `undefined` / any other shape → `""` (no system prompt; the backend runs with
+ *   its own default — never a corrupted `"[object Object]"`).
+ */
+export function normalizeSystemPrompt(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.filter((part): part is string => typeof part === "string").join("\n\n");
+  }
+  return "";
+}
+
+/**
  * Inline the full body of every skill referenced in a pi `<available_skills>`
  * block into the system prompt, so the relayed external agent is GUARANTEED to
  * have each skill's methodology present (fidelity fix) instead of only a
@@ -66,13 +92,16 @@ export interface ExpandSkillOptions {
  * `<location>` paths the agent may still use for relative-path resolution); a new
  * `<skill_contents>` section carrying each skill's full `SKILL.md` body is
  * appended. If `systemPrompt` has no `<available_skills>` block (or no readable
- * skills), it is returned unchanged.
+ * skills), the normalized prompt string is returned unchanged.
+ *
+ * Accepts pi's `string | undefined` **and** oh-my-pi's `string[]` runtime shape
+ * (normalized via {@link normalizeSystemPrompt}); always returns a string.
  */
 export function expandSkillReferences(
-  systemPrompt: string | undefined,
+  systemPrompt: string | readonly string[] | undefined,
   options: ExpandSkillOptions = {},
 ): string {
-  const prompt = systemPrompt ?? "";
+  const prompt = normalizeSystemPrompt(systemPrompt);
   const blockMatch = /<available_skills>([\s\S]*?)<\/available_skills>/.exec(prompt);
   if (!blockMatch) return prompt;
 
