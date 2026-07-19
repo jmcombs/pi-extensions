@@ -86,11 +86,11 @@ describe("@jmcombs/pi-1password", () => {
     const { api, log } = createApiStub();
     await factory(api);
 
-    // 1p_diagnose and 1p_run are registered for LLM use (diagnostics + injected command execution).
-    // We also register a wrapped "bash" tool for transparent env injection and
-    // handle the user_bash event — those are exercised via manual pi -e testing.
+    // 1p_diagnose is registered for LLM use (diagnostics). We also register a
+    // wrapped "bash" tool for transparent env injection and (on runtimes that
+    // expose createLocalBashOperations) handle the user_bash event — those are
+    // exercised via manual pi -e testing.
     expect(log.tools).toContain("1p_diagnose");
-    expect(log.tools).toContain("1p_run");
 
     // The guided onboarding command for adding new !op read entries to auth.json
     expect(log.commands).toContain("1password_setup");

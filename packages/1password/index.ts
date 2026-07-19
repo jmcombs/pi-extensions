@@ -20,11 +20,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-  createBashTool,
-  createLocalBashOperations,
-  getAgentDir,
-} from "@earendil-works/pi-coding-agent";
+// `createLocalBashOperations` is NOT on oh-my-pi's shim. Accessing it through a
+// namespace import makes a missing member `undefined` at runtime rather than a
+// hard ESM link error that would take this whole module (and every consumer that
+// imports it, e.g. via `resolveSecret`/`onboardSecret`) down on that runtime.
+import * as piRuntime from "@earendil-works/pi-coding-agent";
+// `createBashTool` + `getAgentDir` are always present on the pi runtime (and on
+// oh-my-pi's legacy-pi compat shim), so they stay as static named imports.
+import { createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 
 import type { UiContext } from "./credential-api.js";
@@ -763,14 +766,6 @@ function isCredentialField(field: { label: string; type?: string }): boolean {
 
 // ── Tool schemas ───────────────────────────────────────────────────────
 
-const runSchema = Type.Object({
-  command: Type.String({
-    description:
-      "The command to run with 1Password credential injection (e.g. 'gh auth status' or 'gh repo view owner/repo')",
-  }),
-});
-export type RunInput = Static<typeof runSchema>;
-
 const diagnoseSchema = Type.Object({});
 export type DiagnoseInput = Static<typeof diagnoseSchema>;
 
@@ -799,103 +794,21 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   });
   pi.registerTool(injectedBash);
 
-  pi.on("user_bash", () => {
-    return { operations: createLocalBashOperations() };
-  });
+  // Transparent 1P injection for user `!bash` commands — only when the runtime
+  // exposes `createLocalBashOperations` (real pi does; oh-my-pi's compat shim does
+  // not). Absent it, we skip the hook rather than crash the module load.
+  if (typeof piRuntime.createLocalBashOperations === "function") {
+    pi.on("user_bash", () => ({ operations: piRuntime.createLocalBashOperations() }));
+  } else if (process.env.HEADROOM_DEBUG) {
+    console.error(
+      "[1password] createLocalBashOperations unavailable on this runtime; user `!` 1P injection disabled (transparent agent-bash injection still active).",
+    );
+  }
 
   pi.on("session_start", async () => {
     currentShellEnv = await loadShellEnvMap();
     curatedPlugins = await loadCuratedPlugins();
     await warmOpSessionIfNeeded();
-  });
-
-  // ── 1p_run ───────────────────────────────────────────────────────────
-  pi.registerTool({
-    name: "1p_run",
-    label: "1Password Run Command",
-    description:
-      "Run a shell command with 1Password credential injection via `op run -- <command>`. Includes automatic diagnostics on failure.",
-    parameters: runSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-      const status = await getOpStatus();
-      const pluginInfo = await inspectPluginIfRelevant(params.command);
-
-      if (!status.available) {
-        return {
-          content: [{ type: "text", text: `1p_run failed: ${formatOpStatus(status)}` }],
-          details: { error: "op not found", opStatus: status },
-        };
-      }
-      // Gate on configuration, not `signedIn` (ADR 0003): `op whoami` is an
-      // unreliable session probe under app-integration. When an account is
-      // configured we ATTEMPT the run and let `op` unlock lazily; sign-in
-      // guidance is surfaced only if the run itself fails with an auth error.
-      if (!status.configured) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `1p_run failed: ${formatOpStatus(status)}\n\nConfigure 1Password (run 'op signin' in your terminal, or set a service-account token), then try again.`,
-            },
-          ],
-          details: { error: "not configured", opStatus: status },
-        };
-      }
-
-      try {
-        const { stdout, stderr } = await execAsync(`op run -- ${params.command}`, {
-          encoding: "utf8",
-          maxBuffer: 5 * 1024 * 1024,
-          timeout: 120000,
-        });
-
-        const output = (stdout || "").trim();
-        const err = (stderr || "").trim();
-
-        let text = output || "(no stdout)";
-        if (err) text += `\n\n[stderr]\n${err}`;
-
-        return {
-          content: [{ type: "text", text }],
-          details: {
-            command: params.command,
-            opStatus: status,
-            pluginInspection: pluginInfo,
-          },
-        };
-      } catch (error: unknown) {
-        const err = error as { stderr?: string; message?: string };
-        const rawError = (err.stderr?.trim() ?? err.message ?? "") || String(error);
-        const diagnostic = formatOpStatus(status);
-
-        let helpful = `Command failed under 1Password injection.\n\n${diagnostic}`;
-
-        // Advisory only: surface sign-in guidance when the failure itself looks
-        // like an auth/session error (not as a pre-block — ADR 0003).
-        if (
-          /sign\s?in|not signed in|unauthor|authenticat|session (?:expired|is not)/i.test(rawError)
-        ) {
-          helpful +=
-            "\n\nThis looks like an authentication issue — run 'op signin' in your terminal (or check your service-account token), then retry.";
-        }
-
-        if (pluginInfo) {
-          helpful += `\n\nPlugin status for "${pluginInfo.plugin}":\n${pluginInfo.output ?? pluginInfo.error ?? ""}`;
-        }
-
-        helpful += `\n\nError from command:\n${rawError}`;
-
-        return {
-          content: [{ type: "text", text: helpful }],
-          details: {
-            error: rawError,
-            command: params.command,
-            opStatus: status,
-            pluginInspection: pluginInfo,
-          },
-        };
-      }
-    },
   });
 
   // ── Shared diagnostic logic (used by both 1p_diagnose tool and /1password_diagnose command) ──
@@ -948,7 +861,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     name: "1p_diagnose",
     label: "1Password Diagnostics",
     description:
-      "Check the current status of the 1Password CLI (`op`), sign-in state, plugin configuration, and active shell env injection (from ~/.pi/agent/auth.json). Use this when 1password_setup or 1password_diagnose are not working as expected, or to verify transparent token injection for bare `gh` / `aws` etc. (uses 1p_run for plugin inspection).",
+      "Check the current status of the 1Password CLI (`op`), sign-in state, plugin configuration, and active shell env injection (from ~/.pi/agent/auth.json). Use this when 1password_setup or 1password_diagnose are not working as expected, or to verify transparent token injection for bare `gh` / `aws` etc.",
     parameters: diagnoseSchema,
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
       const { report, details } = await get1PasswordDiagnosticReport();
@@ -976,7 +889,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 
   // TODO (known limitation): /1password_diagnose currently gathers data directly
   // for reliability and presents it. Injecting a prompt via sendUserMessage does not
-  // reliably cause the LLM to start a new turn and use 1p_diagnose/1p_run for
+  // reliably cause the LLM to start a new turn and use 1p_diagnose for
   // nicer formatting, because regular command handlers have limited access to
   // the "deliverAs: nextTurn" / sendUserMessage APIs that force LLM reasoning.
   // This should be revisited when better support exists or a different pattern
