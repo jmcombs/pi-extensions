@@ -73,6 +73,7 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 | op-sentinel     | yes    | `resolveShellValue` with a `!echo …` sentinel exercises command resolution without 1Password. |
 | docker-offline  | yes    | A `node` container with **no `op` binary** and **no host `~/.pi` access** (throwaway `PI_CODING_AGENT_DIR`, no volume mounts); Docker available on the maintainer's machine. Proves the offline/degraded credential **logic** and that **real pi** loads the LOCAL extension (`PI-SMOKE`) — ADR 0008. |
 | pi-onboard-offline | human | Real **pi** and real **stock oh-my-pi** onboarding walked in the op-less interactive container (`docker/run-pi.sh` / `docker/run-ohmypi.sh`): a person completes `/context7_setup` + `/headroom_setup` with `op` absent and eyeballs the masked manual-entry TUI. Stock omp loads the LOCAL extensions unpatched thanks to the `@jmcombs/pi-1password` feature-detect (ADR 0008). |
+| ci-runner       | yes    | A GitHub Actions **ubuntu** runner: no `op` and no `~/.pi` natively (the exact op-absent, no-host-secret-state condition of ADR 0008). Runs `npm ci` + pinned Bun (`setup-bun`) + pinned omp (`@17.0.5`) load smokes. Multi-minute, network-dependent. Used by P11's **advisory** CI job (ADR 0009). |
 | ohmypi-env      | no     | oh-my-pi stood up in a throwaway Docker container (or brew + isolated HOME) per run; never touches `~/.pi`. Provisionable. |
 | op-live         | human  | A live `op read` of a real 1Password vault ref needs the maintainer's authenticated 1Password session + Touch ID; not automatable. |
 | pi-onboard-tui  | human  | The interactive onboarding TUI (vault picker / manual branch) can only be driven and reviewed by a person in a live pi session. |
@@ -103,6 +104,7 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
   - P8 `test/relay-ohmypi-compat` → `test(relay):` / `chore(relay):`
   - P9 `docs/1password-integration-guide` → `docs:`
   - P10 `docs/1password-migration-guide` → `docs:`
+  - P11 `ci/cross-platform-validation` → `ci:` / `test:` (PR target `feat/1password-credential-api`, stated explicitly)
 - **One PR per phase**, targeting `feat/1password-credential-api` (ADR 0001). The
   `Commit Messages` check must be green on every phase PR; the two `Quality Gate`
   checks are required-green on the **final integration→`main` PR** and may carry
@@ -121,9 +123,10 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 | P5 | Migrate **grok-search** (xai / xai_search / grok) | P2, P3 | refactor |
 | P6 | Migrate **headroom**; full-repo green | P2, P3 | refactor |
 | P7 | Update `_template` + `TEMPLATE.md` to teach the API pattern | P3 | docs |
-| P8 | **relay ↔ oh-my-pi** compatibility test (isolated Docker/brew) | P1 | test |
+| P8 | **relay ↔ oh-my-pi** live-dispatch check (human `claude-sub`); automated load/registration folded into P11 | P1 | test |
 | P9 | **Developer API documentation & integration guide** (mermaid diagrams) | P6 | docs |
 | P10 | **Release notes & migration guide** | P6, P9 | docs |
+| P11 | Contributor cross-platform validation (CI + local); folds P8's automated relay-on-omp check | P6 | ci/test |
 
 ---
 
@@ -451,49 +454,56 @@ credential API adds/resolves a key with `op` absent.
 
 ---
 
-## Phase 8 — relay ↔ oh-my-pi compatibility (isolated)
+## Phase 8 — relay ↔ oh-my-pi **live dispatch** (human, narrowed)
 
-**Entry:** P1. **Shippable as:** a repeatable, **isolated** test proving `relay`
-loads and registers under **oh-my-pi** without breaking, plus a documented result;
-a relay fix **only if** a real break is found. Independent of the credential work.
+**Entry:** P1. **Shippable as:** a maintainer-run, **isolated** verification that
+`relay` performs a **live subscription-Opus dispatch under oh-my-pi** (the human
+`claude-sub` check), plus a documented result note. Independent of the credential
+work.
+
+> **Narrowed (ADR 0009).** The automated "relay loads + registers under stock
+> oh-my-pi" assertion is now **superseded by Phase 11** — `relay` is one of P11's
+> auto-discovered packages, and the researcher empirically confirmed relay loads and
+> registers its providers cleanly on stock omp today (no fix needed). Phase 8 keeps
+> **only** its unique value: the human live-dispatch check that no automated harness
+> can perform (it needs a real Claude login). The automated load proof lives in P11.
 
 **Skills:** phase-build, testing-standards, git-hygiene, repo-layout, typescript-standards
 
 ### Objectives & Scope
 
-- **In:** stand up oh-my-pi in isolation (Docker container preferred; brew + a
-  throwaway `HOME` acceptable), load `packages/relay/index.ts`, and assert relay
-  registers its tools and its `@earendil-works/pi-ai` imports resolve under
-  oh-my-pi's loader.
-- **Out:** any change to the user's `~/.pi`; any relay redesign. Modify relay only
-  if oh-my-pi surfaces a genuine break (minimal fix, within `memory/use-pi-public-apis`).
+- **In:** in the isolated oh-my-pi environment (Docker container preferred; brew + a
+  throwaway `HOME` acceptable), the maintainer drives a **live relay dispatch** to
+  subscription Opus (`claude -p` / `oauthAccount`) and confirms it returns a
+  verdict/result; record the outcome + oh-my-pi version in a results note.
+- **Out:** the automated load/registration assertion (now **P11**); any change to
+  the user's `~/.pi`; any relay redesign. Modify relay only if the live dispatch
+  surfaces a genuine break (minimal fix, within `memory/use-pi-public-apis`).
 
 ### Architectural Constraints
 
-- **D14 isolation:** the harness MUST run in a container or a throwaway HOME. It
-  MUST NOT bind-mount, read, or write `~/.pi`. No maintainer credentials in the
-  automated path.
-- **Known risk to probe:** oh-my-pi (`can1357/oh-my-pi`) is a pi fork; relay imports
-  `createAssistantMessageEventStream` and types from `@earendil-works/pi-ai` and
-  uses `registerProvider` + the `AgentDriver` seam. The test verifies those resolve
-  and register under oh-my-pi's aliases (it may use a different package scope).
+- **D14 isolation:** the live check MUST run in a container or a throwaway HOME. It
+  MUST NOT bind-mount, read, or write `~/.pi`. No maintainer `~/.pi` credentials in
+  any automated path (the live dispatch is human-driven, `claude-sub`).
+- **Known risk to probe:** oh-my-pi (`can1357/oh-my-pi`) is a pi fork; relay uses
+  `registerProvider` + the `AgentDriver` seam + `createAssistantMessageEventStream`
+  from `@earendil-works/pi-ai`. P11's automated load smoke proves these resolve +
+  register on stock omp; this phase confirms the **end-to-end dispatch** actually
+  returns under omp.
 
 ### Actionable TODOs
 
-- [ ] **Research first:** pin oh-my-pi's install method (brew formula/tap or npm) and its extension-load invocation (the oh-my-pi equivalent of `pi -ne -e <path>`), from oh-my-pi's README/CHANGELOG (`github.com/can1357/oh-my-pi`). Record the pinned commands in the harness; do not guess them into a gate.
-- [ ] Create `docker/ohmypi-relay.Dockerfile`: a clean image that installs oh-my-pi (pinned method), copies `packages/relay`, and sets an **ephemeral** `HOME`.
-- [ ] Create `scripts/test-relay-ohmypi.sh`: build/run the container, load relay via oh-my-pi's extension-load flag with the isolated HOME, print a single machine-checkable line — e.g. `RELAY-OHMYPI: tools=<n> imports=ok` — exiting non-zero on any load/registration/import error. Include a brew-fallback branch guarded to a throwaway `HOME` (never `~/.pi`, D14).
-- [ ] Create `docs/1p-credential-api/relay-ohmypi-results.md`: run output, oh-my-pi version, any gap found (+ follow-up issue if a break is real).
+- [ ] Reuse P11's pinned oh-my-pi install (`@oh-my-pi/pi-coding-agent@17.0.5` under Bun) + the interactive rig (`docker/interactive-onboarding.Dockerfile`) to stand up the isolated env; do NOT author a separate `docker/ohmypi-relay.Dockerfile` (superseded — the automated load proof is P11's harness).
+- [ ] Create `docs/1p-credential-api/relay-ohmypi-results.md`: the live-dispatch outcome, oh-my-pi version, and a pointer to P11's automated load/registration result; note any gap found (+ follow-up issue if a break is real).
 
 ### Testing Gates
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| relay loads under oh-my-pi (needs: ohmypi-env) | `bash scripts/test-relay-ohmypi.sh` | prints `RELAY-OHMYPI: tools=<n> imports=ok`; exit 0 |
-| No `~/.pi` access by the harness (needs: ohmypi-env) | `grep -n "\.pi" docker/ohmypi-relay.Dockerfile scripts/test-relay-ohmypi.sh` | only ephemeral/throwaway paths; no bind of the real `~/.pi` |
-| Result documented | `test -s docs/1p-credential-api/relay-ohmypi-results.md` | non-empty with version + outcome |
-| relay unit tests still green | `npx vitest run packages/relay` | all pass |
+| relay loads + registers providers on stock omp | (**P11** — `npm run validate:cross-platform`) | covered by Phase 11's harness; not re-implemented here |
 | Live dispatch under oh-my-pi (needs: claude-sub) | maintainer runs a relay dispatch inside the isolated env | returns a verdict/result |
+| Result documented | `test -s docs/1p-credential-api/relay-ohmypi-results.md` | non-empty with version + outcome + P11 pointer |
+| relay unit tests still green | `npx vitest run packages/relay` | all pass |
 
 ### Definition of Done — see Appendix C.
 
@@ -588,6 +598,83 @@ accurate release notes across every migrated package before the release PRs go o
 
 ---
 
+## Phase 11 — Contributor cross-platform validation (pi + stock oh-my-pi)
+
+**Entry:** P6 (supersedes P8's automated portion). **Shippable as:** a
+package-agnostic harness + a local `npm run validate:cross-platform` command and an
+**advisory** runner-native CI job, proving every shipped extension loads and
+registers its own declared surface on **real pi** and **stock oh-my-pi** with `op`
+absent — a regression guard (all 10 shipped packages pass today; relay needs no
+feature-detect — ADR 0009).
+
+**Skills:** phase-build, testing-standards, git-hygiene, repo-layout, typescript-standards
+
+### Objectives & Scope
+
+- **In:** generalize the existing ADR-0008 smokes (`docker/pi-smoke.mts`,
+  `docker/ohmypi-smoke.mts`, `docker/smoke-both.sh`) into a **package-agnostic**
+  harness that **auto-discovers** `packages/*` extensions from each `package.json`
+  `pi.extensions` (**iterate the array — do not hardcode one path**) and asserts, on
+  **BOTH real pi and stock oh-my-pi** (`op` absent), that each in-scope package
+  **loads without error** and **registers its own expected per-package surface**
+  (platform-aware; ADR 0009). Add a local `npm run validate:cross-platform` (Docker
+  path — guarantees op-absence on contributor machines that may have `op`), an
+  **advisory** runner-native CI job, and CONTRIBUTING docs.
+- **Out:** the interactive onboarding PTY walkthrough and any `op`-available path
+  (stay **human** gates, ADR 0008); flipping the CI check to **required** (deferred
+  to a future promotion ADR); **any product-code change**.
+
+### Architectural Constraints
+
+- **Reuse/generalize the ADR-0008 smokes — do NOT author a net-new rig.** The harness
+  extends `docker/pi-smoke.mts` / `docker/ohmypi-smoke.mts` / `docker/smoke-both.sh`.
+- **Per-package expected surface is heterogeneous & platform-aware** (ADR 0009):
+  - `context7` / `grok-search` / `tavily-search` / `headroom` — setup command + tool(s).
+  - `1password` — tools (`bash` + `1p_diagnose`) + `session_start`; **plus `user_bash` on pi ONLY** (feature-detect) — expected-present on pi, expected-absent on omp.
+  - `relay` — **providers only**, verified via a **stub `ExtensionAPI` capturing `registerProvider`** (loader result exposes no `providers` field — mirror `packages/relay/index.test.ts:42-45`).
+  - `better-toolsy` — tools only.
+  - `prompt-enhancer` — commands + handlers + **shortcuts**, **no** tools.
+  - `blue-psl-10k` / `notify` — handlers (+ possibly one command).
+- **Exclude `private:true`** — today that drops **only** `packages/_template`; the
+  exclusion MUST be **logged** (visible skip, not a silent miss).
+- **Any UNEXPECTED non-load ⇒ failure, not skip.** The skip set is an **allowlisted,
+  enumerated** set (the `private` exclusion) — never "skip anything that looks empty".
+- **Isolation (D14 / ADR 0008):** no `op`, no host `~/.pi`; a throwaway agent dir. A
+  repo checkout **on a runner is fine** — "no volume mounts" in ADR 0008 is about
+  host secret state, not runners.
+- **Pin Bun** in the runner setup; oh-my-pi is already pinned `@17.0.5`.
+
+### Actionable TODOs
+
+- [ ] Generalize `docker/pi-smoke.mts` + `docker/ohmypi-smoke.mts` (and the shared enumeration used by `docker/smoke-both.sh`) into a package-agnostic harness that reads every `packages/*/package.json` `pi.extensions` array and iterates it; drives each in-scope extension through pi's loader and stock omp's loader (op absent) and asserts its enumerated expected surface (relay via the stub-`ExtensionAPI` `registerProvider` capture).
+- [ ] Add `scripts/validate-cross-platform.sh` and a `"validate:cross-platform"` script in the root `package.json` (**does not exist today**) that runs the Docker path (`docker/interactive-onboarding.Dockerfile`) so op-absence is guaranteed locally.
+- [ ] Add a **runner-native, advisory** job in `.github/workflows/ci.yml` (`npm ci` → pi-loader smoke; `setup-bun` pinned + `bun install -g @oh-my-pi/pi-coding-agent@17.0.5` → omp-loader smoke). **Note:** `ci.yml` currently triggers only on `pull_request: [main]`; state explicitly which PRs the advisory job runs on and make the trigger change explicit (it also runs on PRs into `feat/1password-credential-api` for this phase). The job is **advisory** — do NOT add it to the branch-protection required-check set.
+- [ ] Document in `CONTRIBUTING.md`: the `npm run validate:cross-platform` command, what it proves (every shipped extension loads + registers its declared surface on pi and stock omp, op absent), and the gotchas — omp's `--no-extensions` **discards** explicit `-e` paths (unlike pi) and the `@jmcombs/pi-1password` `createLocalBashOperations` **feature-detect** (`user_bash` pi-only).
+- [ ] Author a **per-package expected-surface table** (in the harness and/or CONTRIBUTING) enumerating the surfaces above, including the `_template` `private` exclusion.
+- [ ] Confirm **zero product-code changes** (`git diff --stat` touches only `docker/`, `scripts/`, `.github/workflows/ci.yml`, `package.json` scripts, `CONTRIBUTING.md`, docs — never `packages/*/index.ts`).
+
+### Testing Gates
+
+| Criterion | Command | Expected |
+| --- | --- | --- |
+| Cross-platform validation passes (needs: docker-offline) | `npm run validate:cross-platform` | each in-scope package **PASS on pi AND stock omp** against its expected surface; `_template` **skipped + logged**; exit 0 |
+| Unexpected non-load fails loudly (needs: docker-offline) | `npm run validate:cross-platform` (with a package that fails to load / registers nothing expected) | **non-zero** exit (failure, not skip) |
+| Advisory CI job present + green (needs: ci-runner) | inspect `.github/workflows/ci.yml`; the runner-native job on the phase PR | job exists (advisory, **not** in the required set) and is green |
+| Isolation clean | `grep -rnE "\.pi\b|-v |--mount|--volume" scripts/validate-cross-platform.sh docker/*smoke*.mts .github/workflows/ci.yml` | only throwaway/`PI_CODING_AGENT_DIR` paths + op-absence checks; no bind of the real `~/.pi` |
+| Zero product changes | `git diff --stat feat/1password-credential-api -- packages/*/index.ts` | empty |
+
+### Definition of Done — see Appendix C.
+
+> **Appendix C item 7 note (required-check contract unchanged).** P11's CI job is
+> **advisory (informational)** — it is **NOT** added to the branch-protection
+> required-check set (still exactly `Quality Gate (Node 22)`, `Quality Gate (Node
+> 24)`, `Commit Messages`). Promoting it to a 4th required check is deferred to a
+> **future ADR** that updates `CONTRIBUTING.md`, `AGENTS.md`, and the "Protect main"
+> ruleset **together** (ADR 0009). P11 therefore does **not** alter the
+> required-check contract.
+
+---
+
 ## Appendix A — Decision Log (ADR index)
 
 Any deviation from a Locked Decision requires an ADR in `docs/decisions/NNNN-*.md`
@@ -603,6 +690,7 @@ and a row here before implementation.
 | [0006](../decisions/0006-credential-setup-command-naming.md) | Credential-setup command naming: the setup command is `{brand-slug}_setup` across all extensions (incl. 1Password); consumer setup-command descriptions unified to `Set up or update your {label} API key (never shown to the agent).`; `setup` chosen over `onboard`/`authenticate` (sets or updates); diagnose/run commands out of scope | Accepted |
 | [0007](../decisions/0007-tool-error-results-no-returned-iserror.md) | Consumer tool error results report via `content` + `details`, never a returned `isError` (pi ignores it — only a thrown `execute()` flags an error); no `throw` for user-facing recoverable errors (missing key / 401 / 429 / network). Removed the no-op `isError` from grok-search, context7, tavily-search; headroom born correct at P6 | Accepted |
 | [0008](../decisions/0008-offline-credential-validation.md) | Offline (no-`op`) credential validation: a Docker container with **no `op` binary** and **no host `~/.pi` access** proves the extension loads, `is1PasswordAvailable()`→false, a key is added/resolved without `op`, an `!op read` ref fails closed to `undefined`, and keyless proxies still work. Must-pass gate on the Phase 6 merge | Accepted |
+| [0009](../decisions/0009-cross-platform-contributor-validation.md) | Cross-platform contributor validation: a package-agnostic harness proves every non-`private` shipped extension **loads + registers its own declared, platform-aware surface** on pi and **stock oh-my-pi** (op absent); provider-only `relay` via a stub-`ExtensionAPI` `registerProvider` capture; `1password`'s `user_bash` is pi-only by design; **runner-native, advisory-first** CI (required only via a future ADR); Bun + omp pinned. Regression guard — all 10 shipped packages pass today. Folds Phase 8's automated portion | Accepted |
 
 ## Appendix B — Master TODO index (verifier-ticked)
 
@@ -611,11 +699,12 @@ and a row here before implementation.
 - [x] **P3** context7 migrated (reference); availability-branched onboarding; **live maintainer review passed**.
 - [x] **P4** tavily-search migrated (env fallback kept).
 - [x] **P5** grok-search migrated (xai/xai_search/grok precedence).
-- [ ] **P6** headroom migrated (both files + test seam); **full repo green**.
+- [x] **P6** headroom migrated (both files + test seam); **full repo green**. Merged **#145 → `849f76f`**. ADR-0008 offline gate **DISCHARGED** and the `pi-onboard-offline` human gate **DISCHARGED** (maintainer validated `/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent); the headroom `op-live` retrieve gate was **WAIVED** by the maintainer.
 - [ ] **P7** `_template` + `TEMPLATE.md` teach the API pattern.
-- [ ] **P8** relay proven under oh-my-pi in isolation; result documented.
+- [ ] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. **Automated load/registration folded into P11** (narrowed, ADR 0009).
 - [ ] **P9** Developer `INTEGRATION.md` + `API.md` with ≥4 mermaid diagrams; diagrams reviewed.
 - [ ] **P10** Migration guide authored; release notes verified across all four.
+- [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
 
 ## Appendix C — Definition of Done (every phase)
 
@@ -655,3 +744,5 @@ a human closes it out-of-band.
 | Live search end-to-end (context7_search) | Phase 3 | op-live | human (maintainer live check) | DISCHARGED |
 | Live tavily search (resolveSecret / tavily_search) | Phase 4 | op-live | human (maintainer live check) | DISCHARGED |
 | Live grok search (resolveSecret xai_search/xai/grok / grok_search) | Phase 5 | op-live | human (maintainer live check) | DISCHARGED |
+| Offline onboarding walkthrough (`/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent) | Phase 6 | pi-onboard-offline | human (maintainer live check) | DISCHARGED |
+| Live headroom retrieve (resolveSecret `headroom` / `headroom_retrieve`) | Phase 6 | op-live | human (maintainer) | WAIVED (maintainer) |
