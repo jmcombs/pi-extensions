@@ -238,9 +238,11 @@ maintainer to review. That PR is then subject to the normal required checks.
 ### Dependabot
 
 [`dependabot.yml`](../.github/dependabot.yml) watches two ecosystems — the npm workspace
-and GitHub Actions — on a weekly schedule. Routine minor/patch bumps are **grouped** into
-a single PR per ecosystem; **major bumps arrive as individual PRs** so breaking changes
-get isolated review. Commit subjects use conventional prefixes (`chore(deps)`,
+and GitHub Actions — on a weekly schedule. Routine minor/patch bumps are **grouped** by
+dependency type — for npm, a `dev-dependencies` group and a `production-dependencies`
+group (so a busy week can bring both a `chore(deps)` and a `chore(deps-dev)` PR); GitHub
+Actions bumps form a single group. **Major bumps arrive as individual PRs** so breaking
+changes get isolated review. Commit subjects use conventional prefixes (`chore(deps)`,
 `chore(deps-dev)`, `ci(actions)`) so they pass the `Commit Messages` check. Every
 Dependabot PR runs the full Quality Gate and requires maintainer approval — **nothing
 auto-merges.**
