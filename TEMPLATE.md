@@ -69,8 +69,13 @@ Conventions:
   type. Export the input type if other extensions might want to type a
   `tool_call` event for your tool.
 - Return objects of shape `{ content, details }` from tools.
-- For secrets, **always** read through `AuthStorage` with a `process.env`
-  fallback (see `README.md` template).
+- For secrets, depend on
+  [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+  and import `resolveSecret` / `onboardSecret` from it — resolve the key on use
+  and auto-onboard on a miss, and register a `{slug}_setup` command that calls
+  `onboardSecret` (see the `README.md` template and `packages/context7/` for the
+  reference implementation). Never copy-and-own an `auth.ts` helper. `1password`
+  goes in `dependencies` (a peer would not be installed under pi's `--omit=peer`).
 - Pi-runtime packages (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`,
   `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui`, `typebox`) go in
   `peerDependencies` with `"*"`. **Do not bundle them.**
