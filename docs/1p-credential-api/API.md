@@ -224,5 +224,5 @@ takes `UiContext` (`Pick<ExtensionContext, "ui">`), the same call works verbatim
 from a command handler, an event/shortcut handler, or a `{ ui }` test double — no
 casting required.
 
-See the step-by-step integration guide (`INTEGRATION.md`, added in a later phase)
+See the step-by-step integration guide ([`INTEGRATION.md`](./INTEGRATION.md))
 for a full worked example.

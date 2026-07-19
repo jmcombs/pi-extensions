@@ -549,11 +549,12 @@ work.
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| Guide has ≥4 mermaid diagrams | `grep -c '^```mermaid' docs/1p-credential-api/INTEGRATION.md` | ≥ 4 |
+| Guide has ≥4 mermaid diagrams | `grep -c '^```mermaid' docs/1p-credential-api/INTEGRATION.md` (matches **column-0** ```` ```mermaid ```` fences only) | ≥ 4 |
 | Guide covers the API surface | `for f in resolveSecret onboardSecret is1PasswordAvailable; do grep -q "$f" docs/1p-credential-api/INTEGRATION.md || echo MISSING $f; done` | no `MISSING` |
 | Reference linked | `grep -q "API.md" docs/1p-credential-api/INTEGRATION.md` | match |
-| Diagrams render + guide reads correctly (needs: doc-render) | maintainer previews `INTEGRATION.md` (GitHub / mermaid preview) | all four diagrams render; walkthrough is followable |
-| Format check | `npm run format:check` | exit 0 |
+| Relative links live | every relative link + `#anchor` in `INTEGRATION.md` resolves to a real file / heading (checker script or manual walk) | all resolve; none dangling |
+| Repo still green | `npm run check` | exit 0 (`format:check` is a **no-op for Markdown** — Biome ignores `.md` — so it is not a doc-quality signal; this gate is the repo-regression check instead) |
+| Diagrams render + guide reads correctly (needs: doc-render) | maintainer previews `INTEGRATION.md` (GitHub / mermaid preview) | all four diagrams render; walkthrough is followable — **authoritative human gate** |
 
 ### Definition of Done — see Appendix C.
 

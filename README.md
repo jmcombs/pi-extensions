@@ -19,6 +19,14 @@ with the `pi-package` keyword so they appear in the [pi.dev gallery](https://pi.
 | [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt enhancer that rewrites rough prompts into precise ones with project tree, git context, and referenced file contents. |
 | [`@jmcombs/pi-tavily-search`](./packages/tavily-search) | [![npm](https://img.shields.io/npm/v/@jmcombs/pi-tavily-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-tavily-search) | Real-time web search via the [Tavily](https://tavily.com) API. |
 
+## 1Password credential API
+
+Extensions that need a user-provided secret resolve it through the shared
+[`@jmcombs/pi-1password`](./packages/1password) credential API. Developer docs:
+
+- [Integration guide](./docs/1p-credential-api/INTEGRATION.md) — add 1Password to your extension, step by step.
+- [API reference](./docs/1p-credential-api/API.md) — the full credential-API surface.
+
 ## Install an Extension
 
 ```bash
