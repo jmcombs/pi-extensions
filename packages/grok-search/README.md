@@ -167,8 +167,7 @@ ever stored on disk in plaintext.
   instead of throwing.
 - 401 / 429 / other non-2xx responses from xAI surface as tool results (with status and
   a helpful hint) rather than throwing. Recoverable errors are reported through the tool's
-  `content` so the agent can guide you, never via a returned `isError` (which pi ignores —
-  see [ADR 0007](../../docs/decisions/0007-tool-error-results-no-returned-iserror.md)).
+  `content` so the agent can guide you, never via a returned `isError` (which pi ignores).
 
 ## Requirements
 

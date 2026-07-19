@@ -85,7 +85,7 @@ dependency auto-installs, so the credential API is always importable.
 
 #### 2. Register a `<slug>_setup` command
 
-By convention (ADR 0006) the credential-setup command is named
+By convention the credential-setup command is named
 `{brand-slug}_setup` and delegates to `onboardSecret`:
 
 ```ts
@@ -128,7 +128,7 @@ async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 
 For the full walkthrough — architecture, the onboarding availability branch, the
 resolve sequence, and a worked context7 example with diagrams — see the developer
-integration guide (added in Phase 9): `docs/1p-credential-api/INTEGRATION.md`.
+integration guide: [`INTEGRATION.md`](../../docs/1p-credential-api/INTEGRATION.md).
 
 ## Requirements
 

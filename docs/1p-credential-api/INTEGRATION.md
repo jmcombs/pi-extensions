@@ -25,7 +25,7 @@ adopt the API; read `API.md` for exact signatures and return shapes.
 ## Overview
 
 The `@jmcombs/pi-1password` package is the **credential authority** for this
-monorepo (Locked Decision **D1**). Instead of reaching into pi internals —
+monorepo. Instead of reaching into pi internals —
 `AuthStorage`, `ModelRuntime`, `readStoredCredential`, all removed in pi
 0.80.8 — your extension declares `@jmcombs/pi-1password` as a hard dependency and
 **imports** its functions. The dependency auto-installs with your extension, so
@@ -72,7 +72,7 @@ flowchart TD
 ```
 
 Because pi loads each extension in its own jiti sandbox with `moduleCache:
-false` (D3), your `import` is a **fresh module instance** — but every function
+false`, your `import` is a **fresh module instance** — but every function
 is stateless (it re-reads `auth.json` and re-runs `op` on each call), so it
 behaves identically to the host extension. There is no shared session object to
 initialize.
@@ -82,7 +82,7 @@ initialize.
 ### 1. Add the dependency
 
 In your package's `package.json`, add `@jmcombs/pi-1password` to
-**`dependencies`** (a hard dependency, **D2** — never `peerDependencies`, which
+**`dependencies`** (a hard dependency — never `peerDependencies`, which
 pi does not install):
 
 ```jsonc
@@ -93,7 +93,7 @@ pi does not install):
 }
 ```
 
-Leave your pi-runtime peers (`@earendil-works/*`) at `"*"` (**D9**) — do not pin
+Leave your pi-runtime peers (`@earendil-works/*`) at `"*"` — do not pin
 a version floor there.
 
 ### 2. Import the two functions
@@ -104,7 +104,7 @@ import { resolveSecret, onboardSecret } from "@jmcombs/pi-1password";
 
 ### 3. Wire an onboarding command
 
-Register a `<slug>_setup` command (the naming convention from **ADR 0006**) that
+Register a `<slug>_setup` command (the `_setup` naming convention) that
 delegates to `onboardSecret` and surfaces the returned message. Use your
 extension's brand slug as `<slug>` and your logical key name as `name`:
 
@@ -149,7 +149,7 @@ async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 ```
 
 The same `ctx` works in both the command handler and the tool `execute()`,
-because `onboardSecret` only needs `Pick<ExtensionContext, "ui">` (**ADR 0004**).
+because `onboardSecret` only needs `Pick<ExtensionContext, "ui">`.
 
 ### 5. Test
 
@@ -220,7 +220,7 @@ own extension's doc comment.
 
 `onboardSecret` runs the flow below (source:
 [`packages/1password/credential-api.ts`](../../packages/1password/credential-api.ts),
-`onboardSecret`). Note the two things the plan's one-liner omits: the
+`onboardSecret`). Note two details of the flow: the
 **existing-key gate runs first** (before any availability check), and the
 available branch offers **three** sources, not just the vault picker.
 
@@ -315,8 +315,7 @@ flowchart LR
 The credential API is **runtime-agnostic**: `resolveSecret` and `onboardSecret`
 work identically on pi and on oh-my-pi, and existing `auth.json` keys resolve on
 both. For *writing* extensions that are omp-compatible (feature-detecting host
-APIs and the like), see [`CONTRIBUTING.md`](../../CONTRIBUTING.md) and [ADR
-0009](../decisions/0009-cross-platform-contributor-validation.md).
+APIs and the like), see [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Troubleshooting
 
@@ -325,7 +324,7 @@ APIs and the like), see [`CONTRIBUTING.md`](../../CONTRIBUTING.md) and [ADR
 | `resolveSecret` returns `undefined` for an `!op read` entry | `op` is not signed in / the account is locked | The startup **warm-on-load** runs one `op read` to trigger the biometric unlock. If you hit a tool before that lands, unlock 1Password (Touch ID) and retry; the next `resolveSecret` succeeds. |
 | `resolveSecret` returns `undefined` for a key you thought you set | No entry under that logical `name` in `auth.json` | Run `<slug>_setup`, or confirm the key name matches what your tool resolves (e.g. `resolveSecret("context7")` needs a `"context7"` entry). |
 | Onboarding never shows the vault picker, only manual entry | `is1PasswordAvailable()` is `false` — `op` isn't installed or no account is configured | Install the 1Password CLI and configure an account (service-account token, Connect env, or `op account list`), then re-run onboarding. |
-| First tool call of a session prompts for Touch ID | Expected — the **warm-on-load** unlock (D7/D8) triggers the single OS-level prompt so later calls don't | Approve it once at startup; the biometric session then covers the rest of the session. |
+| First tool call of a session prompts for Touch ID | Expected — the **warm-on-load** unlock triggers the single OS-level prompt so later calls don't | Approve it once at startup; the biometric session then covers the rest of the session. |
 
 ## Advanced and reference
 
@@ -340,5 +339,5 @@ them directly** — the two-function path above is all you normally need. See
   the value. Used by the post-save verify step.
 - `deleteSecret(name)` — removes an entry under the file lock.
 
-For exact types, return shapes, the storage shape (D4), and fail-closed
+For exact types, return shapes, the storage shape, and fail-closed
 semantics, read the full reference: [`API.md`](./API.md).
