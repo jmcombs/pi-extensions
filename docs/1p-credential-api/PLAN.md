@@ -539,8 +539,8 @@ work.
   - **Mermaid 1 — Architecture:** consumer extension → imports API → `@jmcombs/pi-1password` → (`op` CLI, `auth.json`).
   - **Mermaid 2 — Onboarding availability branch** (the `is1PasswordAvailable` flow: vault picker vs manual entry + install nudge).
   - **Mermaid 3 — Resolve sequence:** `resolveSecret` → `readFile(auth.json)` → `resolveShellValue` → `op read` → secret → tool.
-  - **Mermaid 4 — Before/After:** removed `AuthStorage` path vs the 1p API path.
-  - Step-by-step: add the `dependencies` entry; `import { resolveSecret, onboardSecret, is1PasswordAvailable }`; wire the onboarding command; wire tool auth (auto-onboard on miss); test.
+  - (The before/after `AuthStorage` → 1p API diagram is **migration history**, not integration guidance — it lives in P10's `MIGRATION.md`, not here. INTEGRATION.md carries the three timeless diagrams above.)
+  - Step-by-step: install the dependency (`npm install @jmcombs/pi-1password` — no hard-coded version in prose); `import { resolveSecret, onboardSecret }`; wire the onboarding command; wire tool auth (auto-onboard on miss); test.
   - Worked example: annotated context7 excerpts.
   - Link to `API.md`; troubleshooting (`op` not signed in, key not found, warm-on-load).
 - [ ] Ensure `docs/1p-credential-api/API.md` is complete and linked from `INTEGRATION.md` and the root `README.md`.
@@ -549,11 +549,12 @@ work.
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| Guide has ≥4 mermaid diagrams | `grep -c '^```mermaid' docs/1p-credential-api/INTEGRATION.md` | ≥ 4 |
+| Guide has ≥3 mermaid diagrams | `grep -c '^```mermaid' docs/1p-credential-api/INTEGRATION.md` (matches **column-0** ```` ```mermaid ```` fences only; the 4th D15 diagram — before/after — lives in P10's `MIGRATION.md`) | ≥ 3 |
 | Guide covers the API surface | `for f in resolveSecret onboardSecret is1PasswordAvailable; do grep -q "$f" docs/1p-credential-api/INTEGRATION.md || echo MISSING $f; done` | no `MISSING` |
 | Reference linked | `grep -q "API.md" docs/1p-credential-api/INTEGRATION.md` | match |
-| Diagrams render + guide reads correctly (needs: doc-render) | maintainer previews `INTEGRATION.md` (GitHub / mermaid preview) | all four diagrams render; walkthrough is followable |
-| Format check | `npm run format:check` | exit 0 |
+| Relative links live | every relative link + `#anchor` in `INTEGRATION.md` resolves to a real file / heading (checker script or manual walk) | all resolve; none dangling |
+| Repo still green | `npm run check` | exit 0 (`format:check` is a **no-op for Markdown** — Biome ignores `.md` — so it is not a doc-quality signal; this gate is the repo-regression check instead) |
+| Diagrams render + guide reads correctly (needs: doc-render) | maintainer previews `INTEGRATION.md` (GitHub / mermaid preview) | all four diagrams render; walkthrough is followable — **authoritative human gate** |
 
 ### Definition of Done — see Appendix C.
 
@@ -581,7 +582,7 @@ accurate release notes across every migrated package before the release PRs go o
 
 ### Actionable TODOs
 
-- [ ] Create `docs/1p-credential-api/MIGRATION.md`: what changed (AuthStorage removed in pi 0.80.8) and why; per-package: now integrates with `@jmcombs/pi-1password`; existing `auth.json` keys keep working (literals + `!op read`); onboarding branches on `op` availability; enable the 1p extension for vault integration + startup unlock; upgrade steps. Include the before/after mermaid (reuse Mermaid 4).
+- [ ] Create `docs/1p-credential-api/MIGRATION.md`: what changed (AuthStorage removed in pi 0.80.8) and why; per-package: now integrates with `@jmcombs/pi-1password`; existing `auth.json` keys keep working (literals + `!op read`); onboarding branches on `op` availability; enable the 1p extension for vault integration + startup unlock; upgrade steps. **Author the before/after (`AuthStorage`/`readStoredCredential`/`ModelRuntime` → 1p API) mermaid diagram here** (it belongs to the migration story, not the integration guide) — this is the 4th D15 diagram.
 - [ ] Confirm each migrated README (context7, tavily-search, grok-search, headroom) has the D13 a–d section.
 - [ ] Link `MIGRATION.md` and `INTEGRATION.md` from the root `README.md` package table.
 
@@ -702,7 +703,7 @@ and a row here before implementation.
 - [x] **P6** headroom migrated (both files + test seam); **full repo green**. Merged **#145 → `849f76f`**. ADR-0008 offline gate **DISCHARGED** and the `pi-onboard-offline` human gate **DISCHARGED** (maintainer validated `/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent); the headroom `op-live` retrieve gate was **WAIVED** by the maintainer.
 - [x] **P7** `_template` + `TEMPLATE.md` teach the API pattern. Merged **#147 → `072b555`**.
 - [x] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. Merged **#148 → `9c5350a`**. Live gate **PASS** (API-key mechanics path; subscription `oauthAccount` variant an optional follow-up). Surfaced + fixed an **omp-only** `string[]` `systemPrompt` crash (pi unaffected). **Automated load/registration folded into P11** (narrowed, ADR 0009).
-- [ ] **P9** Developer `INTEGRATION.md` + `API.md` with ≥4 mermaid diagrams; diagrams reviewed.
+- [ ] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; diagrams reviewed. (Before/after diagram → P10 `MIGRATION.md`.)
 - [ ] **P10** Migration guide authored; release notes verified across all four.
 - [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
 

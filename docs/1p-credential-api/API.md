@@ -1,8 +1,8 @@
 # `@jmcombs/pi-1password` — Credential API reference
 
 The 1Password extension is the **credential authority** for this monorepo's pi
-extensions (Locked Decision **D1**). Other extensions declare
-`@jmcombs/pi-1password` as a hard dependency (**D2**) and **import** the six
+extensions. Other extensions declare
+`@jmcombs/pi-1password` as a hard dependency and **import** the six
 functions below instead of touching pi internals — `AuthStorage`, `ModelRuntime`,
 and `readStoredCredential` were all removed in pi 0.80.8.
 
@@ -22,7 +22,7 @@ in `credential-api.ts`.
 
 ## Design guarantees
 
-- **Stateless (D3).** Every function reads `~/.pi/agent/auth.json` and/or runs the
+- **Stateless.** Every function reads `~/.pi/agent/auth.json` and/or runs the
   `op` CLI **fresh** on each call. Nothing relies on module-level session state, so
   a consumer that imports its own fresh module instance behaves identically to the
   host extension. (The agent directory is resolved via pi's `getAgentDir()`, which
@@ -35,10 +35,10 @@ in `credential-api.ts`.
   its caller. `verifySecret` reports only whether a value resolved.
 - **Additive.** The `1password_setup` / `1password_diagnose` tools and the
   transparent bash spawn-hook env injection are unchanged. (The `1p_run` tool was
-  later retired — see ADR 0008; the transparent `createBashTool` injection and the
+  later retired; the transparent `createBashTool` injection and the
   feature-detected `user_bash` hook remain.)
 
-## Storage shape (D4)
+## Storage shape
 
 Entries are **provider-shaped** and keyed by a **logical name**:
 
@@ -60,13 +60,13 @@ plus atomic temp-write + rename), so concurrent onboards never corrupt
 remains for that command.
 
 Values that begin with `!op read '…'` are also swept at startup by the
-conditional **warm-on-load** (D7/D8): if any top-level string **or** nested `.key`
+conditional **warm-on-load**: if any top-level string **or** nested `.key`
 holds an `!op read` reference, the extension runs one best-effort `op read` on
 load so the OS-level 1Password biometric prompt lands once, at startup.
 
 ---
 
-## `resolveSecret(name)` (D5)
+## `resolveSecret(name)`
 
 ```ts
 function resolveSecret(name: string): Promise<string | undefined>
@@ -88,12 +88,12 @@ if (!apiKey) {
 }
 ```
 
-## `onboardSecret(ctx, opts)` (D6)
+## `onboardSecret(ctx, opts)`
 
 ```ts
 // The minimal context capability the onboarding surface needs — just `ui`.
 // Satisfied by a command handler ctx, a tool `execute()` ctx, an event/shortcut
-// handler ctx, or a bare `{ ui }` test double (ADR 0004).
+// handler ctx, or a bare `{ ui }` test double.
 type UiContext = Pick<ExtensionContext, "ui">;
 
 interface OnboardOptions { name: string; label: string; overwrite?: boolean }
@@ -102,7 +102,7 @@ interface OnboardResult  { ok: boolean; message: string }
 function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>
 ```
 
-Interactively onboards a secret (redesigned UX, **ADR 0005**):
+Interactively onboards a secret:
 
 1. **Existing-key gate first.** If `name` already has a value and `overwrite` isn't
    set, the user is asked to *Replace it* or *Keep the current key*; keeping (or
@@ -170,7 +170,7 @@ Removes `parsed[name]` from `auth.json` under the file lock.
 - **Returns** `{ ok: true }` when an entry was present and removed, `{ ok: false }`
   when there was nothing to remove.
 
-## `is1PasswordAvailable()` (D6 / ADR 0003)
+## `is1PasswordAvailable()`
 
 ```ts
 function is1PasswordAvailable(): Promise<boolean>
@@ -187,7 +187,7 @@ desktop-app biometric integration, `op whoami` reports a false "not signed in" f
 a cold CLI invocation even though `op read` works — so `signedIn` is retained for
 diagnostics only and never gates access. The check is **passive**: no unlock and
 **no Touch ID prompt at check time**; the account session unlocks lazily on the
-first `op read` (the startup warm-on-load, D7/D8, triggers it once). Used to branch
+first `op read` (the startup warm-on-load triggers it once). Used to branch
 onboarding between the vault picker and manual key entry.
 
 - **Returns** `true` when `op` is available and configured, otherwise `false`.
@@ -224,5 +224,5 @@ takes `UiContext` (`Pick<ExtensionContext, "ui">`), the same call works verbatim
 from a command handler, an event/shortcut handler, or a `{ ui }` test double — no
 casting required.
 
-See the step-by-step integration guide (`INTEGRATION.md`, added in a later phase)
+See the step-by-step integration guide ([`INTEGRATION.md`](./INTEGRATION.md))
 for a full worked example.

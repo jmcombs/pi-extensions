@@ -69,14 +69,10 @@ This is the same pattern the shipped extensions use;
 
 #### 1. Declare the dependency
 
-`packages/_template/package.json` already lists it as an illustration:
+Install it as a regular dependency (this records the current version for you):
 
-```json
-{
-  "dependencies": {
-    "@jmcombs/pi-1password": "^1.0.2"
-  }
-}
+```bash
+npm install @jmcombs/pi-1password
 ```
 
 It is a hard `dependencies` entry (never a peer): pi installs extensions with
@@ -85,7 +81,7 @@ dependency auto-installs, so the credential API is always importable.
 
 #### 2. Register a `<slug>_setup` command
 
-By convention (ADR 0006) the credential-setup command is named
+By convention the credential-setup command is named
 `{brand-slug}_setup` and delegates to `onboardSecret`:
 
 ```ts
@@ -128,7 +124,7 @@ async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 
 For the full walkthrough — architecture, the onboarding availability branch, the
 resolve sequence, and a worked context7 example with diagrams — see the developer
-integration guide (added in Phase 9): `docs/1p-credential-api/INTEGRATION.md`.
+integration guide: [`INTEGRATION.md`](../../docs/1p-credential-api/INTEGRATION.md).
 
 ## Requirements
 
