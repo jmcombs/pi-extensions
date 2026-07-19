@@ -26,7 +26,6 @@ Extensions that need a user-provided secret resolve it through the shared
 
 - [Integration guide](./docs/1p-credential-api/INTEGRATION.md) — add 1Password to your extension, step by step.
 - [API reference](./docs/1p-credential-api/API.md) — the full credential-API surface.
-- [Migration guide](./docs/1p-credential-api/MIGRATION.md) — upgrading an existing install.
 
 ## Install an Extension
 
