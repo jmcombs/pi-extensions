@@ -701,7 +701,7 @@ and a row here before implementation.
 - [x] **P5** grok-search migrated (xai/xai_search/grok precedence).
 - [x] **P6** headroom migrated (both files + test seam); **full repo green**. Merged **#145 → `849f76f`**. ADR-0008 offline gate **DISCHARGED** and the `pi-onboard-offline` human gate **DISCHARGED** (maintainer validated `/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent); the headroom `op-live` retrieve gate was **WAIVED** by the maintainer.
 - [x] **P7** `_template` + `TEMPLATE.md` teach the API pattern. Merged **#147 → `072b555`**.
-- [ ] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. **Automated load/registration folded into P11** (narrowed, ADR 0009).
+- [x] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. Merged **#148 → `9c5350a`**. Live gate **PASS** (API-key mechanics path; subscription `oauthAccount` variant an optional follow-up). Surfaced + fixed an **omp-only** `string[]` `systemPrompt` crash (pi unaffected). **Automated load/registration folded into P11** (narrowed, ADR 0009).
 - [ ] **P9** Developer `INTEGRATION.md` + `API.md` with ≥4 mermaid diagrams; diagrams reviewed.
 - [ ] **P10** Migration guide authored; release notes verified across all four.
 - [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
