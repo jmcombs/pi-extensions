@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v1.1.1...grok-search/v2.0.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **grok-search:** pi 0.80.8 removed the AuthStorage API this extension used to store and read its API key. Credentials now resolve through the @jmcombs/pi-1password credential API, a hard dependency that installs automatically. Onboarding is availability-branched (1Password vault picker when `op` is configured, masked manual entry otherwise). Existing xai_search/xai/grok keys in ~/.pi/agent/auth.json keep resolving unchanged — no migration action is required.
+
+### Documentation
+
+* **grok-search:** note AuthStorage removal and 1Password credential-API migration ([bfdc99c](https://github.com/jmcombs/pi-extensions/commit/bfdc99c11b835bfe2195b6e500ace5dd40530c96))
+
 ## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/grok-search/v1.1.0...grok-search/v1.1.1) (2026-05-25)
 
 
