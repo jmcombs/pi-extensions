@@ -68,8 +68,10 @@ Every PR runs the same `npm run check` gate:
 npm run check
 ```
 
-This runs lint, format check, type check, tests, version validation, and security checks
-(`secretlint` + `npm audit --omit=dev`). All packages must pass.
+This runs lint (including formatting), type check, tests, version validation, and security
+checks (`secretlint` + `npm audit --omit=dev`). All packages must pass.
+
+See [docs/ci.md](./docs/ci.md) for every CI check and what a green does and does not prove.
 
 ## Branch Protection
 

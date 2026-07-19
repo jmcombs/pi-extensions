@@ -45,6 +45,11 @@ npm run check
 
 All steps must pass on Node 22 and Node 24 in CI.
 
+## Continuous Integration
+
+See [docs/ci.md](docs/ci.md) for what each CI check exercises and what a green does and
+does not prove — the Quality Gate, the advisory Extension Load Check, and Release Please.
+
 ## Branch Protection
 
 The `main` branch is protected by a GitHub **Repository Ruleset** named
