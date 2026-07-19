@@ -92,29 +92,48 @@ Two non-interactive smoke proofs guard against handing over another false positi
 
 ```
 PI-SMOKE: agent=pi op-absent=ok headroom-loaded=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
-OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok ext-load=BLOCKED reason="… createLocalBashOperations not found …"
+OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok ext-load=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
 ```
 
-Real pi loads the LOCAL headroom extension with `op` absent, registers
-`headroom_setup` / `headroom_retrieve` / `session_start`, and its interactive TUI
-starts to a usable prompt with a **placeholder model** (`--provider openai --model
-gpt-4o --api-key placeholder` + `PI_OFFLINE=1`) — `/headroom_setup` never calls the
-model, so there is no "configure a model" wall. Confirmed: the loaded code is the
-workspace copy, and the `session_start` handler fires (proxy-offline notice).
+Both agents load the LOCAL headroom extension (+ LOCAL `@jmcombs/pi-1password`)
+with `op` absent, register `headroom_setup` / `headroom_retrieve` /
+`session_start`, and their interactive TUIs start to a usable prompt with a
+**placeholder model** (`--provider openai --model gpt-4o --api-key placeholder` +
+`PI_OFFLINE=1`; omp additionally needs `OMP_SKIP_SETUP=1` to skip its first-run
+wizard) — `/headroom_setup` never calls the model, so there is no "configure a
+model" wall.
 
-### oh-my-pi finding (escalated)
+### oh-my-pi resolution mechanism (container-level, no product change)
 
-oh-my-pi **installs and runs** cleanly under Bun, but currently **cannot load our
-extension**. omp's `legacy-pi-coding-agent-shim.ts` re-exports `createBashTool` and
-`getAgentDir` but **not `createLocalBashOperations`**, which
-`@jmcombs/pi-1password/index.ts` imports at module top-level (for its `1p_run` bash
-tool). The ESM link therefore fails and headroom — any consumer of
-`@jmcombs/pi-1password` — does not load under omp, so `/headroom_setup` is
-unavailable there. This is a real oh-my-pi compatibility gap in the **merged
-Phase-2 1Password package** (out of Phase 6 scope). A minimal fix is to make
-`@jmcombs/pi-1password` import the bash operations **lazily** (dynamic import inside
-the `1p_run` tool) so the credential API loads without them. **Escalated** for a
-decision; likely folded into the Phase 8 oh-my-pi compatibility work.
+omp does **not** resolve `@earendil-works/pi-coding-agent` to the real npm package.
+Its `installLegacyPiSpecifierShim` registers a **process-global `Bun.plugin`
+`onResolve` hook** (`extensibility/plugins/legacy-pi-compat.ts`) that matches every
+`@{oh-my-pi,mariozechner,earendil-works}/pi-{coding-agent,tui,ai,…}` specifier and
+remaps it to omp's own `legacy-pi-coding-agent-shim.ts` — **by design**, so plugins
+share omp's single module/tool registry. There is **no env/flag/config override**,
+and the hook intercepts before filesystem resolution, so pinning/deduping/symlinking
+the real package cannot win (maintainer Options 1 & 2 are impossible). omp's shim
+re-exports `createBashTool` + `getAgentDir` but has **no `createLocalBashOperations`
+at all** (omp exposes no equivalent), which `@jmcombs/pi-1password` imports at module
+top-level for its `1p_run` bash tool — so the ESM link failed and headroom could not
+load under omp.
+
+The fix is **container-level only** (maintainer Option 3 — "exports override in the
+container image build"): the image appends one line to omp's shim re-exporting the
+**REAL** `createLocalBashOperations` from the genuine
+`@earendil-works/pi-coding-agent@0.80.9` already installed in `node_modules`, using
+an **absolute-path import** (which the bare-specifier filter does not intercept):
+
+```ts
+// [container-only, ADR 0008] surface the real pi export omp's shim omits.
+export { createLocalBashOperations } from "/app/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/index.js";
+```
+
+This surfaces the real symbol from the real runtime — not a stub — and touches
+**only** the third-party omp shim inside the image. `packages/**` product source is
+unchanged; everything else still resolves through omp's shim, preserving its
+single-runtime invariant. omp is pinned (`@17.0.5`) so the shim path is stable, and
+the build fails if omp ever ships the export itself (so the override can be dropped).
 
 Interactive-rig artifacts:
 
@@ -128,17 +147,19 @@ Interactive-rig artifacts:
 - Phase 6 gains a **must-pass automated** Testing Gate on the credential logic
   (`bash scripts/test-offline-credentials.sh`, capability `docker-offline`) that
   must be green before the migration merges.
-- The **real-pi interactive onboarding** validation is a **human-verify** gate
-  (capability `pi-onboard-offline`, like `pi-onboard-tui` / `op-live`): the
-  maintainer walks `/headroom_setup` in the op-less container via `docker/run-pi.sh`.
-  Its non-interactive companion (`PI-SMOKE`) is automated and proves real pi loads
-  the LOCAL extension.
+- The **real-pi / real-oh-my-pi interactive onboarding** validation is a
+  **human-verify** gate (capability `pi-onboard-offline`, like `pi-onboard-tui` /
+  `op-live`): the maintainer walks `/headroom_setup` in the op-less container via
+  `docker/run-pi.sh` / `docker/run-ohmypi.sh`. Its non-interactive companions
+  (`PI-SMOKE` / `OHMYPI-SMOKE`) are automated and prove both agents load the LOCAL
+  extension.
 - The offline/degraded path is proven at two levels: the credential LOGIC (headless
-  check) and REAL pi loading the workspace extension (`PI-SMOKE`), not just via
-  `PATH` manipulation in unit tests.
-- **oh-my-pi onboarding is blocked** by the `createLocalBashOperations` gap above
-  and is **escalated**, not shipped as working. The rig reproduces the blocker
-  honestly (`OHMYPI-SMOKE: ext-load=BLOCKED`).
-- No product code changed: this ADR adds validation only. Neither container touches
-  the host `~/.pi` (throwaway `PI_CODING_AGENT_DIR`, no volume mounts), consistent
-  with the isolation posture of D14.
+  check) and BOTH real agents loading the workspace extension, not just via `PATH`
+  manipulation in unit tests.
+- **oh-my-pi now loads the extension** via a container-only exports override (above),
+  surfacing the real `createLocalBashOperations`. No `packages/**` product source is
+  changed — the override lives only in the image build.
+- No product code changed: this ADR adds validation + a container-image resolution
+  override only. Neither container touches the host `~/.pi` (throwaway
+  `PI_CODING_AGENT_DIR`, no volume mounts), consistent with the isolation posture of
+  D14.

@@ -1,37 +1,32 @@
 #!/usr/bin/env bash
 #
-# Launch REAL oh-my-pi (omp) with the LOCAL workspace headroom extension
-# (ADR 0008 interactive rig).
+# Launch REAL oh-my-pi (omp) with the LOCAL workspace headroom extension so you
+# can walk `/headroom_setup` onboarding with `op` absent (ADR 0008 interactive rig).
 #
-# KNOWN BLOCKER (as of omp 17.0.5): omp cannot load our extension. Its
-# legacy-pi-coding-agent-shim exports `createBashTool` and `getAgentDir` but NOT
-# `createLocalBashOperations`, which `@jmcombs/pi-1password/index.ts` imports at
-# module top-level (for its `1p_run` bash tool). The ESM link fails, so headroom
-# — any consumer of @jmcombs/pi-1password — does not load under omp, and
-# `/headroom_setup` will not be available. This is a real oh-my-pi compatibility
-# finding, escalated for a decision (a lazy import in @jmcombs/pi-1password would
-# unblock it). See docker/README.md and docs/decisions/0008-*.md.
+# Two pieces of omp-specific launch friction are handled here + in the image:
+#   1. omp hard-remaps `@earendil-works/pi-coding-agent` to its own legacy shim,
+#      which omits `createLocalBashOperations` (imported by @jmcombs/pi-1password).
+#      The IMAGE BUILD adds a container-only exports override that surfaces the REAL
+#      symbol from @earendil-works/pi-coding-agent@0.80.9 — see the Dockerfile /
+#      docker/README.md. No product source is changed.
+#   2. omp's first-run setup wizard is skipped with OMP_SKIP_SETUP=1, and a
+#      placeholder model + PI_OFFLINE=1 get past model selection. `/headroom_setup`
+#      never calls the model, so there is no "configure a model / provider" wall.
 #
-# This script first RE-PROVES the blocker via omp's own loader, then launches omp
-# so you can observe its behavior firsthand. Run INSIDE the container:
+# Run INSIDE the container:
 #   docker run --rm -it pi-ext-interactive:latest bash docker/run-ohmypi.sh
 set -uo pipefail
 
 export PATH="/app/node_modules/.bin:/usr/local/bun/bin:$PATH"
 export PI_OFFLINE=1
+export OMP_SKIP_SETUP=1
 export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-/tmp/omp-agent}"
 mkdir -p "$PI_CODING_AGENT_DIR"
 
 echo "omp $(omp --version)  |  agent dir: $PI_CODING_AGENT_DIR  |  op: $(command -v op || echo ABSENT)"
-echo
-echo "== Reproducing the known oh-my-pi load blocker via omp's own loader =="
-OMP_PKG="${BUN_INSTALL:-/usr/local/bun}/install/global/node_modules/@oh-my-pi/pi-coding-agent"
-export OMP_LOADER="$OMP_PKG/src/extensibility/extensions/loader.ts"
-export OMP_VERSION="$(omp --version 2>/dev/null | tr -d '\n')"
-bun /app/docker/ohmypi-smoke.mts || true
-echo
-echo "== Launching omp with -e headroom anyway (expect headroom NOT loaded until the"
-echo "   @jmcombs/pi-1password compat gap is fixed; /headroom_setup will be absent) =="
+echo "Loaded extension: /app/packages/headroom/index.ts (LOCAL workspace copy)"
+echo "At the prompt (press enter to skip the intro), run:  /headroom_setup"
+echo "   (op is absent → masked manual key entry; the key is never shown to the agent)"
 echo
 
 exec omp \

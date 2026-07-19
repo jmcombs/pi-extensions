@@ -10,7 +10,7 @@ There are **two levels** of validation:
 | Level | Image | Proves |
 | --- | --- | --- |
 | Credential **logic** (fast, automated gate) | `offline-creds.Dockerfile` | The credential API degrades correctly with `op` absent — by calling the functions directly (stubbed UI). |
-| **Real pi + oh-my-pi onboarding** | `interactive-onboarding.Dockerfile` | Real pi (and, when unblocked, oh-my-pi) loads the **LOCAL** headroom extension and a human can complete `/headroom_setup` with `op` absent. |
+| **Real pi + oh-my-pi onboarding** | `interactive-onboarding.Dockerfile` | Real pi **and** real oh-my-pi load the **LOCAL** headroom extension and a human can complete `/headroom_setup` with `op` absent. |
 
 ---
 
@@ -51,15 +51,16 @@ docker run --rm pi-ext-interactive:latest
 # PI-SMOKE: agent=pi op-absent=ok headroom-loaded=ok setup=ok retrieve=ok \
 #   session_start=ok local-headroom=/app/packages/headroom/index.ts \
 #   local-1password=/app/packages/1password/index.ts
-# == oh-my-pi (REPORT) ==
-# OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok ext-load=BLOCKED reason="… createLocalBashOperations not found …"
+# == oh-my-pi (GATE) ==
+# OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok ext-load=ok setup=ok \
+#   retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts \
+#   local-1password=/app/packages/1password/index.ts
 ```
 
-Each smoke drives that agent's **own** real extension loader (not a stub):
-`PI-SMOKE` proves real pi loads the LOCAL headroom extension with `op` absent and
-registers `headroom_setup` / `headroom_retrieve` / `session_start` from the
-workspace copy. `OHMYPI-SMOKE` reports oh-my-pi's result honestly (see the blocker
-below).
+Each smoke drives that agent's **own** real extension loader (not a stub) and both
+are gates: they prove real pi and real oh-my-pi load the LOCAL headroom extension
+(+ LOCAL `@jmcombs/pi-1password`) with `op` absent and register `headroom_setup` /
+`headroom_retrieve` / `session_start` from the workspace copies.
 
 ### Walk `/headroom_setup` in real pi (op absent)
 
@@ -77,21 +78,35 @@ docker run --rm -it pi-ext-interactive:latest bash docker/run-pi.sh
 to get past model selection; `/headroom_setup` never calls the model. Swap in a
 real `--api-key` if you also want the model to answer.
 
-### oh-my-pi (known blocker — escalated)
-
-oh-my-pi **installs and runs** cleanly under Bun, but currently **cannot load our
-extension**. omp's `legacy-pi-coding-agent-shim.ts` re-exports `createBashTool` and
-`getAgentDir` but **not `createLocalBashOperations`**, which
-`@jmcombs/pi-1password/index.ts` imports at module top-level (for its `1p_run` bash
-tool). The ESM link fails, so headroom — any consumer of `@jmcombs/pi-1password` —
-does not load under omp and `/headroom_setup` is unavailable there.
-
-This is a real oh-my-pi compatibility gap in the merged Phase-2 1Password package
-(out of Phase 6 scope). A minimal fix: make `@jmcombs/pi-1password` import the bash
-operations **lazily** (dynamic import inside the `1p_run` tool) so the credential
-API loads without them. Reproduce and observe it:
+### Walk `/headroom_setup` in real oh-my-pi (op absent)
 
 ```bash
 docker run --rm -it pi-ext-interactive:latest bash docker/run-ohmypi.sh
-# Re-proves the blocker via omp's own loader, then launches omp so you can see it.
+# Inside: press enter to skip omp's intro; omp reaches the prompt (OMP_SKIP_SETUP=1
+# skips its first-run wizard). At the prompt:
+#   /headroom_setup   → masked manual key entry (op absent), written to the
+#   throwaway $PI_CODING_AGENT_DIR/auth.json (never ~/.pi).
 ```
+
+**How oh-my-pi is made to load our LOCAL extension (container-level, no product
+change).** omp registers a process-global `Bun.plugin` `onResolve` hook that
+**hard-remaps** every `@earendil-works/pi-coding-agent` import to its own
+`legacy-pi-coding-agent-shim.ts` (so plugins share omp's single runtime) — with no
+env/flag/config override. That shim re-exports `createBashTool` + `getAgentDir` but
+has **no `createLocalBashOperations`**, which `@jmcombs/pi-1password` imports at
+top level, so headroom could not link under omp. Pinning/deduping/symlinking the
+real package can't help — the hook intercepts before filesystem resolution.
+
+The image therefore appends a **container-only exports override** to omp's shim,
+re-exporting the **REAL** symbol from the genuine
+`@earendil-works/pi-coding-agent@0.80.9` already in `node_modules` via an
+**absolute-path import** (which the bare-specifier filter does not intercept):
+
+```ts
+export { createLocalBashOperations } from "/app/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/index.js";
+```
+
+This surfaces the real symbol from the real runtime (not a stub) and patches only
+the third-party omp shim in the image — `packages/**` is untouched. omp is pinned to
+`17.0.5`; the build fails if omp ever ships the export itself (drop the override
+then). See `docs/decisions/0008-offline-credential-validation.md`.

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
 # Non-interactive smoke proofs for the interactive onboarding rig (ADR 0008).
+# Both are GATES: each agent's OWN real extension loader must load the LOCAL
+# headroom extension (+ its LOCAL @jmcombs/pi-1password) with `op` absent and
+# register headroom_setup / headroom_retrieve / session_start from the workspace.
 #
-#   - pi  (GATE):        pi's real loader loads the LOCAL headroom extension with
-#                        `op` absent and registers headroom_setup / headroom_retrieve
-#                        / session_start from the workspace copy. Must pass.
-#   - oh-my-pi (REPORT): omp's real loader attempted against the same extension.
-#                        Reported honestly — currently BLOCKED by a compat gap in
-#                        @jmcombs/pi-1password (see docker/README.md / ADR 0008).
+#   - pi:       pi's real loader (@earendil-works/pi-coding-agent).
+#   - oh-my-pi: omp's real loader, with the container-only exports override that
+#               surfaces the real createLocalBashOperations (see docker/README.md).
 #
-# Overall exit status reflects the pi gate. The oh-my-pi line is informational.
+# Overall exit status is non-zero if EITHER gate fails.
 set -uo pipefail
 
 export PATH="/app/node_modules/.bin:/usr/local/bun/bin:$PATH"
@@ -29,15 +29,16 @@ tsx /app/docker/pi-smoke.mts
 PI_EXIT=$?
 echo
 
-echo "== oh-my-pi (REPORT): omp real loader vs the LOCAL headroom extension =="
+echo "== oh-my-pi (GATE): omp real loader loads the LOCAL headroom extension, op absent =="
 OMP_PKG="${BUN_INSTALL:-/usr/local/bun}/install/global/node_modules/@oh-my-pi/pi-coding-agent"
 export OMP_LOADER="$OMP_PKG/src/extensibility/extensions/loader.ts"
 export OMP_VERSION="$(omp --version 2>/dev/null | tr -d '\n')"
-bun /app/docker/ohmypi-smoke.mts || true
+bun /app/docker/ohmypi-smoke.mts
+OMP_EXIT=$?
 echo
 
-if [ "$PI_EXIT" -ne 0 ]; then
-  echo "RESULT: pi gate FAILED (exit $PI_EXIT)" >&2
-  exit "$PI_EXIT"
+if [ "$PI_EXIT" -ne 0 ] || [ "$OMP_EXIT" -ne 0 ]; then
+  echo "RESULT: FAILED (pi exit $PI_EXIT, oh-my-pi exit $OMP_EXIT)" >&2
+  exit 1
 fi
-echo "RESULT: pi gate PASSED. oh-my-pi result reported above (see docker/README.md for the known blocker)."
+echo "RESULT: both gates PASSED — real pi and real oh-my-pi load the LOCAL headroom extension with op absent."

@@ -27,10 +27,29 @@ COPY . .
 # HUSKY=0 skips the git-hooks prepare step (no .git in the build context).
 RUN HUSKY=0 npm ci
 
-# Bun — the runtime oh-my-pi declares (engines.bun) — then oh-my-pi itself.
+# Bun — the runtime oh-my-pi declares (engines.bun) — then oh-my-pi itself (pinned).
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun \
-  && bun install -g @oh-my-pi/pi-coding-agent
+  && bun install -g @oh-my-pi/pi-coding-agent@17.0.5
+
+# Container-only resolution fix (ADR 0008): omp hard-remaps every
+# `@earendil-works/pi-coding-agent` import to its own legacy-pi-coding-agent-shim
+# via a process-global Bun.plugin onResolve hook (no env/flag override), so plugins
+# share omp's single runtime. That shim re-exports `createBashTool` + `getAgentDir`
+# but OMITS `createLocalBashOperations`, which `@jmcombs/pi-1password` imports at
+# top level — so headroom fails to link under omp. We surface the REAL symbol from
+# the genuine `@earendil-works/pi-coding-agent@0.80.9` already installed in
+# node_modules by appending an exports override to omp's shim (absolute-path import,
+# so it is NOT re-intercepted by the bare-specifier filter). This patches only the
+# third-party omp shim IN THE IMAGE — no product source (`packages/**`) is changed.
+RUN set -eux; \
+  REAL="/app/node_modules/@earendil-works/pi-coding-agent"; \
+  SHIM="$BUN_INSTALL/install/global/node_modules/@oh-my-pi/pi-coding-agent/src/extensibility/legacy-pi-coding-agent-shim.ts"; \
+  test -f "$SHIM"; \
+  test -f "$REAL/dist/core/tools/index.js"; \
+  grep -q "createLocalBashOperations" "$SHIM" && { echo "shim already has export; omp changed" >&2; exit 1; }; \
+  printf '\n// [container-only, ADR 0008] surface the real pi export omp'"'"'s shim omits.\nexport { createLocalBashOperations } from "%s/dist/core/tools/index.js";\n' "$REAL" >> "$SHIM"; \
+  grep -q "createLocalBashOperations" "$SHIM"
 
 # Put the local pi bin and the Bun-global omp bin on PATH.
 ENV PATH=/app/node_modules/.bin:/usr/local/bun/bin:$PATH
