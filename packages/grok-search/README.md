@@ -27,6 +27,10 @@ API, which installs automatically as a dependency. What this means for you:
   resolve unchanged. No migration action is required.
 - **The key is never exposed to the model.** Entry happens entirely in the TUI, and only
   the resolved value is used to call the xAI API.
+- **Enable 1Password for vault integration and startup unlock.** Install and enable the
+  [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) extension:
+  it makes the vault picker available during onboarding and runs a one-time `op read` at
+  session startup, so the biometric unlock prompt lands once.
 
 ```mermaid
 flowchart TD

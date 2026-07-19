@@ -84,6 +84,11 @@ credential API, which installs automatically as a dependency. What this means fo
   resolve unchanged. No migration action is required.
 - **The key is never exposed to the model.** Entry happens entirely in the TUI, and
   only the resolved value is used to authenticate to the proxy.
+- **Enable 1Password for vault integration and startup unlock.** Install and enable
+  the [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+  extension: it makes the vault picker available during onboarding and runs a
+  one-time `op read` at session startup, so the 1Password biometric unlock prompt
+  lands once and later key resolves are silent.
 
 A local proxy typically needs **no** API key at all — configure one only if you
 front the proxy with authentication.
@@ -272,8 +277,9 @@ restart the proxy yourself with the desired flags.
 
 ## Requirements
 
-- Pi `>= 0.1.0`
+- Pi `>= 0.80.8` (credentials via the `@jmcombs/pi-1password` API and `ExtensionAPI`)
 - Node `>= 22.0.0`
+- Optional: the `op` (1Password) CLI for vault-backed onboarding and startup unlock
 - A running Headroom Python proxy (see [above](#requirement-the-headroom-python-proxy)).
 - A [Nerd Font](https://www.nerdfonts.com/) in your terminal, for the status
   widget's Powerline separators and brand glyph (display only — see

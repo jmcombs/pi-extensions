@@ -20,6 +20,7 @@ Context7 now handles your API key through the [`@jmcombs/pi-1password`](https://
 - **Onboarding branches on 1Password availability.** If the `op` CLI is installed and an account is configured, `/context7_setup` opens a live **vault → item → field picker** (or lets you type an `op://…` reference) and stores it as a `!op read '…'` entry that resolves fresh on every use. If `op` is not available, it falls back to **manual API-key entry** and nudges you to enable the 1Password extension for vault integration.
 - **Existing keys keep working.** Any Context7 key already in `~/.pi/agent/auth.json` — a literal key or an `!op read` reference — continues to resolve unchanged. No migration action is required.
 - **The key is never exposed to the model.** Entry happens entirely in the TUI, and only the resolved value is used to call the Context7 API.
+- **Startup warm-up.** With the [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) extension installed and enabled, a one-time `op read` runs at session startup, so the 1Password biometric unlock prompt lands once and later key resolves are silent.
 
 ```mermaid
 flowchart TD

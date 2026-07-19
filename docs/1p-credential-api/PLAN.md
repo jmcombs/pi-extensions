@@ -62,7 +62,7 @@ oh-my-pi in isolation; `prompt-enhancer` needs only an unrelated
 | D12 | grok-search provider keys | `grok-search` reads the **real** `xai` provider key plus `xai_search`/`grok` through the same `resolveSecret` — no special path. Verified (`packages/grok-search/index.ts:49,77–78,92`). |
 | D13 | Release comms (NOT a hard breaking change) | Because existing keys resolve unchanged, the dependency auto-installs, and manual entry remains, a migrated consumer keeps working after upgrade — this is a **feature/enhancement, not a hard breaking change**. Use normal `feat(<pkg>):` / `refactor(<pkg>):` commits (no `!`). Release notes MUST still clearly describe: (a) the new 1Password integration; (b) that the onboarding UX changed (vault picker when `op` is available, manual entry otherwise); (c) existing keys keep working; (d) how to enable the 1Password extension for vault integration + startup warm-up. Consolidated guide: Phase 10. |
 | D14 | oh-my-pi isolation | relay compatibility testing against oh-my-pi runs **only** in an isolated environment (Docker container, or brew + a throwaway HOME/config dir). It MUST NOT read or write the maintainer's `~/.pi`. relay code is not modified unless oh-my-pi surfaces a real break. (Maintainer decision.) |
-| D15 | Developer documentation w/ mermaid | The API is **extensively documented for third-party developers**: JSDoc on every export + an API reference `docs/1p-credential-api/API.md` (Phase 2); a step-by-step developer integration guide `docs/1p-credential-api/INTEGRATION.md` (Phase 9) showing how to adopt the 1Password plugin in any extension, using context7 as the worked example. Documentation uses **mermaid diagrams** (```mermaid fenced blocks): at minimum an architecture diagram, the onboarding availability-branch flow, the resolve sequence, and the before/after (AuthStorage → 1p API). Migrated package READMEs embed the relevant diagram. (Maintainer decision.) |
+| D15 | Developer documentation w/ mermaid | The API is **extensively documented for third-party developers**: JSDoc on every export + an API reference `docs/1p-credential-api/API.md` (Phase 2); a step-by-step developer integration guide `docs/1p-credential-api/INTEGRATION.md` (Phase 9) showing how to adopt the 1Password plugin in any extension, using context7 as the worked example. Documentation uses **mermaid diagrams** (```mermaid fenced blocks): at minimum an architecture diagram, the onboarding availability-branch flow, and the resolve sequence (`INTEGRATION.md`). **The before/after (AuthStorage → 1p API) diagram was dropped** — there was no prior published `@jmcombs/pi-1password` API to migrate from and the change is non-breaking, so a migration framing would mislead. Migrated package READMEs embed the relevant diagram. (Maintainer decision.) |
 
 ## Environment capabilities
 
@@ -539,7 +539,7 @@ work.
   - **Mermaid 1 — Architecture:** consumer extension → imports API → `@jmcombs/pi-1password` → (`op` CLI, `auth.json`).
   - **Mermaid 2 — Onboarding availability branch** (the `is1PasswordAvailable` flow: vault picker vs manual entry + install nudge).
   - **Mermaid 3 — Resolve sequence:** `resolveSecret` → `readFile(auth.json)` → `resolveShellValue` → `op read` → secret → tool.
-  - (The before/after `AuthStorage` → 1p API diagram is **migration history**, not integration guidance — it lives in P10's `MIGRATION.md`, not here. INTEGRATION.md carries the three timeless diagrams above.)
+  - (The before/after `AuthStorage` → 1p API diagram was **dropped** — there was no prior published API to migrate from, so it would mislead. INTEGRATION.md carries the three timeless diagrams above.)
   - Step-by-step: install the dependency (`npm install @jmcombs/pi-1password` — no hard-coded version in prose); `import { resolveSecret, onboardSecret }`; wire the onboarding command; wire tool auth (auto-onboard on miss); test.
   - Worked example: annotated context7 excerpts.
   - Link to `API.md`; troubleshooting (`op` not signed in, key not found, warm-on-load).
@@ -549,7 +549,7 @@ work.
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| Guide has ≥3 mermaid diagrams | `grep -c '^```mermaid' docs/1p-credential-api/INTEGRATION.md` (matches **column-0** ```` ```mermaid ```` fences only; the 4th D15 diagram — before/after — lives in P10's `MIGRATION.md`) | ≥ 3 |
+| Guide has ≥3 mermaid diagrams | `grep -c '^```mermaid' docs/1p-credential-api/INTEGRATION.md` (matches **column-0** ```` ```mermaid ```` fences only) | ≥ 3 |
 | Guide covers the API surface | `for f in resolveSecret onboardSecret is1PasswordAvailable; do grep -q "$f" docs/1p-credential-api/INTEGRATION.md || echo MISSING $f; done` | no `MISSING` |
 | Reference linked | `grep -q "API.md" docs/1p-credential-api/INTEGRATION.md` | match |
 | Relative links live | every relative link + `#anchor` in `INTEGRATION.md` resolves to a real file / heading (checker script or manual walk) | all resolve; none dangling |
@@ -560,19 +560,26 @@ work.
 
 ---
 
-## Phase 10 — Release notes & migration guide
+## Phase 10 — Release comms across the migrated packages
 
-**Entry:** P6, P9. **Shippable as:** a consolidated migration guide and clear,
-accurate release notes across every migrated package before the release PRs go out.
+**Entry:** P6, P9. **Shippable as:** clear, accurate per-package release comms (the
+D13 a–d points in each migrated README) + clean release-note inputs, before the
+release PRs go out. **No separate migration guide** — see the Objectives note.
 
 **Skills:** phase-build, testing-standards, git-hygiene, repo-layout
 
 ### Objectives & Scope
 
-- **In:** author `docs/1p-credential-api/MIGRATION.md`; confirm each migrated
-  package's README/CHANGELOG states the D13 a–d points; link everything from the
-  root `README.md`.
+- **In:** confirm each migrated package's README states the D13 a–d release comms
+  (top up any gap — only (d) "enable the extension + startup warm-up" was thin);
+  ensure clean release-note inputs (conventional commits). `INTEGRATION.md` + `API.md`
+  are already linked from the root `README.md` (Phase 9).
 - **Out:** merging release PRs (maintainer-only) or editing release-please manifests.
+- **Note — no `MIGRATION.md`.** A migration guide was considered and **dropped**: no
+  `@jmcombs/pi-1password` credential API was ever published (it is new here), and the
+  change is non-breaking (D13 — existing keys keep working), so there is nothing for a
+  user to "migrate." The per-package README "What's New" sections + release-please
+  notes carry the comms. (Maintainer decision.)
 
 ### Architectural Constraints
 
@@ -582,17 +589,16 @@ accurate release notes across every migrated package before the release PRs go o
 
 ### Actionable TODOs
 
-- [ ] Create `docs/1p-credential-api/MIGRATION.md`: what changed (AuthStorage removed in pi 0.80.8) and why; per-package: now integrates with `@jmcombs/pi-1password`; existing `auth.json` keys keep working (literals + `!op read`); onboarding branches on `op` availability; enable the 1p extension for vault integration + startup unlock; upgrade steps. **Author the before/after (`AuthStorage`/`readStoredCredential`/`ModelRuntime` → 1p API) mermaid diagram here** (it belongs to the migration story, not the integration guide) — this is the 4th D15 diagram.
-- [ ] Confirm each migrated README (context7, tavily-search, grok-search, headroom) has the D13 a–d section.
-- [ ] Link `MIGRATION.md` and `INTEGRATION.md` from the root `README.md` package table.
+- [ ] Confirm each migrated README (context7, tavily-search, grok-search, headroom) states the D13 a–d comms — in the **README prose only**. CHANGELOGs are release-please-generated from commit subjects; **do NOT hand-edit them**. (a/b/c were already present; **(d)** — enable-the-extension + startup warm-up — was topped up in all four, plus headroom's stale `Pi >= 0.1.0` → `>= 0.80.8` fix.)
+- [ ] Ensure release-note **inputs** are clean: conventional, package-scoped commit subjects (release-please generates the CHANGELOGs from them). No new commit subject carries a `(Phase N)` or other apparatus token.
 
 ### Testing Gates
 
 | Criterion | Command | Expected |
 | --- | --- | --- |
-| Migration guide covers all four | `for p in context7 tavily grok headroom; do grep -qi "$p" docs/1p-credential-api/MIGRATION.md || echo MISSING $p; done` | no `MISSING` |
-| READMEs describe the integration | `grep -rl "@jmcombs/pi-1password" packages/{context7,tavily-search,grok-search,headroom}/README.md` | all four |
-| Root README links the guides | `grep -E "MIGRATION.md|INTEGRATION.md" README.md` | both matched |
+| READMEs carry the a–d comms (per-anchor) | `for p in context7 tavily-search grok-search headroom; do f=packages/$p/README.md; grep -qi "credential integration" "$f" \|\| echo "$p MISSING-a"; { grep -qi vault "$f" && grep -qi manual "$f"; } \|\| echo "$p MISSING-b"; grep -qiE "keep working\|resolve unchanged\|No migration action" "$f" \|\| echo "$p MISSING-c"; { grep -qiE "install\|enable" "$f" && grep -q "@jmcombs/pi-1password" "$f" && grep -qiE "startup\|warm\|unlock" "$f"; } \|\| echo "$p MISSING-d"; done` | no `MISSING` output |
+| Root README links the dev docs | `grep -q INTEGRATION.md README.md && grep -q API.md README.md` | both present (exit 0) |
+| No plan/apparatus refs leak into user docs | `grep -rnE 'Locked Decision\|\bD[0-9]+\b\|ADR[ -]?[0-9]\|Phase [0-9]\|PLAN\.md\|docs/decisions/' packages/{context7,tavily-search,grok-search,headroom}/README.md` | no matches |
 | Repo green | `npm run check` | exit 0 |
 
 ### Definition of Done — see Appendix C.
@@ -703,8 +709,8 @@ and a row here before implementation.
 - [x] **P6** headroom migrated (both files + test seam); **full repo green**. Merged **#145 → `849f76f`**. ADR-0008 offline gate **DISCHARGED** and the `pi-onboard-offline` human gate **DISCHARGED** (maintainer validated `/context7_setup` + `/headroom_setup` on real pi AND stock oh-my-pi, `op` absent); the headroom `op-live` retrieve gate was **WAIVED** by the maintainer.
 - [x] **P7** `_template` + `TEMPLATE.md` teach the API pattern. Merged **#147 → `072b555`**.
 - [x] **P8** relay **live-dispatch** under oh-my-pi verified (human `claude-sub`); result documented. Merged **#148 → `9c5350a`**. Live gate **PASS** (API-key mechanics path; subscription `oauthAccount` variant an optional follow-up). Surfaced + fixed an **omp-only** `string[]` `systemPrompt` crash (pi unaffected). **Automated load/registration folded into P11** (narrowed, ADR 0009).
-- [x] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; `doc-render` gate **DISCHARGED** (maintainer previewed + approved). Merged **#149 → `a30b501`**. Docs made self-contained (no plan/ADR/phase refs); dependency de-pinned to `npm install`. (Before/after diagram → P10 `MIGRATION.md`.)
-- [ ] **P10** Migration guide authored; release notes verified across all four.
+- [x] **P9** Developer `INTEGRATION.md` (3 timeless diagrams) + `API.md`; `doc-render` gate **DISCHARGED** (maintainer previewed + approved). Merged **#149 → `a30b501`**. Docs made self-contained (no plan/ADR/phase refs); dependency de-pinned to `npm install`. (Before/after diagram dropped — no prior published API to migrate from.)
+- [ ] **P10** Per-package release comms (D13 a–d) complete across all four READMEs + clean release-note inputs. MIGRATION.md considered + dropped (no prior published API → non-breaking, not a migration).
 - [ ] **P11** Package-agnostic cross-platform validation harness (pi + stock omp, op absent) + local `validate:cross-platform` + **advisory** runner-native CI + CONTRIBUTING docs; folds P8's automated relay-on-omp check (ADR 0009).
 
 ## Appendix C — Definition of Done (every phase)
