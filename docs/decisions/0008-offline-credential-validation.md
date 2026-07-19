@@ -91,7 +91,7 @@ Two non-interactive smoke proofs guard against handing over another false positi
 (they drive each agent's OWN real extension loader, not a stub):
 
 ```
-PI-SMOKE: agent=pi op-absent=ok headroom-loaded=ok setup=ok retrieve=ok session_start=ok local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
+PI-SMOKE: agent=pi op-absent=ok context7=ok context7_setup=ok context7_search=ok context7_get_docs=ok headroom=ok headroom_setup=ok headroom_retrieve=ok session_start=ok local-context7=/app/packages/context7/index.ts local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
 OHMYPI-SMOKE: agent=oh-my-pi omp-version=omp/17.0.5 op-absent=ok context7=ok context7_setup=ok context7_search=ok context7_get_docs=ok headroom=ok headroom_setup=ok headroom_retrieve=ok session_start=ok local-context7=/app/packages/context7/index.ts local-headroom=/app/packages/headroom/index.ts local-1password=/app/packages/1password/index.ts
 ```
 
