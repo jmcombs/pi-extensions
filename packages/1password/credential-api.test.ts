@@ -150,7 +150,7 @@ describe("changeSecret overwrite semantics", () => {
   });
 });
 
-describe("onboarding ctx typing (ADR 0004 regression)", () => {
+describe("onboarding ctx typing regression", () => {
   it("onboardSecret is callable from every ctx that exposes `ui` — no cast", () => {
     // Compile-level regression for the bug that hid behind the original
     // ExtensionCommandContext over-narrowing: onboardSecret takes
@@ -178,7 +178,7 @@ describe("onboardSecret manual-entry branch (runtime, op unavailable)", () => {
     // reports available=false. This drives the manual-entry branch on any
     // machine, including one where 1Password IS configured. This is the exact
     // path (ctx.ui-only, no command context) that the original typing made
-    // untestable and that hid ADR 0004's bug.
+    // untestable and that hid the bug.
     const prevPath = process.env.PATH;
     process.env.PATH = dir;
     try {
@@ -202,7 +202,7 @@ describe("onboardSecret manual-entry branch (runtime, op unavailable)", () => {
   });
 });
 
-// ── UX-redesign test scaffolding (ADR 0005) ────────────────────────────────
+// ── UX-redesign test scaffolding ───────────────────────────────────────────
 //
 // Two kinds of `{ ui }` doubles, neither mocking our code:
 //  - `scriptedUi` returns pre-scripted values from `ui.custom` (one per popup, in
@@ -284,7 +284,7 @@ async function withPath<T>(path: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-describe("onboardSecret existing-key gate (ADR 0005)", () => {
+describe("onboardSecret existing-key gate", () => {
   it("Keep the current key leaves the entry untouched", async () => {
     await writeProviderAuthEntry("demo", "!echo original");
     const { ui } = scriptedUi(["keep"]); // gate select → Keep
@@ -308,7 +308,7 @@ describe("onboardSecret existing-key gate (ADR 0005)", () => {
   });
 });
 
-describe("onboardSecret source branches (ADR 0005)", () => {
+describe("onboardSecret source branches", () => {
   it("op unavailable → masked literal entry writes a literal provider entry", async () => {
     await withPath(dir, async () => {
       const { ui } = scriptedUi(["tvly-plain-key"]); // no source menu; straight to input
@@ -359,7 +359,7 @@ describe("onboardSecret source branches (ADR 0005)", () => {
   });
 });
 
-describe("masked secret input (ADR 0005) — never echoes the value", () => {
+describe("masked secret input — never echoes the value", () => {
   it("renders bullets, hides the typed value, but returns it on submit", async () => {
     const secret = "sk-secret-XYZ";
     let rendered = "";

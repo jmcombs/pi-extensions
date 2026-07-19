@@ -13,6 +13,13 @@
 
 1Password integration for the Pi coding agent — with a focus on **secure, transparent credential injection** so bare `gh`, `aws`, `heroku`, and other 1P-protected CLIs "just work" inside Pi without the LLM ever seeing tokens.
 
+## Breaking changes in v2.0.0
+
+- **`AuthStorage` is gone.** Pi 0.80.8 removed the `AuthStorage` API this extension was built on. Credentials now resolve through a stateless **credential API** that this package exports for other extensions to consume; onboarding writes `!op read '…'` entries to `~/.pi/agent/auth.json` that resolve fresh on every use.
+- **Availability-branched onboarding.** When the `op` CLI is installed and an account is configured, setup opens the 1Password **vault → item → field picker**; when `op` is unavailable it falls back to **masked manual entry**.
+- **The `1p_run` tool has been retired.** Transparent credential injection into bare CLIs (`gh`, `aws`, …) is unchanged — it runs through the bash spawn-hook / `user_bash` env injection, so a dedicated run tool is no longer needed.
+- **Existing entries keep working.** Any `!op read` entry already in `~/.pi/agent/auth.json` resolves unchanged. No migration action is required.
+
 ## Quick Start
 
 Get transparent credential injection in under a minute:

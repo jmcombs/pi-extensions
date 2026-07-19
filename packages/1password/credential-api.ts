@@ -40,7 +40,7 @@ import { inputInBorderedPopup, selectInBorderedPopup } from "./ui/bordered-popup
  * command handlers, tool `execute()`, and event/shortcut handlers — and from a
  * bare `{ ui }` test double, without demanding the ~15 unrelated context members
  * they never touch. This is the least-coupled signature and it makes the ctx
- * path unit-testable (ADR 0004).
+ * path unit-testable.
  */
 export type UiContext = Pick<ExtensionContext, "ui">;
 
@@ -74,7 +74,7 @@ export interface DeleteResult {
 
 /**
  * Whether 1Password vault integration is usable: the `op` CLI is installed
- * **and** an auth path is **configured** (D6 / ADR 0003) — a service-account
+ * **and** an auth path is **configured** — a service-account
  * token, 1Password Connect env, or a desktop/CLI account. It does **not** gate on
  * `op whoami`/`signedIn`, which reports a false "not signed in" for cold CLI
  * invocations under the desktop-app biometric integration even when `op read`
@@ -108,12 +108,12 @@ export async function resolveSecret(name: string): Promise<string | undefined> {
   return resolved ?? undefined;
 }
 
-/** Verbatim cancel outcome used everywhere the user backs out (D-UX / ADR 0005). */
+/** Verbatim cancel outcome used everywhere the user backs out. */
 const CANCELLED: OnboardResult = { ok: false, message: "Onboarding cancelled." };
 
 /**
  * Prompt for a literal API key on a **masked** screen — one bullet per typed
- * character, the value never drawn on screen (ADR 0005). Shared by the
+ * character, the value never drawn on screen. Shared by the
  * "Type or paste the key" source and the op-unavailable branch.
  */
 async function promptMaskedKey(ctx: UiContext, label: string): Promise<string | undefined> {
@@ -125,7 +125,7 @@ async function promptMaskedKey(ctx: UiContext, label: string): Promise<string | 
 }
 
 /**
- * Write the entry, then verify it resolves (post-save verify, ADR 0005) and return
+ * Write the entry, then verify it resolves (post-save verify) and return
  * a friendly, human-only outcome message. Never surfaces `changeSecret`,
  * `auth.json`, or the raw `name` (except inside a `/{name}_onboard` command token).
  */
@@ -170,7 +170,7 @@ async function saveAndReport(
 }
 
 /**
- * Interactively onboard a secret (redesigned UX, ADR 0005).
+ * Interactively onboard a secret.
  *
  * Order of operations:
  * 1. **Existing-key gate first** — if `name` already has a value and `overwrite`

@@ -1,5 +1,5 @@
 /**
- * Availability-detection policy tests (ADR 0003).
+ * Availability-detection policy tests.
  *
  * These verify the *decision logic* of `getOpStatus()` / `is1PasswordAvailable()`:
  * given various `op` probe outcomes and environment, does the code gate on
@@ -79,7 +79,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("getOpStatus / is1PasswordAvailable — configuration, not session (ADR 0003)", () => {
+describe("getOpStatus / is1PasswordAvailable — configuration, not session", () => {
   it("THE REGRESSION: whoami exit1 but account list non-empty ⇒ configured, available", async () => {
     h.responses = [
       VERSION_OK,

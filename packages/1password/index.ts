@@ -60,14 +60,14 @@ interface OpStatus {
   /**
    * DIAGNOSTIC ONLY. Whether `op whoami` reports a live CLI session. Under the
    * 1Password desktop-app biometric integration this is `false` for a cold
-   * invocation even when `op read` works — so it MUST NOT gate availability
-   * (ADR 0003). Surfaced in diagnostics; never used for access decisions.
+   * invocation even when `op read` works — so it MUST NOT gate availability.
+   * Surfaced in diagnostics; never used for access decisions.
    */
   signedIn: boolean;
   /**
    * Whether an `op` auth path is CONFIGURED (service-account token, Connect env,
-   * or a desktop/CLI account). This — not `signedIn` — is what gates availability
-   * (D6 / ADR 0003). Determined passively: no unlock, no Touch ID prompt.
+   * or a desktop/CLI account). This — not `signedIn` — is what gates availability.
+   * Determined passively: no unlock, no Touch ID prompt.
    */
   configured: boolean;
   account: Record<string, unknown> | null;
@@ -106,7 +106,7 @@ interface OpField {
  * ID). True when any of: `OP_SERVICE_ACCOUNT_TOKEN` is set; both `OP_CONNECT_HOST`
  * and `OP_CONNECT_TOKEN` are set; or `op account list --format=json` exits 0 and
  * parses to a non-empty array. Any failure/timeout/unparsable output ⇒ `false`;
- * never throws. See ADR 0003. Never logs secret values.
+ * never throws. Never logs secret values.
  */
 async function isOpConfigured(): Promise<boolean> {
   if ((process.env.OP_SERVICE_ACCOUNT_TOKEN ?? "").length > 0) return true;
@@ -137,7 +137,7 @@ async function isOpConfigured(): Promise<boolean> {
  * `signedIn` from `op whoami` is unreliable for gating: under the 1Password
  * desktop-app biometric integration it returns non-zero for a cold CLI invocation
  * even when `op read` works. Availability therefore gates on `configured`, not
- * `signedIn` (ADR 0003); the account session is unlocked lazily on the first
+ * `signedIn`; the account session is unlocked lazily on the first
  * `op read`. All `op` probes use a 5s timeout and never throw.
  */
 export async function getOpStatus(): Promise<OpStatus> {
@@ -149,7 +149,7 @@ export async function getOpStatus(): Promise<OpStatus> {
     return { available: false, version: null, signedIn: false, configured: false, account: null };
   }
 
-  // signedIn — DIAGNOSTIC ONLY (see the OpStatus.signedIn doc + ADR 0003). A
+  // signedIn — DIAGNOSTIC ONLY (see the OpStatus.signedIn doc). A
   // non-zero `op whoami` is expected under app-integration and is NOT a gate.
   let signedIn = false;
   let account: Record<string, unknown> | null = null;
