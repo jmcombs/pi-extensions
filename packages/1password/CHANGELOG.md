@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/1password/v1.0.2...1password/v2.0.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **1password:** pi 0.80.8 removed the AuthStorage API this extension was built on. Credentials now resolve through a stateless credential API this package exports for other extensions to consume, and onboarding writes `!op read '…'` entries to ~/.pi/agent/auth.json. Onboarding is availability-branched (1Password vault picker when `op` is configured, masked manual entry otherwise). The `1p_run` tool has been retired; transparent credential injection into bare CLIs is unchanged. Existing `!op read` entries in auth.json keep resolving unchanged — no migration action is required.
+
+### Features
+
+* **1password:** stateless credential API + warm-on-load + API reference (Phase 2) ([#141](https://github.com/jmcombs/pi-extensions/issues/141)) ([5883f29](https://github.com/jmcombs/pi-extensions/commit/5883f29ccf750078556b543ddce73f04ec302a96))
+
+
+### Documentation
+
+* **1password:** note AuthStorage removal, credential API, and 1p_run retirement ([285de01](https://github.com/jmcombs/pi-extensions/commit/285de0160e175b189f8a92fd7f5b464714245b5c))
+
 ## [1.0.2](https://github.com/jmcombs/pi-extensions/compare/1password/v1.0.1...1password/v1.0.2) (2026-06-29)
 
 
