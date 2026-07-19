@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/headroom/v1.0.1...headroom/v2.0.0) (2026-07-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **headroom:** pi 0.80.8 removed the AuthStorage API this extension used to store and read its API key. Credentials now resolve through the @jmcombs/pi-1password credential API, a hard dependency that installs automatically. Onboarding is availability-branched (1Password vault picker when `op` is configured, masked manual entry otherwise). Existing keys in ~/.pi/agent/auth.json keep resolving unchanged — no migration action is required.
+
+### Documentation
+
+* **headroom:** note AuthStorage removal and 1Password credential-API migration ([726aa2d](https://github.com/jmcombs/pi-extensions/commit/726aa2d5be114a557666a87cdbbb89a9503269e1))
+
 ## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/headroom/v1.0.0...headroom/v1.0.1) (2026-07-14)
 
 
