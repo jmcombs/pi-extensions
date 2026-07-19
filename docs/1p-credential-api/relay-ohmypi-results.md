@@ -32,6 +32,46 @@ Confirmed on the `pi-ext-interactive` image (stock omp, op absent):
 
 This regression proof will be generalized into Phase 11's package-agnostic harness.
 
+## Live-dispatch crash + fix (genuine relay break — omp-only)
+
+The maintainer's first live dispatch under stock omp **crashed** at prompt assembly:
+
+```
+expandSkillReferences(context.systemPrompt).trim is not a function
+```
+
+**Root cause (empirical, instrumented in the rig):** `context.systemPrompt` has a
+**different runtime shape on omp vs pi**:
+
+| Runtime | `typeof context.systemPrompt` | shape |
+| --- | --- | --- |
+| **oh-my-pi 17.0.5** | `object` (`Array`) | **`string[]`** — sections, e.g. `["<system-conventions>…", …]` (also a `len=1` array for omp's auto-title turn) |
+| **real pi 0.80.9** | `string` | a single string |
+
+- pi's **public type** `@earendil-works/pi-ai` `Context.systemPrompt` is
+  `string | undefined` — real pi (0.80.9) matches it. **omp's runtime diverges**
+  (its own type widens to `string | string[] | (fn)`; it passes a `string[]`).
+- **Is pi 0.80.9 also affected? NO.** Instrumented in the rig, pi passes a
+  `string`; relay assembled the prompt and reached `spawn claude` (only ENOENT
+  because `claude` wasn't installed in that probe) — **no crash**. The break is
+  **omp-only**; relay's live dispatch on pi was never broken by this.
+
+**Fix (minimal, Phase-8 scope, public-API-correct — `packages/relay/roles/resolver.ts`):**
+- New `normalizeSystemPrompt(value: unknown): string` — `string` → as-is (pi);
+  `string[]` → string sections joined with a blank line (omp; lossless, matches
+  omp's own separator); `undefined`/other → `""`. Never `String(obj)` →
+  `"[object Object]"`.
+- `expandSkillReferences` now accepts `string | readonly string[] | undefined` and
+  normalizes first, so it always returns a string. `provider.ts:190`
+  (`expandSkillReferences(context.systemPrompt).trim()`) is now safe on both
+  runtimes with skill-inlining fidelity preserved for the string and undefined cases.
+
+**Verified (op absent):** relay loads clean on stock omp (`errors: []`) and real pi;
+the omp `string[]` shape no longer throws — a dispatch now reaches the `claude -p`
+spawn step; `npx vitest run packages/relay` → 29 passed (6 new regression tests for
+the omp shape + `normalizeSystemPrompt`). The actual `claude -p` round-trip remains
+the maintainer's live `claude-sub` gate below.
+
 ## Live dispatch (human `claude-sub` gate — TODO: fill after the maintainer runs it)
 
 The maintainer runs a real turn through relay to subscription Opus under omp; the
