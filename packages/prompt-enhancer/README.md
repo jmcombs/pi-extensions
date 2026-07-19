@@ -5,6 +5,12 @@ precise, codebase-aware ones — before they reach the model. The enhanced promp
 loaded back into the editor for your review, so you stay in control of what gets
 submitted.
 
+## Fixes
+
+- **Aligned the assistant-message imports with `@earendil-works/pi-ai/compat` for
+  Pi 0.80.8+.** This is a typecheck-correctness fix; runtime behavior is unchanged
+  (it already resolved via the loader alias).
+
 ## Install
 
 ```bash
