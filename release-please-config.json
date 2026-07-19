@@ -5,7 +5,6 @@
   "include-component-in-tag": true,
   "include-v-in-tag": true,
   "bump-minor-pre-major": true,
-  "plugins": ["node-workspace"],
   "packages": {
     "packages/1password": {
       "release-type": "node",
