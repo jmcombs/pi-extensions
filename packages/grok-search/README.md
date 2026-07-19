@@ -11,6 +11,20 @@
 A [Pi coding agent](https://pi.dev) extension that adds real-time web search via the
 [xAI Grok Agent Tools API](https://docs.x.ai/docs/guides/tools/overview).
 
+## Breaking changes in v2.0.0
+
+- **`AuthStorage` is gone.** Pi 0.80.8 removed the `AuthStorage` API this extension used
+  to store and read its API key. Credentials now resolve through the
+  [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+  **credential API**, which this package now depends on directly and **installs
+  automatically** — no separate install step.
+- **Availability-branched onboarding.** When the `op` CLI is installed and an account is
+  configured, setup opens a 1Password **vault → item → field picker**; when `op` is
+  unavailable it falls back to **masked manual key entry**.
+- **Existing keys keep working.** Any `xai_search`, `xai`, or `grok` key already in
+  `~/.pi/agent/auth.json` — a literal value or an `!op read` reference — resolves
+  unchanged. No migration action is required.
+
 ## What's New — 1Password credential integration
 
 Grok search now handles your xAI API key through the

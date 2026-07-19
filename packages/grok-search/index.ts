@@ -18,7 +18,7 @@
  *    entry otherwise — then re-resolves. `/grok_setup` runs the same onboarding
  *    flow on demand.
  *
- * Error contract (ADR 0007): user-facing recoverable errors (missing key, 401,
+ * Error contract: user-facing recoverable errors (missing key, 401,
  * 429, network, non-2xx) are reported via `content[]` + `details` — never a
  * returned `isError` (which pi ignores on a returned result) and never a throw.
  */
