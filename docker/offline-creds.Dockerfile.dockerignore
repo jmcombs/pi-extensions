@@ -1,0 +1,6 @@
+# Keep macOS host build output OUT of the Linux image — npm ci reinstalls fresh.
+node_modules
+**/node_modules
+.git
+**/*.log
+**/.DS_Store

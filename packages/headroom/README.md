@@ -67,6 +67,39 @@ pi -e ./packages/headroom
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 path, project-scoped install, and filtering options.
 
+## What's New — 1Password credential integration
+
+Headroom's optional proxy API key is now handled through the
+[`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+credential API, which installs automatically as a dependency. What this means for you:
+
+- **Onboarding branches on 1Password availability.** If the `op` CLI is installed
+  and an account is configured, `/headroom_setup` opens a live **vault → item →
+  field picker** (or lets you type an `op://…` reference) and stores it as a
+  `!op read '…'` entry that resolves fresh on every use. If `op` is not available,
+  it falls back to **masked manual API-key entry** and nudges you to enable the
+  1Password extension for vault integration.
+- **Existing keys keep working.** Any `headroom` key already in
+  `~/.pi/agent/auth.json` — a literal key or an `!op read` reference — continues to
+  resolve unchanged. No migration action is required.
+- **The key is never exposed to the model.** Entry happens entirely in the TUI, and
+  only the resolved value is used to authenticate to the proxy.
+
+A local proxy typically needs **no** API key at all — configure one only if you
+front the proxy with authentication.
+
+```mermaid
+flowchart TD
+    A["/headroom_setup"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
+    B -- "Yes" --> C["Live vault → item → field picker<br/>or manual op:// reference"]
+    C --> D["Store !op read 'op://…' entry"]
+    B -- "No" --> E["Masked manual API-key entry<br/>+ nudge to enable 1Password"]
+    E --> F["Store literal api_key entry"]
+    D --> G["resolveSecret('headroom')<br/>resolves fresh on each proxy call"]
+    F --> G
+    G --> H["Proxy API key (never shown to the LLM)"]
+```
+
 ## What it adds
 
 ### Commands
@@ -74,9 +107,12 @@ path, project-scoped install, and filtering options.
 - **`/headroom-status`** — a one-line snapshot: whether compression is enabled,
   whether the proxy is reachable (+ version), its mode and key tuning, and the
   session + lifetime tokens saved.
-- **`/headroom-authenticate`** — securely store a proxy API key (the input is
-  captured by the TUI and never enters the LLM's context). Only needed if you
-  front the proxy with authentication.
+- **`/headroom_setup`** — set up or update the proxy API key through the
+  [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+  credential API. It branches on 1Password availability — a live vault picker when
+  `op` is configured, masked manual entry otherwise — and the input is captured by
+  the TUI and never enters the LLM's context. Only needed if you front the proxy
+  with authentication.
 - **`/headroom-stats`** — the **detailed** view: session savings, the proxy's
   lifetime tokens saved and compression percentage, request counts, the proxy's
   effective tuning, and a **per-strategy breakdown** (e.g. how much each of
@@ -177,14 +213,16 @@ The base URL and optional API key are resolved **independently**.
 **API key** (first match wins):
 
 1. An explicit argument passed to the client (used internally).
-2. `AuthStorage.getApiKey("headroom")` (`~/.pi/agent/auth.json`).
+2. The stored `headroom` credential, resolved via `resolveSecret("headroom")` from
+   [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
+   (`~/.pi/agent/auth.json`).
 3. The `HEADROOM_API_KEY` environment variable.
 4. Otherwise unset.
 
-The key is read through the portable `getApiKey()` accessor (rather than a stored
-credential object) so resolution works across Pi SDK variants, including oh-my-pi.
-The base URL is **not** read from `auth.json` — set it via `HEADROOM_BASE_URL` or
-rely on the default.
+The stored key is resolved through `resolveSecret("headroom")`, which reads
+`~/.pi/agent/auth.json` fresh on each call and transparently resolves both a literal
+key and an `!op read 'op://…'` 1Password reference. The base URL is **not** read from
+`auth.json` — set it via `HEADROOM_BASE_URL` or rely on the default.
 
 A local proxy typically needs **no** API key. Configure one only if you front the
 proxy with authentication.
@@ -204,8 +242,9 @@ quiet apart from the single passthrough notice.
 
 ### `~/.pi/agent/auth.json`
 
-Used for the **API key only** (via `getApiKey("headroom")`); the base URL is not
-read from here.
+Used for the **API key only** (via `resolveSecret("headroom")`); the base URL is not
+read from here. The entry may be a literal key or an `!op read 'op://…'` 1Password
+reference — both resolve on read.
 
 ```json
 {
