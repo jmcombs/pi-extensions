@@ -24,6 +24,12 @@ recent turns, so the model keeps the context it is actively using and sheds the
 weight it is not. Every elision is reversible: the model can call
 `headroom_retrieve` to pull back the full original on demand.
 
+## Breaking changes in v2.0.0
+
+- **`AuthStorage` is gone.** Pi 0.80.8 removed the `AuthStorage` API this extension used to store and read its API key. Credentials now resolve through the [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password) **credential API**, which this package now depends on directly and **installs automatically** — no separate install step.
+- **Availability-branched onboarding.** When the `op` CLI is installed and an account is configured, setup opens a 1Password **vault → item → field picker**; when `op` is unavailable it falls back to **masked manual key entry**.
+- **Existing keys keep working.** Any key already in `~/.pi/agent/auth.json` — a literal value or an `!op read` reference — resolves unchanged. No migration action is required.
+
 ## Requirement: the Headroom Python proxy
 
 The npm `headroom-ai` package is a thin HTTP client; the compression engine is a
