@@ -34,7 +34,8 @@ separate adversarial verifier does that, and the user approves the merge.
 ## 4. Implement the TODOs (Phase [N] scope only)
 - Do not pull work forward from later phases. Stay within Phase [N].
 - Match surrounding idiom; **reuse** the Appendix A patterns rather than hand-rolling
-  (`AuthStorage` from `tavily-search`, `registerTool`/renderers from `better-toolsy`, the
+  (the `@jmcombs/pi-1password` credential API — `resolveSecret` / `onboardSecret` — as used
+  by `tavily-search`, `registerTool`/renderers from `better-toolsy`, the
   `_template` scaffold + smoke-test shape).
 - **Verify library behavior empirically** (run it, read the installed `.d.ts`) — never from memory.
   The Python proxy is the engine; the npm SDK is a thin client (see PLAN Phase 0 findings).
