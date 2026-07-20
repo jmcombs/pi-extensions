@@ -22,6 +22,7 @@
  * This script is also intended to be called from CI on a weekly schedule.
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 
@@ -269,10 +270,23 @@ async function main() {
   } else {
     await mkdir(outputDir, { recursive: true });
     await writeFile(outputPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
+    formatOutput(outputPath);
 
     console.log(`\n✅ Wrote ${results.length} plugins to ${outputPath}`);
     console.log(`   Example: ${results[0]?.name} → ${results[0]?.primaryEnvVar}`);
   }
+}
+
+/**
+ * Hand the written file to Biome.
+ *
+ * `JSON.stringify` puts every array element on its own line; Biome collapses short
+ * arrays onto one. Without this the generated data fails `biome check`, which is a
+ * required status check — so the automated PR could never merge. Running the repo's
+ * own formatter is more robust than trying to reproduce its line-width rules here.
+ */
+function formatOutput(outputPath: string): void {
+  execFileSync("npx", ["biome", "format", "--write", outputPath], { stdio: "inherit" });
 }
 
 /**
