@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-context7",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": false,
   "description": "Real-time documentation for the Pi coding agent via Context7.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/context7",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.1...prompt-enhancer/v2.0.2) (2026-07-19)
+
+
+### Bug Fixes
+
+* **prompt-enhancer:** align pi-ai/compat import for pi 0.80.8 typecheck ([4d96b0d](https://github.com/jmcombs/pi-extensions/commit/4d96b0dcc3453a6daa18af98074f7176e6fc0570))
+
 ## [2.0.1](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.0...prompt-enhancer/v2.0.1) (2026-05-07)
 
 
