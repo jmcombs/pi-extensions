@@ -146,6 +146,10 @@ export function createModelsBlock(handlers: ModelsHandlers): View<ModelsVm> {
         setText(row.name, model.short);
         setText(row.meta, model.meta);
         setText(row.tuning, model.tuning);
+        // Unloaded models have no preset tuning to show; the view model returns
+        // an empty string, and hiding the row keeps its 9px gap from opening up
+        // between the meta line and the footer.
+        setAttr(row.tuning, "hidden", model.tuning === "");
         setText(row.status, model.footerLabel);
         setVar(row.status, "fg", model.footerColor);
         setText(row.button, model.buttonLabel);

@@ -7,7 +7,7 @@
  * and DOM APIs — see `./types.ts`.
  */
 
-import type { LogLevel, LogLine, ModelAction, ServiceAction } from "./types.js";
+import type { LogLevel, LogLine, ModelAction, ModelStatus, ServiceAction } from "./types.js";
 
 /** How many lines the browser keeps. Older lines fall off the front. */
 export const LOG_BUFFER_LIMIT = 500;
@@ -47,7 +47,8 @@ export type UiAction =
   | { type: "theme/toggle" }
   | { type: "copy/flag"; copied: boolean }
   | { type: "service/pending"; action: ServiceAction | null }
-  | { type: "model/pending"; modelId: string; action: ModelAction | null };
+  | { type: "model/pending"; modelId: string; action: ModelAction | null }
+  | { type: "models/observed"; models: readonly { id: string; status: ModelStatus }[] };
 
 export function initialUiState(theme: Theme): UiState {
   return {
@@ -163,6 +164,36 @@ export function reduce(state: UiState, action: UiAction): UiState {
         pendingModels[action.modelId] = action.action;
       }
       return { ...state, pendingModels };
+    }
+    case "models/observed": {
+      // The POST that started a load/unload returns while the model is still in
+      // flight, so the optimistic pending flag has to persist until a *later*
+      // snapshot shows the transition finished. A load is done once the model is
+      // loaded (active or resident); an unload once it is unloaded (or gone from
+      // the list). Until then the flag stays and the button keeps spinning.
+      const status = new Map(action.models.map((model) => [model.id, model.status]));
+      let pendingModels: Record<string, ModelAction> | null = null;
+      for (const [id, pending] of Object.entries(state.pendingModels)) {
+        const current = status.get(id);
+        // A load finishes once the model is loaded (active or resident); a load
+        // that the router accepted but then failed reverts to unloaded, which
+        // resolves the flag too — otherwise the button would spin forever. The
+        // card still reads `loading`/`downloading` straight off the status, so a
+        // flag cleared a poll early (the model briefly still unloaded right after
+        // the POST) re-shows as loading on its own. An unload finishes when the
+        // model is unloaded or gone.
+        const done =
+          pending === "load"
+            ? current === "active" ||
+              current === "resident" ||
+              current === "unloaded" ||
+              current === undefined
+            : current === "unloaded" || current === undefined;
+        if (!done) continue;
+        if (pendingModels === null) pendingModels = { ...state.pendingModels };
+        delete pendingModels[id];
+      }
+      return pendingModels === null ? state : { ...state, pendingModels };
     }
     default:
       return state;

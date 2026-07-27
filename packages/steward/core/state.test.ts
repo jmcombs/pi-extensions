@@ -166,6 +166,78 @@ describe("pending actions", () => {
   });
 });
 
+describe("pending lifecycle (models/observed)", () => {
+  function pending(a: "load" | "unload", id = "a"): UiState {
+    return reduce(initialUiState("light"), { type: "model/pending", modelId: id, action: a });
+  }
+
+  it("keeps a load pending while the model is still loading", () => {
+    const s = pending("load");
+    const next = reduce(s, { type: "models/observed", models: [{ id: "a", status: "loading" }] });
+    expect(next.pendingModels).toEqual({ a: "load" });
+    // A no-op reconcile returns the same object, so the poll can skip a repaint.
+    expect(next).toBe(s);
+  });
+
+  it("clears a load once the model reaches active or resident", () => {
+    expect(
+      reduce(pending("load"), {
+        type: "models/observed",
+        models: [{ id: "a", status: "resident" }],
+      }).pendingModels,
+    ).toEqual({});
+    expect(
+      reduce(pending("load"), { type: "models/observed", models: [{ id: "a", status: "active" }] })
+        .pendingModels,
+    ).toEqual({});
+  });
+
+  it("clears a load that the router accepted but then failed back to unloaded", () => {
+    // Otherwise the button would spin "Loading…" forever; the model reverting to
+    // unloaded is the only signal that a POST-accepted load did not complete.
+    expect(
+      reduce(pending("load"), {
+        type: "models/observed",
+        models: [{ id: "a", status: "unloaded" }],
+      }).pendingModels,
+    ).toEqual({});
+  });
+
+  it("clears an unload once the model is unloaded or gone from the list", () => {
+    expect(
+      reduce(pending("unload"), {
+        type: "models/observed",
+        models: [{ id: "a", status: "unloaded" }],
+      }).pendingModels,
+    ).toEqual({});
+    // A model that vanishes from /models is unloaded for our purposes.
+    expect(
+      reduce(pending("unload"), { type: "models/observed", models: [] }).pendingModels,
+    ).toEqual({});
+  });
+
+  it("does not clear an unload while the model is still resident", () => {
+    const s = pending("unload");
+    expect(reduce(s, { type: "models/observed", models: [{ id: "a", status: "resident" }] })).toBe(
+      s,
+    );
+  });
+
+  it("reconciles each pending model independently", () => {
+    let s = pending("load", "a");
+    s = reduce(s, { type: "model/pending", modelId: "b", action: "unload" });
+    const next = reduce(s, {
+      type: "models/observed",
+      models: [
+        { id: "a", status: "active" },
+        { id: "b", status: "resident" },
+      ],
+    });
+    // a's load is done; b's unload is not.
+    expect(next.pendingModels).toEqual({ b: "unload" });
+  });
+});
+
 describe("theme and copy flag", () => {
   it("flips the theme", () => {
     const dark = reduce(initialUiState("light"), { type: "theme/toggle" });

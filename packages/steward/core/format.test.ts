@@ -7,7 +7,10 @@ import {
   formatModelMeta,
   formatModelTuning,
   formatPercent,
+  formatSizeGB,
   formatTemperature,
+  formatTokenCount,
+  formatTps,
   formatUptime,
   temperatureBarPercent,
   temperatureColor,
@@ -104,11 +107,44 @@ describe("formatMemory", () => {
   });
 });
 
+describe("formatSizeGB", () => {
+  it("keeps up to two decimals and trims trailing zeros", () => {
+    expect(formatSizeGB(18.4)).toBe("18.4");
+    expect(formatSizeGB(0.5)).toBe("0.5");
+    // 423018496 bytes / 1e9 — the real small model in the fixtures.
+    expect(formatSizeGB(0.423018496)).toBe("0.42");
+    expect(formatSizeGB(22)).toBe("22");
+  });
+});
+
+describe("formatTokenCount", () => {
+  it("prints small counts whole and larger ones in binary thousands", () => {
+    expect(formatTokenCount(27)).toBe("27");
+    expect(formatTokenCount(40960)).toBe("40k");
+    expect(formatTokenCount(65536)).toBe("64k");
+    expect(formatTokenCount(8192)).toBe("8k");
+    expect(formatTokenCount(12400)).toBe("12.1k");
+  });
+
+  it("dashes to zero on a non-count instead of NaN", () => {
+    expect(formatTokenCount(Number.NaN)).toBe("0");
+    expect(formatTokenCount(0)).toBe("0");
+  });
+});
+
+describe("formatTps", () => {
+  it("rounds a rate and dashes a missing one", () => {
+    expect(formatTps(63.4)).toBe("63 t/s");
+    expect(formatTps(null)).toBe("—");
+    expect(formatTps(Number.NaN)).toBe("—");
+  });
+});
+
 describe("formatModelMeta", () => {
   const base: ModelInfo = {
     id: "qwen3.6-moe-a3b-instruct-q4_k_m",
     short: "qwen3.6-moe-a3b-instruct",
-    role: "chat",
+    embedding: false,
     quant: "Q4_K_M",
     sizeGB: 18.4,
     ctx: 65536,
@@ -130,16 +166,16 @@ describe("formatModelMeta", () => {
       ...base,
       id: "nomic-embed-text-v1.5-f16",
       short: "nomic-embed-text-v1.5",
-      role: "embed",
+      embedding: true,
       quant: "F16",
       sizeGB: 0.5,
       ctx: 8192,
       gpuLayers: null,
-      detail: "pooling mean",
-      status: "unloaded",
+      detail: "embedding",
+      status: "resident",
       tokensPerSecond: null,
     };
-    expect(formatModelMeta(embed)).toBe("F16 · 0.5 GB · ctx 8192 · pooling mean");
+    expect(formatModelMeta(embed)).toBe("F16 · 0.5 GB · ctx 8192 · embedding");
   });
 
   it("omits the tail entirely when neither is available", () => {
@@ -147,13 +183,22 @@ describe("formatModelMeta", () => {
       "Q4_K_M · 18.4 GB · ctx 65536",
     );
   });
+
+  it("shows the quant and lifecycle word when the model is not loaded", () => {
+    expect(formatModelMeta({ ...base, sizeGB: null, ctx: null, status: "unloaded" })).toBe(
+      "Q4_K_M · unloaded",
+    );
+    expect(
+      formatModelMeta({ ...base, quant: "", sizeGB: null, ctx: null, status: "downloading" }),
+    ).toBe("downloading");
+  });
 });
 
 describe("formatModelTuning", () => {
   const base: ModelInfo = {
     id: "qwen3.6-moe-a3b-instruct-q4_k_m",
     short: "qwen3.6-moe-a3b-instruct",
-    role: "chat",
+    embedding: false,
     quant: "Q4_K_M",
     sizeGB: 18.4,
     ctx: 65536,
@@ -174,6 +219,10 @@ describe("formatModelTuning", () => {
     expect(formatModelTuning({ ...base, parallel: 2, flashAttn: "off", kvCache: "f16/f16" })).toBe(
       "2 slots · flash off · kv f16/f16",
     );
+  });
+
+  it("drops the slot count when it is unknown", () => {
+    expect(formatModelTuning({ ...base, parallel: null })).toBe("flash on · kv q8_0/q8_0");
   });
 });
 

@@ -93,23 +93,10 @@ const MODELS = [
   {
     id: "qwen3.6-moe-a3b-instruct-q4_k_m",
     short: "qwen3.6-moe-a3b-instruct",
-    role: "chat",
+    embedding: false,
     quant: "Q4_K_M",
     sizeGB: 18.4,
     ctx: 65536,
-    gpuLayers: 48,
-    detail: null,
-    parallel: 4,
-    flashAttn: "on",
-    kvCache: "q8_0/q8_0",
-  },
-  {
-    id: "qwen3.6-moe-30b-thinking-q5_k_m",
-    short: "qwen3.6-moe-30b-thinking",
-    role: "reason",
-    quant: "Q5_K_M",
-    sizeGB: 22.1,
-    ctx: 32768,
     gpuLayers: 48,
     detail: null,
     parallel: 2,
@@ -117,27 +104,40 @@ const MODELS = [
     kvCache: "q8_0/q8_0",
   },
   {
+    id: "qwen3.6-moe-30b-thinking-q5_k_m",
+    short: "qwen3.6-moe-30b-thinking",
+    embedding: false,
+    quant: "Q5_K_M",
+    sizeGB: 22.1,
+    ctx: 32768,
+    gpuLayers: 48,
+    detail: null,
+    parallel: 1,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
+  },
+  {
     id: "qwen3.6-moe-coder-fim-q4_k_m",
     short: "qwen3.6-moe-coder-fim",
-    role: "fim",
+    embedding: false,
     quant: "Q4_K_M",
     sizeGB: 9.8,
     ctx: 16384,
     gpuLayers: 32,
     detail: null,
-    parallel: 4,
+    parallel: 1,
     flashAttn: "on",
     kvCache: "f16/f16",
   },
   {
     id: "nomic-embed-text-v1.5-f16",
     short: "nomic-embed-text-v1.5",
-    role: "embed",
+    embedding: true,
     quant: "F16",
     sizeGB: 0.5,
     ctx: 8192,
     gpuLayers: null,
-    detail: "pooling mean",
+    detail: "embedding",
     parallel: 1,
     flashAttn: "off",
     kvCache: "f16/f16",
@@ -158,10 +158,9 @@ const CONFIG: readonly ConfigEntry[] = [
 /** A slot as the simulation keeps it; {@link SlotInfo} is the projection. */
 interface SlotSim {
   id: number;
-  modelId: string | null;
-  client: string;
-  ctxUsed: string;
-  tokens: number;
+  promptTokens: number;
+  ctxTotal: number;
+  decoded: number;
   state: SlotState;
 }
 
@@ -196,33 +195,41 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     () => 40 + random() * 45,
   );
 
-  const slots: SlotSim[] = [
-    {
-      id: 0,
-      modelId: MODELS[0].id,
-      client: "pi · edit-session",
-      ctxUsed: "12.4k",
-      tokens: 268,
-      state: "processing",
-    },
-    {
-      id: 1,
-      modelId: MODELS[2].id,
-      client: "pi · inline-fim",
-      ctxUsed: "3.1k",
-      tokens: 41,
-      state: "processing",
-    },
-    {
-      id: 2,
-      modelId: MODELS[1].id,
-      client: "pi · plan-agent",
-      ctxUsed: "21.8k",
-      tokens: 0,
-      state: "idle",
-    },
-    { id: 3, modelId: null, client: "—", ctxUsed: "—", tokens: 0, state: "idle" },
-  ];
+  // Slots are grouped under their model — in routed mode each model runs its own
+  // `llama-server` with its own slot pool, so there is no flat, server-wide
+  // strip. Each loaded model gets `parallel` slots, created on demand.
+  const slotGroups = new Map<string, SlotSim[]>();
+
+  function ensureGroup(model: ModelSpec): SlotSim[] {
+    let group = slotGroups.get(model.id);
+    if (group === undefined) {
+      const count = model.parallel ?? 1;
+      group = Array.from({ length: count }, (_index, id) => ({
+        id,
+        promptTokens: 0,
+        ctxTotal: model.ctx ?? 0,
+        decoded: 0,
+        state: "idle" as SlotState,
+      }));
+      slotGroups.set(model.id, group);
+    }
+    return group;
+  }
+
+  /** Puts a specific slot into a working state, for the opening paint. */
+  function seedSlot(model: ModelSpec, slotId: number, promptTokens: number, decoded: number): void {
+    const slot = ensureGroup(model).find((candidate) => candidate.id === slotId);
+    if (slot === undefined) return;
+    slot.state = "processing";
+    slot.promptTokens = promptTokens;
+    slot.decoded = decoded;
+  }
+
+  for (const model of MODELS) {
+    if (!unloaded.has(model.id)) ensureGroup(model);
+  }
+  seedSlot(MODELS[0], 0, 12408, 268);
+  seedSlot(MODELS[2], 0, 3120, 41);
 
   /** Per-model generation rate, refreshed on each metrics tick. */
   const modelRates = new Map<string, number>();
@@ -235,7 +242,7 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
   let throughputTimer: ReturnType<typeof setInterval> | null = null;
 
   function isBusy(modelId: string): boolean {
-    return slots.some((slot) => slot.modelId === modelId && slot.state === "processing");
+    return slotGroups.get(modelId)?.some((slot) => slot.state === "processing") ?? false;
   }
 
   /**
@@ -247,7 +254,8 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     const loaded = MODELS.filter((model) => !unloaded.has(model.id));
     const model = loaded[Math.floor(random() * loaded.length)];
     if (model === undefined) return null;
-    const slot = Math.floor(random() * slots.length);
+    // A plausible slot number to name in the line — the model's own slot count.
+    const slot = Math.floor(random() * (model.parallel ?? 1));
     const task = seq + Math.floor(random() * 3);
     const roll = random();
 
@@ -327,10 +335,16 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     cpuUtil = 0.12 + random() * 0.3;
     gpuUtil = 0.6 + random() * 0.35;
 
-    for (const slot of slots) {
-      if (slot.modelId === null) continue;
-      slot.state = random() < 0.68 ? "processing" : "idle";
-      slot.tokens = Math.floor(random() * 520);
+    for (const model of MODELS) {
+      if (unloaded.has(model.id)) continue;
+      for (const slot of ensureGroup(model)) {
+        const processing = random() < 0.68;
+        slot.state = processing ? "processing" : "idle";
+        // An idle slot holds nothing; a working one holds a prompt and has
+        // decoded part of its reply. Both stay inside the slot's own context.
+        slot.promptTokens = processing ? Math.floor(random() * slot.ctxTotal * 0.5) : 0;
+        slot.decoded = processing ? Math.floor(random() * 520) : 0;
+      }
     }
 
     modelRates.clear();
@@ -353,18 +367,26 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
   }
 
   function buildSlots(): SlotInfo[] {
-    return slots.map((slot) => {
-      // A slot cannot be working if the service is down or its model left.
-      const off = slot.modelId === null || unloaded.has(slot.modelId) || !running;
-      return {
-        id: slot.id,
-        modelId: slot.modelId,
-        client: slot.client,
-        ctxUsed: slot.ctxUsed,
-        tokens: slot.tokens,
-        state: off ? "idle" : slot.state,
-      };
-    });
+    const out: SlotInfo[] = [];
+    // In models order, so the grouped strip lines up with the model cards.
+    for (const model of MODELS) {
+      if (unloaded.has(model.id)) continue;
+      const group = slotGroups.get(model.id);
+      if (group === undefined) continue;
+      for (const slot of group) {
+        // A slot cannot be working while the service is down.
+        const off = !running;
+        out.push({
+          id: slot.id,
+          modelId: model.id,
+          promptTokens: off ? 0 : slot.promptTokens,
+          ctxTotal: slot.ctxTotal,
+          decoded: off ? 0 : slot.decoded,
+          state: off ? "idle" : slot.state,
+        });
+      }
+    }
+    return out;
   }
 
   function buildMetrics(): HostMetrics {
@@ -441,14 +463,18 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     },
 
     setModel(modelId: string, action: ModelAction): Promise<void> {
-      if (!MODELS.some((model) => model.id === modelId)) {
+      const model = MODELS.find((candidate) => candidate.id === modelId);
+      if (model === undefined) {
         return Promise.reject(new Error(`Unknown model: ${modelId}`));
       }
       if (action === "unload") {
         unloaded.add(modelId);
         modelRates.delete(modelId);
+        // Its slots go with it; a later load starts from a fresh, idle pool.
+        slotGroups.delete(modelId);
       } else {
         unloaded.delete(modelId);
+        ensureGroup(model);
       }
       return Promise.resolve();
     },

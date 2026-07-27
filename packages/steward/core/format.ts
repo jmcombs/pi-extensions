@@ -91,23 +91,62 @@ export function temperatureBarPercent(celsius: number): number {
 }
 
 /**
- * A model card's meta line: `Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers`.
- * Models without a layer count (embedders) show their own detail instead.
+ * A size in GB with up to two decimals, trailing zeros trimmed: `18.4`, `0.42`,
+ * `0.5`. Two places keep sub-gigabyte models legible (`0.42`, not `0.4`) without
+ * making large ones noisy (`18.4`, not `18.40`).
+ */
+export function formatSizeGB(sizeGB: number): string {
+  return String(Number(sizeGB.toFixed(2)));
+}
+
+/**
+ * A token count for a tight label, keyed off binary thousands so that power-of-
+ * two context windows read as clean round values: `40960` → `40k`, `65536` →
+ * `64k`. Counts below 1024 print whole; larger ones show one decimal, trimmed
+ * when it is zero. A value that is not a number reads as `0`.
+ */
+export function formatTokenCount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value < 1024) return String(Math.round(value));
+  const thousands = Math.round((value / 1024) * 10) / 10;
+  return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}k`;
+}
+
+/** A generation-rate label, e.g. `63 t/s`, or an em dash when there is none. */
+export function formatTps(tokensPerSecond: number | null): string {
+  return tokensPerSecond !== null && Number.isFinite(tokensPerSecond)
+    ? `${Math.round(tokensPerSecond)} t/s`
+    : "—";
+}
+
+/**
+ * A model card's meta line. Loaded: `Q4_0 · 0.42 GB · ctx 40960` (with a GPU-
+ * layer or detail tail when present). Not loaded: llama.cpp ships no `meta`, so
+ * size and ctx are unknown — the line shows the best-effort quant and the
+ * lifecycle word (`Q4_0 · unloaded`) rather than blanks or `NaN`.
  */
 export function formatModelMeta(model: ModelInfo): string {
-  const parts = [model.quant, `${model.sizeGB.toFixed(1)} GB`, `ctx ${model.ctx}`];
+  if (model.sizeGB === null || model.ctx === null) {
+    return model.quant === "" ? model.status : `${model.quant} · ${model.status}`;
+  }
+  const parts = [model.quant, `${formatSizeGB(model.sizeGB)} GB`, `ctx ${model.ctx}`].filter(
+    (part) => part !== "",
+  );
   const tail = model.gpuLayers === null ? model.detail : `${model.gpuLayers} gpu layers`;
   if (tail) parts.push(tail);
   return parts.join(" · ");
 }
 
 /**
- * A model card's tuning line: `4 slots · flash on · kv q8_0/q8_0`. These come
- * from the model's preset, so they are known whether or not it is loaded —
- * unlike the runtime rate on the footer.
+ * A model card's tuning line: `4 slots · flash on · kv q8_0/q8_0`. The slot
+ * count is dropped when it is unknown (a loaded model whose `/slots` read
+ * failed); flash-attention and KV-cache come from the launch args and always
+ * have a value.
  */
 export function formatModelTuning(model: ModelInfo): string {
-  return `${model.parallel} slots · flash ${model.flashAttn} · kv ${model.kvCache}`;
+  const parts = model.parallel === null ? [] : [`${model.parallel} slots`];
+  parts.push(`flash ${model.flashAttn}`, `kv ${model.kvCache}`);
+  return parts.join(" · ");
 }
 
 /** One exported log line. Structurally satisfied by the console's view model. */

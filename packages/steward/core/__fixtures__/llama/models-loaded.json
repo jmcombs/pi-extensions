@@ -1,0 +1,41 @@
+{
+  "id": "Qwen3-0.6B-Q4_0",
+  "aliases": [],
+  "tags": [],
+  "object": "model",
+  "owned_by": "llamacpp",
+  "created": 1785167011,
+  "status": {
+    "value": "loaded",
+    "args": [
+      "/opt/homebrew/Cellar/llama.cpp/9960/bin/llama-server",
+      "--host",
+      "127.0.0.1",
+      "--metrics",
+      "--port",
+      "56568",
+      "--slots",
+      "--alias",
+      "Qwen3-0.6B-Q4_0",
+      "--model",
+      "/private/tmp/claude-501/-Users-jmcombs-Projects-pi-extensions/ad1b7de9-0a9b-4635-99e8-e7c0e9430fcb/scratchpad/models/Qwen3-0.6B-Q4_0.gguf"
+    ],
+    "preset": "[Qwen3-0.6B-Q4_0]\nmetrics = 1\nslots = 1\nmodel = /private/tmp/claude-501/-Users-jmcombs-Projects-pi-extensions/ad1b7de9-0a9b-4635-99e8-e7c0e9430fcb/scratchpad/models/Qwen3-0.6B-Q4_0.gguf\n\n"
+  },
+  "architecture": {
+    "input_modalities": ["text"],
+    "output_modalities": ["text"]
+  },
+  "source": "models_dir",
+  "can_remove": false,
+  "meta": {
+    "vocab_type": 2,
+    "n_vocab": 151936,
+    "n_ctx": 40960,
+    "n_ctx_train": 40960,
+    "n_embd": 1024,
+    "n_params": 751632384,
+    "size": 423018496,
+    "ftype": "Q4_0"
+  }
+}

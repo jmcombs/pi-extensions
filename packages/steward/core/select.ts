@@ -18,10 +18,13 @@ import {
   formatModelTuning,
   formatPercent,
   formatTemperature,
+  formatTokenCount,
+  formatTps,
   formatUptime,
   temperatureBarPercent,
   temperatureColor,
 } from "./format.js";
+import { modelColor } from "./model-color.js";
 import type { LevelFilter, UiState } from "./state.js";
 import { visibleBuffer } from "./state.js";
 import type {
@@ -29,10 +32,14 @@ import type {
   LogLevel,
   ModelAction,
   ModelInfo,
-  ModelRole,
   ServiceAction,
+  SlotInfo,
   Snapshot,
 } from "./types.js";
+
+// A model's color is a stable hash of its id (embedders get a reserved hue);
+// re-exported here because it is part of this module's view-model surface.
+export { modelColor } from "./model-color.js";
 
 /**
  * How many filtered lines reach the DOM. The buffer holds more; painting all of
@@ -45,14 +52,6 @@ const REQUESTS_FULL_SCALE = 30;
 
 /** Throughput tile: the bar reads full at this many tokens per second. */
 const THROUGHPUT_FULL_SCALE = 120;
-
-/** A model's color follows its role, so the four roles are always tellable apart. */
-const ROLE_COLORS: Record<ModelRole, string> = {
-  chat: "var(--latte-mauve)",
-  reason: "var(--latte-teal)",
-  fim: "var(--latte-peach)",
-  embed: "var(--latte-blue)",
-};
 
 const LEVEL_COLORS: Record<LogLevel, string> = {
   DEBUG: "var(--text-muted)",
@@ -84,10 +83,6 @@ function memoryLabel(usedGB: number, totalGB: number, decimals: number): string 
   return Number.isFinite(usedGB) && Number.isFinite(totalGB)
     ? formatMemory(usedGB, totalGB, decimals)
     : NO_READING;
-}
-
-export function modelColor(role: ModelRole): string {
-  return ROLE_COLORS[role];
 }
 
 export interface ServiceVm {
@@ -198,22 +193,37 @@ export interface ToolbarVm {
   copyLabel: string;
 }
 
-export interface SlotCardVm {
+export interface SlotDotVm {
   id: number;
-  label: string;
-  state: string;
-  stateBackground: string;
-  stateColor: string;
-  modelLabel: string;
-  modelColor: string;
-  /** `pi · edit-session · 12.4k · 268 tok` */
+  state: "processing" | "idle";
+  /** Context fill, 0–100, for a mini bar: `promptTokens / ctxTotal`. */
+  headroomPct: number;
+  /** `27 / 40k ctx · 5 decoded`, or `40k ctx · idle`. */
   detail: string;
 }
 
-export interface SlotsVm {
-  /** `2 of 4 processing` */
+export interface SlotGroupVm {
+  modelId: string;
+  /** The model's short name. */
+  modelLabel: string;
+  modelColor: string;
+  /** Slots in this group that are processing. */
+  busy: number;
+  /** Slots in this group. */
+  total: number;
+  /** `2/4 busy` */
   summary: string;
-  cards: SlotCardVm[];
+  slots: SlotDotVm[];
+}
+
+export interface SlotsVm {
+  /** One group per loaded model, in models order. */
+  groups: SlotGroupVm[];
+  /** True when no model is loaded (no groups). */
+  empty: boolean;
+  emptyLabel: string;
+  /** `3 of 8 processing`, summed across every group. */
+  totalSummary: string;
 }
 
 export interface DashboardVm {
@@ -313,40 +323,52 @@ function selectGauges(snapshot: Snapshot): GaugeVm[] {
   return gauges;
 }
 
+/** The card footer: status word plus, when active, the live generation rate. */
+function modelFooter(model: ModelInfo): { label: string; color: string } {
+  switch (model.status) {
+    case "active":
+      return { label: `active · ${formatTps(model.tokensPerSecond)}`, color: "var(--success)" };
+    case "resident":
+      return { label: "resident · idle", color: "var(--text-tertiary)" };
+    case "loading":
+      return { label: "loading…", color: "var(--text-secondary)" };
+    case "downloading":
+      return { label: "downloading…", color: "var(--text-secondary)" };
+    default:
+      return { label: "unloaded · —", color: "var(--text-subtle)" };
+  }
+}
+
 function selectModels(snapshot: Snapshot, ui: UiState): ModelCardVm[] {
   return snapshot.models.map((model) => {
-    const color = modelColor(model.role);
+    const color = modelColor(model.id, model.embedding);
     const selected = ui.filterModel === model.id;
     const loaded = model.status !== "unloaded";
     const pendingAction = ui.pendingModels[model.id];
-    const rate =
-      model.status === "unloaded"
-        ? "—"
-        : model.status === "active" && model.tokensPerSecond !== null
-          ? `${Math.round(model.tokensPerSecond)} t/s`
-          : "idle";
+    // The card shows the loading state whenever the model is mid-transition,
+    // whether this operator started it (a local pending flag) or the polled
+    // status arrived already `loading`/`downloading` (someone else did).
+    const statusPending = model.status === "loading" || model.status === "downloading";
+    const footer = modelFooter(model);
 
     return {
       id: model.id,
       short: model.short,
       meta: formatModelMeta(model),
-      tuning: formatModelTuning(model),
+      // Tuning is a loaded-model fact; unloaded (and in-flight) cards hide it.
+      tuning:
+        model.status === "active" || model.status === "resident" ? formatModelTuning(model) : "",
       color,
       selected,
       cardBackground: selected ? tint(color, 10) : "var(--surface-page)",
       cardBorder: selected ? tint(color, 50) : "var(--border)",
-      footerLabel: `${model.status} · ${rate}`,
-      footerColor:
-        model.status === "active"
-          ? "var(--success)"
-          : model.status === "resident"
-            ? "var(--text-tertiary)"
-            : "var(--text-subtle)",
+      footerLabel: footer.label,
+      footerColor: footer.color,
       buttonAction: loaded ? "unload" : "load",
       buttonLabel:
         pendingAction === "unload"
           ? "Unloading…"
-          : pendingAction === "load"
+          : pendingAction === "load" || statusPending
             ? "Loading…"
             : loaded
               ? "Unload"
@@ -354,7 +376,7 @@ function selectModels(snapshot: Snapshot, ui: UiState): ModelCardVm[] {
       buttonBackground: loaded ? "var(--surface-page)" : "var(--accent)",
       buttonColor: loaded ? "var(--error)" : "var(--accent-fg)",
       buttonBorder: loaded ? tint("var(--error)", 40) : "var(--accent)",
-      pending: pendingAction !== undefined,
+      pending: pendingAction !== undefined || statusPending,
     };
   });
 }
@@ -437,7 +459,7 @@ function selectLines(snapshot: Snapshot, ui: UiState): LogRowVm[] {
       modelColor:
         ui.filterModel !== null || model === undefined
           ? "var(--text-muted)"
-          : modelColor(model.role),
+          : modelColor(model.id, model.embedding),
       message: line.message,
     });
   }
@@ -450,7 +472,8 @@ function selectToolbar(
   lineCount: number,
   activeModel: ModelInfo | undefined,
 ): ToolbarVm {
-  const activeColor = activeModel === undefined ? "var(--accent)" : modelColor(activeModel.role);
+  const activeColor =
+    activeModel === undefined ? "var(--accent)" : modelColor(activeModel.id, activeModel.embedding);
 
   return {
     activeModelLabel: activeModel?.short ?? ui.filterModel ?? "all models",
@@ -479,33 +502,61 @@ function selectToolbar(
   };
 }
 
+/** One slot's dot view-model, honouring the service being down. */
+function selectSlotDot(slot: SlotInfo, running: boolean): SlotDotVm {
+  // A slot cannot be working if the service is stopped, whatever the poll said.
+  const processing = running && slot.state === "processing";
+  const ctx = formatTokenCount(slot.ctxTotal);
+  return {
+    id: slot.id,
+    state: processing ? "processing" : "idle",
+    headroomPct: barPercent(slot.ctxTotal === 0 ? 0 : slot.promptTokens / slot.ctxTotal),
+    detail: processing
+      ? `${slot.promptTokens} / ${ctx} ctx · ${slot.decoded} decoded`
+      : `${ctx} ctx · idle`,
+  };
+}
+
 function selectSlots(snapshot: Snapshot): SlotsVm {
-  const models = new Map(snapshot.models.map((m) => [m.id, m]));
   const running = snapshot.service.running;
+  // Slots arrive flat but belong to one model each; bucket them by model so a
+  // group can be built per loaded model, in the order MODELS lists them.
+  const byModel = new Map<string, SlotInfo[]>();
+  for (const slot of snapshot.slots) {
+    const bucket = byModel.get(slot.modelId);
+    if (bucket === undefined) byModel.set(slot.modelId, [slot]);
+    else bucket.push(slot);
+  }
 
-  const cards = snapshot.slots.map((slot) => {
-    const model = slot.modelId === null ? undefined : models.get(slot.modelId);
-    // A slot cannot be working if its model went away or the service stopped,
-    // whatever the last poll said.
-    const dormant = model === undefined || model.status === "unloaded" || !running;
-    const state = dormant ? "idle" : slot.state;
-    const processing = state === "processing";
-    const tokens = processing ? `${slot.tokens} tok` : "—";
+  const groups: SlotGroupVm[] = [];
+  for (const model of snapshot.models) {
+    if (model.status !== "active" && model.status !== "resident") continue;
+    const modelSlots = byModel.get(model.id);
+    // A loaded model whose /slots read was dropped contributes no slots and so
+    // no group, rather than an empty one.
+    if (modelSlots === undefined || modelSlots.length === 0) continue;
 
-    return {
-      id: slot.id,
-      label: `slot ${slot.id}`,
-      state,
-      stateBackground: processing ? tint("var(--success)", 16) : "var(--surface-raised)",
-      stateColor: processing ? "var(--success)" : "var(--text-tertiary)",
-      modelLabel: model?.short ?? "free",
-      modelColor: model !== undefined && !dormant ? modelColor(model.role) : "var(--text-subtle)",
-      detail: `${slot.client} · ${slot.ctxUsed} · ${tokens}`,
-    };
-  });
+    const dots = modelSlots.map((slot) => selectSlotDot(slot, running));
+    const busy = dots.filter((dot) => dot.state === "processing").length;
+    groups.push({
+      modelId: model.id,
+      modelLabel: model.short,
+      modelColor: modelColor(model.id, model.embedding),
+      busy,
+      total: dots.length,
+      summary: `${busy}/${dots.length} busy`,
+      slots: dots,
+    });
+  }
 
-  const busy = cards.filter((c) => c.state === "processing").length;
-  return { summary: `${busy} of ${cards.length} processing`, cards };
+  const busyTotal = groups.reduce((sum, group) => sum + group.busy, 0);
+  const slotTotal = groups.reduce((sum, group) => sum + group.total, 0);
+  return {
+    groups,
+    empty: groups.length === 0,
+    emptyLabel: "no models loaded",
+    totalSummary: `${busyTotal} of ${slotTotal} busy`,
+  };
 }
 
 /** Builds the whole dashboard view model for one repaint. */

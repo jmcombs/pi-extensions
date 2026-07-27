@@ -1,27 +1,51 @@
 /**
- * The live source's contract is: overlay CONFIG, delegate the rest, and never
- * throw or hang. These tests inject a fetch (they do not stand up a server) to
- * exercise our own error handling — the "not reachable", 401, and HTTP-error
- * overlays — and pair it with a real mock fallback to prove every other panel
- * still comes through untouched. The 200 path is fed the captured real router
- * `/props`.
+ * The live source's contract is: overlay CONFIG, MODELS and SLOTS, delegate the
+ * rest, and never throw or hang; and perform load/unload for real, surfacing a
+ * failure rather than swallowing it. These tests inject a path-aware fetch (they
+ * do not stand up a server) to exercise our own orchestration and error
+ * handling, and pair it with a real mock fallback to prove every other panel
+ * still comes through untouched. Parser correctness lives in the `llama-models`,
+ * `llama-slots`, and `llama-config` suites, against the captured real fixtures.
  */
 
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { type FetchLike, LlamaConfigSource } from "./llama-source.js";
+import { type FetchLike, LlamaSource } from "./llama-source.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
 import type { StewardDataSource } from "./source.js";
 
-function fixture(name: string): unknown {
-  return JSON.parse(readFileSync(new URL(`./__fixtures__/llama/${name}`, import.meta.url), "utf8"));
-}
-
-const ROUTER_PROPS = fixture("props-router.json");
-const AUTH_ERROR = fixture("props-401.json");
-
 const CONNECTION = { baseUrl: "http://127.0.0.1:8080", apiKey: "" };
+const KEYED = { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" };
 const LISTEN_ROW = { key: "listen", value: "127.0.0.1:8080" };
+
+const ROUTER_PROPS = {
+  role: "router",
+  build_info: "b9960-a935fbffe",
+  max_instances: 4,
+  models_autoload: false,
+};
+
+const LOADED_MODEL = {
+  id: "M1",
+  status: { value: "loaded", args: [] },
+  architecture: { output_modalities: ["text"] },
+  meta: { ftype: "Q4_0", size: 423_018_496, n_ctx: 40960 },
+};
+const UNLOADED_MODEL = {
+  id: "M2",
+  status: { value: "unloaded", args: [] },
+  architecture: { output_modalities: ["text"] },
+};
+const MODELS_BODY = { object: "list", data: [LOADED_MODEL, UNLOADED_MODEL] };
+
+const IDLE_SLOTS = [
+  { id: 0, n_ctx: 40960, is_processing: false },
+  { id: 1, n_ctx: 40960, is_processing: false },
+];
+const BUSY_SLOTS = [
+  { id: 0, n_ctx: 40960, is_processing: true, n_prompt_tokens: 27, next_token: [{ n_decoded: 5 }] },
+  { id: 1, n_ctx: 40960, is_processing: false },
+];
+const METRICS_TEXT = "llamacpp:predicted_tokens_seconds 63.42\n";
 
 /** xorshift32 — deterministic, matching the mock source's own test harness. */
 function seededRandom(seed: number): () => number {
@@ -50,18 +74,70 @@ function createFallback(overrides: MockSourceOptions = {}): StewardDataSource {
   });
 }
 
-/** A fetch that resolves with a fixed status and JSON body. */
-function respond(status: number, body: unknown): FetchLike {
-  const ok = status >= 200 && status < 300;
-  return () => Promise.resolve({ status, ok, json: () => Promise.resolve(body) });
+type Response = Awaited<ReturnType<FetchLike>>;
+
+function jsonResponse(status: number, body: unknown): Response {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: () => Promise.resolve(body),
+    text: () => Promise.resolve(typeof body === "string" ? body : JSON.stringify(body)),
+  };
 }
 
-/** A fetch that rejects, as the platform does on a refused connection. */
+function textResponse(status: number, text: string): Response {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    json: () => Promise.resolve({}),
+    text: () => Promise.resolve(text),
+  };
+}
+
+interface Handlers {
+  props?: () => Promise<Response>;
+  models?: () => Promise<Response>;
+  slots?: (url: string) => Promise<Response>;
+  metrics?: (url: string) => Promise<Response>;
+  post?: (
+    url: string,
+    body: unknown,
+    headers: Record<string, string> | undefined,
+  ) => Promise<Response>;
+}
+
+/** A fetch that dispatches by path, so each endpoint can be scripted apart. */
+function routerFetch(handlers: Handlers): FetchLike {
+  return (url, init) => {
+    if (url.includes("/models/load") || url.includes("/models/unload")) {
+      const body: unknown = init?.body === undefined ? undefined : JSON.parse(init.body);
+      return (handlers.post ?? (() => Promise.resolve(jsonResponse(200, { success: true }))))(
+        url,
+        body,
+        init?.headers,
+      );
+    }
+    if (url.includes("/props")) {
+      return (handlers.props ?? (() => Promise.resolve(jsonResponse(200, ROUTER_PROPS))))();
+    }
+    if (url.includes("/slots")) {
+      return (handlers.slots ?? (() => Promise.resolve(jsonResponse(200, IDLE_SLOTS))))(url);
+    }
+    if (url.includes("/metrics")) {
+      return (handlers.metrics ?? (() => Promise.resolve(textResponse(200, METRICS_TEXT))))(url);
+    }
+    if (url.includes("/models")) {
+      return (handlers.models ?? (() => Promise.resolve(jsonResponse(200, MODELS_BODY))))();
+    }
+    return Promise.reject(new Error(`unrouted ${url}`));
+  };
+}
+
 const refused: FetchLike = () => Promise.reject(new Error("ECONNREFUSED"));
 
-describe("LlamaConfigSource", () => {
+describe("LlamaSource — snapshot overlay", () => {
   it("names itself llama.cpp", () => {
-    const source = new LlamaConfigSource({ connection: CONNECTION, fallback: createFallback() });
+    const source = new LlamaSource({ connection: CONNECTION, fallback: createFallback() });
     try {
       expect(source.name).toBe("llama.cpp");
     } finally {
@@ -69,170 +145,133 @@ describe("LlamaConfigSource", () => {
     }
   });
 
-  it("overlays the five live rows and leaves every other panel to the fallback", async () => {
+  it("overlays config, models and slots and leaves the other panels to the fallback", async () => {
     const fallback = createFallback();
-    const source = new LlamaConfigSource({
+    const source = new LlamaSource({
       connection: CONNECTION,
       fallback,
-      fetch: respond(200, ROUTER_PROPS),
+      fetch: routerFetch({}),
     });
     try {
       const reference = await fallback.snapshot();
       const snapshot = await source.snapshot();
 
-      expect(snapshot.config).toEqual([
-        { key: "role", value: "router" },
-        { key: "binary", value: "llama-server b9960-a935fbffe" },
-        LISTEN_ROW,
-        { key: "max models", value: "4" },
-        { key: "autoload", value: "off" },
-      ]);
+      expect(snapshot.config[0]).toEqual({ key: "role", value: "router" });
+      expect(snapshot.models.map((m) => m.id)).toEqual(["M1", "M2"]);
+      expect(snapshot.models[0]).toMatchObject({
+        status: "resident",
+        parallel: 2,
+        ctx: 40960,
+        tokensPerSecond: null,
+      });
+      expect(snapshot.models[0]?.sizeGB).toBeCloseTo(0.423, 3);
+      expect(snapshot.models[1]).toMatchObject({ id: "M2", status: "unloaded" });
+      expect(snapshot.slots).toHaveLength(2);
+      expect(snapshot.slots.every((slot) => slot.modelId === "M1")).toBe(true);
 
-      // Everything but config must be exactly what the fallback produced.
-      const { config: _live, ...liveRest } = snapshot;
-      const { config: _mock, ...mockRest } = reference;
+      // Everything but config/models/slots must be exactly the fallback's.
+      const { config: _c, models: _m, slots: _s, ...liveRest } = snapshot;
+      const { config: _c2, models: _m2, slots: _s2, ...mockRest } = reference;
       expect(liveRest).toEqual(mockRest);
     } finally {
       source.close();
     }
   });
 
-  it("shows the not-reachable overlay when the server is down, without throwing", async () => {
-    const fallback = createFallback();
-    const source = new LlamaConfigSource({ connection: CONNECTION, fallback, fetch: refused });
+  it("upgrades a model to active with a rate when one of its slots is processing", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ slots: () => Promise.resolve(jsonResponse(200, BUSY_SLOTS)) }),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.models[0]).toMatchObject({ status: "active", tokensPerSecond: 63.42 });
+      const processing = snapshot.slots.filter((slot) => slot.state === "processing");
+      expect(processing).toHaveLength(1);
+      expect(processing[0]).toMatchObject({ promptTokens: 27, decoded: 5, ctxTotal: 40960 });
+    } finally {
+      source.close();
+    }
+  });
+
+  it("degrades models and slots to empty when /models fails, but keeps config", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(503, { error: "x" })) }),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.models).toEqual([]);
+      expect(snapshot.slots).toEqual([]);
+      // Config is read independently, so it survives a models outage.
+      expect(snapshot.config[0]).toEqual({ key: "role", value: "router" });
+    } finally {
+      source.close();
+    }
+  });
+
+  it("drops only the affected group when a per-model /slots read fails", async () => {
+    const twoLoaded = {
+      object: "list",
+      data: [LOADED_MODEL, { ...LOADED_MODEL, id: "M3" }],
+    };
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        models: () => Promise.resolve(jsonResponse(200, twoLoaded)),
+        slots: (url) =>
+          url.includes("M3")
+            ? Promise.reject(new Error("reset"))
+            : Promise.resolve(jsonResponse(200, IDLE_SLOTS)),
+      }),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      // Both models still appear; only M3's slots are gone.
+      expect(snapshot.models.map((m) => m.id)).toEqual(["M1", "M3"]);
+      expect(new Set(snapshot.slots.map((s) => s.modelId))).toEqual(new Set(["M1"]));
+      expect(snapshot.models[1]).toMatchObject({ id: "M3", status: "resident" });
+    } finally {
+      source.close();
+    }
+  });
+
+  it("degrades every live panel but keeps the fallback when the server is down", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: refused,
+    });
     try {
       const snapshot = await source.snapshot();
       expect(snapshot.config).toEqual([
         { key: "status", value: "llama.cpp not reachable" },
         LISTEN_ROW,
       ]);
-      // The rest of the dashboard keeps coming through.
-      expect(snapshot.models).toHaveLength(4);
-      expect(snapshot.slots).toHaveLength(4);
+      expect(snapshot.models).toEqual([]);
+      expect(snapshot.slots).toEqual([]);
+      // The panels we have not moved yet keep animating from the mock.
+      expect(snapshot.throughputHistory).toHaveLength(42);
+      expect(snapshot.service.running).toBe(true);
     } finally {
       source.close();
     }
   });
 
-  it("shows the login overlay on a 401", async () => {
-    const source = new LlamaConfigSource({
+  it("shows the login overlay on a 401 to /props", async () => {
+    const source = new LlamaSource({
       connection: CONNECTION,
       fallback: createFallback(),
-      fetch: respond(401, AUTH_ERROR),
+      fetch: routerFetch({
+        props: () => Promise.resolve(jsonResponse(401, { error: "unauthorized" })),
+      }),
     });
     try {
       expect((await source.snapshot()).config).toEqual([
         { key: "status", value: "API key required — run /login llama.cpp" },
-        LISTEN_ROW,
-      ]);
-    } finally {
-      source.close();
-    }
-  });
-
-  it("shows an HTTP-error overlay on any other non-2xx", async () => {
-    const source = new LlamaConfigSource({
-      connection: CONNECTION,
-      fallback: createFallback(),
-      fetch: respond(503, { error: "unavailable" }),
-    });
-    try {
-      expect((await source.snapshot()).config).toEqual([
-        { key: "status", value: "llama.cpp error (HTTP 503)" },
-        LISTEN_ROW,
-      ]);
-    } finally {
-      source.close();
-    }
-  });
-
-  it("sends the bearer header only when a key is set", async () => {
-    let headers: Record<string, string> | undefined;
-    const capture: FetchLike = (_input, init) => {
-      headers = init?.headers;
-      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(ROUTER_PROPS) });
-    };
-
-    const keyed = new LlamaConfigSource({
-      connection: { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" },
-      fallback: createFallback(),
-      fetch: capture,
-    });
-    try {
-      await keyed.snapshot();
-      expect(headers?.Authorization).toBe("Bearer sk-abc");
-    } finally {
-      keyed.close();
-    }
-
-    const keyless = new LlamaConfigSource({
-      connection: CONNECTION,
-      fallback: createFallback(),
-      fetch: capture,
-    });
-    try {
-      await keyless.snapshot();
-      expect(headers?.Authorization).toBeUndefined();
-    } finally {
-      keyless.close();
-    }
-  });
-
-  it("renders single-model rows when the server is not a router", async () => {
-    const single = { model_path: "/models/x.gguf", build_info: "b9960-a935fbffe" };
-    const source = new LlamaConfigSource({
-      connection: CONNECTION,
-      fallback: createFallback(),
-      fetch: respond(200, single),
-    });
-    try {
-      expect((await source.snapshot()).config).toEqual([
-        { key: "role", value: "single-model" },
-        { key: "binary", value: "llama-server b9960-a935fbffe" },
-        LISTEN_ROW,
-      ]);
-    } finally {
-      source.close();
-    }
-  });
-
-  it("degrades a partial /props to em dashes, never undefined", async () => {
-    const source = new LlamaConfigSource({
-      connection: CONNECTION,
-      fallback: createFallback(),
-      fetch: respond(200, { role: "router" }),
-    });
-    try {
-      const { config } = await source.snapshot();
-      expect(config).toEqual([
-        { key: "role", value: "router" },
-        { key: "binary", value: "—" },
-        LISTEN_ROW,
-        { key: "max models", value: "—" },
-        { key: "autoload", value: "—" },
-      ]);
-    } finally {
-      source.close();
-    }
-  });
-
-  it("degrades when the server drops between two polls, with no leftover state", async () => {
-    let call = 0;
-    const flaky: FetchLike = () => {
-      call += 1;
-      return call === 1
-        ? Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(ROUTER_PROPS) })
-        : Promise.reject(new Error("connection reset"));
-    };
-    const source = new LlamaConfigSource({
-      connection: CONNECTION,
-      fallback: createFallback(),
-      fetch: flaky,
-    });
-    try {
-      expect((await source.snapshot()).config[0]).toEqual({ key: "role", value: "router" });
-      expect((await source.snapshot()).config).toEqual([
-        { key: "status", value: "llama.cpp not reachable" },
         LISTEN_ROW,
       ]);
     } finally {
@@ -259,9 +298,8 @@ describe("LlamaConfigSource", () => {
       });
     };
 
-    const source = new LlamaConfigSource({ connection: CONNECTION, fallback, fetch: hanging });
+    const source = new LlamaSource({ connection: CONNECTION, fallback, fetch: hanging });
     const pending = source.snapshot();
-    // Let snapshot() get past the fallback read and issue the fetch.
     await Promise.resolve();
     await Promise.resolve();
 
@@ -270,9 +308,103 @@ describe("LlamaConfigSource", () => {
 
     expect(signal?.aborted).toBe(true);
     expect(fallbackClosed).toBe(true);
+    expect(snapshot.models).toEqual([]);
     expect(snapshot.config).toEqual([
       { key: "status", value: "llama.cpp not reachable" },
       LISTEN_ROW,
     ]);
+  });
+});
+
+describe("LlamaSource — setModel", () => {
+  it("POSTs the load body with the bearer and resolves on success", async () => {
+    const calls: { url: string; body: unknown; headers: Record<string, string> | undefined }[] = [];
+    const source = new LlamaSource({
+      connection: KEYED,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        post: (url, body, headers) => {
+          calls.push({ url, body, headers });
+          return Promise.resolve(jsonResponse(200, { success: true }));
+        },
+      }),
+    });
+    try {
+      await expect(source.setModel("M1", "load")).resolves.toBeUndefined();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.url).toContain("/models/load");
+      expect(calls[0]?.body).toEqual({ model: "M1" });
+      expect(calls[0]?.headers?.Authorization).toBe("Bearer sk-abc");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("POSTs to the unload path", async () => {
+    const urls: string[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        post: (target) => {
+          urls.push(target);
+          return Promise.resolve(jsonResponse(200, { success: true }));
+        },
+      }),
+    });
+    try {
+      await source.setModel("M1", "unload");
+      expect(urls[0]).toContain("/models/unload");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("sends no bearer header when the connection is keyless", async () => {
+    const headerSets: (Record<string, string> | undefined)[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        post: (_url, _body, sent) => {
+          headerSets.push(sent);
+          return Promise.resolve(jsonResponse(200, { success: true }));
+        },
+      }),
+    });
+    try {
+      await source.setModel("M1", "load");
+      expect(headerSets[0]?.Authorization).toBeUndefined();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("rejects with a readable message on a 404", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        post: () => Promise.resolve(jsonResponse(404, { error: { code: 404 } })),
+      }),
+    });
+    try {
+      await expect(source.setModel("bogus", "load")).rejects.toThrow("load failed: HTTP 404");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("rejects when a 200 does not confirm success", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ post: () => Promise.resolve(jsonResponse(200, { success: false })) }),
+    });
+    try {
+      await expect(source.setModel("M1", "load")).rejects.toThrow(/did not confirm/);
+    } finally {
+      source.close();
+    }
   });
 });

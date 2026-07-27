@@ -964,7 +964,7 @@ button {
 }
 
 /* ===================================================================
-   Slots strip
+   Slots panel — grouped under the model that owns them
    =================================================================== */
 
 .slots {
@@ -977,7 +977,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .slots__summary {
@@ -986,60 +986,70 @@ button {
   color: var(--text-tertiary);
 }
 
-.slots__grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+/* Shown in place of the groups when no model is loaded. */
+.slots__empty {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-subtle);
+}
+
+.slots__empty[hidden] {
+  display: none;
+}
+
+/* One line of chips, one per loaded model, wrapping only when many are loaded. */
+.slots__chips {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.slot {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.slot__head {
-  display: flex;
+/* A chip: the model's color dot, its short name, and its `busy/total` slots.
+   A busy chip is tinted green so activity reads at a glance; the fraction and
+   the word in the hover title carry it too, so color is never the only signal. */
+.slot-chip {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.slot__id {
-  color: var(--text-muted);
-}
-
-.slot__state {
-  padding: 1px 7px;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-full);
-  font-size: 10.5px;
-  font-weight: 700;
-  background: var(--bg, var(--surface-raised));
-  color: var(--fg, var(--text-tertiary));
-}
-
-.slot__model {
+  background: var(--surface-page);
   font-family: var(--font-mono);
   font-size: 11.5px;
+  cursor: default;
+}
+
+.slot-chip[data-busy="true"] {
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.slot-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--model-color, var(--accent));
+  flex: none;
+}
+
+/* Never clipped — a truncated model name is indistinguishable from a full one,
+   so the name always shows whole and the chip sizes to it (chips wrap as units
+   when a row runs out of room). */
+.slot-chip__name {
   font-weight: 700;
-  color: var(--model-color, var(--text-subtle));
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
-.slot__detail {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
+.slot-chip__count {
+  color: var(--text-tertiary);
   white-space: nowrap;
+}
+
+.slot-chip[data-busy="true"] .slot-chip__count {
+  color: var(--success);
 }
 
 /* ===================================================================
@@ -1141,23 +1151,16 @@ button {
   }
 
   /* With no rail beside it the main column is wider than it was at the design
-     width, so the band and the strip only give up columns once the window
-     itself is narrower than that. */
+     width, so the band only gives up columns once the window itself is
+     narrower than that. The slot grid tracks the viewport on its own — its
+     `auto-fill` template reflows without a breakpoint. */
   .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .slots__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 480px) {
   .metrics {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .slots__grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

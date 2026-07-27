@@ -173,6 +173,11 @@ async function refresh(): Promise<void> {
     }
     snapshot = (await response.json()) as Snapshot;
     snapshotAt = Date.now();
+    // The reducer, not this module, decides when a load/unload is done: it
+    // clears a model's pending flag once this fresh snapshot shows the status
+    // it was waiting for. The POST returned while the model was still
+    // `loading`, so only the poll can confirm the transition.
+    dispatch({ type: "models/observed", models: snapshot.models });
     render();
   } catch {
     announce("Lost contact with the Steward server.");
@@ -242,14 +247,25 @@ async function runService(action: ServiceAction): Promise<void> {
   dispatch({ type: "service/pending", action: null });
 }
 
+/**
+ * Load/unload is slow and asynchronous — the POST returns in tens of
+ * milliseconds while the model is still spawning — so the button is not cleared
+ * here. It is marked pending, and it stays pending until a polled snapshot
+ * shows the model reached its target status (the reducer clears it from
+ * `models/observed`). Only a rejected POST clears the flag directly, so a
+ * request that never took does not spin forever.
+ */
 async function runModel(modelId: string, action: ModelAction): Promise<void> {
   if (ui.pendingModels[modelId] !== undefined) return;
   dispatch({ type: "model/pending", modelId, action });
   announce(`${action === "load" ? "Loading" : "Unloading"} ${modelId}.`);
   const ok = await post(`/api/models/${encodeURIComponent(modelId)}/${action}`);
-  if (!ok) announce(`Could not ${action} ${modelId}.`);
+  if (!ok) {
+    announce(`Could not ${action} ${modelId}.`);
+    dispatch({ type: "model/pending", modelId, action: null });
+    return;
+  }
   await refresh();
-  dispatch({ type: "model/pending", modelId, action: null });
 }
 
 async function copyLog(): Promise<void> {

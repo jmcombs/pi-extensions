@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { modelColor } from "./model-color.js";
 import { LOG_RENDER_LIMIT, selectDashboard, selectLogText } from "./select.js";
 import type { UiState } from "./state.js";
 import { initialUiState, reduce } from "./state.js";
@@ -15,7 +16,7 @@ const MODELS: ModelInfo[] = [
   {
     id: CHAT,
     short: "qwen3.6-moe-a3b-instruct",
-    role: "chat",
+    embedding: false,
     quant: "Q4_K_M",
     sizeGB: 18.4,
     ctx: 65536,
@@ -30,7 +31,7 @@ const MODELS: ModelInfo[] = [
   {
     id: REASON,
     short: "qwen3.6-moe-30b-thinking",
-    role: "reason",
+    embedding: false,
     quant: "Q5_K_M",
     sizeGB: 22.1,
     ctx: 32768,
@@ -45,13 +46,14 @@ const MODELS: ModelInfo[] = [
   {
     id: EMBED,
     short: "nomic-embed-text-v1.5",
-    role: "embed",
+    embedding: true,
     quant: "F16",
-    sizeGB: 0.5,
-    ctx: 8192,
+    // Unloaded: llama.cpp ships no `meta`, so size and ctx are unknown.
+    sizeGB: null,
+    ctx: null,
     gpuLayers: null,
-    detail: "pooling mean",
-    parallel: 1,
+    detail: "embedding",
+    parallel: null,
     flashAttn: "off",
     kvCache: "f16/f16",
     status: "unloaded",
@@ -75,20 +77,13 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
       {
         id: 0,
         modelId: CHAT,
-        client: "pi · edit-session",
-        ctxUsed: "12.4k",
-        tokens: 268,
+        promptTokens: 12408,
+        ctxTotal: 65536,
+        decoded: 268,
         state: "processing",
       },
-      {
-        id: 1,
-        modelId: REASON,
-        client: "pi · plan-agent",
-        ctxUsed: "21.8k",
-        tokens: 0,
-        state: "idle",
-      },
-      { id: 2, modelId: null, client: "—", ctxUsed: "—", tokens: 0, state: "idle" },
+      { id: 1, modelId: CHAT, promptTokens: 0, ctxTotal: 65536, decoded: 0, state: "idle" },
+      { id: 0, modelId: REASON, promptTokens: 0, ctxTotal: 32768, decoded: 0, state: "idle" },
     ],
     metrics: {
       vramUsedGB: 29.83,
@@ -237,13 +232,14 @@ describe("model cards", () => {
       "unloaded · —",
     ]);
     expect(vm.models[0]?.meta).toBe("Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers");
-    expect(vm.models[2]?.meta).toBe("F16 · 0.5 GB · ctx 8192 · pooling mean");
+    // Unloaded: no meta on the wire, so size/ctx are omitted for the quant word.
+    expect(vm.models[2]?.meta).toBe("F16 · unloaded");
   });
 
-  it("carries each model's preset tuning as a second meta line", () => {
+  it("carries each loaded model's tuning and hides it when unloaded", () => {
     const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
     expect(vm.models[0]?.tuning).toBe("4 slots · flash on · kv q8_0/q8_0");
-    expect(vm.models[2]?.tuning).toBe("1 slots · flash off · kv f16/f16");
+    expect(vm.models[2]?.tuning).toBe("");
   });
 
   it("offers Unload for resident models and Load for unloaded ones", () => {
@@ -270,13 +266,50 @@ describe("model cards", () => {
   it("tints the selected card in the model's own color", () => {
     const ui = reduce(initialUiState("light"), { type: "filter/model-toggle", modelId: REASON });
     const vm = selectDashboard(snapshot(), ui, NOW);
+    const reasonColor = modelColor(REASON, false);
     expect(vm.models[1]?.selected).toBe(true);
+    expect(vm.models[1]?.color).toBe(reasonColor);
     expect(vm.models[1]?.cardBackground).toBe(
-      "color-mix(in srgb, var(--latte-teal) 10%, transparent)",
+      `color-mix(in srgb, ${reasonColor} 10%, transparent)`,
     );
-    expect(vm.models[1]?.cardBorder).toBe("color-mix(in srgb, var(--latte-teal) 50%, transparent)");
+    expect(vm.models[1]?.cardBorder).toBe(`color-mix(in srgb, ${reasonColor} 50%, transparent)`);
     expect(vm.models[0]?.cardBackground).toBe("var(--surface-page)");
     expect(vm.allLogsPill.active).toBe(false);
+  });
+
+  it("gives an embedder the reserved hue and hashes everything else", () => {
+    const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
+    expect(vm.models[2]?.color).toBe("var(--latte-blue)");
+    expect(vm.models[0]?.color).toBe(modelColor(CHAT, false));
+    expect(vm.models[0]?.color).not.toBe("var(--latte-blue)");
+  });
+
+  it("renders the loading and downloading states on the footer and button", () => {
+    // A model still loading has no `meta` on the wire, so size/ctx are null.
+    const inFlight = MODELS.map((m) => {
+      if (m.id === CHAT) {
+        return { ...m, status: "loading" as const, sizeGB: null, ctx: null, tokensPerSecond: null };
+      }
+      if (m.id === REASON) {
+        return {
+          ...m,
+          status: "downloading" as const,
+          sizeGB: null,
+          ctx: null,
+          tokensPerSecond: null,
+        };
+      }
+      return m;
+    });
+    const vm = selectDashboard(snapshot({ models: inFlight }), initialUiState("light"), NOW);
+    expect(vm.models[0]?.footerLabel).toBe("loading…");
+    expect(vm.models[0]?.buttonLabel).toBe("Loading…");
+    expect(vm.models[0]?.pending).toBe(true);
+    expect(vm.models[1]?.footerLabel).toBe("downloading…");
+    expect(vm.models[1]?.pending).toBe(true);
+    // No meta size/ctx while in flight — just the quant and the lifecycle word.
+    expect(vm.models[0]?.meta).toBe("Q4_K_M · loading");
+    expect(vm.models[0]?.tuning).toBe("");
   });
 });
 
@@ -447,7 +480,7 @@ describe("log rows", () => {
     const row = selectDashboard(snapshot(), ui, NOW).lines[0];
     expect(row?.time).toBe("09:04:07.042");
     expect(row?.model).toBe("qwen3.6-moe-a3b-instruct");
-    expect(row?.modelColor).toBe("var(--latte-mauve)");
+    expect(row?.modelColor).toBe(modelColor(CHAT, false));
     expect(row?.levelColor).toBe("var(--info)");
   });
 
@@ -474,7 +507,7 @@ describe("toolbar", () => {
     const ui = reduce(initialUiState("light"), { type: "filter/model-toggle", modelId: CHAT });
     const scoped = selectDashboard(snapshot(), ui, NOW);
     expect(scoped.toolbar.activeModelLabel).toBe("qwen3.6-moe-a3b-instruct");
-    expect(scoped.toolbar.activeModelColor).toBe("var(--latte-mauve)");
+    expect(scoped.toolbar.activeModelColor).toBe(modelColor(CHAT, false));
   });
 
   it("marks exactly one level chip active", () => {
@@ -495,25 +528,43 @@ describe("toolbar", () => {
   });
 });
 
-describe("slots strip", () => {
-  it("counts the working slots and names the free ones", () => {
+describe("grouped slots", () => {
+  it("groups slots under each loaded model, numbered per model", () => {
     const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
-    expect(vm.slots.summary).toBe("1 of 3 processing");
-    expect(vm.slots.cards[0]).toMatchObject({
-      label: "slot 0",
-      state: "processing",
+    expect(vm.slots.empty).toBe(false);
+    expect(vm.slots.totalSummary).toBe("1 of 3 busy");
+    expect(vm.slots.groups.map((g) => g.modelId)).toEqual([CHAT, REASON]);
+
+    const chat = vm.slots.groups[0];
+    expect(chat).toMatchObject({
       modelLabel: "qwen3.6-moe-a3b-instruct",
-      modelColor: "var(--latte-mauve)",
-      detail: "pi · edit-session · 12.4k · 268 tok",
+      modelColor: modelColor(CHAT, false),
+      busy: 1,
+      total: 2,
+      summary: "1/2 busy",
     });
-    expect(vm.slots.cards[1]?.detail).toBe("pi · plan-agent · 21.8k · —");
-    expect(vm.slots.cards[2]).toMatchObject({
-      modelLabel: "free",
-      modelColor: "var(--text-subtle)",
+    expect(chat?.slots[0]).toMatchObject({
+      id: 0,
+      state: "processing",
+      detail: "12408 / 64k ctx · 268 decoded",
     });
+    expect(chat?.slots[1]?.detail).toBe("64k ctx · idle");
+
+    const reason = vm.slots.groups[1];
+    expect(reason).toMatchObject({ busy: 0, total: 1, summary: "0/1 busy" });
+    expect(reason?.slots[0]?.detail).toBe("32k ctx · idle");
   });
 
-  it("idles every slot while the service is down", () => {
+  it("shows the empty state when no model is loaded", () => {
+    const models = MODELS.map((m) => ({ ...m, status: "unloaded" as const }));
+    const vm = selectDashboard(snapshot({ models, slots: [] }), initialUiState("light"), NOW);
+    expect(vm.slots.empty).toBe(true);
+    expect(vm.slots.emptyLabel).toBe("no models loaded");
+    expect(vm.slots.groups).toEqual([]);
+    expect(vm.slots.totalSummary).toBe("0 of 0 busy");
+  });
+
+  it("idles every slot while the service is down but keeps the groups", () => {
     const down = snapshot({
       service: {
         running: false,
@@ -525,15 +576,15 @@ describe("slots strip", () => {
       },
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);
-    expect(vm.slots.summary).toBe("0 of 3 processing");
-    expect(vm.slots.cards.every((c) => c.state === "idle")).toBe(true);
+    expect(vm.slots.totalSummary).toBe("0 of 3 busy");
+    expect(vm.slots.groups).toHaveLength(2);
+    expect(vm.slots.groups.every((g) => g.slots.every((s) => s.state === "idle"))).toBe(true);
   });
 
-  it("idles slots whose model was unloaded", () => {
+  it("drops the group of a model that was unloaded", () => {
     const models = MODELS.map((m) => (m.id === CHAT ? { ...m, status: "unloaded" as const } : m));
     const vm = selectDashboard(snapshot({ models }), initialUiState("light"), NOW);
-    expect(vm.slots.cards[0]?.state).toBe("idle");
-    expect(vm.slots.cards[0]?.modelColor).toBe("var(--text-subtle)");
+    expect(vm.slots.groups.map((g) => g.modelId)).toEqual([REASON]);
   });
 });
 

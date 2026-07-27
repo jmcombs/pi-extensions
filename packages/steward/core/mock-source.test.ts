@@ -59,12 +59,21 @@ describe("createMockSource", () => {
       ]);
       expect(snapshot.models[3]?.status).toBe("unloaded");
       expect(snapshot.models[3]?.tokensPerSecond).toBeNull();
-      expect(snapshot.models[3]?.detail).toBe("pooling mean");
+      expect(snapshot.models[3]?.embedding).toBe(true);
+      expect(snapshot.models[3]?.detail).toBe("embedding");
       expect(snapshot.models[3]?.gpuLayers).toBeNull();
 
+      // Three models loaded (chat 2 + reason 1 + fim 1 slots); nomic unloaded.
       expect(snapshot.slots).toHaveLength(4);
-      expect(snapshot.slots[3]?.modelId).toBeNull();
-      expect(snapshot.slots[0]?.client).toBe("pi · edit-session");
+      expect(snapshot.slots.every((slot) => typeof slot.modelId === "string")).toBe(true);
+      expect(snapshot.slots[0]).toMatchObject({
+        id: 0,
+        modelId: "qwen3.6-moe-a3b-instruct-q4_k_m",
+        promptTokens: 12408,
+        ctxTotal: 65536,
+        decoded: 268,
+        state: "processing",
+      });
       expect(snapshot.metrics.vramTotalGB).toBe(48);
       expect(snapshot.metrics.ramTotalGB).toBe(128);
       expect(snapshot.throughputHistory).toHaveLength(42);
@@ -191,7 +200,10 @@ describe("createMockSource", () => {
       const unloadedSnapshot = await source.snapshot();
       expect(unloadedSnapshot.models[0]?.status).toBe("unloaded");
       expect(unloadedSnapshot.models[0]?.tokensPerSecond).toBeNull();
-      expect(unloadedSnapshot.slots[0]?.state).toBe("idle");
+      // The unloaded model's slot group goes with it — no slot names it anymore.
+      expect(
+        unloadedSnapshot.slots.every((slot) => slot.modelId !== "qwen3.6-moe-a3b-instruct-q4_k_m"),
+      ).toBe(true);
 
       const sinceUnload = source.recentLogs(500).filter((line) => line.seq > lastSeeded);
       expect(sinceUnload.length).toBeGreaterThan(0);

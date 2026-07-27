@@ -99,17 +99,17 @@ type SourceFactory = () => StewardDataSource;
  * A factory for the live source when `STEWARD_SOURCE=llama`, else `undefined`
  * (the mock default). Building it needs the connection, which we resolve once
  * from the command's context — inside Pi that reads the operator's configured
- * provider auth; the factory then pairs a live CONFIG reader with a fresh mock
- * for every other panel. Everything is imported lazily so the extension costs
- * nothing until the dashboard is actually asked for.
+ * provider auth; the factory then pairs a live CONFIG/MODELS/SLOTS reader with a
+ * fresh mock for every other panel. Everything is imported lazily so the
+ * extension costs nothing until the dashboard is actually asked for.
  */
 async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | undefined> {
   if ((process.env[SOURCE_VARIABLE] ?? "").trim().toLowerCase() !== "llama") return undefined;
   const { resolveLlamaConnection } = await import("./core/llama-connection.js");
-  const { LlamaConfigSource } = await import("./core/llama-source.js");
+  const { LlamaSource } = await import("./core/llama-source.js");
   const { createMockSource } = await import("./core/mock-source.js");
   const connection = await resolveLlamaConnection(ctx);
-  return () => new LlamaConfigSource({ connection, fallback: createMockSource() });
+  return () => new LlamaSource({ connection, fallback: createMockSource() });
 }
 
 async function launch(makeSource?: SourceFactory): Promise<Launched> {
