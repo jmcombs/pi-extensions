@@ -96,6 +96,7 @@ export interface Expected {
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_end, agent_end     | —                                     |
 // | prompt-enhancer | —                                 | enhance, enhance-model, enhance-revert                     | session_start, session_shutdown, model_select, input     | shortcuts ctrl+shift+p, ctrl+shift+z  |
 // | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok (via stub) |
+// | steward         | —                                 | steward, steward-stop                                      | session_shutdown                                         | —                                     |
 // | tavily-search   | tavily_search                     | tavily_setup                                               | —                                                        | —                                     |
 
 export const EXPECTED: Record<string, Expected> = {
@@ -145,6 +146,11 @@ export const EXPECTED: Record<string, Expected> = {
   relay: {
     providers: ["relay-claude", "relay-grok"],
     note: "providers only: relay-claude, relay-grok (via stub registerProvider)",
+  },
+  steward: {
+    commands: ["steward", "steward-stop"],
+    handlers: ["session_shutdown"],
+    note: "steward/steward-stop commands + session_shutdown handler; the dashboard server only starts on demand",
   },
   "tavily-search": {
     tools: ["tavily_search"],

@@ -1,0 +1,1166 @@
+/* Steward — the llama.cpp control panel for Pi.
+ *
+ * Self-contained: the Netservant design tokens are vendored below rather than
+ * linked, so the dashboard renders identically wherever it is served from and
+ * survives having no network. Only the webfonts are remote, and the fallback
+ * stacks keep the layout honest when they fail to load.
+ *
+ * Components set colors through custom properties (--bg, --fg, --bd, --fill,
+ * …) instead of writing `style.background` directly. That leaves :hover,
+ * :active and :focus-visible free to win in the cascade, which is what makes
+ * the control states below actually apply to tinted controls.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+/* ===================================================================
+   Tokens — Catppuccin Latte with the Path Blue accent.
+   The syntax-highlighting and diff tiers of the design system are left
+   out: the dashboard renders no code.
+   =================================================================== */
+
+:root {
+  /* Raw palette: Latte accents */
+  --latte-rosewater: #dc8a78;
+  --latte-flamingo: #dd7878;
+  --latte-pink: #ea76cb;
+  --latte-mauve: #8839ef;
+  --latte-red: #d20f39;
+  --latte-maroon: #e64553;
+  --latte-peach: #fe640b;
+  --latte-yellow: #df8e1d;
+  --latte-green: #40a02b;
+  --latte-teal: #179299;
+  --latte-sky: #04a5e5;
+  --latte-sapphire: #209fb5;
+  --latte-blue: #1e66f5;
+  --latte-lavender: #7287fd;
+
+  /* Raw palette: Latte neutrals, dark to light */
+  --latte-text: #4c4f69;
+  --latte-subtext1: #5c5f77;
+  --latte-subtext0: #6c6f85;
+  --latte-overlay2: #7c7f93;
+  --latte-overlay1: #8c8fa1;
+  --latte-overlay0: #9ca0b0;
+  --latte-surface2: #acb0be;
+  --latte-surface1: #bcc0cc;
+  --latte-surface0: #ccd0da;
+  --latte-base: #eff1f5;
+  --latte-mantle: #e6e9ef;
+  --latte-crust: #dce0e8;
+
+  /* Signature colors */
+  --psl-path-blue: #3465a4;
+  --psl-path-blue-active: #2855a3;
+  --psl-path-blue-soft: #5a85c2;
+  --psl-selection-bg: #a9c1e2;
+  --psl-selection-fg: #24292f;
+
+  /* Surfaces */
+  --surface-page: var(--latte-base);
+  --surface-panel: var(--latte-mantle);
+  --surface-chrome: var(--latte-crust);
+  --surface-raised: var(--latte-surface0);
+  --surface-raised-1: var(--latte-surface1);
+  --surface-raised-2: var(--latte-surface2);
+
+  /* Text */
+  --text-primary: var(--latte-text);
+  --text-secondary: var(--latte-subtext1);
+  --text-tertiary: var(--latte-subtext0);
+  --text-muted: var(--latte-overlay1);
+  --text-subtle: var(--latte-overlay0);
+  --text-on-accent: var(--latte-base);
+
+  /* Borders */
+  --border: var(--latte-surface0);
+  --border-strong: var(--latte-overlay0);
+  --border-active: var(--psl-path-blue);
+
+  /* Accent */
+  --accent: var(--psl-path-blue);
+  --accent-hover: var(--psl-path-blue-active);
+  --accent-soft: var(--psl-path-blue-soft);
+  --accent-fg: var(--latte-base);
+
+  /* Status */
+  --success: var(--latte-green);
+  --warning: var(--latte-yellow);
+  --error: var(--latte-red);
+  --info: var(--latte-teal);
+
+  /* Links, selection, cursor */
+  --link: var(--latte-blue);
+  --link-hover: var(--latte-sky);
+  --link-visited: var(--latte-lavender);
+  --selection-bg: var(--psl-selection-bg);
+  --selection-fg: var(--psl-selection-fg);
+  --cursor: var(--latte-rosewater);
+
+  /* Type */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", monospace;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-ui: var(--font-sans);
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* Shadows — cool and low, tuned for the Latte surface */
+  --shadow-xs: 0 1px 2px rgba(76, 79, 105, 0.06);
+  --shadow-sm: 0 1px 3px rgba(76, 79, 105, 0.08), 0 1px 2px rgba(76, 79, 105, 0.06);
+  --shadow-md: 0 4px 12px rgba(76, 79, 105, 0.1), 0 2px 4px rgba(76, 79, 105, 0.06);
+  --shadow-lg: 0 12px 28px rgba(76, 79, 105, 0.14), 0 4px 8px rgba(76, 79, 105, 0.07);
+
+  /* Focus ring — always Path Blue, never the browser default */
+  --ring: 0 0 0 3px color-mix(in srgb, var(--psl-path-blue) 35%, transparent);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 300ms;
+  --dur-bar: 400ms;
+}
+
+/* Dark mode is a Catppuccin Mocha ramp with a lightened Path Blue. The
+   semantic aliases are declared with var() on :root, so they were already
+   resolved light there — overriding the raw ramp alone is not enough and each
+   alias has to be re-declared in this scope. */
+[data-theme="dark"] {
+  --latte-rosewater: #f5e0dc;
+  --latte-flamingo: #f2cdcd;
+  --latte-pink: #f5c2e7;
+  --latte-mauve: #cba6f7;
+  --latte-red: #f38ba8;
+  --latte-maroon: #eba0ac;
+  --latte-peach: #fab387;
+  --latte-yellow: #f9e2af;
+  --latte-green: #a6e3a1;
+  --latte-teal: #94e2d5;
+  --latte-sky: #89dceb;
+  --latte-sapphire: #74c7ec;
+  --latte-blue: #89b4fa;
+  --latte-lavender: #b4befe;
+
+  --latte-text: #cdd6f4;
+  --latte-subtext1: #bac2de;
+  --latte-subtext0: #a6adc8;
+  --latte-overlay2: #9399b2;
+  --latte-overlay1: #7f849c;
+  --latte-overlay0: #6c7086;
+  --latte-surface2: #585b70;
+  --latte-surface1: #45475a;
+  --latte-surface0: #313244;
+  --latte-base: #1e1e2e;
+  --latte-mantle: #181825;
+  --latte-crust: #11111b;
+
+  --psl-path-blue: #7aa2d6;
+  --psl-path-blue-active: #8fb3e0;
+  --psl-path-blue-soft: #3465a4;
+  --psl-selection-bg: #3a4a6b;
+  --psl-selection-fg: #cdd6f4;
+
+  /* On-accent text reads dark on the lightened blue */
+  --text-on-accent: #11111b;
+  --accent-fg: #11111b;
+
+  --surface-page: var(--latte-base);
+  --surface-panel: var(--latte-mantle);
+  --surface-chrome: var(--latte-crust);
+  --surface-raised: var(--latte-surface0);
+  --surface-raised-1: var(--latte-surface1);
+  --surface-raised-2: var(--latte-surface2);
+  --text-primary: var(--latte-text);
+  --text-secondary: var(--latte-subtext1);
+  --text-tertiary: var(--latte-subtext0);
+  --text-muted: var(--latte-overlay1);
+  --text-subtle: var(--latte-overlay0);
+  --border: var(--latte-surface0);
+  --border-strong: var(--latte-overlay0);
+  --border-active: var(--psl-path-blue);
+  --accent: var(--psl-path-blue);
+  --accent-hover: var(--psl-path-blue-active);
+  --accent-soft: var(--psl-path-blue-soft);
+  --success: var(--latte-green);
+  --warning: var(--latte-yellow);
+  --error: var(--latte-red);
+  --info: var(--latte-teal);
+  --link: var(--latte-blue);
+  --link-hover: var(--latte-sky);
+  --link-visited: var(--latte-lavender);
+  --selection-bg: var(--psl-selection-bg);
+  --selection-fg: var(--psl-selection-fg);
+  --cursor: var(--latte-rosewater);
+
+  /* Shadows go to black on dark surfaces */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.46), 0 4px 8px rgba(0, 0, 0, 0.32);
+}
+
+/* ===================================================================
+   Base
+   =================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===================================================================
+   Shell
+   =================================================================== */
+
+.shell {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--surface-page);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface-panel);
+  border-right: 1px solid var(--border);
+}
+
+.rail__block {
+  border-bottom: 1px solid var(--border);
+}
+
+.rail__block--service {
+  padding: 20px 20px 18px;
+}
+
+.rail__block--host,
+.rail__block--models {
+  padding: 18px 20px;
+}
+
+.rail__block--config {
+  padding: 18px 20px 24px;
+  border-bottom: 0;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ===================================================================
+   Shared atoms
+   =================================================================== */
+
+/* The block eyebrows are the page's headings, so the class carries the reset
+   that keeps an <h2> looking exactly like the label it has always been. */
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Blocks whose eyebrow stands alone need the same 12px breathing room that
+   `.block__head` gives the ones with a control on the right. */
+.rail__block > .eyebrow {
+  margin-bottom: 12px;
+}
+
+.block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.bar__fill {
+  height: 100%;
+  width: 0;
+  border-radius: var(--radius-full);
+  background: var(--fill, var(--accent));
+  transition: width var(--dur-bar) var(--ease-out);
+}
+
+/* Buttons. Neutral controls repaint their surface on hover; filled and tinted
+   ones keep their assigned color and darken one step instead. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.btn:hover {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+}
+
+.btn:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.btn:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.btn:disabled:hover {
+  background: var(--surface-page);
+  border-color: var(--border);
+  filter: none;
+}
+
+.btn:disabled:active {
+  transform: none;
+}
+
+.btn--filled {
+  border-color: var(--bd, transparent);
+  background: var(--bg, var(--accent));
+  color: var(--fg, var(--accent-fg));
+  font-weight: 700;
+}
+
+.btn--filled:hover {
+  filter: brightness(0.94);
+  background: var(--bg, var(--accent));
+  border-color: var(--bd, transparent);
+}
+
+.btn--filled:disabled:hover {
+  background: var(--bg, var(--accent));
+  border-color: var(--bd, transparent);
+}
+
+.btn--block {
+  flex: 1;
+  height: 36px;
+}
+
+.btn--md {
+  height: 36px;
+  padding: 0 14px;
+}
+
+.btn--icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.btn--sm {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.btn--toolbar {
+  height: 28px;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Chips and pills carry their own tint, so hover darkens rather than repaints. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bd, var(--border));
+  background: var(--bg, var(--surface-page));
+  color: var(--fg, var(--text-tertiary));
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    filter var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.chip:hover {
+  filter: brightness(0.95);
+  border-color: var(--border-strong);
+}
+
+.chip:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.chip--pause {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  padding: 0 13px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--bd, var(--border));
+  background: var(--bg, var(--surface-page));
+  color: var(--fg, var(--text-tertiary));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    filter var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.pill:hover {
+  filter: brightness(0.95);
+  border-color: var(--border-strong);
+}
+
+.pill:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.pill:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* ===================================================================
+   Rail — service
+   =================================================================== */
+
+.lockup {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 5px;
+  color: var(--accent);
+}
+
+.lockup__mark {
+  flex: none;
+}
+
+.lockup__name {
+  /* The lockup is the page's h1. */
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.lockup__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--fill, var(--success));
+}
+
+.engine-line {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+}
+
+.service__controls {
+  display: flex;
+  gap: 8px;
+}
+
+.service__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+/* ===================================================================
+   Rail — host gauges
+   =================================================================== */
+
+.gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gauge__head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.gauge__label {
+  color: var(--text-secondary);
+}
+
+.gauge__value {
+  color: var(--fill, var(--accent));
+  font-weight: 700;
+}
+
+/* ===================================================================
+   Rail — models
+   =================================================================== */
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-card {
+  padding: 12px 13px;
+  border: 1px solid var(--bd, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--bg, var(--surface-page));
+  cursor: pointer;
+  transition:
+    box-shadow var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.model-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.model-card:active {
+  transform: translateY(0.5px);
+}
+
+.model-card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.model-card__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+
+.model-card__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--model-color, var(--accent));
+  flex: none;
+}
+
+.model-card__name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-card__meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 9px;
+}
+
+.model-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.model-card__status {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--fg, var(--text-tertiary));
+}
+
+/* ===================================================================
+   Rail — config
+   =================================================================== */
+
+.config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.config-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.config-row__key {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.config-row__value {
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+/* ===================================================================
+   Metrics band
+   =================================================================== */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr) 1.4fr;
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 16px 20px;
+  background: var(--surface-page);
+  min-width: 0;
+}
+
+.metric .eyebrow {
+  font-size: 11px;
+}
+
+.kpi__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.kpi__value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fill, var(--accent));
+}
+
+.kpi__unit,
+.kpi__sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.bar--kpi {
+  height: 4px;
+}
+
+.spark__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Under the 1280px design width the chart cell is too narrow to hold the label
+   and the summary side by side. Let the summary drop to its own line rather
+   than be clipped by the shell — the design width itself is untouched. */
+@media (max-width: 1279px) {
+  .spark__head {
+    flex-wrap: wrap;
+  }
+}
+
+.spark__summary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  /* At the narrow end of the design range the header row runs out of room;
+     the label may wrap, but breaking "peak 96 tok/s" across lines would read
+     as two different numbers. */
+  white-space: nowrap;
+}
+
+.spark__plot {
+  position: relative;
+  height: 46px;
+}
+
+.spark__avg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  border-top: 1px dashed var(--border-strong);
+  opacity: 0.7;
+}
+
+.spark__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100%;
+}
+
+/* The chart redraws every sample, so the bars and the average rule are not
+   animated: only the gauge and KPI fills transition. */
+.spark__bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 1px;
+  background: var(--fill, var(--accent));
+}
+
+.spark__axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-subtle);
+}
+
+/* ===================================================================
+   Console toolbar
+   =================================================================== */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-chrome);
+}
+
+.toolbar__label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+.toolbar__active {
+  padding: 4px 11px;
+  border-radius: var(--radius-full);
+  background: var(--bg, transparent);
+  color: var(--fg, var(--accent));
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar__levels {
+  display: flex;
+  gap: 6px;
+}
+
+.toolbar__count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.search {
+  height: 28px;
+  flex: 1;
+  min-width: 140px;
+  padding: 0 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.search::placeholder {
+  color: var(--text-subtle);
+}
+
+.search:hover {
+  border-color: var(--border-strong);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--border-active);
+  box-shadow: var(--ring);
+}
+
+/* ===================================================================
+   Log console
+   =================================================================== */
+
+.console {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 0;
+  background: var(--surface-chrome);
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 92px 54px minmax(0, 200px) minmax(0, 1fr);
+  gap: 12px;
+  padding: 3px 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-row__ts {
+  color: var(--text-subtle);
+}
+
+.log-row__level {
+  color: var(--level-color, var(--info));
+  font-weight: 700;
+}
+
+.log-row__model {
+  color: var(--model-color, var(--text-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-row__msg {
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.console__empty {
+  padding: 20px 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+/* ===================================================================
+   Slots strip
+   =================================================================== */
+
+.slots {
+  border-top: 1px solid var(--border);
+  background: var(--surface-page);
+  padding: 12px 18px 14px;
+}
+
+.slots__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.slots__summary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+.slots__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.slot__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.slot__id {
+  color: var(--text-muted);
+}
+
+.slot__state {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--bg, var(--surface-raised));
+  color: var(--fg, var(--text-tertiary));
+}
+
+.slot__model {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--model-color, var(--text-subtle));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot__detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===================================================================
+   Narrow viewports — the rail becomes a top bar
+   =================================================================== */
+
+@media (max-width: 1100px) {
+  /* The rail stops being a column and becomes a band across the top: the shell
+     splits into two rows, and the band lays its blocks out side by side. It is
+     never a scroller of its own — it is exactly as tall as its content, and the
+     console takes what is left. */
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .rail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Service and Host pair off in the first row; the two list blocks take the
+     full width so their rows can spread sideways instead of stacking. Reading
+     order is untouched — the blocks land where they already were. */
+  .rail__block--service {
+    border-right: 1px solid var(--border);
+  }
+
+  .rail__block--models,
+  .rail__block--config {
+    grid-column: 1 / -1;
+  }
+
+  .rail__block--config {
+    padding: 18px 20px;
+  }
+
+  /* The block contents reflow into as many columns as their rows can hold, so
+     a block that was six rows tall in the 340px rail is two or three rows tall
+     in the band. */
+  .gauges {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px 20px;
+  }
+
+  .model-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  /* Cards in a row are stretched to a common height, so the footer is pinned
+     rather than left floating under a meta line that wrapped one line short. */
+  .model-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .model-card__foot {
+    margin-top: auto;
+  }
+
+  .config-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 7px 24px;
+  }
+
+  /* A definite basis: the console asks for 240px so the document never sizes
+     itself to the whole log buffer, then grows into whatever the viewport has
+     left over. */
+  .console {
+    flex: 1 1 240px;
+  }
+
+  /* Nothing clips the page below the design range, so the throughput summary —
+     which must not break mid-figure — drops to its own line rather than push
+     the document sideways. */
+  .spark__head {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Too narrow for two blocks abreast; the band becomes one column, and each
+     block still spreads its own rows across the full width. */
+  .rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail__block--service {
+    border-right: 0;
+  }
+
+  /* With no rail beside it the main column is wider than it was at the design
+     width, so the band and the strip only give up columns once the window
+     itself is narrower than that. */
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .slots__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .slots__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Every transition in this sheet is timed by one of the duration tokens, so
+   collapsing the tokens is enough to honour a reduced-motion preference — no
+   universal `!important` override, and nothing left animating behind it. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
+    --dur-bar: 1ms;
+  }
+}

@@ -172,6 +172,7 @@ exact-set, so anything **missing or extra** fails. The only per-host difference 
 | `notify`          | —                                         | `notify`                                                             | `agent_start`, `turn_end`, `tool_execution_end`, `agent_end`   | —                                                  |
 | `prompt-enhancer` | —                                         | `enhance`, `enhance-model`, `enhance-revert`                        | `session_start`, `session_shutdown`, `model_select`, `input`   | shortcuts `ctrl+shift+p`, `ctrl+shift+z`           |
 | `relay`           | —                                         | —                                                                   | —                                                              | providers `relay-claude`, `relay-grok` (via a stub host API — providers are not exposed by the loader result) |
+| `steward`         | —                                         | `steward`, `steward-stop`                                           | `session_shutdown`                                             | —                                                  |
 | `tavily-search`   | `tavily_search`                           | `tavily_setup`                                                      | —                                                              | —                                                  |
 
 The table lives in the harness (`docker/smoke-harness.mts`) as the data it validates
