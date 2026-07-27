@@ -23,7 +23,8 @@
     "ui/",
     "README.md",
     "LICENSE",
-    "!**/*.test.ts"
+    "!**/*.test.ts",
+    "!**/__fixtures__"
   ],
   "keywords": [
     "pi-package",

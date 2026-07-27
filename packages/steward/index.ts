@@ -21,6 +21,8 @@
 
 import { spawn } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ConnectionContext } from "./core/llama-connection.js";
+import type { StewardDataSource } from "./core/source.js";
 import type { StewardServer } from "./server/index.js";
 
 /**
@@ -28,6 +30,14 @@ import type { StewardServer } from "./server/index.js";
  * matching `scripts/dev.ts`. `0` asks the OS for any free port.
  */
 const PORT_VARIABLE = "STEWARD_PORT";
+
+/**
+ * Selects the data source. Unset or `mock` keeps the simulated dashboard (the
+ * default, so everyone gets a deterministic view). `llama` overlays a live
+ * CONFIG panel read from the real `llama-server`, while every other panel stays
+ * simulated for now. Live is opt-in until the whole snapshot is migrated.
+ */
+const SOURCE_VARIABLE = "STEWARD_SOURCE";
 
 /** The dashboard is per-session: one server, started on first use. */
 let server: StewardServer | null = null;
@@ -82,13 +92,35 @@ interface Launched extends Dashboard {
   instance: StewardServer;
 }
 
-async function launch(): Promise<Launched> {
+/** Builds one fresh source, or `undefined` to let the server use its mock. */
+type SourceFactory = () => StewardDataSource;
+
+/**
+ * A factory for the live source when `STEWARD_SOURCE=llama`, else `undefined`
+ * (the mock default). Building it needs the connection, which we resolve once
+ * from the command's context — inside Pi that reads the operator's configured
+ * provider auth; the factory then pairs a live CONFIG reader with a fresh mock
+ * for every other panel. Everything is imported lazily so the extension costs
+ * nothing until the dashboard is actually asked for.
+ */
+async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | undefined> {
+  if ((process.env[SOURCE_VARIABLE] ?? "").trim().toLowerCase() !== "llama") return undefined;
+  const { resolveLlamaConnection } = await import("./core/llama-connection.js");
+  const { LlamaConfigSource } = await import("./core/llama-source.js");
+  const { createMockSource } = await import("./core/mock-source.js");
+  const connection = await resolveLlamaConnection(ctx);
+  return () => new LlamaConfigSource({ connection, fallback: createMockSource() });
+}
+
+async function launch(makeSource?: SourceFactory): Promise<Launched> {
   // Imported lazily so loading the extension costs nothing until the dashboard
   // is actually asked for.
   const { createStewardServer, DEFAULT_PORT } = await import("./server/index.js");
   const preferred = configuredPort() ?? DEFAULT_PORT;
 
-  const first = createStewardServer({ port: preferred });
+  // A fresh source per attempt: a start that fails to bind closes the source it
+  // was given, so the fallback attempt must not be handed a spent one.
+  const first = createStewardServer({ port: preferred, source: makeSource?.() });
   try {
     return { instance: first, url: await first.start(), displaced: null };
   } catch (error) {
@@ -98,7 +130,7 @@ async function launch(): Promise<Launched> {
   // A particular port is a convenience, not a requirement: a second Pi session
   // or a dev server left running holds it far more often than anything is
   // actually wrong, and the operator gets a URL either way.
-  const fallback = createStewardServer({ port: 0 });
+  const fallback = createStewardServer({ port: 0, source: makeSource?.() });
   try {
     return { instance: fallback, url: await fallback.start(), displaced: preferred };
   } catch (error) {
@@ -108,12 +140,15 @@ async function launch(): Promise<Launched> {
   }
 }
 
-function ensureServer(): Promise<Dashboard> {
+function ensureServer(ctx: ConnectionContext): Promise<Dashboard> {
   return enqueue(async () => {
     const running = server;
     if (running !== null && running.url !== null) return { url: running.url, displaced: null };
 
-    const launched = await launch();
+    // Resolve the source inside the queued step, not before it: enqueueing must
+    // stay synchronous so a concurrent `/steward-stop` chains behind this start
+    // rather than racing ahead of it.
+    const launched = await launch(await sourceFactory(ctx));
     server = launched.instance;
     return { url: launched.url, displaced: launched.displaced };
   });
@@ -154,7 +189,7 @@ export default function (pi: ExtensionAPI): void {
     handler: async (_args, ctx) => {
       let dashboard: Dashboard;
       try {
-        dashboard = await ensureServer();
+        dashboard = await ensureServer(ctx);
       } catch (error) {
         ctx.ui.notify(`Steward could not start: ${describe(error)}`, "error");
         return;
