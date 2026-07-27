@@ -19,5 +19,8 @@
     "verbatimModuleSyntax": false
   },
   "include": ["packages/*/**/*.ts", "scripts/**/*.mjs"],
-  "exclude": ["**/node_modules/**", "**/dist/**", "packages/_template/**"]
+  // `packages/*/ui/` holds browser modules, which need the DOM lib this Node
+  // config deliberately omits. Each such package carries its own
+  // `tsconfig.ui.json`; `scripts/typecheck.mjs` runs those as extra projects.
+  "exclude": ["**/node_modules/**", "**/dist/**", "packages/_template/**", "packages/*/ui/**"]
 }

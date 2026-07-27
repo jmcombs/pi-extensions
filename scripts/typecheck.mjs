@@ -43,8 +43,42 @@ if (!hasTypeScriptSources(PACKAGES_DIR)) {
   process.exit(0);
 }
 
-const result = spawnSync("npx", ["--no", "--", "tsc", "--noEmit"], {
-  stdio: "inherit",
-  cwd: ROOT,
-});
-process.exit(result.status ?? 1);
+function runTsc(args) {
+  const result = spawnSync("npx", ["--no", "--", "tsc", "--noEmit", ...args], {
+    stdio: "inherit",
+    cwd: ROOT,
+  });
+  return result.status ?? 1;
+}
+
+// The root project covers every Node-facing source file. Packages that also
+// ship browser modules keep them out of it (they need the DOM lib the root
+// config omits) and carry a `tsconfig.ui.json` instead; check those too, so no
+// source escapes the type checker.
+function discoverUiProjects() {
+  if (!fs.existsSync(PACKAGES_DIR)) return [];
+  return (
+    fs
+      .readdirSync(PACKAGES_DIR, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("_"))
+      .map((entry) => ({
+        config: path.join(PACKAGES_DIR, entry.name, "tsconfig.ui.json"),
+        sources: path.join(PACKAGES_DIR, entry.name, "ui"),
+      }))
+      // Same TS18003 guard as above: a config whose `ui/` has no sources yet is
+      // an empty input set, which tsc treats as an error rather than a no-op.
+      .filter(({ config, sources }) => fs.existsSync(config) && hasTypeScriptSources(sources))
+      .map(({ config }) => config)
+      .sort()
+  );
+}
+
+let status = runTsc([]);
+
+for (const project of discoverUiProjects()) {
+  const rel = path.relative(ROOT, project);
+  console.log(`Type-checking browser project ${rel}`);
+  status = runTsc(["--project", rel]) || status;
+}
+
+process.exit(status);
