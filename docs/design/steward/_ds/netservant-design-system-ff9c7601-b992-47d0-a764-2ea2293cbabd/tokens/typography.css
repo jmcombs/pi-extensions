@@ -1,0 +1,52 @@
+/* ===================================================================
+   Netservant — Typography Tokens
+   Mono-forward (this is a developer theme). Sans for UI/marketing,
+   serif for posh display moments only.
+   =================================================================== */
+
+:root {
+  /* Families */
+  --font-mono:  'JetBrains Mono', ui-monospace, 'SF Mono', 'Menlo', monospace;
+  --font-sans:  'Manrope', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Instrument Serif', 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+
+  /* Weights */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+  --weight-black:    800;
+
+  /* Type scale (1.250 major-third-ish, tuned) */
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   17px;
+  --text-lg:   20px;
+  --text-xl:   25px;
+  --text-2xl:  32px;
+  --text-3xl:  42px;
+  --text-4xl:  56px;
+  --text-5xl:  76px;
+
+  /* Line heights */
+  --leading-tight:   1.1;
+  --leading-snug:    1.3;
+  --leading-normal:  1.55;
+  --leading-relaxed: 1.7;
+  --leading-code:    1.6;
+
+  /* Letter spacing */
+  --tracking-tight:  -0.02em;
+  --tracking-snug:   -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-caps:   0.12em;  /* uppercase eyebrows / VS Code section headers */
+
+  /* Semantic roles */
+  --font-display: var(--font-serif);  /* posh hero headlines */
+  --font-heading: var(--font-sans);   /* UI headings */
+  --font-body:    var(--font-sans);   /* body copy */
+  --font-code:    var(--font-mono);   /* code, terminal, paths, version numbers */
+  --font-ui:      var(--font-sans);   /* buttons, labels, controls */
+}

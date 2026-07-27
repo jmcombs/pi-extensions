@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/colors.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/typography.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/styles.css">
+<script src="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/_ds_bundle.js"></script>
+<style>
+  body { margin: 0; background: var(--surface-panel); font-family: var(--font-ui); color: var(--text-primary); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: var(--link-hover); }
+  button { font-family: inherit; }
+  ::selection { background: var(--selection-bg); color: var(--selection-fg); }
+</style>
+</helmet>
+
+<section style="display: flex; flex-direction: column; gap: 24px; padding: 48px 48px 8px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px; max-width: 780px;">
+    <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);">Turn 2 · Steward × Servery, and how it sits with pi + llama.cpp</span>
+    <span style="font-family: var(--font-heading); font-size: 30px; font-weight: 800; letter-spacing: -0.02em;">Three ways to cross the two</span>
+    <span style="font-size: 15px; line-height: 1.6; color: var(--text-tertiary); text-wrap: pretty;">They describe the same idea from two angles: <strong>Steward</strong> is the person who tends the house, <strong>Servery</strong> is the counter where things get served. One should be the name and the other should live in the voice or the mark — using both as a name reads like a merger. Naming architecture is spelled out below the options.</span>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 28px;">
+
+    <!-- ======================= 2a ======================= -->
+    <div id="2a" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">2a</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Recommended · Steward name, Servery mark &amp; voice</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 2px solid var(--accent); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"></path>
+              <rect x="5" y="20.4" width="30" height="4.4" rx="2.2" fill="currentColor"></rect>
+              <rect x="5" y="28.4" width="30" height="4.4" rx="2.2" fill="currentColor" opacity="0.55"></rect>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Steward</span>
+            <span style="font-family: var(--font-display); font-size: 19px; font-style: italic; color: var(--accent);">How may we serve your models?</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">The cross</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">Steward keeps the short, sayable name. Servery survives as the <em>mark</em> — a serving dome over two trays — and as the voice, borrowing the house line verbatim. Nothing is lost and there's still only one word to say out loud.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Alternates</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">Your models, served and tended.<br>Four models, one counter.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Mark</span>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="5" y="20.4" width="30" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="5" y="28.6" width="30" height="4.6" rx="2.3" fill="currentColor" opacity="0.55"></rect></svg>
+          </div>
+          <div style="width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="16" height="16" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4.4" stroke-linecap="round"></path><rect x="4" y="21" width="32" height="5.4" rx="2.7" fill="currentColor"></rect><rect x="4" y="30" width="32" height="5.4" rx="2.7" fill="currentColor" opacity="0.55"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--text-primary); color: var(--surface-page); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="5" y="20.4" width="30" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="5" y="28.6" width="30" height="4.6" rx="2.3" fill="currentColor" opacity="0.55"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--surface-raised); color: var(--accent); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="5" y="20.4" width="30" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="5" y="28.6" width="30" height="4.6" rx="2.3" fill="currentColor" opacity="0.55"></rect></svg>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">Dome + two trays: the second tray fades, the way a model idles out.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path><rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"></rect><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--text-primary);">Steward</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= 2b ======================= -->
+    <div id="2b" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">2b</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">The other way round · Servery name, Steward voice</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"></path>
+              <rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect>
+              <circle cx="20" cy="7" r="2.6" fill="currentColor"></circle>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Servery</span>
+            <span style="font-family: var(--font-display); font-size: 19px; font-style: italic; color: var(--accent);">Your models, tended.</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">The cross</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">Keeps the rarer, more ownable word as the name — nobody else has shipped a "Servery" — and lets Steward carry the tone. The mark becomes the domed bell. Costs you a syllable and a spelling correction now and then.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Alternates</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">Local models, quietly kept.<br>The counter for your local models.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Mark</span>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect><circle cx="20" cy="7" r="2.6" fill="currentColor"></circle></svg>
+          </div>
+          <div style="width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="16" height="16" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="4.4" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4.4" rx="2.2" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--text-primary); color: var(--surface-page); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect><circle cx="20" cy="7" r="2.6" fill="currentColor"></circle></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--surface-raised); color: var(--accent); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect><circle cx="20" cy="7" r="2.6" fill="currentColor"></circle></svg>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">The service bell — press for attention, which is the whole point.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4.2" rx="2.1" fill="currentColor"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--text-primary);">Servery</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= 2c ======================= -->
+    <div id="2c" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">2c</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Both words, one lockup · descriptor line</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"></path>
+              <rect x="5" y="20.4" width="30" height="4.4" rx="2.2" fill="currentColor"></rect>
+              <rect x="5" y="28.4" width="30" height="4.4" rx="2.2" fill="currentColor" opacity="0.55"></rect>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Steward</span>
+            <span style="font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted);">the model servery</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">The cross</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">Steward is the name; "the model servery" is a mono descriptor locked under it, the way an app subtitle works. You keep both words with no ambiguity about which one is the name — and the descriptor does the explaining a tagline would.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Tagline sits below</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">How may we serve your models?<br><span style="color: var(--text-muted);">Used in marketing and the about box, not the lockup.</span></span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Lockup</span>
+          <div style="display: flex; align-items: center; gap: 11px; color: var(--accent);">
+            <svg width="26" height="26" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="5" y="20.4" width="30" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="5" y="28.6" width="30" height="4.6" rx="2.3" fill="currentColor" opacity="0.55"></rect></svg>
+            <div style="display: flex; flex-direction: column; gap: 1px;">
+              <span style="font-family: var(--font-heading); font-size: 19px; font-weight: 800; letter-spacing: -0.02em; color: var(--text-primary); line-height: 1.1;">Steward</span>
+              <span style="font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted);">the model servery</span>
+            </div>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">Descriptor drops out below ~120px wide; the mark and name never do.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path><rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"></rect><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--text-primary);">Steward</span>
+              <span style="font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted);">servery</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ naming architecture: pi + llama.cpp ============ -->
+  <div style="width: 1308px; display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-sm); overflow: hidden;">
+    <div style="padding: 26px 30px 22px; border-bottom: 1px solid var(--border);">
+      <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Naming architecture</span>
+      <div style="font-family: var(--font-heading); font-size: 22px; font-weight: 800; letter-spacing: -0.015em; margin-top: 6px;">Where pi and llama.cpp go</div>
+      <div style="font-size: 14.5px; line-height: 1.65; color: var(--text-tertiary); margin-top: 8px; max-width: 900px; text-wrap: pretty;">Neither one belongs in the name. llama.cpp is the engine underneath and pi is the client on top — the dashboard is the only thing you're naming, and it should be able to outlive both. Credit them in the chrome instead, permanently and in the same two places every time.</div>
+      <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 20px;">
+        <span style="padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-panel); font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);">Netservant <span style="color: var(--text-muted);">— company</span></span>
+        <span style="color: var(--text-subtle);">→</span>
+        <span style="padding: 7px 14px; border-radius: 999px; background: var(--accent); color: var(--accent-fg); font-family: var(--font-mono); font-size: 12px; font-weight: 700;">Steward <span style="opacity: 0.75;">— the product you name</span></span>
+        <span style="color: var(--text-subtle);">→</span>
+        <span style="padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-panel); font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);">llama.cpp <span style="color: var(--text-muted);">— engine, credited</span></span>
+        <span style="padding: 7px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-panel); font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);">pi <span style="color: var(--text-muted);">— client, attributed</span></span>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border);">
+      <div style="background: var(--surface-page); padding: 22px 30px 26px;">
+        <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Where each name appears</span>
+        <div style="display: flex; flex-direction: column; gap: 11px; margin-top: 14px;">
+          <sc-for list="{{ surfaces }}" as="s" hint-placeholder-count="8">
+            <div style="display: grid; grid-template-columns: 128px 1fr; gap: 14px; align-items: baseline;">
+              <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">{{ s.k }}</span>
+              <span style="font-family: var(--font-mono); font-size: 12.5px; color: var(--text-secondary); word-break: break-word;">{{ s.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="background: var(--surface-page); padding: 22px 30px 26px; display: flex; flex-direction: column; gap: 20px;">
+        <div>
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Rules</span>
+          <div style="display: flex; flex-direction: column; gap: 9px; margin-top: 13px;">
+            <sc-for list="{{ rules }}" as="r" hint-placeholder-count="5">
+              <div style="display: grid; grid-template-columns: 16px 1fr; gap: 10px; align-items: start;">
+                <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: {{ r.color }}; line-height: 1.5;">{{ r.glyph }}</span>
+                <span style="font-size: 13.5px; line-height: 1.55; color: var(--text-secondary); text-wrap: pretty;">{{ r.text }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div>
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">About box</span>
+          <div style="margin-top: 12px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-panel);">
+            <div style="display: flex; align-items: center; gap: 12px; color: var(--accent);">
+              <svg width="30" height="30" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M8 17.6C8 11.2 13.4 6 20 6s12 5.2 12 11.6" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="5" y="20.4" width="30" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="5" y="28.6" width="30" height="4.6" rx="2.3" fill="currentColor" opacity="0.55"></rect></svg>
+              <div style="display: flex; flex-direction: column; gap: 2px;">
+                <span style="font-family: var(--font-heading); font-size: 18px; font-weight: 800; color: var(--text-primary);">Steward 1.0</span>
+                <span style="font-family: var(--font-display); font-size: 14px; font-style: italic; color: var(--accent);">How may we serve your models?</span>
+              </div>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; line-height: 1.8; color: var(--text-muted); margin-top: 14px;">
+              engine · llama.cpp b6122 (Metal)<br>serving · pi 0.9.4 — 3 sessions<br>© 2026 Netservant, LLC
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 24px; padding: 40px 48px 48px;">
+
+  <div style="display: flex; flex-direction: column; gap: 8px; max-width: 760px;">
+    <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);">Turn 1 · naming, tagline, icon</span>
+    <span style="font-family: var(--font-heading); font-size: 30px; font-weight: 800; letter-spacing: -0.02em;">Four directions for the llama.cpp dashboard</span>
+    <span style="font-size: 15px; line-height: 1.6; color: var(--text-tertiary); text-wrap: pretty;">Each is a full candidate: name, primary tagline, two alternates, an app icon in Path Blue and inverse, and the name shown where it actually lands — the dashboard rail header. Every mark is a single geometric glyph so it survives 16px and a menu-bar tint. Reply with an id (<a href="#1a">1a</a>–<a href="#1d">1d</a>), or mix a name from one and a mark from another.</span>
+    <button onClick="{{ toggleTheme }}" style="align-self: flex-start; margin-top: 6px; height: 32px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);" style-hover="background: var(--surface-raised); border-color: var(--border-strong);" style-focus="box-shadow: var(--ring); outline: none;">{{ themeLabel }}</button>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; gap: 28px;">
+
+    <!-- ======================= 1a  STEWARD ======================= -->
+    <div id="1a" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">1a</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Service-first · closest to the Netservant name</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"></path>
+              <rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect>
+              <circle cx="20" cy="7" r="2.6" fill="currentColor"></circle>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Steward</span>
+            <span style="font-family: var(--font-display); font-size: 19px; font-style: italic; color: var(--accent);">Your models, tended.</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Why it works</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">A steward keeps house without being asked — exactly what this page does for four resident models. Shares a root with <em>servant</em>, so it reads as family with the parent brand without repeating it.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Alternate taglines</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">Local models, quietly kept.<br>Loaded, watched, logged.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Mark</span>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect><circle cx="20" cy="7" r="2.6" fill="currentColor"></circle></svg>
+          </div>
+          <div style="width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="16" height="16" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="4.4" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4.4" rx="2.2" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--text-primary); color: var(--surface-page); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect><circle cx="20" cy="7" r="2.6" fill="currentColor"></circle></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--surface-raised); color: var(--accent); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="3.6" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4" rx="2" fill="currentColor"></rect><circle cx="20" cy="7" r="2.6" fill="currentColor"></circle></svg>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">Serving dome over a rail — service, plus the arc of a load gauge.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M6 25c0-7.7 6.3-14 14-14s14 6.3 14 14" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path><rect x="3" y="27" width="34" height="4.2" rx="2.1" fill="currentColor"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800;">Steward</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= 1b  CORRAL ======================= -->
+    <div id="1b" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">1b</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Plainspoken · nods at llamas without punning</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <rect x="4" y="13" width="32" height="3.6" rx="1.8" fill="currentColor"></rect>
+              <rect x="4" y="21.2" width="32" height="3.6" rx="1.8" fill="currentColor"></rect>
+              <rect x="9" y="8" width="3.6" height="24" rx="1.8" fill="currentColor"></rect>
+              <rect x="27.4" y="8" width="3.6" height="24" rx="1.8" fill="currentColor"></rect>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Corral</span>
+            <span style="font-family: var(--font-display); font-size: 19px; font-style: italic; color: var(--accent);">Every model in one place.</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Why it works</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">The llama connection lands without a single joke, and it names the real job: four models fenced into one process, one port, one screen. Also a verb — "corral the models" — which is what the buttons do.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Alternate taglines</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">Four models, one fence.<br>Where your local models live.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Mark</span>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="4" y="13" width="32" height="4" rx="2" fill="currentColor"></rect><rect x="4" y="21" width="32" height="4" rx="2" fill="currentColor"></rect><rect x="9" y="8" width="4" height="24" rx="2" fill="currentColor"></rect><rect x="27" y="8" width="4" height="24" rx="2" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="16" height="16" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="3" y="13" width="34" height="5" rx="2.5" fill="currentColor"></rect><rect x="3" y="22" width="34" height="5" rx="2.5" fill="currentColor"></rect><rect x="9" y="8" width="5" height="24" rx="2.5" fill="currentColor"></rect><rect x="26" y="8" width="5" height="24" rx="2.5" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--text-primary); color: var(--surface-page); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="4" y="13" width="32" height="4" rx="2" fill="currentColor"></rect><rect x="4" y="21" width="32" height="4" rx="2" fill="currentColor"></rect><rect x="9" y="8" width="4" height="24" rx="2" fill="currentColor"></rect><rect x="27" y="8" width="4" height="24" rx="2" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--surface-raised); color: var(--accent); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="4" y="13" width="32" height="4" rx="2" fill="currentColor"></rect><rect x="4" y="21" width="32" height="4" rx="2" fill="currentColor"></rect><rect x="9" y="8" width="4" height="24" rx="2" fill="currentColor"></rect><rect x="27" y="8" width="4" height="24" rx="2" fill="currentColor"></rect></svg>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">Two rails, two posts — a fence that also reads as rows in a table.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="3" y="13" width="34" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="3" y="22" width="34" height="4.6" rx="2.3" fill="currentColor"></rect><rect x="9" y="8" width="4.6" height="24" rx="2.3" fill="currentColor"></rect><rect x="26" y="8" width="4.6" height="24" rx="2.3" fill="currentColor"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800;">Corral</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= 1c  WARDEN ======================= -->
+    <div id="1c" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">1c</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Operator tool · control and watch</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <path d="M11.8 11.2a11.5 11.5 0 1 0 16.4 0" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"></path>
+              <rect x="18.2" y="4" width="3.6" height="14" rx="1.8" fill="currentColor"></rect>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Warden</span>
+            <span style="font-family: var(--font-display); font-size: 19px; font-style: italic; color: var(--accent);">Start it, stop it, watch it.</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Why it works</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">The most literal of the four and the most credible as infrastructure — a warden supervises a process and reports on it. Reads well next to launchd and systemd in a config screen. Least warm of the set.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Alternate taglines</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">One server, four models, no terminal.<br>Nothing runs unwatched.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Mark</span>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11.8 11.2a11.5 11.5 0 1 0 16.4 0" stroke="currentColor" stroke-width="3.8" stroke-linecap="round"></path><rect x="18" y="4" width="4" height="14" rx="2" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="16" height="16" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11.4 11.6a11.8 11.8 0 1 0 17.2 0" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"></path><rect x="17.7" y="4" width="4.6" height="14" rx="2.3" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--text-primary); color: var(--surface-page); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11.8 11.2a11.5 11.5 0 1 0 16.4 0" stroke="currentColor" stroke-width="3.8" stroke-linecap="round"></path><rect x="18" y="4" width="4" height="14" rx="2" fill="currentColor"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--surface-raised); color: var(--accent); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11.8 11.2a11.5 11.5 0 1 0 16.4 0" stroke="currentColor" stroke-width="3.8" stroke-linecap="round"></path><rect x="18" y="4" width="4" height="14" rx="2" fill="currentColor"></rect></svg>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">The power glyph — the one control this page is built around.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M11.4 11.6a11.8 11.8 0 1 0 17.2 0" stroke="currentColor" stroke-width="4.2" stroke-linecap="round"></path><rect x="17.9" y="4" width="4.2" height="14" rx="2.1" fill="currentColor"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800;">Warden</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================= 1d  SERVERY ======================= -->
+    <div id="1d" style="display: flex; flex-direction: column; gap: 12px; width: 640px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">1d</span>
+        <span style="font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Wordplay on "server" · most distinctive</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-paper); box-shadow: var(--shadow-md); overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 20px; padding: 30px 32px; border-bottom: 1px solid var(--border);">
+          <div style="width: 76px; height: 76px; border-radius: 18px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-sm); flex: none;">
+            <svg width="42" height="42" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+              <rect x="6" y="8" width="28" height="7.2" rx="3.6" fill="currentColor"></rect>
+              <rect x="6" y="18.4" width="28" height="7.2" rx="3.6" fill="currentColor" opacity="0.72"></rect>
+              <rect x="6" y="28.8" width="17" height="7.2" rx="3.6" fill="currentColor" opacity="0.45"></rect>
+            </svg>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+            <span style="font-family: var(--font-heading); font-size: 42px; font-weight: 800; letter-spacing: -0.03em; line-height: 1;">Servery</span>
+            <span style="font-family: var(--font-display); font-size: 19px; font-style: italic; color: var(--accent);">How may we serve your models?</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Why it works</span>
+            <span style="font-size: 13.5px; line-height: 1.6; color: var(--text-secondary); text-wrap: pretty;">A servery is the counter where things are served — literally a room full of servers. It carries the brand line as its tagline verbatim, and it's the only name here nobody else has taken. Slightly precious; strongest if the dashboard ever becomes a product.</span>
+          </div>
+          <div style="padding: 18px 22px; background: var(--surface-page); display: flex; flex-direction: column; gap: 8px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Alternate taglines</span>
+            <span style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">The counter for your local models.<br>Serving four, all day.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 26px; padding: 20px 22px; border-bottom: 1px solid var(--border);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); width: 54px;">Mark</span>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="6" y="8" width="28" height="7.6" rx="3.8" fill="currentColor"></rect><rect x="6" y="18.4" width="28" height="7.6" rx="3.8" fill="currentColor" opacity="0.72"></rect><rect x="6" y="28.8" width="17" height="7.6" rx="3.8" fill="currentColor" opacity="0.45"></rect></svg>
+          </div>
+          <div style="width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: var(--accent-fg); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="16" height="16" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="5" y="8" width="30" height="8" rx="4" fill="currentColor"></rect><rect x="5" y="19" width="30" height="8" rx="4" fill="currentColor" opacity="0.7"></rect><rect x="5" y="30" width="18" height="8" rx="4" fill="currentColor" opacity="0.42"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--text-primary); color: var(--surface-page); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="6" y="8" width="28" height="7.6" rx="3.8" fill="currentColor"></rect><rect x="6" y="18.4" width="28" height="7.6" rx="3.8" fill="currentColor" opacity="0.72"></rect><rect x="6" y="28.8" width="17" height="7.6" rx="3.8" fill="currentColor" opacity="0.45"></rect></svg>
+          </div>
+          <div style="width: 44px; height: 44px; border-radius: 11px; background: var(--surface-raised); color: var(--accent); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; flex: none;">
+            <svg width="24" height="24" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="6" y="8" width="28" height="7.6" rx="3.8" fill="currentColor"></rect><rect x="6" y="18.4" width="28" height="7.6" rx="3.8" fill="currentColor" opacity="0.7"></rect><rect x="6" y="28.8" width="17" height="7.6" rx="3.8" fill="currentColor" opacity="0.42"></rect></svg>
+          </div>
+          <span style="font-size: 12.5px; color: var(--text-tertiary); text-wrap: pretty;">Three trays stacked — models resident, fading as they idle out.</span>
+        </div>
+
+        <div style="padding: 18px 22px 22px; background: var(--surface-panel);">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">In the rail</span>
+          <div style="margin-top: 10px; padding: 14px 16px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md); width: 300px; color: var(--accent);">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <svg width="18" height="18" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="5" y="8" width="30" height="7.8" rx="3.9" fill="currentColor"></rect><rect x="5" y="19" width="30" height="7.8" rx="3.9" fill="currentColor" opacity="0.7"></rect><rect x="5" y="30" width="18" height="7.8" rx="3.9" fill="currentColor" opacity="0.42"></rect></svg>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800;">Servery</span>
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--success);"></span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">llama.cpp · 127.0.0.1:8080</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="max-width: 760px; padding: 20px 24px; background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-md);">
+    <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Recommendation</span>
+    <div style="font-size: 14px; line-height: 1.65; color: var(--text-secondary); margin-top: 8px; text-wrap: pretty;">
+      <a href="#1a">1a</a> Steward. It's the only one that's warm, service-first, and unmistakably from the same house as Netservant — and "Your models, tended" says what the page is for in three words. <a href="#1c">1c</a> Warden is the safe pick if this stays a purely internal ops tool; <a href="#1b">1b</a> Corral is the one people will repeat.
+    </div>
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;,&quot;section&quot;:&quot;Appearance&quot;}}">
+class Component extends DCLogic {
+  state = { dark: false };
+  componentDidMount() {
+    if ((this.props.theme ?? 'light') === 'dark') this.setTheme(true);
+  }
+  setTheme(dark) {
+    this.setState({ dark });
+    const el = document.documentElement;
+    if (dark) el.setAttribute('data-theme', 'dark'); else el.removeAttribute('data-theme');
+  }
+  renderVals() {
+    return {
+      themeLabel: this.state.dark ? 'Light preview' : 'Dark preview',
+      toggleTheme: () => this.setTheme(!this.state.dark),
+      surfaces: [
+        { k: 'window title', v: 'Steward — llama.cpp' },
+        { k: 'rail header', v: 'Steward  ·  llama.cpp · 127.0.0.1:8080' },
+        { k: 'menu bar', v: '◠ Steward   (glyph only when space is tight)' },
+        { k: 'requests tile', v: 'sub-line: pi agent · 3 sessions' },
+        { k: 'slot cards', v: 'pi · edit-session   pi · inline-fim' },
+        { k: 'config block', v: 'binary: llama-server b6122' },
+        { k: 'cli', v: 'steward status · steward stop · steward logs --model …' },
+        { k: 'launchd label', v: 'app.netservant.steward' },
+        { k: 'docs h1', v: 'Steward — the llama.cpp control panel for pi' },
+      ],
+      rules: [
+        { glyph: '✓', color: 'var(--success)', text: 'Say “Steward for llama.cpp” on first mention in docs and marketing, then just “Steward”.' },
+        { glyph: '✓', color: 'var(--success)', text: 'llama.cpp always appears as the engine line under the product name — never beside it in the lockup, never in the icon.' },
+        { glyph: '✓', color: 'var(--success)', text: 'pi is attributed as a client, in data: session counts, slot owners, request user-agents. That is stronger than a logo would be.' },
+        { glyph: '✕', color: 'var(--error)', text: 'Never “pi Steward”, “Steward for pi”, or “llama Steward” — pi is a consumer, not a parent brand, and other clients will show up in these slots.' },
+        { glyph: '✕', color: 'var(--error)', text: 'Never rename around the engine. If you swap llama.cpp for something else, only the engine line changes.' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

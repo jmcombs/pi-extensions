@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/colors.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/typography.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/styles.css">
+<script src="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/_ds_bundle.js"></script>
+<style>
+  body { margin: 0; background: var(--surface-panel); font-family: var(--font-ui); color: var(--text-primary); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: var(--link-hover); }
+  input, select, button { font-family: inherit; }
+  ::selection { background: var(--selection-bg); color: var(--selection-fg); }
+</style>
+</helmet>
+
+<section style="display: flex; flex-direction: column; gap: 20px; padding: 40px;">
+  <div style="display: flex; align-items: baseline; gap: 14px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">
+    <span>Turn 1 — two layouts for the same dashboard</span>
+    <span style="color: var(--text-subtle);">click anything: services toggle, logs stream, filters work</span>
+  </div>
+
+  <div style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 40px;">
+
+    <!-- ===================== OPTION 1A ===================== -->
+    <div id="1a" style="display: flex; flex-direction: column; gap: 12px; width: 1320px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">1a</span>
+        <span style="font-family: var(--font-heading); font-size: 17px; font-weight: 700;">Command deck</span>
+        <span style="font-size: 14px; color: var(--text-tertiary);">Control bar on top, metrics band, models + slots side by side, console full width.</span>
+      </div>
+
+      <div style="background: var(--surface-panel); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden;">
+
+        <!-- control bar -->
+        <div style="display: flex; align-items: center; gap: 18px; padding: 16px 22px; background: var(--surface-chrome); border-bottom: 1px solid var(--border);">
+          <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <span style="width: 9px; height: 9px; border-radius: 50%; background: {{ a.dot }};"></span>
+              <span style="font-family: var(--font-heading); font-size: 18px; font-weight: 800; letter-spacing: -0.01em;">llama.cpp server</span>
+              <span style="font-family: var(--font-mono); font-size: 12px; color: var(--text-tertiary);">{{ a.stateLabel }}</span>
+            </div>
+            <span style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">{{ host }} · {{ build }} · serving the pi coding agent</span>
+          </div>
+          <div style="flex: 1;"></div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; border: 1px dashed var(--border-strong); font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary);">source: mock</span>
+            <button onClick="{{ toggleTheme }}" style="height: 34px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer;">{{ themeLabel }}</button>
+            <button onClick="{{ a.restart }}" style="height: 34px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-raised); color: var(--text-primary); font-size: 13px; font-weight: 600; cursor: pointer;">Restart</button>
+            <button onClick="{{ a.toggleService }}" style="height: 34px; padding: 0 18px; border-radius: var(--radius-md); border: 1px solid transparent; background: {{ a.ctlBg }}; color: {{ a.ctlFg }}; font-size: 13px; font-weight: 700; cursor: pointer;">{{ a.ctlLabel }}</button>
+          </div>
+        </div>
+
+        <!-- metrics band -->
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+          <sc-for list="{{ a.kpis }}" as="k" hint-placeholder-count="5">
+            <div style="display: flex; flex-direction: column; gap: 7px; padding: 16px 20px; background: var(--surface-page);">
+              <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">{{ k.label }}</span>
+              <div style="display: flex; align-items: baseline; gap: 6px;">
+                <span style="font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: {{ k.color }}; line-height: 1;">{{ k.value }}</span>
+                <span style="font-size: 12px; color: var(--text-tertiary);">{{ k.unit }}</span>
+              </div>
+              <div style="height: 4px; border-radius: 999px; background: var(--surface-raised); overflow: hidden;">
+                <div style="height: 100%; width: {{ k.pct }}; background: {{ k.color }}; border-radius: 999px; transition: width 400ms var(--ease-out);"></div>
+              </div>
+              <span style="font-size: 12px; color: var(--text-tertiary);">{{ k.sub }}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <!-- models + slots -->
+        <div style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+
+          <div style="background: var(--surface-page); padding: 18px 22px 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+              <span style="font-family: var(--font-heading); font-size: 15px; font-weight: 700;">Models</span>
+              <span style="font-family: var(--font-mono); font-size: 12px; color: var(--text-tertiary);">{{ a.loadedCount }} loaded · {{ a.vramModels }} GB resident</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <sc-for list="{{ a.models }}" as="m" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 14px; padding: 13px 15px; border: 1px solid var(--border); border-left: 3px solid {{ m.color }}; border-radius: var(--radius-md); background: var(--surface-page);">
+                  <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text-primary);">{{ m.id }}</span>
+                      <span style="font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 999px; background: {{ m.roleBg }}; color: {{ m.color }};">{{ m.role }}</span>
+                    </div>
+                    <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">{{ m.meta }}</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px; width: 96px;">
+                    <span style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: {{ m.statusColor }};">{{ m.tps }}</span>
+                    <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">{{ m.statusLabel }}</span>
+                  </div>
+                  <button onClick="{{ m.onFilter }}" style="height: 28px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer;">Logs</button>
+                  <button onClick="{{ m.onToggle }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid {{ m.btnBorder }}; background: {{ m.btnBg }}; color: {{ m.btnFg }}; font-size: 12px; font-weight: 700; cursor: pointer; width: 78px;">{{ m.btnLabel }}</button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="background: var(--surface-page); padding: 18px 22px 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+              <span style="font-family: var(--font-heading); font-size: 15px; font-weight: 700;">Slots</span>
+              <span style="font-family: var(--font-mono); font-size: 12px; color: var(--text-tertiary);">{{ a.busySlots }} of {{ slotCount }} processing</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 26px 1fr 74px 88px 62px; gap: 8px; padding: 0 4px 8px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">
+              <span>#</span><span>model / client</span><span>ctx</span><span>tokens</span><span>state</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <sc-for list="{{ a.slots }}" as="s" hint-placeholder-count="4">
+                <div style="display: grid; grid-template-columns: 26px 1fr 74px 88px 62px; gap: 8px; align-items: center; padding: 10px 4px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 12px;">
+                  <span style="color: var(--text-muted);">{{ s.id }}</span>
+                  <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                    <span style="color: {{ s.color }}; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.model }}</span>
+                    <span style="color: var(--text-muted); font-size: 11px;">{{ s.client }}</span>
+                  </div>
+                  <span style="color: var(--text-secondary);">{{ s.ctx }}</span>
+                  <span style="color: var(--text-secondary);">{{ s.tokens }}</span>
+                  <span style="justify-self: start; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: {{ s.stateBg }}; color: {{ s.stateColor }};">{{ s.state }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <!-- console -->
+        <div style="background: var(--surface-page);">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 13px 22px; border-bottom: 1px solid var(--border); background: var(--surface-chrome);">
+            <span style="font-family: var(--font-heading); font-size: 15px; font-weight: 700; margin-right: 4px;">Server log</span>
+            <div style="display: flex; gap: 6px;">
+              <sc-for list="{{ a.modelChips }}" as="c" hint-placeholder-count="5">
+                <button onClick="{{ c.onClick }}" style="height: 28px; padding: 0 11px; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid {{ c.border }}; background: {{ c.bg }}; color: {{ c.fg }}; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; cursor: pointer;">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: {{ c.dot }};"></span>{{ c.label }}
+                </button>
+              </sc-for>
+            </div>
+            <div style="width: 1px; height: 22px; background: var(--border);"></div>
+            <div style="display: flex; gap: 6px;">
+              <sc-for list="{{ a.levelChips }}" as="c" hint-placeholder-count="4">
+                <button onClick="{{ c.onClick }}" style="height: 28px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid {{ c.border }}; background: {{ c.bg }}; color: {{ c.fg }}; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; cursor: pointer;">{{ c.label }}</button>
+              </sc-for>
+            </div>
+            <input value="{{ a.q }}" onChange="{{ a.setQ }}" placeholder="search log…" style="height: 28px; flex: 1; min-width: 150px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; outline: none;" />
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">{{ a.lineCount }} lines</span>
+            <button onClick="{{ a.togglePause }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid {{ a.pauseBorder }}; background: {{ a.pauseBg }}; color: {{ a.pauseFg }}; font-size: 12px; font-weight: 700; cursor: pointer;">{{ a.pauseLabel }}</button>
+            <button onClick="{{ a.copy }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer;">{{ a.copyLabel }}</button>
+            <button onClick="{{ a.download }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer;">Download</button>
+          </div>
+          <div ref="{{ a.logRef }}" style="height: 320px; overflow-y: auto; background: var(--surface-chrome); padding: 10px 0;">
+            <sc-for list="{{ a.lines }}" as="l" hint-placeholder-count="14">
+              <div style="display: grid; grid-template-columns: 92px 54px 210px 1fr; gap: 12px; padding: 3px 22px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6;">
+                <span style="color: var(--text-subtle);">{{ l.ts }}</span>
+                <span style="color: {{ l.levelColor }}; font-weight: 700;">{{ l.level }}</span>
+                <span style="color: {{ l.modelColor }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ l.model }}</span>
+                <span style="color: var(--text-secondary); white-space: pre-wrap;">{{ l.msg }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- config -->
+        <sc-if value="{{ showConfigStrip }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; flex-wrap: wrap; gap: 0; border-top: 1px solid var(--border); background: var(--surface-panel);">
+            <sc-for list="{{ config }}" as="c" hint-placeholder-count="8">
+              <div style="display: flex; flex-direction: column; gap: 3px; padding: 12px 22px; border-right: 1px solid var(--border);">
+                <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">{{ c.k }}</span>
+                <span style="font-family: var(--font-mono); font-size: 12.5px; color: var(--text-secondary);">{{ c.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- ===================== OPTION 1B ===================== -->
+    <div id="1b" style="display: flex; flex-direction: column; gap: 12px; width: 1320px; flex: none;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-fg);">1b</span>
+        <span style="font-family: var(--font-heading); font-size: 17px; font-weight: 700;">Console-first rail</span>
+        <span style="font-size: 14px; color: var(--text-tertiary);">Left rail owns service + models (selecting one filters the log); the console dominates.</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 340px 1fr; grid-template-rows: minmax(0, 1fr); background: var(--surface-page); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; height: 800px; box-sizing: border-box;">
+
+        <!-- rail -->
+        <div style="display: flex; flex-direction: column; min-height: 0; background: var(--surface-panel); border-right: 1px solid var(--border); overflow-y: auto;">
+          <div style="padding: 20px 20px 18px; border-bottom: 1px solid var(--border);">
+            <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 4px;">
+              <span style="width: 9px; height: 9px; border-radius: 50%; background: {{ b.dot }};"></span>
+              <span style="font-family: var(--font-heading); font-size: 16px; font-weight: 800;">llama.cpp</span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-bottom: 14px;">{{ host }} · {{ build }}</div>
+            <div style="display: flex; gap: 8px;">
+              <button onClick="{{ b.toggleService }}" style="flex: 1; height: 36px; border-radius: var(--radius-md); border: 1px solid transparent; background: {{ b.ctlBg }}; color: {{ b.ctlFg }}; font-size: 13px; font-weight: 700; cursor: pointer;">{{ b.ctlLabel }}</button>
+              <button onClick="{{ b.restart }}" style="height: 36px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer;">Restart</button>
+              <button onClick="{{ toggleTheme }}" style="width: 36px; height: 36px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 13px; cursor: pointer;">{{ themeGlyph }}</button>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">
+              <span>{{ b.stateLabel }}</span><span>uptime {{ uptime }}</span>
+            </div>
+          </div>
+
+          <div style="padding: 18px 20px; border-bottom: 1px solid var(--border);">
+            <div style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Host</div>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <sc-for list="{{ b.gauges }}" as="g" hint-placeholder-count="4">
+                <div style="display: flex; flex-direction: column; gap: 5px;">
+                  <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px;">
+                    <span style="color: var(--text-secondary);">{{ g.label }}</span>
+                    <span style="color: {{ g.color }}; font-weight: 700;">{{ g.value }}</span>
+                  </div>
+                  <div style="height: 6px; border-radius: 999px; background: var(--surface-raised); overflow: hidden;">
+                    <div style="height: 100%; width: {{ g.pct }}; background: {{ g.color }}; border-radius: 999px; transition: width 400ms var(--ease-out);"></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="padding: 18px 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+              <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Models</span>
+              <button onClick="{{ b.showAll }}" style="height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid {{ b.allBorder }}; background: {{ b.allBg }}; color: {{ b.allFg }}; font-family: var(--font-mono); font-size: 11px; font-weight: 700; cursor: pointer;">all logs</button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <sc-for list="{{ b.models }}" as="m" hint-placeholder-count="4">
+                <div onClick="{{ m.onFilter }}" style="padding: 12px 13px; border: 1px solid {{ m.cardBorder }}; border-radius: var(--radius-md); background: {{ m.cardBg }}; cursor: pointer;">
+                  <div style="display: flex; align-items: center; gap: 7px; margin-bottom: 6px;">
+                    <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ m.color }}; flex: none;"></span>
+                    <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.short }}</span>
+                  </div>
+                  <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-bottom: 9px;">{{ m.meta }}</div>
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span style="font-family: var(--font-mono); font-size: 11.5px; color: {{ m.statusColor }}; font-weight: 700;">{{ m.statusLabel }} · {{ m.tps }}</span>
+                    <button onClick="{{ m.onToggle }}" style="height: 26px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid {{ m.btnBorder }}; background: {{ m.btnBg }}; color: {{ m.btnFg }}; font-size: 11.5px; font-weight: 700; cursor: pointer;">{{ m.btnLabel }}</button>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+
+        <!-- main -->
+        <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0;">
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr) 1.4fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+            <sc-for list="{{ b.kpis }}" as="k" hint-placeholder-count="4">
+              <div style="display: flex; flex-direction: column; gap: 7px; padding: 16px 20px; background: var(--surface-page);">
+                <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">{{ k.label }}</span>
+                <div style="display: flex; align-items: baseline; gap: 6px;">
+                  <span style="font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: {{ k.color }}; line-height: 1;">{{ k.value }}</span>
+                  <span style="font-size: 12px; color: var(--text-tertiary);">{{ k.unit }}</span>
+                </div>
+                <div style="height: 4px; border-radius: 999px; background: var(--surface-raised); overflow: hidden;">
+                  <div style="height: 100%; width: {{ k.pct }}; background: {{ k.color }}; border-radius: 999px; transition: width 400ms var(--ease-out);"></div>
+                </div>
+                <span style="font-size: 12px; color: var(--text-tertiary);">{{ k.sub }}</span>
+              </div>
+            </sc-for>
+            <div style="display: flex; flex-direction: column; gap: 7px; padding: 16px 20px; background: var(--surface-page);">
+              <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+                <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Throughput history</span>
+                <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">avg {{ sparkAvg }} · peak {{ sparkPeak }} tok/s</span>
+              </div>
+              <div style="position: relative; height: 46px;">
+                <div style="position: absolute; left: 0; right: 0; bottom: {{ sparkAvgLine }}; height: 1px; border-top: 1px dashed var(--border-strong); opacity: 0.7;"></div>
+                <div style="display: flex; align-items: flex-end; gap: 2px; height: 100%;">
+                  <sc-for list="{{ spark }}" as="s" hint-placeholder-count="40">
+                    <div style="flex: 1; height: {{ s.h }}; background: {{ s.c }}; border-radius: 1px;"></div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-subtle);">
+                <span>−2 min</span><span>now</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--surface-chrome);">
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">filter</span>
+            <span style="padding: 4px 11px; border-radius: 999px; background: {{ b.activeBg }}; color: {{ b.activeFg }}; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;">{{ b.activeModel }}</span>
+            <div style="display: flex; gap: 6px;">
+              <sc-for list="{{ b.levelChips }}" as="c" hint-placeholder-count="4">
+                <button onClick="{{ c.onClick }}" style="height: 28px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid {{ c.border }}; background: {{ c.bg }}; color: {{ c.fg }}; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; cursor: pointer;">{{ c.label }}</button>
+              </sc-for>
+            </div>
+            <input value="{{ b.q }}" onChange="{{ b.setQ }}" placeholder="search log…" style="height: 28px; flex: 1; min-width: 140px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; outline: none;" />
+            <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">{{ b.lineCount }} lines</span>
+            <button onClick="{{ b.togglePause }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid {{ b.pauseBorder }}; background: {{ b.pauseBg }}; color: {{ b.pauseFg }}; font-size: 12px; font-weight: 700; cursor: pointer;">{{ b.pauseLabel }}</button>
+            <button onClick="{{ b.copy }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer;">{{ b.copyLabel }}</button>
+            <button onClick="{{ b.download }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer;">Download</button>
+          </div>
+
+          <div ref="{{ b.logRef }}" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--surface-chrome); padding: 10px 0;">
+            <sc-for list="{{ b.lines }}" as="l" hint-placeholder-count="20">
+              <div style="display: grid; grid-template-columns: 92px 54px 200px 1fr; gap: 12px; padding: 3px 18px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6;">
+                <span style="color: var(--text-subtle);">{{ l.ts }}</span>
+                <span style="color: {{ l.levelColor }}; font-weight: 700;">{{ l.level }}</span>
+                <span style="color: {{ l.modelColor }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ l.model }}</span>
+                <span style="color: var(--text-secondary); white-space: pre-wrap;">{{ l.msg }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ showSlots }}" hint-placeholder-val="{{ true }}">
+            <div style="border-top: 1px solid var(--border); background: var(--surface-page); padding: 12px 18px 14px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Slots</span>
+                <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">{{ b.busySlots }} of {{ slotCount }} processing</span>
+              </div>
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                <sc-for list="{{ b.slots }}" as="s" hint-placeholder-count="4">
+                  <div style="display: flex; flex-direction: column; gap: 4px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11px;">
+                      <span style="color: var(--text-muted);">slot {{ s.id }}</span>
+                      <span style="padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: {{ s.stateBg }}; color: {{ s.stateColor }};">{{ s.state }}</span>
+                    </div>
+                    <span style="font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: {{ s.color }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.model }}</span>
+                    <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);">{{ s.client }} · {{ s.ctx }} · {{ s.tokens }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:2760,&quot;height&quot;:1400},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;logRateMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:200,&quot;max&quot;:3000,&quot;step&quot;:100,&quot;default&quot;:900,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Log stream&quot;},&quot;maxLogLines&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;min&quot;:100,&quot;max&quot;:2000,&quot;step&quot;:100,&quot;default&quot;:500,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Log stream&quot;},&quot;showConfigStrip&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;showSlots&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Layout&quot;}}">
+class Component extends DCLogic {
+  // ---------------------------------------------------------------
+  // DATA SOURCE — the only place that would talk to the network.
+  // Flip source to 'live' and point base at your llama.cpp server;
+  // every read/write below already goes through this adapter.
+  //   health   GET  /health
+  //   models   GET  /v1/models          (loaded models)
+  //   props    GET  /props              (ctx, n_gpu_layers, build)
+  //   slots    GET  /slots              (per-slot state)
+  //   metrics  GET  /metrics            (prometheus text)
+  //   logs     GET  /logs/stream (SSE) or tail the launchd/systemd unit
+  //   start/stop/restart -> your supervisor (launchctl / systemctl)
+  // ---------------------------------------------------------------
+  api = {
+    source: 'mock',
+    base: 'http://127.0.0.1:8080',
+    supervisor: 'http://127.0.0.1:8081',
+    health:  function () { return fetch(this.base + '/health').then(r => r.json()); },
+    models:  function () { return fetch(this.base + '/v1/models').then(r => r.json()); },
+    props:   function () { return fetch(this.base + '/props').then(r => r.json()); },
+    slots:   function () { return fetch(this.base + '/slots').then(r => r.json()); },
+    metrics: function () { return fetch(this.base + '/metrics').then(r => r.text()); },
+    logs:    function () { return new EventSource(this.base + '/logs/stream'); },
+    service: function (action) { return fetch(this.supervisor + '/service/' + action, { method: 'POST' }); },
+    model:   function (id, action) { return fetch(this.supervisor + '/models/' + id + '/' + action, { method: 'POST' }); },
+  };
+
+  MODELS = [
+    { id: 'qwen3.6-moe-a3b-instruct-q4_k_m', short: 'qwen3.6-moe-a3b-instruct', role: 'chat', color: 'var(--latte-mauve)', meta: 'Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers', vram: 18.4 },
+    { id: 'qwen3.6-moe-30b-thinking-q5_k_m', short: 'qwen3.6-moe-30b-thinking', role: 'reason', color: 'var(--latte-teal)', meta: 'Q5_K_M · 22.1 GB · ctx 32768 · 48 gpu layers', vram: 22.1 },
+    { id: 'qwen3.6-moe-coder-fim-q4_k_m', short: 'qwen3.6-moe-coder-fim', role: 'fim', color: 'var(--latte-peach)', meta: 'Q4_K_M · 9.8 GB · ctx 16384 · 32 gpu layers', vram: 9.8 },
+    { id: 'nomic-embed-text-v1.5-f16', short: 'nomic-embed-text-v1.5', role: 'embed', color: 'var(--latte-blue)', meta: 'F16 · 0.5 GB · ctx 8192 · pooling mean', vram: 0.5 },
+  ];
+
+  LEVELS = { INFO: 'var(--info)', WARN: 'var(--warning)', ERROR: 'var(--error)', DEBUG: 'var(--text-muted)' };
+
+  state = {
+    dark: false,
+    started: Date.now() - 1000 * 60 * 214,
+    log: [],
+    seq: 617,
+    tps: 0,
+    reqmin: 0,
+    vram: 0.62,
+    ram: 0.41,
+    cpu: 0.17,
+    gpu: 0.78,
+    gpuTemp: 64,
+    cpuTemp: 47,
+    spark: Array.from({ length: 42 }, () => 40 + Math.random() * 45),
+    a: this.freshPane(true),
+    b: this.freshPane(false),
+    slots: [
+      { id: 0, model: 0, client: 'pi · edit-session', ctx: '12.4k', tokens: 268, state: 'processing' },
+      { id: 1, model: 2, client: 'pi · inline-fim', ctx: '3.1k', tokens: 41, state: 'processing' },
+      { id: 2, model: 1, client: 'pi · plan-agent', ctx: '21.8k', tokens: 0, state: 'idle' },
+      { id: 3, model: -1, client: '—', ctx: '—', tokens: 0, state: 'idle' },
+    ],
+  };
+
+  freshPane(wide) {
+    return { running: true, model: 'all', level: 'all', q: '', paused: false, frozen: [], copied: false, unloaded: { 'nomic-embed-text-v1.5-f16': true }, ref: React.createRef() };
+  }
+
+  componentDidMount() {
+    for (let i = 0; i < 40; i++) this.emit(true);
+    this.logTimer = setInterval(() => this.emit(), Math.max(200, this.props.logRateMs ?? 900));
+    this.metricTimer = setInterval(() => this.tickMetrics(), 1600);
+    this.clock = setInterval(() => this.forceUpdate(), 1000);
+    if ((this.props.theme ?? 'light') === 'dark') this.setTheme(true);
+    this.scrollLogs();
+  }
+  componentWillUnmount() { clearInterval(this.logTimer); clearInterval(this.metricTimer); clearInterval(this.clock); }
+  componentDidUpdate() { this.scrollLogs(); }
+
+  scrollLogs() {
+    ['a', 'b'].forEach(k => {
+      const p = this.state[k];
+      const el = p.ref.current;
+      if (el && !p.paused) el.scrollTop = el.scrollHeight;
+    });
+  }
+
+  // --- mock stream -------------------------------------------------
+  emit(seed) {
+    const anyRunning = this.state.a.running || this.state.b.running;
+    if (!anyRunning && !seed) return;
+    const n = seed ? 1 : 1 + (Math.random() < 0.4 ? 1 : 0);
+    const add = [];
+    for (let i = 0; i < n; i++) add.push(this.makeLine());
+    this.setState(s => {
+      const max = this.props.maxLogLines ?? 500;
+      return { log: s.log.concat(add).slice(-max), seq: s.seq + n };
+    });
+  }
+
+  makeLine() {
+    const active = this.MODELS.filter(m => !this.state.a.unloaded[m.id]);
+    const m = active[Math.floor(Math.random() * active.length)] || this.MODELS[0];
+    const slot = Math.floor(Math.random() * 4);
+    const task = this.state.seq + Math.floor(Math.random() * 3);
+    const r = Math.random();
+    let level = 'INFO', msg;
+    if (r < 0.10) {
+      level = 'WARN';
+      msg = `slot update_slots: id ${slot} | task ${task} | context shift, n_keep = 1024, n_discard = 2048`;
+    } else if (r < 0.14) {
+      level = 'ERROR';
+      msg = `srv send_error: task ${task} | prompt exceeds context window (${(Math.random() * 20000 + 66000).toFixed(0)} > 65536)`;
+    } else if (r < 0.30) {
+      msg = `srv log_server_r: request: POST /v1/chat/completions 127.0.0.1 200 (pi/0.9.4)`;
+    } else if (r < 0.50) {
+      msg = `prompt eval time = ${(200 + Math.random() * 900).toFixed(2)} ms / ${Math.floor(300 + Math.random() * 2200)} tokens (${(0.3 + Math.random()).toFixed(2)} ms per token, ${(900 + Math.random() * 1400).toFixed(1)} tokens per second)`;
+    } else if (r < 0.68) {
+      msg = `eval time = ${(1500 + Math.random() * 5000).toFixed(2)} ms / ${Math.floor(60 + Math.random() * 400)} runs (${(9 + Math.random() * 12).toFixed(2)} ms per token, ${(45 + Math.random() * 60).toFixed(1)} tokens per second)`;
+    } else if (r < 0.82) {
+      msg = `slot launch_slot_: id ${slot} | task ${task} | processing task`;
+    } else if (r < 0.92) {
+      msg = `slot update_slots: id ${slot} | task ${task} | n_past = ${Math.floor(1000 + Math.random() * 30000)}, cache_tokens = ${Math.floor(1000 + Math.random() * 30000)}`;
+    } else {
+      msg = `slot release: id ${slot} | task ${task} | stop processing: n_tokens = ${Math.floor(200 + Math.random() * 900)}, truncated = 0`;
+    }
+    const d = new Date();
+    const ts = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+    return { ts, level, model: m.id, msg };
+  }
+
+  tickMetrics() {
+    this.setState(s => {
+      const v = 46 + Math.random() * 52;
+      const drift = (t, target) => Math.max(35, Math.min(92, t + (target - t) * 0.25 + (Math.random() - 0.5) * 1.6));
+      return {
+        gpuTemp: drift(s.gpuTemp, 48 + s.gpu * 38),
+        cpuTemp: drift(s.cpuTemp, 38 + s.cpu * 46),
+        tps: Math.round(38 + Math.random() * 62),
+        reqmin: Math.round(9 + Math.random() * 14),
+        vram: Math.min(0.97, 0.55 + Math.random() * 0.2),
+        ram: 0.36 + Math.random() * 0.12,
+        cpu: 0.12 + Math.random() * 0.3,
+        gpu: 0.6 + Math.random() * 0.35,
+        spark: s.spark.slice(1).concat(v),
+        slots: s.slots.map(sl => sl.model < 0 ? sl : ({
+          ...sl,
+          state: Math.random() < 0.68 ? 'processing' : 'idle',
+          tokens: Math.floor(Math.random() * 520),
+        })),
+      };
+    });
+  }
+
+  // --- helpers -----------------------------------------------------
+  setPane(k, patch) { this.setState(s => ({ [k]: { ...s[k], ...patch } })); }
+  setTheme(dark) {
+    this.setState({ dark });
+    const el = document.documentElement;
+    if (dark) el.setAttribute('data-theme', 'dark'); else el.removeAttribute('data-theme');
+  }
+  modelById(id) { return this.MODELS.find(m => m.id === id); }
+  fmtUptime() {
+    const s = Math.floor((Date.now() - this.state.started) / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return `${h}h ${String(m).padStart(2, '0')}m`;
+  }
+  paneLines(k) {
+    const p = this.state[k];
+    const src = p.paused ? p.frozen : this.state.log;
+    const q = p.q.trim().toLowerCase();
+    return src.filter(l =>
+      (p.model === 'all' || l.model === p.model) &&
+      (p.level === 'all' || l.level === p.level) &&
+      (!q || l.msg.toLowerCase().includes(q))
+    ).slice(-200);
+  }
+  chipStyle(on, color) {
+    return on
+      ? { bg: `color-mix(in srgb, ${color} 18%, transparent)`, fg: color, border: `color-mix(in srgb, ${color} 45%, transparent)` }
+      : { bg: 'var(--surface-page)', fg: 'var(--text-tertiary)', border: 'var(--border)' };
+  }
+
+  buildPane(k) {
+    const p = this.state[k];
+    const lines = this.paneLines(k).map(l => ({
+      ...l,
+      levelColor: this.LEVELS[l.level],
+      modelColor: p.model === 'all' ? (this.modelById(l.model) || {}).color : 'var(--text-muted)',
+      model: (this.modelById(l.model) || {}).short || l.model,
+    }));
+
+    const models = this.MODELS.map(m => {
+      const loaded = !p.unloaded[m.id];
+      const busy = loaded && this.state.slots.some(s => this.MODELS[s.model] === m && s.state === 'processing');
+      const sel = p.model === m.id;
+      const btn = loaded
+        ? { btnLabel: 'Unload', btnBg: 'var(--surface-page)', btnFg: 'var(--error)', btnBorder: 'color-mix(in srgb, var(--error) 40%, transparent)' }
+        : { btnLabel: 'Load', btnBg: 'var(--accent)', btnFg: 'var(--accent-fg)', btnBorder: 'var(--accent)' };
+      return {
+        ...m, ...btn,
+        roleBg: `color-mix(in srgb, ${m.color} 15%, transparent)`,
+        statusLabel: loaded ? (busy ? 'active' : 'resident') : 'unloaded',
+        statusColor: loaded ? (busy ? 'var(--success)' : 'var(--text-tertiary)') : 'var(--text-subtle)',
+        tps: loaded ? (busy ? `${Math.round(this.state.tps * (0.5 + Math.random() * 0.6))} t/s` : 'idle') : '—',
+        cardBg: sel ? `color-mix(in srgb, ${m.color} 10%, transparent)` : 'var(--surface-page)',
+        cardBorder: sel ? `color-mix(in srgb, ${m.color} 50%, transparent)` : 'var(--border)',
+        onFilter: () => this.setPane(k, { model: p.model === m.id ? 'all' : m.id }),
+        onToggle: (e) => { if (e) e.stopPropagation(); this.setPane(k, { unloaded: { ...p.unloaded, [m.id]: loaded } }); },
+      };
+    });
+
+    const modelChips = [{ id: 'all', label: 'all models', color: 'var(--accent)' }]
+      .concat(this.MODELS.map(m => ({ id: m.id, label: m.short.replace('qwen3.6-moe-', ''), color: m.color })))
+      .map(c => {
+        const st = this.chipStyle(p.model === c.id, c.color);
+        return { label: c.label, dot: c.color, ...st, onClick: () => this.setPane(k, { model: c.id }) };
+      });
+
+    const levelChips = ['all', 'INFO', 'WARN', 'ERROR'].map(lv => {
+      const color = lv === 'all' ? 'var(--accent)' : this.LEVELS[lv];
+      const st = this.chipStyle(p.level === lv, color);
+      return { label: lv === 'all' ? 'all levels' : lv, ...st, onClick: () => this.setPane(k, { level: lv }) };
+    });
+
+    const slots = this.state.slots.map(s => {
+      const m = s.model >= 0 ? this.MODELS[s.model] : null;
+      const off = !m || p.unloaded[m.id] || !p.running;
+      const st = off ? 'idle' : s.state;
+      return {
+        id: s.id,
+        model: m ? m.short : 'free',
+        color: m && !off ? m.color : 'var(--text-subtle)',
+        client: s.client,
+        ctx: s.ctx,
+        tokens: st === 'processing' ? `${s.tokens} tok` : '—',
+        state: st,
+        stateBg: st === 'processing' ? 'color-mix(in srgb, var(--success) 16%, transparent)' : 'var(--surface-raised)',
+        stateColor: st === 'processing' ? 'var(--success)' : 'var(--text-tertiary)',
+      };
+    });
+
+    const pct = n => `${Math.round(n * 100)}%`;
+    const run = p.running;
+    const kpis = [
+      { label: 'service', value: run ? this.fmtUptime() : 'stopped', unit: run ? 'uptime' : '', sub: run ? `pid 4821 · port 8080` : 'no process', color: run ? 'var(--success)' : 'var(--error)', pct: run ? '100%' : '0%' },
+      { label: 'requests', value: run ? String(this.state.reqmin) : '0', unit: 'req/min', sub: 'pi agent · 3 sessions', color: 'var(--accent)', pct: pct(this.state.reqmin / 30) },
+      { label: 'throughput', value: run ? String(this.state.tps) : '0', unit: 'tok/s', sub: 'generation, all slots', color: 'var(--latte-mauve)', pct: pct(this.state.tps / 120) },
+      { label: 'vram', value: run ? (this.state.vram * 48).toFixed(1) : '0.0', unit: '/ 48 GB', sub: `GPU ${pct(this.state.gpu)} util`, color: this.state.vram > 0.9 ? 'var(--warning)' : 'var(--latte-teal)', pct: pct(this.state.vram) },
+      { label: 'host', value: pct(this.state.cpu), unit: 'cpu', sub: `RAM ${(this.state.ram * 128).toFixed(0)} / 128 GB`, color: 'var(--latte-peach)', pct: pct(this.state.cpu) },
+    ];
+
+    // temps map 30–95°C onto the bar; warm past 75, hot past 85
+    const tcolor = t => t > 85 ? 'var(--error)' : (t > 75 ? 'var(--warning)' : 'var(--success)');
+    const tpct = t => `${Math.round(Math.min(1, Math.max(0, (t - 30) / 65)) * 100)}%`;
+    const gt = this.state.gpuTemp, ct = this.state.cpuTemp;
+    const gauges = [
+      { label: 'VRAM', value: `${(this.state.vram * 48).toFixed(1)} / 48 GB`, pct: pct(this.state.vram), color: 'var(--latte-teal)' },
+      { label: 'GPU', value: pct(this.state.gpu), pct: pct(this.state.gpu), color: 'var(--latte-mauve)' },
+      { label: 'GPU temp', value: `${gt.toFixed(0)}°C`, pct: tpct(gt), color: tcolor(gt) },
+      { label: 'RAM', value: `${(this.state.ram * 128).toFixed(0)} / 128 GB`, pct: pct(this.state.ram), color: 'var(--accent)' },
+      { label: 'CPU', value: pct(this.state.cpu), pct: pct(this.state.cpu), color: 'var(--latte-peach)' },
+      { label: 'CPU temp', value: `${ct.toFixed(0)}°C`, pct: tpct(ct), color: tcolor(ct) },
+    ];
+
+    const activeM = p.model === 'all' ? null : this.modelById(p.model);
+    return {
+      q: p.q,
+      logRef: p.ref,
+      lines,
+      lineCount: lines.length,
+      models,
+      modelChips,
+      levelChips,
+      slots,
+      kpis: k === 'b' ? kpis.filter(x => x.label !== 'vram') : kpis,
+      gauges,
+      busySlots: slots.filter(s => s.state === 'processing').length,
+      loadedCount: this.MODELS.filter(m => !p.unloaded[m.id]).length,
+      vramModels: this.MODELS.filter(m => !p.unloaded[m.id]).reduce((t, m) => t + m.vram, 0).toFixed(1),
+      dot: run ? 'var(--success)' : 'var(--error)',
+      stateLabel: run ? 'running' : 'stopped',
+      ctlLabel: run ? 'Stop service' : 'Start service',
+      ctlBg: run ? 'color-mix(in srgb, var(--error) 14%, transparent)' : 'var(--accent)',
+      ctlFg: run ? 'var(--error)' : 'var(--accent-fg)',
+      activeModel: activeM ? activeM.short : 'all models',
+      activeBg: activeM ? `color-mix(in srgb, ${activeM.color} 18%, transparent)` : 'color-mix(in srgb, var(--accent) 16%, transparent)',
+      activeFg: activeM ? activeM.color : 'var(--accent)',
+      allBg: p.model === 'all' ? 'color-mix(in srgb, var(--accent) 16%, transparent)' : 'var(--surface-page)',
+      allFg: p.model === 'all' ? 'var(--accent)' : 'var(--text-tertiary)',
+      allBorder: p.model === 'all' ? 'color-mix(in srgb, var(--accent) 45%, transparent)' : 'var(--border)',
+      pauseLabel: p.paused ? 'Resume' : 'Pause',
+      pauseBg: p.paused ? 'color-mix(in srgb, var(--warning) 18%, transparent)' : 'var(--surface-page)',
+      pauseFg: p.paused ? 'var(--warning)' : 'var(--text-secondary)',
+      pauseBorder: p.paused ? 'color-mix(in srgb, var(--warning) 45%, transparent)' : 'var(--border)',
+      copyLabel: p.copied ? 'Copied' : 'Copy',
+      setQ: (e) => this.setPane(k, { q: e.target.value }),
+      showAll: () => this.setPane(k, { model: 'all' }),
+      togglePause: () => this.setPane(k, { paused: !p.paused, frozen: p.paused ? [] : this.state.log.slice() }),
+      toggleService: () => this.setPane(k, { running: !p.running }),
+      restart: () => { this.setPane(k, { running: true }); this.setState({ started: Date.now() }); },
+      copy: () => {
+        const text = lines.map(l => `${l.ts} ${l.level} ${l.model} ${l.msg}`).join('\n');
+        if (navigator.clipboard) navigator.clipboard.writeText(text);
+        this.setPane(k, { copied: true });
+        setTimeout(() => this.setPane(k, { copied: false }), 1400);
+      },
+      download: () => {
+        const text = lines.map(l => `${l.ts} ${l.level} ${l.model} ${l.msg}`).join('\n');
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = 'llama-server.log'; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      },
+    };
+  }
+
+  renderVals() {
+    const max = Math.max(...this.state.spark, 1);
+    return {
+      a: this.buildPane('a'),
+      b: this.buildPane('b'),
+      host: '127.0.0.1:8080',
+      build: 'b6122 (Metal)',
+      uptime: this.fmtUptime(),
+      slotCount: this.state.slots.length,
+      themeLabel: this.state.dark ? 'Light' : 'Dark',
+      themeGlyph: this.state.dark ? '☀' : '☾',
+      toggleTheme: () => this.setTheme(!this.state.dark),
+      showConfigStrip: this.props.showConfigStrip ?? true,
+      showSlots: this.props.showSlots ?? true,
+      spark: this.state.spark.map((v, i) => ({
+        h: `${Math.round((v / max) * 100)}%`,
+        c: i === this.state.spark.length - 1 ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 38%, transparent)',
+      })),
+      sparkPeak: Math.round(max),
+      sparkAvg: Math.round(this.state.spark.reduce((t, v) => t + v, 0) / this.state.spark.length),
+      sparkAvgLine: `${Math.round((this.state.spark.reduce((t, v) => t + v, 0) / this.state.spark.length / max) * 100)}%`,
+      config: [
+        { k: 'binary', v: 'llama-server b6122' },
+        { k: 'listen', v: '127.0.0.1:8080' },
+        { k: 'parallel slots', v: '4' },
+        { k: 'ctx per slot', v: '16384' },
+        { k: 'n_gpu_layers', v: '48 (all)' },
+        { k: 'flash attn', v: 'on' },
+        { k: 'kv cache', v: 'q8_0 / q8_0' },
+        { k: 'router', v: '--model-alias per pi profile' },
+        { k: 'supervisor', v: 'launchd · app.netservant.llamacpp' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
