@@ -99,6 +99,9 @@ const MODELS = [
     ctx: 65536,
     gpuLayers: 48,
     detail: null,
+    parallel: 4,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
   },
   {
     id: "qwen3.6-moe-30b-thinking-q5_k_m",
@@ -109,6 +112,9 @@ const MODELS = [
     ctx: 32768,
     gpuLayers: 48,
     detail: null,
+    parallel: 2,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
   },
   {
     id: "qwen3.6-moe-coder-fim-q4_k_m",
@@ -119,6 +125,9 @@ const MODELS = [
     ctx: 16384,
     gpuLayers: 32,
     detail: null,
+    parallel: 4,
+    flashAttn: "on",
+    kvCache: "f16/f16",
   },
   {
     id: "nomic-embed-text-v1.5-f16",
@@ -129,17 +138,19 @@ const MODELS = [
     ctx: 8192,
     gpuLayers: null,
     detail: "pooling mean",
+    parallel: 1,
+    flashAttn: "off",
+    kvCache: "f16/f16",
   },
 ] as const satisfies readonly ModelSpec[];
 
+// Per-model tuning (parallel, flash-attention, KV-cache) lives on each model
+// card, not here: in routed mode the router runs one `llama-server` per model,
+// so those values differ between models and there is no single global figure.
+// What remains is genuinely router-wide.
 const CONFIG: readonly ConfigEntry[] = [
   { key: "binary", value: "llama-server b6122" },
   { key: "listen", value: "127.0.0.1:8080" },
-  { key: "parallel slots", value: "4" },
-  { key: "ctx per slot", value: "16384" },
-  { key: "n_gpu_layers", value: "48 (all)" },
-  { key: "flash attn", value: "on" },
-  { key: "kv cache", value: "q8_0 / q8_0" },
   { key: "router", value: "--model-alias per pi profile" },
   { key: "supervisor", value: "launchd · app.netservant.llamacpp" },
 ];

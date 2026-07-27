@@ -15,6 +15,7 @@ import {
   formatLogText,
   formatMemory,
   formatModelMeta,
+  formatModelTuning,
   formatPercent,
   formatTemperature,
   formatUptime,
@@ -120,6 +121,8 @@ export interface ModelCardVm {
   id: string;
   short: string;
   meta: string;
+  /** Second meta line: the model's preset tuning, e.g. `4 slots · flash on · kv q8_0/q8_0`. */
+  tuning: string;
   color: string;
   selected: boolean;
   cardBackground: string;
@@ -327,6 +330,7 @@ function selectModels(snapshot: Snapshot, ui: UiState): ModelCardVm[] {
       id: model.id,
       short: model.short,
       meta: formatModelMeta(model),
+      tuning: formatModelTuning(model),
       color,
       selected,
       cardBackground: selected ? tint(color, 10) : "var(--surface-page)",

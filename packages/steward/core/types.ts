@@ -54,6 +54,19 @@ export interface ModelInfo {
   gpuLayers: number | null;
   /** Trailing detail for the card's meta line, e.g. `pooling mean`. */
   detail: string | null;
+  /**
+   * Parallel decode slots this model is given (`--parallel`). Per-model in
+   * routed mode: the router runs one `llama-server` per model, each with its
+   * own slot count.
+   */
+  parallel: number;
+  /**
+   * Flash-attention setting (`--flash-attn`). `auto` is the server default and
+   * resolves to on or off at load time; the preset can pin it either way.
+   */
+  flashAttn: "on" | "off" | "auto";
+  /** KV-cache types as `key/value`, e.g. `q8_0/q8_0` (`--cache-type-k/-v`). */
+  kvCache: string;
   status: ModelStatus;
   /** Generation rate while active, else `null`. */
   tokensPerSecond: number | null;

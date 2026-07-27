@@ -5,6 +5,7 @@ import {
   formatLogText,
   formatMemory,
   formatModelMeta,
+  formatModelTuning,
   formatPercent,
   formatTemperature,
   formatUptime,
@@ -113,6 +114,9 @@ describe("formatModelMeta", () => {
     ctx: 65536,
     gpuLayers: 48,
     detail: null,
+    parallel: 4,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
     status: "active",
     tokensPerSecond: 63,
   };
@@ -141,6 +145,34 @@ describe("formatModelMeta", () => {
   it("omits the tail entirely when neither is available", () => {
     expect(formatModelMeta({ ...base, gpuLayers: null, detail: null })).toBe(
       "Q4_K_M · 18.4 GB · ctx 65536",
+    );
+  });
+});
+
+describe("formatModelTuning", () => {
+  const base: ModelInfo = {
+    id: "qwen3.6-moe-a3b-instruct-q4_k_m",
+    short: "qwen3.6-moe-a3b-instruct",
+    role: "chat",
+    quant: "Q4_K_M",
+    sizeGB: 18.4,
+    ctx: 65536,
+    gpuLayers: 48,
+    detail: null,
+    parallel: 4,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
+    status: "active",
+    tokensPerSecond: 63,
+  };
+
+  it("renders the preset tuning line", () => {
+    expect(formatModelTuning(base)).toBe("4 slots · flash on · kv q8_0/q8_0");
+  });
+
+  it("reflects a model's own parallel, flash-attn and cache settings", () => {
+    expect(formatModelTuning({ ...base, parallel: 2, flashAttn: "off", kvCache: "f16/f16" })).toBe(
+      "2 slots · flash off · kv f16/f16",
     );
   });
 });

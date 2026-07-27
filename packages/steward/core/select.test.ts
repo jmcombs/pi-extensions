@@ -21,6 +21,9 @@ const MODELS: ModelInfo[] = [
     ctx: 65536,
     gpuLayers: 48,
     detail: null,
+    parallel: 4,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
     status: "active",
     tokensPerSecond: 63.4,
   },
@@ -33,6 +36,9 @@ const MODELS: ModelInfo[] = [
     ctx: 32768,
     gpuLayers: 48,
     detail: null,
+    parallel: 2,
+    flashAttn: "on",
+    kvCache: "q8_0/q8_0",
     status: "resident",
     tokensPerSecond: null,
   },
@@ -45,6 +51,9 @@ const MODELS: ModelInfo[] = [
     ctx: 8192,
     gpuLayers: null,
     detail: "pooling mean",
+    parallel: 1,
+    flashAttn: "off",
+    kvCache: "f16/f16",
     status: "unloaded",
     tokensPerSecond: null,
   },
@@ -229,6 +238,12 @@ describe("model cards", () => {
     ]);
     expect(vm.models[0]?.meta).toBe("Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers");
     expect(vm.models[2]?.meta).toBe("F16 · 0.5 GB · ctx 8192 · pooling mean");
+  });
+
+  it("carries each model's preset tuning as a second meta line", () => {
+    const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
+    expect(vm.models[0]?.tuning).toBe("4 slots · flash on · kv q8_0/q8_0");
+    expect(vm.models[2]?.tuning).toBe("1 slots · flash off · kv f16/f16");
   });
 
   it("offers Unload for resident models and Load for unloaded ones", () => {

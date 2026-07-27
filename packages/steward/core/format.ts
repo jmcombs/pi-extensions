@@ -101,6 +101,15 @@ export function formatModelMeta(model: ModelInfo): string {
   return parts.join(" · ");
 }
 
+/**
+ * A model card's tuning line: `4 slots · flash on · kv q8_0/q8_0`. These come
+ * from the model's preset, so they are known whether or not it is loaded —
+ * unlike the runtime rate on the footer.
+ */
+export function formatModelTuning(model: ModelInfo): string {
+  return `${model.parallel} slots · flash ${model.flashAttn} · kv ${model.kvCache}`;
+}
+
 /** One exported log line. Structurally satisfied by the console's view model. */
 export interface LogTextRow {
   time: string;

@@ -28,6 +28,7 @@ interface ModelRow {
   dot: HTMLElement;
   name: HTMLElement;
   meta: HTMLElement;
+  tuning: HTMLElement;
   status: HTMLElement;
   button: HTMLButtonElement;
   vm: ModelCardVm | null;
@@ -42,6 +43,7 @@ function createRow(handlers: ModelsHandlers): ModelRow {
   const dot = el("span", { class: "model-card__dot" });
   const name = el("span", { class: "model-card__name", attrs: { id: `${prefix}-name` } });
   const meta = el("div", { class: "model-card__meta", attrs: { id: `${prefix}-meta` } });
+  const tuning = el("div", { class: "model-card__tune", attrs: { id: `${prefix}-tune` } });
   const status = el("span", { class: "model-card__status", attrs: { id: `${prefix}-status` } });
 
   const row: ModelRow = {
@@ -49,6 +51,7 @@ function createRow(handlers: ModelsHandlers): ModelRow {
     dot,
     name,
     meta,
+    tuning,
     status,
     button: el("button", { class: "btn btn--filled btn--sm", attrs: { type: "button" } }),
     vm: null,
@@ -83,10 +86,15 @@ function createRow(handlers: ModelsHandlers): ModelRow {
   // Naming the card from its own contents rather than with an aria-label is
   // what keeps the quant, size, context and rate audible; the label would have
   // replaced all of them. The card's action is described instead.
-  setAttr(row.root, "aria-labelledby", `${prefix}-name ${prefix}-meta ${prefix}-status`);
+  setAttr(
+    row.root,
+    "aria-labelledby",
+    `${prefix}-name ${prefix}-meta ${prefix}-tune ${prefix}-status`,
+  );
   row.root.append(
     el("div", { class: "model-card__title", children: [dot, name] }),
     meta,
+    tuning,
     el("div", { class: "model-card__foot", children: [status, row.button] }),
   );
   return row;
@@ -137,6 +145,7 @@ export function createModelsBlock(handlers: ModelsHandlers): View<ModelsVm> {
         setVar(row.dot, "model-color", model.color);
         setText(row.name, model.short);
         setText(row.meta, model.meta);
+        setText(row.tuning, model.tuning);
         setText(row.status, model.footerLabel);
         setVar(row.status, "fg", model.footerColor);
         setText(row.button, model.buttonLabel);

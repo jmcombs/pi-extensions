@@ -69,14 +69,11 @@ describe("createMockSource", () => {
       expect(snapshot.metrics.ramTotalGB).toBe(128);
       expect(snapshot.throughputHistory).toHaveLength(42);
       expect(snapshot.sessions).toBe(3);
+      // Per-model tuning (parallel, ctx-per-slot, gpu layers, flash-attn, KV
+      // cache) lives on the model cards now; CONFIG keeps only router-wide facts.
       expect(snapshot.config.map((entry) => entry.key)).toEqual([
         "binary",
         "listen",
-        "parallel slots",
-        "ctx per slot",
-        "n_gpu_layers",
-        "flash attn",
-        "kv cache",
         "router",
         "supervisor",
       ]);

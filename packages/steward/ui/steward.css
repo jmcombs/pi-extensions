@@ -669,6 +669,15 @@ button {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+/* The model's preset tuning — one tier quieter than the meta line above it,
+   since it is reference detail rather than identity. */
+.model-card__tune {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-subtle);
   margin-bottom: 9px;
 }
 
