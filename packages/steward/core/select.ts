@@ -344,9 +344,9 @@ function tempGauge(key: string, label: string, celsius: number): GaugeVm {
 /**
  * The HOST block's gauge set, laid out for the machine's memory topology. A
  * `discrete` box shows the VRAM+RAM pair; a `unified` one (Apple Silicon) shares
- * one pool and cannot read a VRAM total — so it shows a single Unified Memory
- * gauge and NEVER an invented VRAM ceiling. Both share the GPU/CPU util and
- * temperature rows.
+ * one pool and cannot read a VRAM total — so it shows a single Unified RAM gauge
+ * and NEVER an invented VRAM ceiling. Both share the GPU/CPU util and temperature
+ * rows.
  */
 function selectGauges(snapshot: Snapshot): GaugeVm[] {
   const m = snapshot.metrics;
@@ -357,7 +357,7 @@ function selectGauges(snapshot: Snapshot): GaugeVm[] {
         [
           memoryGauge(
             "unified-memory",
-            "Unified Memory",
+            "Unified RAM",
             m.ramUsedGB,
             m.ramTotalGB,
             1,
@@ -376,7 +376,7 @@ function selectGauges(snapshot: Snapshot): GaugeVm[] {
   }
 
   // Discrete machines carry a separate RAM gauge after the temps; unified
-  // machines already accounted for RAM in the single Unified Memory gauge.
+  // machines already accounted for RAM in the single Unified RAM gauge.
   if (snapshot.memoryTopology === "discrete") {
     gauges.push(memoryGauge("ram", "RAM", m.ramUsedGB, m.ramTotalGB, 0, "var(--accent)"));
   }

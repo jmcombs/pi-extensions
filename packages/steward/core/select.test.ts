@@ -185,7 +185,7 @@ describe("host gauges", () => {
     expect(vm.gauges.every((g) => g.track === "solid")).toBe(true);
   });
 
-  it("lays out a single Unified Memory gauge on a unified machine, with no VRAM", () => {
+  it("lays out a single Unified RAM gauge on a unified machine, with no VRAM", () => {
     // Apple-Silicon-style: one shared pool, no readable VRAM total. The single
     // gauge reads used/total off the RAM fields; a VRAM ceiling is never invented.
     const vm = selectDashboard(
@@ -203,7 +203,7 @@ describe("host gauges", () => {
     // No VRAM gauge exists at all on a unified box.
     expect(vm.gauges.some((g) => g.key === "vram")).toBe(false);
     const unified = vm.gauges[0];
-    expect(unified?.label).toBe("Unified Memory");
+    expect(unified?.label).toBe("Unified RAM");
     expect(unified?.value).toBe("52.4 / 128 GB");
     expect(unified?.percent).toBe(41);
     expect(unified?.track).toBe("solid");

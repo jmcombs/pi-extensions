@@ -124,7 +124,7 @@ export interface SlotInfo {
  * a per-sample reading (per M5: a per-line topology would thrash the gauge set).
  * `discrete` machines have separate VRAM and RAM; `unified` machines (e.g. Apple
  * Silicon) share one pool and expose no readable VRAM total, so they show a
- * single Unified Memory gauge instead of the VRAM+RAM pair.
+ * single Unified RAM gauge instead of the VRAM+RAM pair.
  */
 export type MemoryTopology = "unified" | "discrete";
 
