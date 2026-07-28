@@ -141,6 +141,9 @@ export class LlamaSource implements StewardDataSource {
     const { models, slots, throughputTps, requestsInFlight, requestsQueued } =
       await this.#readModelsAndSlots(modelsRaw);
     const throughputHistory = this.#sampleThroughput(base.now, throughputTps);
+    // The live source owns no host metrics yet, so the HOST band — including the
+    // static `memoryTopology` that picks its gauge set — rides through from the
+    // fallback via `...base`. A later phase reads topology from `steward.json`.
     return {
       ...base,
       config,

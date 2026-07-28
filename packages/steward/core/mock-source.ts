@@ -437,6 +437,10 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       models: buildModels(),
       slots,
       metrics: buildMetrics(),
+      // The mock preserves today's discrete VRAM+RAM layout exactly. In a later
+      // phase Steward reads this from the `steward.json` config artifact; here it
+      // is a fixed property of the simulated machine, never a per-tick reading.
+      memoryTopology: "discrete",
       throughputTps: running ? throughputTps : 0,
       requestsInFlight,
       throughputHistory: [...throughputHistory],

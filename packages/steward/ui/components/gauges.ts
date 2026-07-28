@@ -2,12 +2,13 @@
 
 import type { GaugeVm } from "../../core/select.js";
 import type { View } from "../dom.js";
-import { el, setStyle, setText, setVar, syncRows } from "../dom.js";
+import { el, setAttr, setStyle, setText, setVar, syncRows } from "../dom.js";
 
 interface GaugeRow {
   root: HTMLElement;
   label: HTMLElement;
   value: HTMLElement;
+  bar: HTMLElement;
   fill: HTMLElement;
 }
 
@@ -15,14 +16,12 @@ function createRow(): GaugeRow {
   const label = el("span", { class: "gauge__label" });
   const value = el("span", { class: "gauge__value" });
   const fill = el("div", { class: "bar__fill" });
+  const bar = el("div", { class: "bar", children: [fill] });
   const root = el("div", {
     class: "gauge",
-    children: [
-      el("div", { class: "gauge__head", children: [label, value] }),
-      el("div", { class: "bar", children: [fill] }),
-    ],
+    children: [el("div", { class: "gauge__head", children: [label, value] }), bar],
   });
-  return { root, label, value, fill };
+  return { root, label, value, bar, fill };
 }
 
 export function createHostBlock(): View<GaugeVm[]> {
@@ -51,6 +50,9 @@ export function createHostBlock(): View<GaugeVm[]> {
         setVar(row.value, "fill", gauge.color);
         setVar(row.fill, "fill", gauge.color);
         setStyle(row.fill, "width", `${gauge.percent}%`);
+        // The track texture reinforces the value token: a hatched bar reads as
+        // "no reading" and can't be mistaken for a real, solid 0% fill.
+        setAttr(row.bar, "data-track", gauge.track);
       });
     },
   };

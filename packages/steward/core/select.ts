@@ -107,6 +107,15 @@ export interface GaugeVm {
   value: string;
   percent: number;
   color: string;
+  /**
+   * How the bar's track is drawn, so an empty bar cannot be mistaken for a real
+   * reading. `solid` is a genuine figure (INCLUDING a real 0%); `hatched` means
+   * "no reading" — the value dashed to `—` because a memory figure was `null`
+   * or `NaN`; `dashed` is reserved for a future "last-seen" state and is not
+   * produced yet. The value token (`—`) is the primary signal; the track
+   * reinforces it, and is never color-only.
+   */
+  track: "solid" | "hatched" | "dashed";
 }
 
 /**
@@ -281,60 +290,101 @@ function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
   };
 }
 
+/**
+ * A memory gauge (VRAM, RAM, or Unified). `solid` when both figures are real,
+ * else the value dashes and the track hatches — an empty bar for a reading the
+ * host could not supply, told apart from a genuine 0%.
+ */
+function memoryGauge(
+  key: string,
+  label: string,
+  usedGB: number,
+  totalGB: number,
+  decimals: number,
+  color: string,
+): GaugeVm {
+  const read = Number.isFinite(usedGB) && Number.isFinite(totalGB);
+  return {
+    key,
+    label,
+    value: memoryLabel(usedGB, totalGB, decimals),
+    percent: barPercent(totalGB === 0 ? 0 : usedGB / totalGB),
+    color,
+    track: read ? "solid" : "hatched",
+  };
+}
+
+/**
+ * A utilisation gauge (GPU, CPU). A real 0% is a reading and stays `solid`; only
+ * a non-finite figure the source could not supply hatches.
+ */
+function utilGauge(key: string, label: string, util: number, color: string): GaugeVm {
+  return {
+    key,
+    label,
+    value: formatPercent(util),
+    percent: barPercent(util),
+    color,
+    track: Number.isFinite(util) ? "solid" : "hatched",
+  };
+}
+
+/** A temperature gauge. Only ever built from a finite reading, so always solid. */
+function tempGauge(key: string, label: string, celsius: number): GaugeVm {
+  return {
+    key,
+    label,
+    value: formatTemperature(celsius),
+    percent: temperatureBarPercent(celsius),
+    color: temperatureColor(celsius),
+    track: "solid",
+  };
+}
+
+/**
+ * The HOST block's gauge set, laid out for the machine's memory topology. A
+ * `discrete` box shows the VRAM+RAM pair; a `unified` one (Apple Silicon) shares
+ * one pool and cannot read a VRAM total — so it shows a single Unified Memory
+ * gauge and NEVER an invented VRAM ceiling. Both share the GPU/CPU util and
+ * temperature rows.
+ */
 function selectGauges(snapshot: Snapshot): GaugeVm[] {
   const m = snapshot.metrics;
-  const gauges: GaugeVm[] = [
-    {
-      key: "vram",
-      label: "VRAM",
-      value: memoryLabel(m.vramUsedGB, m.vramTotalGB, 1),
-      percent: barPercent(m.vramTotalGB === 0 ? 0 : m.vramUsedGB / m.vramTotalGB),
-      color: "var(--latte-teal)",
-    },
-    {
-      key: "gpu",
-      label: "GPU",
-      value: formatPercent(m.gpuUtil),
-      percent: barPercent(m.gpuUtil),
-      color: "var(--latte-mauve)",
-    },
-  ];
+  const gauges: GaugeVm[] =
+    snapshot.memoryTopology === "unified"
+      ? // Unified memory takes the place of the VRAM+RAM pair; there is no
+        // separate VRAM figure to show, so no VRAM gauge is built at all.
+        [
+          memoryGauge(
+            "unified-memory",
+            "Unified Memory",
+            m.ramUsedGB,
+            m.ramTotalGB,
+            1,
+            "var(--latte-teal)",
+          ),
+        ]
+      : [memoryGauge("vram", "VRAM", m.vramUsedGB, m.vramTotalGB, 1, "var(--latte-teal)")];
+
+  gauges.push(utilGauge("gpu", "GPU", m.gpuUtil, "var(--latte-mauve)"));
+
   // Temperatures come from host sensors, not llama.cpp. Where the platform
   // cannot supply them the design drops the row rather than plotting a zero,
   // and a reading that is not a number is no more of a reading than `null`.
   if (m.gpuTempC !== null && Number.isFinite(m.gpuTempC)) {
-    gauges.push({
-      key: "gpu-temp",
-      label: "GPU temp",
-      value: formatTemperature(m.gpuTempC),
-      percent: temperatureBarPercent(m.gpuTempC),
-      color: temperatureColor(m.gpuTempC),
-    });
+    gauges.push(tempGauge("gpu-temp", "GPU temp", m.gpuTempC));
   }
-  gauges.push(
-    {
-      key: "ram",
-      label: "RAM",
-      value: memoryLabel(m.ramUsedGB, m.ramTotalGB, 0),
-      percent: barPercent(m.ramTotalGB === 0 ? 0 : m.ramUsedGB / m.ramTotalGB),
-      color: "var(--accent)",
-    },
-    {
-      key: "cpu",
-      label: "CPU",
-      value: formatPercent(m.cpuUtil),
-      percent: barPercent(m.cpuUtil),
-      color: "var(--latte-peach)",
-    },
-  );
+
+  // Discrete machines carry a separate RAM gauge after the temps; unified
+  // machines already accounted for RAM in the single Unified Memory gauge.
+  if (snapshot.memoryTopology === "discrete") {
+    gauges.push(memoryGauge("ram", "RAM", m.ramUsedGB, m.ramTotalGB, 0, "var(--accent)"));
+  }
+
+  gauges.push(utilGauge("cpu", "CPU", m.cpuUtil, "var(--latte-peach)"));
+
   if (m.cpuTempC !== null && Number.isFinite(m.cpuTempC)) {
-    gauges.push({
-      key: "cpu-temp",
-      label: "CPU temp",
-      value: formatTemperature(m.cpuTempC),
-      percent: temperatureBarPercent(m.cpuTempC),
-      color: temperatureColor(m.cpuTempC),
-    });
+    gauges.push(tempGauge("cpu-temp", "CPU temp", m.cpuTempC));
   }
   return gauges;
 }

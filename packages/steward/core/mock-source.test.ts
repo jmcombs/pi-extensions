@@ -76,6 +76,8 @@ describe("createMockSource", () => {
       });
       expect(snapshot.metrics.vramTotalGB).toBe(48);
       expect(snapshot.metrics.ramTotalGB).toBe(128);
+      // The mock stands in for a discrete VRAM+RAM machine (its current layout).
+      expect(snapshot.memoryTopology).toBe("discrete");
       expect(snapshot.throughputHistory).toHaveLength(42);
       // In-flight requests are exactly the busy slots — the tile and the slots
       // panel never disagree.

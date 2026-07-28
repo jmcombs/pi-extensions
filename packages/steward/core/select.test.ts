@@ -98,6 +98,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
       gpuTempC: 64,
       cpuTempC: 47,
     },
+    memoryTopology: "discrete",
     throughputTps: 72,
     requestsInFlight: 2,
     throughputHistory: [40, 60, 80],
@@ -179,6 +180,33 @@ describe("host gauges", () => {
     expect(vm.gauges[2]?.value).toBe("64°C");
     expect(vm.gauges[2]?.color).toBe("var(--success)");
     expect(vm.gauges[2]?.percent).toBe(52);
+    // Every one is a real reading, so every track is solid — a 0% here would be
+    // a genuine 0%, not an absent sample.
+    expect(vm.gauges.every((g) => g.track === "solid")).toBe(true);
+  });
+
+  it("lays out a single Unified Memory gauge on a unified machine, with no VRAM", () => {
+    // Apple-Silicon-style: one shared pool, no readable VRAM total. The single
+    // gauge reads used/total off the RAM fields; a VRAM ceiling is never invented.
+    const vm = selectDashboard(
+      snapshot({ memoryTopology: "unified" }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.gauges.map((g) => g.key)).toEqual([
+      "unified-memory",
+      "gpu",
+      "gpu-temp",
+      "cpu",
+      "cpu-temp",
+    ]);
+    // No VRAM gauge exists at all on a unified box.
+    expect(vm.gauges.some((g) => g.key === "vram")).toBe(false);
+    const unified = vm.gauges[0];
+    expect(unified?.label).toBe("Unified Memory");
+    expect(unified?.value).toBe("52.4 / 128 GB");
+    expect(unified?.percent).toBe(41);
+    expect(unified?.track).toBe("solid");
   });
 
   it("hides temperature rows the host cannot supply", () => {
@@ -191,7 +219,7 @@ describe("host gauges", () => {
     expect(vm.gauges.map((g) => g.key)).toEqual(["vram", "gpu", "ram", "cpu"]);
   });
 
-  it("dashes a memory gauge the host could not read, and empties its bar", () => {
+  it("dashes a memory gauge the host could not read, hatches its track, and empties its bar", () => {
     const s = snapshot();
     const vm = selectDashboard(
       snapshot({ metrics: { ...s.metrics, vramUsedGB: Number.NaN } }),
@@ -200,8 +228,26 @@ describe("host gauges", () => {
     );
     expect(vm.gauges[0]?.value).toBe("—");
     expect(vm.gauges[0]?.percent).toBe(0);
-    // The readings either side of it are unaffected.
+    // The empty bar is marked hatched so it cannot be read as a real 0%.
+    expect(vm.gauges[0]?.track).toBe("hatched");
+    // The readings either side of it are unaffected and stay solid.
     expect(vm.gauges[3]?.value).toBe("52 / 128 GB");
+    expect(vm.gauges[3]?.track).toBe("solid");
+  });
+
+  it("hatches a memory gauge whose figure is null, the same as a NaN one", () => {
+    const s = snapshot();
+    const vm = selectDashboard(
+      // A source that can't measure RAM sends null; the field is typed number,
+      // so the cast mirrors what an at-runtime unmeasured reading looks like.
+      snapshot({ metrics: { ...s.metrics, ramUsedGB: null as unknown as number } }),
+      initialUiState("light"),
+      NOW,
+    );
+    const ram = vm.gauges.find((g) => g.key === "ram");
+    expect(ram?.value).toBe("—");
+    expect(ram?.percent).toBe(0);
+    expect(ram?.track).toBe("hatched");
   });
 
   it("drops a temperature row that is not a reading, the same as a missing one", () => {

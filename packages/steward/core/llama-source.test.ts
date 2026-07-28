@@ -349,8 +349,10 @@ describe("LlamaSource — snapshot overlay", () => {
       // seeds the history with a real 0 rather than the mock's 42-sample series.
       expect(snapshot.throughputTps).toBe(0);
       expect(snapshot.throughputHistory).toEqual([0]);
-      // The host band and requests still animate from the mock (not migrated).
+      // The host band and requests still animate from the mock (not migrated),
+      // and the static topology rides through from the fallback via `...base`.
       expect(snapshot.metrics.vramTotalGB).toBeGreaterThan(0);
+      expect(snapshot.memoryTopology).toBe("discrete");
       // SERVICE is live now: an unreachable server reads stopped, with no
       // fabricated uptime or pid — not the mock's standing "running".
       expect(snapshot.service.running).toBe(false);

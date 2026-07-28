@@ -343,6 +343,34 @@ button {
   transition: width var(--dur-bar) var(--ease-out);
 }
 
+/* Honest gauge tracks. A bar the host could not read (`hatched`) — or a held
+   last-seen value (`dashed`, reserved for a later phase) — gets a visible
+   TEXTURE, not color alone, so an empty track is never mistaken for a real,
+   solid 0% fill. The two patterns are deliberately different shapes (diagonal
+   weave vs. horizontal dashes) so they don't both read as speckle at 6px, and
+   both reuse `--border-strong`, which is theme-defined, so they stay legible
+   in light and dark. The value token (`—`) is the primary signal; these
+   reinforce it. `solid` (the default) leaves the plain filled track. */
+.bar[data-track="hatched"] {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 2px,
+    var(--border-strong) 2px,
+    var(--border-strong) 4px
+  );
+}
+
+.bar[data-track="dashed"] {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--border-strong) 0,
+    var(--border-strong) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
 /* Buttons. Neutral controls repaint their surface on hover; filled and tinted
    ones keep their assigned color and darken one step instead. */
 .btn {

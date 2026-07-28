@@ -119,6 +119,15 @@ export interface SlotInfo {
   state: SlotState;
 }
 
+/**
+ * How the machine's memory is laid out, a static property of the hardware — not
+ * a per-sample reading (per M5: a per-line topology would thrash the gauge set).
+ * `discrete` machines have separate VRAM and RAM; `unified` machines (e.g. Apple
+ * Silicon) share one pool and expose no readable VRAM total, so they show a
+ * single Unified Memory gauge instead of the VRAM+RAM pair.
+ */
+export type MemoryTopology = "unified" | "discrete";
+
 /** Host sensors. Temperatures are `null` where the platform cannot supply them. */
 export interface HostMetrics {
   vramUsedGB: number;
@@ -162,6 +171,13 @@ export interface Snapshot {
   models: ModelInfo[];
   slots: SlotInfo[];
   metrics: HostMetrics;
+  /**
+   * Which gauge SET the HOST block lays out (VRAM+RAM vs a single Unified
+   * Memory). Static machine config, not a reading — it lives here at the top
+   * level, never inside {@link HostMetrics}. In a later phase this is read from
+   * the `steward.json` config artifact; today the mock reports `discrete`.
+   */
+  memoryTopology: MemoryTopology;
   /** Aggregate generation rate across all slots, tokens/second. */
   throughputTps: number;
   /**

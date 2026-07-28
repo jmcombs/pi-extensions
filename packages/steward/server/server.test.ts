@@ -189,6 +189,7 @@ describe("the Steward server", () => {
     const snapshot = (await response.json()) as Snapshot;
     expect(Object.keys(snapshot).sort()).toEqual([
       "config",
+      "memoryTopology",
       "metrics",
       "models",
       "now",
