@@ -169,10 +169,59 @@ describe("LlamaSource — snapshot overlay", () => {
       expect(snapshot.slots).toHaveLength(2);
       expect(snapshot.slots.every((slot) => slot.modelId === "M1")).toBe(true);
 
-      // Everything but config/models/slots must be exactly the fallback's.
-      const { config: _c, models: _m, slots: _s, ...liveRest } = snapshot;
-      const { config: _c2, models: _m2, slots: _s2, ...mockRest } = reference;
+      // SERVICE is live too: reachable server reads running, build from /props,
+      // host/port from the connection; pid/uptime are n/a with no probe injected.
+      expect(snapshot.service).toEqual({
+        running: true,
+        startedAt: null,
+        pid: null,
+        host: "127.0.0.1",
+        port: 8080,
+        build: "b9960-a935fbffe",
+      });
+
+      // Everything but config/models/slots/service must be exactly the fallback's.
+      const { config: _c, models: _m, slots: _s, service: _sv, ...liveRest } = snapshot;
+      const { config: _c2, models: _m2, slots: _s2, service: _sv2, ...mockRest } = reference;
       expect(liveRest).toEqual(mockRest);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reports a live pid and uptime from the injected process probe", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeService: (host, port) => {
+        expect(host).toBe("127.0.0.1");
+        expect(port).toBe(8080);
+        return Promise.resolve({ pid: 4242, startedAt: FIXED_NOW - 60_000 });
+      },
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.service.running).toBe(true);
+      expect(snapshot.service.pid).toBe(4242);
+      expect(snapshot.service.startedAt).toBe(FIXED_NOW - 60_000);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("survives a probe that throws, degrading pid and uptime to n/a", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeService: () => Promise.reject(new Error("lsof missing")),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.service.running).toBe(true);
+      expect(snapshot.service.pid).toBeNull();
+      expect(snapshot.service.startedAt).toBeNull();
     } finally {
       source.close();
     }
@@ -255,7 +304,11 @@ describe("LlamaSource — snapshot overlay", () => {
       expect(snapshot.slots).toEqual([]);
       // The panels we have not moved yet keep animating from the mock.
       expect(snapshot.throughputHistory).toHaveLength(42);
-      expect(snapshot.service.running).toBe(true);
+      // SERVICE is live now: an unreachable server reads stopped, with no
+      // fabricated uptime or pid — not the mock's standing "running".
+      expect(snapshot.service.running).toBe(false);
+      expect(snapshot.service.startedAt).toBeNull();
+      expect(snapshot.service.pid).toBeNull();
     } finally {
       source.close();
     }

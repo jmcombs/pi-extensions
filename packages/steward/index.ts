@@ -33,9 +33,10 @@ const PORT_VARIABLE = "STEWARD_PORT";
 
 /**
  * Selects the data source. Unset or `mock` keeps the simulated dashboard (the
- * default, so everyone gets a deterministic view). `llama` overlays a live
- * CONFIG panel read from the real `llama-server`, while every other panel stays
- * simulated for now. Live is opt-in until the whole snapshot is migrated.
+ * default, so everyone gets a deterministic view). `llama` overlays the live
+ * CONFIG, SERVICE, MODELS and SLOTS panels read from the real `llama-server`,
+ * while the rest stay simulated for now. Live is opt-in until the whole
+ * snapshot is migrated.
  */
 const SOURCE_VARIABLE = "STEWARD_SOURCE";
 
@@ -108,8 +109,10 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const { resolveLlamaConnection } = await import("./core/llama-connection.js");
   const { LlamaSource } = await import("./core/llama-source.js");
   const { createMockSource } = await import("./core/mock-source.js");
+  const { createListenerProbe } = await import("./server/service-probe.js");
   const connection = await resolveLlamaConnection(ctx);
-  return () => new LlamaSource({ connection, fallback: createMockSource() });
+  const probeService = createListenerProbe();
+  return () => new LlamaSource({ connection, fallback: createMockSource(), probeService });
 }
 
 async function launch(makeSource?: SourceFactory): Promise<Launched> {

@@ -3,10 +3,10 @@
  * otherwise simulated dashboard, and performs load/unload for real.
  *
  * It is composite: it holds a `fallback` (the mock) and delegates the panels it
- * does not own yet — SERVICE, the host-metrics band, throughput history, and the
- * log console — straight to it, overriding only `config`, `models`, and `slots`
- * with what a real `llama-server` reports. This is a step in a gradual mock→live
- * migration; the remaining panels stay simulated until later phases move them.
+ * does not own yet — the host-metrics band, requests, throughput history, and the
+ * log console — straight to it, overriding `config`, `service`, `models`, and
+ * `slots` with what a real `llama-server` reports. This is a step in a gradual
+ * mock→live migration; the remaining panels stay simulated until later phases.
  *
  * Reading the server must never throw or hang the dashboard: it is not always
  * up, and that is a state to show, not an error to crash on. Every failure —
@@ -37,9 +37,24 @@ import type {
   ModelAction,
   ModelInfo,
   ServiceAction,
+  ServiceInfo,
   SlotInfo,
   Snapshot,
 } from "./types.js";
+
+/** The local process behind the server, for facts HTTP does not expose. */
+export interface ServiceProcess {
+  pid: number;
+  /** Epoch ms the process started, or null when the probe cannot read it. */
+  startedAt: number | null;
+}
+
+/**
+ * Resolves the OS process listening on a host:port. Node-side and
+ * platform-specific (it shells out), so it is injected rather than imported here
+ * — this module stays free of Node APIs. Returns null when nothing is found.
+ */
+export type ServiceProbe = (host: string, port: number) => Promise<ServiceProcess | null>;
 
 /**
  * The minimal HTTP surface Steward uses. The global `fetch` satisfies it, and a
@@ -63,6 +78,13 @@ export interface LlamaSourceOptions {
   fallback: StewardDataSource;
   /** HTTP transport. Defaults to the global `fetch`; injected in tests. */
   fetch?: FetchLike;
+  /**
+   * Resolves the OS process behind the connection, for the SERVICE panel's real
+   * pid and uptime — facts llama-server does not report over HTTP. Injected
+   * (it is Node-side and platform-specific); omitted, pid and uptime read n/a
+   * while the live/stopped state still comes through.
+   */
+  probeService?: ServiceProbe;
 }
 
 /** How long to wait on any one call before treating the server as unreachable. */
@@ -74,6 +96,7 @@ export class LlamaSource implements StewardDataSource {
   readonly #connection: LlamaConnection;
   readonly #fallback: StewardDataSource;
   readonly #fetch: FetchLike;
+  readonly #probeService: ServiceProbe | null;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
 
@@ -81,6 +104,7 @@ export class LlamaSource implements StewardDataSource {
     this.#connection = options.connection;
     this.#fallback = options.fallback;
     this.#fetch = options.fetch ?? globalThis.fetch;
+    this.#probeService = options.probeService ?? null;
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -91,14 +115,16 @@ export class LlamaSource implements StewardDataSource {
     // rather than serialising. (A fallback that itself fails is the spine
     // failing; the server turns that into a 5xx and the client retries, which
     // beats painting invented panels over a dead source.)
-    const [base, config, modelsRaw] = await Promise.all([
+    const [base, props, modelsRaw] = await Promise.all([
       this.#fallback.snapshot(),
-      this.#readConfig(),
+      this.#readProps(),
       this.#getJson("/models"),
     ]);
 
+    const config = this.#configFromProps(props);
+    const service = await this.#serviceFromProps(props);
     const { models, slots } = await this.#readModelsAndSlots(modelsRaw);
-    return { ...base, config, models, slots };
+    return { ...base, config, service, models, slots };
   }
 
   recentLogs(limit: number): LogLine[] {
@@ -250,11 +276,12 @@ export class LlamaSource implements StewardDataSource {
   }
 
   /**
-   * The live CONFIG rows, or a degraded block that always keeps `listen` in
-   * view. Never throws: every failure mode maps to an honest status row.
+   * One guarded `/props` read, shared by CONFIG and SERVICE so the server is hit
+   * once per snapshot. `status` is 0 when the server could not be reached at all
+   * (refused, timeout, an aborted close) — distinct from an HTTP error it did
+   * answer with. `body` is the parsed props only on a 2xx.
    */
-  async #readConfig(): Promise<ConfigEntry[]> {
-    const listen = listenAddress(this.#connection.baseUrl);
+  async #readProps(): Promise<PropsRead> {
     const controller = new AbortController();
     this.#inFlight.add(controller);
     try {
@@ -265,31 +292,94 @@ export class LlamaSource implements StewardDataSource {
         headers: this.#authHeaders(),
         signal,
       });
-      if (response.status === 401) {
-        return [
-          { key: "status", value: "API key required — run /login llama.cpp" },
-          { key: "address", value: listen },
-        ];
-      }
-      if (!response.ok) {
-        return [
-          { key: "status", value: `llama.cpp error (HTTP ${response.status})` },
-          { key: "address", value: listen },
-        ];
-      }
-
-      const props = await response.json();
-      return parseRouterConfig(props, this.#connection.baseUrl);
+      const body = response.ok ? await response.json() : null;
+      return { status: response.status, body };
     } catch {
-      // Connection refused, timeout, an aborted close, or an unreadable body:
-      // all mean the same thing to the operator — we could not reach it.
-      return [
-        { key: "status", value: "llama.cpp not reachable" },
-        { key: "address", value: listen },
-      ];
+      return { status: 0, body: null };
     } finally {
       this.#inFlight.delete(controller);
     }
+  }
+
+  /**
+   * The live CONFIG rows, or a degraded block that always keeps the address in
+   * view. Never throws: every failure mode maps to an honest status row.
+   */
+  #configFromProps(read: PropsRead): ConfigEntry[] {
+    const address = listenAddress(this.#connection.baseUrl);
+    if (read.status === 401) {
+      return [
+        { key: "status", value: "API key required — run /login llama.cpp" },
+        { key: "address", value: address },
+      ];
+    }
+    if (read.status === 0) {
+      // Refused, timed out, or an aborted close — we could not reach it.
+      return [
+        { key: "status", value: "llama.cpp not reachable" },
+        { key: "address", value: address },
+      ];
+    }
+    if (read.body === null) {
+      return [
+        { key: "status", value: `llama.cpp error (HTTP ${read.status})` },
+        { key: "address", value: address },
+      ];
+    }
+    return parseRouterConfig(read.body, this.#connection.baseUrl);
+  }
+
+  /**
+   * The real SERVICE panel. `running` is a live reachability check — a 2xx to
+   * `/props`, not the mock's standing "true" — so a stopped server reads
+   * stopped. pid and uptime have no HTTP source, so they come from the injected
+   * process probe while the server is up, and read n/a when it is absent or
+   * finds nothing.
+   */
+  async #serviceFromProps(read: PropsRead): Promise<ServiceInfo> {
+    const { host, port } = splitHostPort(this.#connection.baseUrl);
+    const running = read.status >= 200 && read.status < 300;
+    if (!running) {
+      return { running: false, startedAt: null, pid: null, host, port, build: "" };
+    }
+    const build =
+      isRecord(read.body) && typeof read.body.build_info === "string" ? read.body.build_info : "";
+    const process = this.#probeService === null ? null : await this.#safeProbe(host, port);
+    return {
+      running: true,
+      startedAt: process?.startedAt ?? null,
+      pid: process?.pid ?? null,
+      host,
+      port,
+      build,
+    };
+  }
+
+  /** The injected probe, guarded: a probe that throws yields no pid or uptime. */
+  async #safeProbe(host: string, port: number): Promise<ServiceProcess | null> {
+    if (this.#probeService === null) return null;
+    try {
+      return await this.#probeService(host, port);
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** The outcome of one `/props` read: `status` 0 means the server was unreachable. */
+interface PropsRead {
+  status: number;
+  body: unknown | null;
+}
+
+/** Splits the connection's base URL into a host and a numeric port. */
+function splitHostPort(baseUrl: string): { host: string; port: number } {
+  try {
+    const url = new URL(baseUrl);
+    const port = url.port !== "" ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
+    return { host: url.hostname, port };
+  } catch {
+    return { host: baseUrl, port: 0 };
   }
 }
 
