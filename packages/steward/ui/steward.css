@@ -286,8 +286,9 @@ button {
   padding: 18px 20px;
 }
 
-.rail__block--config {
-  padding: 18px 20px 24px;
+/* MODELS is now the last rail block, so it closes the rail rather than CONFIG. */
+.rail__block--models {
+  padding-bottom: 22px;
   border-bottom: 0;
 }
 
@@ -545,33 +546,52 @@ button {
   color: var(--text-primary);
 }
 
-.lockup__dot {
-  width: 9px;
-  height: 9px;
+/* The status indicator and the theme toggle share one row where the service
+   controls used to sit, so the width is visually reserved for real start/stop
+   controls later. */
+.service__status-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+/* Styled like the filled control it stands in for, but inert: no hover, no
+   focus ring, no press. It reports state and nothing more. */
+.service__status {
+  flex: 1;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bd, var(--border));
+  background: var(--bg, var(--surface-raised));
+  color: var(--fg, var(--text-secondary));
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: default;
+}
+
+.service__status-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
   border-radius: 50%;
   background: var(--fill, var(--success));
 }
 
-.engine-line {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text-muted);
-  margin-bottom: 14px;
+.service__status-label {
+  text-transform: capitalize;
 }
 
-.service__controls {
-  display: flex;
-  gap: 8px;
-}
-
-.service__footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* The router identity, divided from the live state/control row above by a
+   hairline. Uptime and pid live in the metrics band's service tile, not here. */
+.service__facts {
   margin-top: 14px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text-tertiary);
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 
 /* ===================================================================
@@ -819,11 +839,12 @@ button {
   gap: 7px;
 }
 
+/* `label: value`, left-aligned and adjacent — the same grammar as the model
+   card fields, so the rail reads one way, not two. */
 .config-row {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 5px;
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
@@ -833,9 +854,12 @@ button {
   white-space: nowrap;
 }
 
+/* Unlike the dense card grid, the facts wrap rather than ellipsize, so a long
+   engine build hash or host is never clipped. */
 .config-row__value {
   color: var(--text-secondary);
-  text-align: right;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* ===================================================================
@@ -1213,20 +1237,15 @@ button {
     border-bottom: 1px solid var(--border);
   }
 
-  /* Service and Host pair off in the first row; the two list blocks take the
-     full width so their rows can spread sideways instead of stacking. Reading
-     order is untouched — the blocks land where they already were. */
+  /* Service and Host pair off in the first row; MODELS takes the full width so
+     its cards can spread sideways instead of stacking. Reading order is
+     untouched — the blocks land where they already were. */
   .rail__block--service {
     border-right: 1px solid var(--border);
   }
 
-  .rail__block--models,
-  .rail__block--config {
+  .rail__block--models {
     grid-column: 1 / -1;
-  }
-
-  .rail__block--config {
-    padding: 18px 20px;
   }
 
   /* The block contents reflow into as many columns as their rows can hold, so

@@ -154,12 +154,15 @@ const MODELS = [
 // Per-model tuning (parallel, flash-attention, KV-cache) lives on each model
 // card, not here: in routed mode the router runs one `llama-server` per model,
 // so those values differ between models and there is no single global figure.
-// What remains is genuinely router-wide.
+// What remains is genuinely router-wide, and it mirrors the shape the live
+// `/props` parser emits (see core/llama-config.ts) so the mock reads like the
+// real thing.
 const CONFIG: readonly ConfigEntry[] = [
-  { key: "binary", value: "llama-server b6122" },
-  { key: "listen", value: "127.0.0.1:8080" },
-  { key: "router", value: "--model-alias per pi profile" },
-  { key: "supervisor", value: "launchd · app.netservant.llamacpp" },
+  { key: "mode", value: "routed" },
+  { key: "engine", value: "llama-server b6122" },
+  { key: "address", value: "127.0.0.1:8080" },
+  { key: "max models", value: "4" },
+  { key: "autoload", value: "off" },
 ];
 
 /** A slot as the simulation keeps it; {@link SlotInfo} is the projection. */

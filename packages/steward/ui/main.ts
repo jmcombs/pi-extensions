@@ -10,8 +10,7 @@
 import { selectDashboard, selectLogText } from "../core/select.js";
 import type { LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
 import { initialUiState, reduce } from "../core/state.js";
-import type { LogLine, ModelAction, ServiceAction, Snapshot } from "../core/types.js";
-import { createConfigBlock } from "./components/config.js";
+import type { LogLine, ModelAction, Snapshot } from "../core/types.js";
 import { createLogConsole } from "./components/console.js";
 import { createHostBlock } from "./components/gauges.js";
 import { createMetricsBand } from "./components/metrics.js";
@@ -49,16 +48,35 @@ let copyTimer = 0;
 // Theme
 // ---------------------------------------------------------------------------
 
+/** The stored mode, defaulting to `system` when unset or unrecognized. */
 function readTheme(): Theme {
   try {
-    return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "dark" || stored === "light" || stored === "system") return stored;
   } catch {
-    return "light";
+    // Storage refused (private mode): fall through to the default.
+  }
+  return "system";
+}
+
+/** True when the OS currently asks for a dark palette. */
+function prefersDark(): boolean {
+  try {
+    return globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  } catch {
+    return false;
   }
 }
 
+/**
+ * Applies a mode by resolving it to the light/dark palette. `system` follows the
+ * OS; the CSS contract is unchanged — `data-theme="dark"` present means dark, its
+ * absence means light — so `system` simply computes which to set. The persisted
+ * value is the *mode*, not the resolved palette, so `system` survives a reload.
+ */
 function applyTheme(theme: Theme): void {
-  if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+  const dark = theme === "dark" || (theme === "system" && prefersDark());
+  if (dark) document.documentElement.setAttribute("data-theme", "dark");
   else document.documentElement.removeAttribute("data-theme");
   try {
     localStorage.setItem(THEME_KEY, theme);
@@ -76,12 +94,10 @@ function announce(message: string): void {
 // ---------------------------------------------------------------------------
 
 const serviceBlock = createServiceBlock({
-  onService: (action) => {
-    void runService(action);
-  },
   onToggleTheme: () => {
     dispatch({ type: "theme/toggle" });
     applyTheme(ui.theme);
+    announce(`Theme set to ${ui.theme}.`);
   },
 });
 
@@ -99,7 +115,6 @@ const modelsBlock = createModelsBlock({
   },
 });
 
-const configBlock = createConfigBlock();
 const sparkline = createSparkline();
 const metricsBand = createMetricsBand(sparkline.el);
 
@@ -123,7 +138,7 @@ const toolbar = createToolbar({
 const logConsole = createLogConsole();
 const slotsStrip = createSlotsStrip();
 
-rail.append(serviceBlock.el, hostBlock.el, modelsBlock.el, configBlock.el);
+rail.append(serviceBlock.el, hostBlock.el, modelsBlock.el);
 main.append(metricsBand.el, toolbar.el, logConsole.el, slotsStrip.el);
 
 // ---------------------------------------------------------------------------
@@ -147,7 +162,6 @@ function render(): void {
   serviceBlock.update(vm.service);
   hostBlock.update(vm.gauges);
   modelsBlock.update({ models: vm.models, allLogsPill: vm.allLogsPill });
-  configBlock.update(vm.config);
   metricsBand.update(vm.kpis);
   sparkline.update(vm.spark);
   toolbar.update(vm.toolbar);
@@ -235,19 +249,6 @@ async function post(path: string): Promise<boolean> {
 }
 
 /**
- * Actions are never reflected optimistically: the control shows that it is
- * working, and the state only moves once a snapshot confirms it did.
- */
-async function runService(action: ServiceAction): Promise<void> {
-  if (ui.pendingService !== null) return;
-  dispatch({ type: "service/pending", action });
-  const ok = await post(`/api/service/${action}`);
-  if (!ok) announce(`Could not ${action} the service.`);
-  await refresh();
-  dispatch({ type: "service/pending", action: null });
-}
-
-/**
  * Load/unload is slow and asynchronous — the POST returns in tens of
  * milliseconds while the model is still spawning — so the button is not cleared
  * here. It is marked pending, and it stays pending until a polled snapshot
@@ -301,6 +302,11 @@ function downloadLog(): void {
 // ---------------------------------------------------------------------------
 
 applyTheme(ui.theme);
+// While in System mode, a live OS light/dark switch must repaint the palette.
+// The mode itself does not change, so only the resolved attribute is re-applied.
+globalThis.matchMedia?.("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (ui.theme === "system") applyTheme(ui.theme);
+});
 void refresh();
 connectLogs();
 window.setInterval(() => {

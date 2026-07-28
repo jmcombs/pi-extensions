@@ -15,7 +15,11 @@ export const LOG_BUFFER_LIMIT = 500;
 /** The level filter, where `all` means "do not filter". */
 export type LevelFilter = LogLevel | "all";
 
-export type Theme = "light" | "dark";
+/**
+ * `system` follows the OS `prefers-color-scheme` and is the default; `light` and
+ * `dark` pin the palette. The one control cycles system → light → dark → system.
+ */
+export type Theme = "light" | "dark" | "system";
 
 export interface UiState {
   /** Live buffer, oldest first, capped at {@link LOG_BUFFER_LIMIT}. */
@@ -144,8 +148,11 @@ export function reduce(state: UiState, action: UiAction): UiState {
       if (state.paused) return { ...state, paused: false, frozen: null };
       return { ...state, paused: true, frozen: state.log.slice() };
     }
-    case "theme/toggle":
-      return { ...state, theme: state.theme === "dark" ? "light" : "dark" };
+    case "theme/toggle": {
+      const next: Theme =
+        state.theme === "system" ? "light" : state.theme === "light" ? "dark" : "system";
+      return { ...state, theme: next };
+    }
     case "copy/flag": {
       if (state.copied === action.copied) return state;
       return { ...state, copied: action.copied };

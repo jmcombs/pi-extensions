@@ -56,17 +56,17 @@ export function parseRouterConfig(props: unknown, baseUrl: string): ConfigEntry[
 
   if (record.role === "router") {
     return [
-      { key: "role", value: "router" },
-      { key: "binary", value: binary },
-      { key: "listen", value: listen },
+      { key: "mode", value: "routed" },
+      { key: "engine", value: binary },
+      { key: "address", value: listen },
       { key: "max models", value: readCount(record.max_instances) },
       { key: "autoload", value: readToggle(record.models_autoload) },
     ];
   }
 
   return [
-    { key: "role", value: "single-model" },
-    { key: "binary", value: binary },
-    { key: "listen", value: listen },
+    { key: "mode", value: "single model" },
+    { key: "engine", value: binary },
+    { key: "address", value: listen },
   ];
 }

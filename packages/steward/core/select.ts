@@ -34,15 +34,7 @@ import {
 import { modelColor } from "./model-color.js";
 import type { LevelFilter, UiState } from "./state.js";
 import { visibleBuffer } from "./state.js";
-import type {
-  ConfigEntry,
-  LogLevel,
-  ModelAction,
-  ModelInfo,
-  ServiceAction,
-  SlotInfo,
-  Snapshot,
-} from "./types.js";
+import type { ConfigEntry, LogLevel, ModelAction, ModelInfo, SlotInfo, Snapshot } from "./types.js";
 
 // A model's color is a stable hash of its id (embedders get a reserved hue);
 // re-exported here because it is part of this module's view-model surface.
@@ -94,21 +86,22 @@ function memoryLabel(usedGB: number, totalGB: number, decimals: number): string 
 
 export interface ServiceVm {
   running: boolean;
-  dotColor: string;
-  /** `llama.cpp b6122 · 127.0.0.1:8080` */
-  engineLine: string;
-  /** Which way the primary button will move the service. */
-  controlAction: ServiceAction;
-  controlLabel: string;
-  controlBackground: string;
-  controlColor: string;
-  restartLabel: string;
-  /** True while any service action is in flight; every control disables. */
-  pending: boolean;
-  stateLabel: string;
-  uptimeLabel: string;
+  /** `started` / `stopped` — the monitor-only status indicator's text. */
+  statusLabel: string;
+  /** The dot and label color: success when up, error when down. */
+  statusColor: string;
+  /** The indicator's tinted fill and border, matching the state color. */
+  statusTint: string;
+  statusBorder: string;
+  /** The theme control's current-state glyph: `◐` system, `☀` light, `☾` dark. */
   themeGlyph: string;
   themeLabel: string;
+  /**
+   * The router facts (role, binary, listen, …) folded in from what was the
+   * separate CONFIG block. They render below the status as this block's third
+   * zone, sourced from `/props` so the listen address and build have one home.
+   */
+  config: ConfigEntry[];
 }
 
 export interface GaugeVm {
@@ -258,7 +251,6 @@ export interface DashboardVm {
   gauges: GaugeVm[];
   models: ModelCardVm[];
   allLogsPill: PillVm;
-  config: ConfigEntry[];
   kpis: KpiVm[];
   spark: SparkVm;
   toolbar: ToolbarVm;
@@ -266,29 +258,29 @@ export interface DashboardVm {
   slots: SlotsVm;
 }
 
-function selectService(snapshot: Snapshot, ui: UiState, now: number): ServiceVm {
+function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
   const { service } = snapshot;
   const running = service.running;
-  const pending = ui.pendingService !== null;
-  const uptime = service.startedAt === null ? "—" : formatUptime(now - service.startedAt);
-  const controlAction: ServiceAction = running ? "stop" : "start";
-  const pendingLabel =
-    ui.pendingService === "start" ? "Starting…" : ui.pendingService === "stop" ? "Stopping…" : null;
+  const color = running ? "var(--success)" : "var(--error)";
+  // The glyph reports the current mode, not the destination — with three states
+  // "next" is ambiguous — and the label names both so the change is announced.
+  const themeGlyph = ui.theme === "system" ? "◐" : ui.theme === "light" ? "☀" : "☾";
+  const themeLabel =
+    ui.theme === "system"
+      ? "Theme: System (matches your OS). Switch to light."
+      : ui.theme === "light"
+        ? "Theme: Light. Switch to dark."
+        : "Theme: Dark. Switch to system.";
 
   return {
     running,
-    dotColor: running ? "var(--success)" : "var(--error)",
-    engineLine: `llama.cpp ${service.build} · ${service.host}:${service.port}`,
-    controlAction,
-    controlLabel: pendingLabel ?? (running ? "Stop service" : "Start service"),
-    controlBackground: running ? tint("var(--error)", 14) : "var(--accent)",
-    controlColor: running ? "var(--error)" : "var(--accent-fg)",
-    restartLabel: ui.pendingService === "restart" ? "Restarting…" : "Restart",
-    pending,
-    stateLabel: running ? "running" : "stopped",
-    uptimeLabel: `uptime ${uptime}`,
-    themeGlyph: ui.theme === "dark" ? "☀" : "☾",
-    themeLabel: ui.theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
+    statusLabel: running ? "started" : "stopped",
+    statusColor: color,
+    statusTint: tint(color, 14),
+    statusBorder: tint(color, 40),
+    themeGlyph,
+    themeLabel,
+    config: snapshot.config,
   };
 }
 
@@ -416,7 +408,9 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
   const { service } = snapshot;
   const running = service.running;
   const uptime = service.startedAt === null ? "—" : formatUptime(now - service.startedAt);
-  const pid = service.pid === null ? "no process" : `pid ${service.pid} · port ${service.port}`;
+  // Port lives in the `address` fact now (the Steward block); the tile owns
+  // uptime and pid, so it does not repeat the port.
+  const pid = service.pid === null ? "no process" : `pid ${service.pid}`;
 
   return [
     {
@@ -615,7 +609,7 @@ export function selectDashboard(snapshot: Snapshot, ui: UiState, now: number): D
   const allSelected = ui.filterModel === null;
 
   return {
-    service: selectService(snapshot, ui, now),
+    service: selectService(snapshot, ui),
     gauges: selectGauges(snapshot),
     models: selectModels(snapshot, ui),
     allLogsPill: {
@@ -625,7 +619,6 @@ export function selectDashboard(snapshot: Snapshot, ui: UiState, now: number): D
       color: allSelected ? "var(--accent)" : "var(--text-tertiary)",
       borderColor: allSelected ? tint("var(--accent)", 45) : "var(--border)",
     },
-    config: snapshot.config,
     kpis: selectKpis(snapshot, now),
     spark: selectSpark(snapshot),
     toolbar: selectToolbar(ui, lines.length, activeModel),

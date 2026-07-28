@@ -239,10 +239,12 @@ describe("pending lifecycle (models/observed)", () => {
 });
 
 describe("theme and copy flag", () => {
-  it("flips the theme", () => {
-    const dark = reduce(initialUiState("light"), { type: "theme/toggle" });
+  it("cycles the theme system → light → dark → system", () => {
+    const light = reduce(initialUiState("system"), { type: "theme/toggle" });
+    expect(light.theme).toBe("light");
+    const dark = reduce(light, { type: "theme/toggle" });
     expect(dark.theme).toBe("dark");
-    expect(reduce(dark, { type: "theme/toggle" }).theme).toBe("light");
+    expect(reduce(dark, { type: "theme/toggle" }).theme).toBe("system");
   });
 
   it("raises and lowers the copied acknowledgement", () => {

@@ -15,7 +15,7 @@ import type { StewardDataSource } from "./source.js";
 
 const CONNECTION = { baseUrl: "http://127.0.0.1:8080", apiKey: "" };
 const KEYED = { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" };
-const LISTEN_ROW = { key: "listen", value: "127.0.0.1:8080" };
+const LISTEN_ROW = { key: "address", value: "127.0.0.1:8080" };
 
 const ROUTER_PROPS = {
   role: "router",
@@ -156,7 +156,7 @@ describe("LlamaSource — snapshot overlay", () => {
       const reference = await fallback.snapshot();
       const snapshot = await source.snapshot();
 
-      expect(snapshot.config[0]).toEqual({ key: "role", value: "router" });
+      expect(snapshot.config[0]).toEqual({ key: "mode", value: "routed" });
       expect(snapshot.models.map((m) => m.id)).toEqual(["M1", "M2"]);
       expect(snapshot.models[0]).toMatchObject({
         status: "resident",
@@ -206,7 +206,7 @@ describe("LlamaSource — snapshot overlay", () => {
       expect(snapshot.models).toEqual([]);
       expect(snapshot.slots).toEqual([]);
       // Config is read independently, so it survives a models outage.
-      expect(snapshot.config[0]).toEqual({ key: "role", value: "router" });
+      expect(snapshot.config[0]).toEqual({ key: "mode", value: "routed" });
     } finally {
       source.close();
     }

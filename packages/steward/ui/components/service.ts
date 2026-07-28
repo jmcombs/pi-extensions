@@ -1,16 +1,33 @@
 /**
- * The rail's service block: lockup, engine line, the start/stop, restart and
- * theme controls, and the state/uptime footer.
+ * The rail's SERVICE block — the "Steward" box.
+ *
+ * Three stacked zones: the brand lockup, a monitor-only status indicator (the
+ * service is `started` / `stopped`; real start/stop/restart controls will take
+ * this reserved row later), and the router facts folded in from what used to be
+ * a separate CONFIG block. The status indicator is deliberately not a button:
+ * it reports state and nothing more, so it is a `role="status"` region that a
+ * screen reader announces when the state changes.
  */
 
 import type { ServiceVm } from "../../core/select.js";
-import type { ServiceAction } from "../../core/types.js";
 import type { View } from "../dom.js";
-import { el, setAttr, setText, setVar, svg } from "../dom.js";
+import { el, setAttr, setText, setVar, svg, syncRows } from "../dom.js";
 
 export interface ServiceHandlers {
-  onService: (action: ServiceAction) => void;
   onToggleTheme: () => void;
+}
+
+/** One router fact: `listen   127.0.0.1:8080`. Patched per repaint. */
+interface FactRow {
+  root: HTMLElement;
+  key: HTMLElement;
+  value: HTMLElement;
+}
+
+function createFactRow(): FactRow {
+  const key = el("span", { class: "config-row__key" });
+  const value = el("span", { class: "config-row__value" });
+  return { root: el("div", { class: "config-row", children: [key, value] }), key, value };
 }
 
 /** The Steward mark: a serving dome over two trays, the lower one faded. */
@@ -48,35 +65,22 @@ function mark(): SVGElement {
 }
 
 export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
-  let action: ServiceAction = "stop";
-
-  const dot = el("span", { class: "lockup__dot" });
-  const engine = el("div", { class: "engine-line" });
-  const control = el("button", {
-    class: "btn btn--filled btn--block",
-    attrs: { type: "button" },
-    on: {
-      click: () => {
-        handlers.onService(action);
-      },
-    },
-  });
-  const restart = el("button", {
-    class: "btn btn--md",
-    attrs: { type: "button" },
-    on: {
-      click: () => {
-        handlers.onService("restart");
-      },
-    },
+  const statusDot = el("span", { class: "service__status-dot", attrs: { "aria-hidden": "true" } });
+  const statusLabel = el("span", { class: "service__status-label" });
+  // Not a <button>: monitor-only. The reserved control real estate reads as a
+  // filled control, but it never takes hover, focus or a click.
+  const status = el("div", {
+    class: "service__status",
+    attrs: { role: "status", "aria-live": "polite" },
+    children: [statusDot, statusLabel],
   });
   const theme = el("button", {
     class: "btn btn--icon",
     attrs: { type: "button" },
     on: { click: handlers.onToggleTheme },
   });
-  const state = el("span");
-  const uptime = el("span");
+  const facts = el("div", { class: "config-list service__facts" });
+  const rows: FactRow[] = [];
 
   const root = el("section", {
     class: "rail__block rail__block--service",
@@ -86,38 +90,36 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
     children: [
       el("div", {
         class: "lockup",
-        children: [mark(), el("h1", { class: "lockup__name", text: "Steward" }), dot],
+        children: [mark(), el("h1", { class: "lockup__name", text: "Steward" })],
       }),
-      engine,
-      el("div", { class: "service__controls", children: [control, restart, theme] }),
-      el("div", { class: "service__footer", children: [state, uptime] }),
+      el("div", { class: "service__status-row", children: [status, theme] }),
+      facts,
     ],
   });
 
   return {
     el: root,
     update(vm) {
-      action = vm.controlAction;
-      setVar(dot, "fill", vm.dotColor);
-      setText(engine, vm.engineLine);
-
-      setText(control, vm.controlLabel);
-      setVar(control, "bg", vm.controlBackground);
-      setVar(control, "fg", vm.controlColor);
-      setAttr(control, "disabled", vm.pending);
-      // The button changes what it does, not just how it reads, so the label
-      // alone is not enough for a screen reader that has already announced it.
-      setAttr(control, "aria-label", `${vm.controlLabel} (llama-server)`);
-
-      setText(restart, vm.restartLabel);
-      setAttr(restart, "disabled", vm.pending);
+      setAttr(status, "data-state", vm.running ? "up" : "down");
+      setVar(status, "bg", vm.statusTint);
+      setVar(status, "bd", vm.statusBorder);
+      setVar(status, "fg", vm.statusColor);
+      setVar(statusDot, "fill", vm.statusColor);
+      setText(statusLabel, vm.statusLabel);
+      setAttr(status, "aria-label", `Service ${vm.statusLabel}`);
 
       setText(theme, vm.themeGlyph);
       setAttr(theme, "aria-label", vm.themeLabel);
       setAttr(theme, "title", vm.themeLabel);
 
-      setText(state, vm.stateLabel);
-      setText(uptime, vm.uptimeLabel);
+      syncRows(facts, rows, vm.config.length, createFactRow);
+      vm.config.forEach((entry, index) => {
+        const row = rows[index];
+        if (row === undefined) return;
+        // `label: value`, the same grammar the model-card fields use.
+        setText(row.key, `${entry.key}:`);
+        setText(row.value, entry.value);
+      });
     },
   };
 }

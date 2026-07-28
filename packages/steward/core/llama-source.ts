@@ -268,13 +268,13 @@ export class LlamaSource implements StewardDataSource {
       if (response.status === 401) {
         return [
           { key: "status", value: "API key required — run /login llama.cpp" },
-          { key: "listen", value: listen },
+          { key: "address", value: listen },
         ];
       }
       if (!response.ok) {
         return [
           { key: "status", value: `llama.cpp error (HTTP ${response.status})` },
-          { key: "listen", value: listen },
+          { key: "address", value: listen },
         ];
       }
 
@@ -285,7 +285,7 @@ export class LlamaSource implements StewardDataSource {
       // all mean the same thing to the operator — we could not reach it.
       return [
         { key: "status", value: "llama.cpp not reachable" },
-        { key: "listen", value: listen },
+        { key: "address", value: listen },
       ];
     } finally {
       this.#inFlight.delete(controller);

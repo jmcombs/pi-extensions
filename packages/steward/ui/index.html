@@ -8,11 +8,16 @@
     <link rel="stylesheet" href="/ui/steward.css" />
     <script>
       // Applied before the first paint so a dark-mode operator never gets a
-      // flash of the light palette. main.ts owns the value from here on.
+      // flash of the light palette. main.ts owns the value from here on. The
+      // default (unset) is System, so an OS-dark machine must resolve to dark
+      // here too, not just an explicit "dark".
       try {
-        if (localStorage.getItem("steward.theme") === "dark") {
-          document.documentElement.setAttribute("data-theme", "dark");
-        }
+        const mode = localStorage.getItem("steward.theme") || "system";
+        const dark =
+          mode === "dark" ||
+          (mode === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
       } catch {
         /* private browsing can refuse storage; the light default still works */
       }

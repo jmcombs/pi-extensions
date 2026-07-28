@@ -102,7 +102,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     requestsPerMinute: 14,
     throughputHistory: [40, 60, 80],
     sessions: 3,
-    config: [{ key: "binary", value: "llama-server b6122" }],
+    config: [{ key: "engine", value: "llama-server b6122" }],
     ...overrides,
   };
 }
@@ -123,17 +123,18 @@ function withLines(ui: UiState, lines: LogLine[]): UiState {
 }
 
 describe("service block", () => {
-  it("reads as running with a live uptime", () => {
+  it("reads as started and folds the router facts onto the VM", () => {
     const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
-    expect(vm.service.stateLabel).toBe("running");
-    expect(vm.service.uptimeLabel).toBe("uptime 3h 34m");
-    expect(vm.service.engineLine).toBe("llama.cpp b6122 · 127.0.0.1:8080");
-    expect(vm.service.controlAction).toBe("stop");
-    expect(vm.service.controlLabel).toBe("Stop service");
-    expect(vm.service.dotColor).toBe("var(--success)");
+    expect(vm.service.running).toBe(true);
+    expect(vm.service.statusLabel).toBe("started");
+    expect(vm.service.statusColor).toBe("var(--success)");
+    // Uptime and pid are the metrics band's tile now, not the rail — the block
+    // carries only state and the folded-in CONFIG rows.
+    expect(vm.service).not.toHaveProperty("runtimeLine");
+    expect(vm.service.config).toEqual([{ key: "engine", value: "llama-server b6122" }]);
   });
 
-  it("flips to start when the service is down", () => {
+  it("reads as stopped when the service is down", () => {
     const down = snapshot({
       service: {
         running: false,
@@ -145,20 +146,19 @@ describe("service block", () => {
       },
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);
-    expect(vm.service.controlAction).toBe("start");
-    expect(vm.service.controlLabel).toBe("Start service");
-    expect(vm.service.controlBackground).toBe("var(--accent)");
-    expect(vm.service.uptimeLabel).toBe("uptime —");
-    expect(vm.service.dotColor).toBe("var(--error)");
+    expect(vm.service.statusLabel).toBe("stopped");
+    expect(vm.service.statusColor).toBe("var(--error)");
   });
 
-  it("announces the in-flight action instead of flipping early", () => {
-    const ui = reduce(initialUiState("light"), { type: "service/pending", action: "stop" });
-    const vm = selectDashboard(snapshot(), ui, NOW);
-    expect(vm.service.controlLabel).toBe("Stopping…");
-    expect(vm.service.pending).toBe(true);
-    // The service is still up until the next snapshot says otherwise.
-    expect(vm.service.stateLabel).toBe("running");
+  it("reports the current theme mode in the toggle glyph and label", () => {
+    const glyph = (theme: "system" | "light" | "dark") =>
+      selectDashboard(snapshot(), initialUiState(theme), NOW).service.themeGlyph;
+    expect(glyph("system")).toBe("◐");
+    expect(glyph("light")).toBe("☀");
+    expect(glyph("dark")).toBe("☾");
+
+    const vm = selectDashboard(snapshot(), initialUiState("system"), NOW);
+    expect(vm.service.themeLabel).toContain("System");
   });
 });
 
@@ -393,7 +393,8 @@ describe("KPI tiles", () => {
     expect(vm.kpis[0]).toMatchObject({
       value: "3h 34m",
       unit: "uptime",
-      sub: "pid 4821 · port 8080",
+      // Port lives in the `address` fact now, so the tile shows pid alone.
+      sub: "pid 4821",
       percent: 100,
     });
     expect(vm.kpis[1]).toMatchObject({ value: "14", sub: "pi agent · 3 sessions", percent: 47 });

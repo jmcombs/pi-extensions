@@ -23,9 +23,9 @@ const BASE_URL = "http://127.0.0.1:8080";
 describe("parseRouterConfig", () => {
   it("maps the real router /props to the five rows the rail shows", () => {
     expect(parseRouterConfig(ROUTER_PROPS, BASE_URL)).toEqual([
-      { key: "role", value: "router" },
-      { key: "binary", value: "llama-server b9960-a935fbffe" },
-      { key: "listen", value: "127.0.0.1:8080" },
+      { key: "mode", value: "routed" },
+      { key: "engine", value: "llama-server b9960-a935fbffe" },
+      { key: "address", value: "127.0.0.1:8080" },
       { key: "max models", value: "4" },
       { key: "autoload", value: "off" },
     ]);
@@ -47,18 +47,18 @@ describe("parseRouterConfig", () => {
       default_generation_settings: { n_ctx: 4096 },
     };
     expect(parseRouterConfig(single, BASE_URL)).toEqual([
-      { key: "role", value: "single-model" },
-      { key: "binary", value: "llama-server b9960-a935fbffe" },
-      { key: "listen", value: "127.0.0.1:8080" },
+      { key: "mode", value: "single model" },
+      { key: "engine", value: "llama-server b9960-a935fbffe" },
+      { key: "address", value: "127.0.0.1:8080" },
     ]);
   });
 
   it("shows em dashes for missing router fields, never undefined or NaN", () => {
     const rows = parseRouterConfig({ role: "router" }, BASE_URL);
     expect(rows).toEqual([
-      { key: "role", value: "router" },
-      { key: "binary", value: "—" },
-      { key: "listen", value: "127.0.0.1:8080" },
+      { key: "mode", value: "routed" },
+      { key: "engine", value: "—" },
+      { key: "address", value: "127.0.0.1:8080" },
       { key: "max models", value: "—" },
       { key: "autoload", value: "—" },
     ]);
@@ -67,16 +67,16 @@ describe("parseRouterConfig", () => {
 
   it("treats an empty body as a single-model server with an unknown build", () => {
     expect(parseRouterConfig({}, BASE_URL)).toEqual([
-      { key: "role", value: "single-model" },
-      { key: "binary", value: "—" },
-      { key: "listen", value: "127.0.0.1:8080" },
+      { key: "mode", value: "single model" },
+      { key: "engine", value: "—" },
+      { key: "address", value: "127.0.0.1:8080" },
     ]);
   });
 
-  it("does not throw on non-object bodies, still showing listen", () => {
+  it("does not throw on non-object bodies, still showing the address", () => {
     for (const junk of [null, "oops", 42, [1, 2, 3]]) {
       const rows = parseRouterConfig(junk, BASE_URL);
-      expect(rows.find((row) => row.key === "listen")?.value).toBe("127.0.0.1:8080");
+      expect(rows.find((row) => row.key === "address")?.value).toBe("127.0.0.1:8080");
     }
   });
 
@@ -86,10 +86,10 @@ describe("parseRouterConfig", () => {
     expect(max?.value).toBe("—");
   });
 
-  it("derives listen from the connection, including non-default ports", () => {
-    const listen = (base: string) =>
-      parseRouterConfig(ROUTER_PROPS, base).find((row) => row.key === "listen")?.value;
-    expect(listen("http://127.0.0.1:9099")).toBe("127.0.0.1:9099");
-    expect(listen("https://gpu.local:8443")).toBe("gpu.local:8443");
+  it("derives the address from the connection, including non-default ports", () => {
+    const address = (base: string) =>
+      parseRouterConfig(ROUTER_PROPS, base).find((row) => row.key === "address")?.value;
+    expect(address("http://127.0.0.1:9099")).toBe("127.0.0.1:9099");
+    expect(address("https://gpu.local:8443")).toBe("gpu.local:8443");
   });
 });

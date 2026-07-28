@@ -81,10 +81,11 @@ describe("createMockSource", () => {
       // Per-model tuning (parallel, ctx-per-slot, gpu layers, flash-attn, KV
       // cache) lives on the model cards now; CONFIG keeps only router-wide facts.
       expect(snapshot.config.map((entry) => entry.key)).toEqual([
-        "binary",
-        "listen",
-        "router",
-        "supervisor",
+        "mode",
+        "engine",
+        "address",
+        "max models",
+        "autoload",
       ]);
     } finally {
       source.close();
