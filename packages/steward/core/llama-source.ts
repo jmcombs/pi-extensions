@@ -25,6 +25,7 @@
  * `AbortSignal` are all cross-runtime globals.
  */
 
+import type { HostMetricsProvider } from "./host-metrics.js";
 import { parseRouterConfig } from "./llama-config.js";
 import type { LlamaConnection } from "./llama-connection.js";
 import { listenAddress } from "./llama-connection.js";
@@ -33,7 +34,9 @@ import { parseMetrics, parseSlots } from "./llama-slots.js";
 import type { StewardDataSource, Unsubscribe } from "./source.js";
 import {
   type ConfigEntry,
+  type HostMetrics,
   type LogLine,
+  type MemoryTopology,
   type ModelAction,
   type ModelInfo,
   type ServiceAction,
@@ -73,6 +76,26 @@ export type FetchLike = (
   },
 ) => Promise<{ status: number; ok: boolean; json(): Promise<unknown>; text(): Promise<string> }>;
 
+/**
+ * The live host-metrics overlay: a collector to read the readings off, the
+ * machine's static memory topology (from `steward.json`, it picks the gauge
+ * SET), and the staleness horizon. Injected together and only when the operator
+ * has configured AND consented to a collector; absent, the HOST band keeps
+ * delegating to the fallback exactly as before.
+ */
+export interface HostMetricsOverlay {
+  /** The running collector. Owned and closed by this source. */
+  provider: HostMetricsProvider;
+  /** Static machine memory layout, overlaid onto {@link Snapshot.memoryTopology}. */
+  topology: MemoryTopology;
+  /**
+   * A sample whose arrival is older than this (typically `3 × intervalMs`) is
+   * treated as unavailable: its readings are nulled rather than held, so the
+   * band never shows a dimmed-old number — n/a is honest, a stale figure is not.
+   */
+  staleMs: number;
+}
+
 export interface LlamaSourceOptions {
   /** Where to read the server. */
   connection: LlamaConnection;
@@ -87,6 +110,11 @@ export interface LlamaSourceOptions {
    * while the live/stopped state still comes through.
    */
   probeService?: ServiceProbe;
+  /**
+   * The live host-metrics collector and its topology. Omitted, the HOST band
+   * (memory topology and sensors) rides through from the fallback unchanged.
+   */
+  host?: HostMetricsOverlay;
 }
 
 /** How long to wait on any one call before treating the server as unreachable. */
@@ -108,6 +136,8 @@ export class LlamaSource implements StewardDataSource {
   readonly #fallback: StewardDataSource;
   readonly #fetch: FetchLike;
   readonly #probeService: ServiceProbe | null;
+  /** The live host-metrics overlay, or null when no collector is configured. */
+  readonly #host: HostMetricsOverlay | null;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
   /** Rolling real throughput samples, oldest first — the band's sparkline. */
@@ -120,6 +150,7 @@ export class LlamaSource implements StewardDataSource {
     this.#fallback = options.fallback;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#probeService = options.probeService ?? null;
+    this.#host = options.host ?? null;
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -141,9 +172,11 @@ export class LlamaSource implements StewardDataSource {
     const { models, slots, throughputTps, requestsInFlight, requestsQueued } =
       await this.#readModelsAndSlots(modelsRaw);
     const throughputHistory = this.#sampleThroughput(base.now, throughputTps);
-    // The live source owns no host metrics yet, so the HOST band — including the
-    // static `memoryTopology` that picks its gauge set — rides through from the
-    // fallback via `...base`. A later phase reads topology from `steward.json`.
+    // When a collector is configured, the HOST band is live: its topology comes
+    // from `steward.json` and its readings from the collector's latest sample.
+    // With no collector, the band — including `memoryTopology` — rides through
+    // from the fallback via `...base`, exactly as before.
+    const host = this.#overlayHost(base);
     return {
       ...base,
       config,
@@ -154,7 +187,37 @@ export class LlamaSource implements StewardDataSource {
       throughputHistory,
       requestsInFlight,
       requestsQueued,
+      ...host,
     };
+  }
+
+  /**
+   * The live HOST band, or an empty overlay (`{}`) when no collector is
+   * configured — leaving the fallback's `metrics` and `memoryTopology` in place.
+   *
+   * With a collector: `memoryTopology` is the machine's static config, and the
+   * sensors are the latest validated sample. A sample older than the staleness
+   * horizon, or no sample yet, nulls every reading (`NaN` for the always-present
+   * figures, `null` for temperatures) so Phase 1's dashed/hatched gauges show it
+   * honestly — a held-stale number is never shown.
+   */
+  #overlayHost(base: Snapshot): Partial<Snapshot> {
+    if (this.#host === null) return {};
+    const sample = this.#host.provider.latest();
+    const fresh = sample !== null && base.now - sample.receivedAt <= this.#host.staleMs;
+    const metrics: HostMetrics = fresh
+      ? {
+          vramUsedGB: finiteOr(sample.reading.vramUsedGB, Number.NaN),
+          vramTotalGB: finiteOr(sample.reading.vramTotalGB, Number.NaN),
+          ramUsedGB: finiteOr(sample.reading.ramUsedGB, Number.NaN),
+          ramTotalGB: finiteOr(sample.reading.ramTotalGB, Number.NaN),
+          gpuUtil: finiteOr(sample.reading.gpuUtil, Number.NaN),
+          cpuUtil: finiteOr(sample.reading.cpuUtil, Number.NaN),
+          gpuTempC: sample.reading.gpuTempC,
+          cpuTempC: sample.reading.cpuTempC,
+        }
+      : UNAVAILABLE_METRICS;
+    return { metrics, memoryTopology: this.#host.topology };
   }
 
   /**
@@ -221,6 +284,7 @@ export class LlamaSource implements StewardDataSource {
   close(): void {
     for (const controller of this.#inFlight) controller.abort();
     this.#inFlight.clear();
+    this.#host?.provider.close();
     this.#fallback.close();
   }
 
@@ -465,3 +529,23 @@ function splitHostPort(baseUrl: string): { host: string; port: number } {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
+
+/** The reading if it is a real value, else the given fallback (`NaN` for a no-reading gauge). */
+function finiteOr(value: number | null, fallback: number): number {
+  return value === null ? fallback : value;
+}
+
+/**
+ * The HOST sensors when the collector has no fresh sample: every figure is a
+ * non-reading, so Phase 1's gauges dash/hatch rather than plot a fabricated 0.
+ */
+const UNAVAILABLE_METRICS: HostMetrics = {
+  vramUsedGB: Number.NaN,
+  vramTotalGB: Number.NaN,
+  ramUsedGB: Number.NaN,
+  ramTotalGB: Number.NaN,
+  gpuUtil: Number.NaN,
+  cpuUtil: Number.NaN,
+  gpuTempC: null,
+  cpuTempC: null,
+};

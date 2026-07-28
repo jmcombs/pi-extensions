@@ -9,9 +9,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { type FetchLike, LlamaSource } from "./llama-source.js";
+import type { HostMetricsProvider, HostReading, HostSample } from "./host-metrics.js";
+import { type FetchLike, type HostMetricsOverlay, LlamaSource } from "./llama-source.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
 import type { StewardDataSource } from "./source.js";
+import type { MemoryTopology } from "./types.js";
 
 const CONNECTION = { baseUrl: "http://127.0.0.1:8080", apiKey: "" };
 const KEYED = { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" };
@@ -508,5 +510,156 @@ describe("LlamaSource — setModel", () => {
     } finally {
       source.close();
     }
+  });
+});
+
+describe("LlamaSource — host overlay", () => {
+  /** A unified-memory reading: no VRAM figures, the rest real. */
+  const UNIFIED_READING: HostReading = {
+    ts: FIXED_NOW,
+    gpuUtil: 0.42,
+    gpuTempC: 55,
+    cpuUtil: 0.2,
+    cpuTempC: 44,
+    ramUsedGB: 70,
+    ramTotalGB: 128,
+    vramUsedGB: null,
+    vramTotalGB: null,
+  };
+
+  /** A fake collector plus a topology and staleness horizon, and a close counter. */
+  function hostOverlay(
+    sample: HostSample | null,
+    opts: { topology?: MemoryTopology; staleMs?: number } = {},
+  ): { overlay: HostMetricsOverlay; closes: () => number } {
+    let closeCount = 0;
+    const provider: HostMetricsProvider = {
+      latest: () => sample,
+      close: () => {
+        closeCount += 1;
+      },
+    };
+    return {
+      overlay: { provider, topology: opts.topology ?? "unified", staleMs: opts.staleMs ?? 4500 },
+      closes: () => closeCount,
+    };
+  }
+
+  it("overlays real metrics and the config topology from a fresh sample", async () => {
+    const { overlay } = hostOverlay({ reading: UNIFIED_READING, receivedAt: FIXED_NOW - 100 });
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: overlay,
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.memoryTopology).toBe("unified");
+      expect(snapshot.metrics.ramUsedGB).toBe(70);
+      expect(snapshot.metrics.gpuUtil).toBeCloseTo(0.42, 5);
+      expect(snapshot.metrics.gpuTempC).toBe(55);
+      // Unified omits VRAM, so those figures are no-readings, never a synth 0.
+      expect(Number.isNaN(snapshot.metrics.vramUsedGB)).toBe(true);
+      expect(Number.isNaN(snapshot.metrics.vramTotalGB)).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("passes VRAM through for a discrete reading", async () => {
+    const discrete: HostReading = { ...UNIFIED_READING, vramUsedGB: 9.1, vramTotalGB: 24 };
+    const { overlay } = hostOverlay(
+      { reading: discrete, receivedAt: FIXED_NOW - 100 },
+      { topology: "discrete" },
+    );
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: overlay,
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.memoryTopology).toBe("discrete");
+      expect(snapshot.metrics.vramUsedGB).toBe(9.1);
+      expect(snapshot.metrics.vramTotalGB).toBe(24);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("nulls the readings of a stale sample but keeps the topology", async () => {
+    const { overlay } = hostOverlay(
+      { reading: UNIFIED_READING, receivedAt: FIXED_NOW - 10_000 },
+      { staleMs: 4500 },
+    );
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: overlay,
+    });
+    try {
+      const snapshot = await source.snapshot();
+      // Topology is static config — it survives; the held-stale numbers do not.
+      expect(snapshot.memoryTopology).toBe("unified");
+      expect(Number.isNaN(snapshot.metrics.ramUsedGB)).toBe(true);
+      expect(Number.isNaN(snapshot.metrics.gpuUtil)).toBe(true);
+      expect(snapshot.metrics.gpuTempC).toBeNull();
+      expect(snapshot.metrics.cpuTempC).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("nulls the readings while warming (no sample yet) but keeps the topology", async () => {
+    const { overlay } = hostOverlay(null);
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: overlay,
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.memoryTopology).toBe("unified");
+      expect(Number.isNaN(snapshot.metrics.gpuUtil)).toBe(true);
+      expect(snapshot.metrics.gpuTempC).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("leaves the fallback host band untouched when no collector is configured", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      // The mock's discrete VRAM+RAM band, unchanged — the same behaviour as before.
+      expect(snapshot.memoryTopology).toBe("discrete");
+      expect(snapshot.metrics.vramTotalGB).toBeGreaterThan(0);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("closes the collector on close()", async () => {
+    const { overlay, closes } = hostOverlay({
+      reading: UNIFIED_READING,
+      receivedAt: FIXED_NOW - 100,
+    });
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: overlay,
+    });
+    await source.snapshot();
+    source.close();
+    expect(closes()).toBe(1);
   });
 });

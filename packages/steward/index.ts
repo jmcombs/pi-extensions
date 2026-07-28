@@ -110,9 +110,45 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const { LlamaSource } = await import("./core/llama-source.js");
   const { createMockSource } = await import("./core/mock-source.js");
   const { createListenerProbe } = await import("./server/service-probe.js");
+  const { readStewardConfig, hostCollectorConsented } = await import("./server/steward-config.js");
   const connection = await resolveLlamaConnection(ctx);
   const probeService = createListenerProbe();
-  return () => new LlamaSource({ connection, fallback: createMockSource(), probeService });
+
+  // A collector runs only when `steward.json` declares one AND the operator has
+  // consented to its exact command (the security gate). The command, cadence, and
+  // topology are captured together here — all three belong to that single
+  // consented path, so there is no unconfigured fallback for any of them — and the
+  // collector itself is built per source below, since each source owns and closes
+  // its own.
+  const config = readStewardConfig();
+  const hostConfig =
+    config !== null && hostCollectorConsented(config)
+      ? {
+          command: config.hostCollector.command,
+          intervalMs: config.hostCollector.intervalMs,
+          topology: config.memoryTopology,
+        }
+      : null;
+  const { createHostCollector } =
+    hostConfig !== null
+      ? await import("./server/host-collector.js")
+      : { createHostCollector: null };
+
+  return () => {
+    // A fresh collector per source: a start that fails to bind closes the source
+    // it was handed (killing its collector), so a retry must not reuse a spent one.
+    const host =
+      hostConfig !== null && createHostCollector !== null
+        ? {
+            provider: createHostCollector(hostConfig.command, hostConfig.intervalMs),
+            topology: hostConfig.topology,
+            // Stale past 3× the collector's declared cadence — the readings drop
+            // to n/a rather than being held (maintainer decision, plan H3).
+            staleMs: 3 * hostConfig.intervalMs,
+          }
+        : undefined;
+    return new LlamaSource({ connection, fallback: createMockSource(), probeService, host });
+  };
 }
 
 async function launch(makeSource?: SourceFactory): Promise<Launched> {
