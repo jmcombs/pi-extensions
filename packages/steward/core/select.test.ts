@@ -20,6 +20,7 @@ const MODELS: ModelInfo[] = [
     quant: "Q4_K_M",
     sizeGB: 18.4,
     ctx: 65536,
+    nativeCtx: 262144,
     gpuLayers: 48,
     detail: null,
     parallel: 4,
@@ -35,6 +36,7 @@ const MODELS: ModelInfo[] = [
     quant: "Q5_K_M",
     sizeGB: 22.1,
     ctx: 32768,
+    nativeCtx: 262144,
     gpuLayers: 48,
     detail: null,
     parallel: 2,
@@ -48,9 +50,10 @@ const MODELS: ModelInfo[] = [
     short: "nomic-embed-text-v1.5",
     embedding: true,
     quant: "F16",
-    // Unloaded: llama.cpp ships no `meta`, so size and ctx are unknown.
+    // Unloaded: llama.cpp ships no `meta`, so size, ctx and native window are all unknown.
     sizeGB: null,
     ctx: null,
+    nativeCtx: null,
     gpuLayers: null,
     detail: "embedding",
     parallel: null,
@@ -224,22 +227,86 @@ describe("host gauges", () => {
 });
 
 describe("model cards", () => {
-  it("summarises status and rate the way the card footer reads", () => {
-    const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
-    expect(vm.models.map((m) => m.footerLabel)).toEqual([
-      "active · 63 t/s",
-      "resident · idle",
-      "unloaded · —",
-    ]);
-    expect(vm.models[0]?.meta).toBe("Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers");
-    // Unloaded: no meta on the wire, so size/ctx are omitted for the quant word.
-    expect(vm.models[2]?.meta).toBe("F16 · unloaded");
+  it("announces a transition only on the button — distinguishing download from load", () => {
+    // The header carries no status word; the Load/Unload button is the single
+    // place a transition shows. A download (minutes) and a load (seconds) read
+    // differently there so the operator knows which wait they are in.
+    const loading = selectDashboard(
+      snapshot({ models: MODELS.map((m) => ({ ...m, status: "loading" as const })) }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(loading.models.every((m) => m.buttonLabel === "Loading…")).toBe(true);
+
+    const downloading = selectDashboard(
+      snapshot({ models: MODELS.map((m) => ({ ...m, status: "downloading" as const })) }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(downloading.models.every((m) => m.buttonLabel === "Downloading…")).toBe(true);
   });
 
-  it("carries each loaded model's tuning and hides it when unloaded", () => {
+  it("builds the labeled body grid — real values for a loaded model", () => {
     const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
-    expect(vm.models[0]?.tuning).toBe("4 slots · flash on · kv q8_0/q8_0");
-    expect(vm.models[2]?.tuning).toBe("");
+    // The seven labels are fixed and in this order on every card, Type last.
+    expect(vm.models[0]?.fields.map((f) => f.label)).toEqual([
+      "Quant",
+      "Size",
+      "Context",
+      "GPU Layers",
+      "Flash",
+      "KV Cache",
+      "Type",
+    ]);
+    // Loaded chat model: every field carries its confirmed value.
+    expect(vm.models[0]?.fields.map((f) => f.value)).toEqual([
+      "4-bit (Q4_K_M)",
+      "18.4 GB",
+      "64k / slot",
+      "48",
+      "On",
+      "8-bit",
+      "Generative",
+    ]);
+    // A confirmed field is never dimmed.
+    expect(vm.models[0]?.fields.every((f) => f.na === false)).toBe(true);
+  });
+
+  it("reads every field but Type as n/a on an unloaded card, and marks them dimmed", () => {
+    const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
+    // Unloaded embedder: nothing is confirmed until it loads, so every field is
+    // n/a — except Type, which the router reports even while the model is down.
+    // Every unloaded card reads the same this way.
+    expect(vm.models[2]?.fields.map((f) => f.value)).toEqual([
+      "n/a",
+      "n/a",
+      "n/a",
+      "n/a",
+      "n/a",
+      "n/a",
+      "Embedder",
+    ]);
+    expect(vm.models[2]?.fields.map((f) => f.na)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+    ]);
+  });
+
+  it("keeps a loaded-but-unpinned GPU-layer count honest as n/a", () => {
+    // The chat model's slots are up (resident/active) but no `--n-gpu-layers`
+    // was pinned, so the effective count is unreported: n/a, not a guessed 99.
+    const models = MODELS.map((m) => (m.id === CHAT ? { ...m, gpuLayers: null } : m));
+    const vm = selectDashboard(snapshot({ models }), initialUiState("light"), NOW);
+    const gpu = vm.models[0]?.fields.find((f) => f.label === "GPU Layers");
+    expect(gpu?.value).toBe("n/a");
+    expect(gpu?.na).toBe(true);
+    // The other loaded fields still read real values.
+    expect(vm.models[0]?.fields.find((f) => f.label === "Quant")?.value).toBe("4-bit (Q4_K_M)");
   });
 
   it("offers Unload for resident models and Load for unloaded ones", () => {
@@ -302,14 +369,21 @@ describe("model cards", () => {
       return m;
     });
     const vm = selectDashboard(snapshot({ models: inFlight }), initialUiState("light"), NOW);
-    expect(vm.models[0]?.footerLabel).toBe("loading…");
     expect(vm.models[0]?.buttonLabel).toBe("Loading…");
     expect(vm.models[0]?.pending).toBe(true);
-    expect(vm.models[1]?.footerLabel).toBe("downloading…");
+    expect(vm.models[1]?.buttonLabel).toBe("Downloading…");
     expect(vm.models[1]?.pending).toBe(true);
-    // No meta size/ctx while in flight — just the quant and the lifecycle word.
-    expect(vm.models[0]?.meta).toBe("Q4_K_M · loading");
-    expect(vm.models[0]?.tuning).toBe("");
+    // Mid-load nothing is confirmed yet, so every field but Type reads n/a — the
+    // same minimal card an unloaded model shows, until the load reports facts.
+    expect(vm.models[0]?.fields.map((f) => f.value)).toEqual([
+      "n/a",
+      "n/a",
+      "n/a",
+      "n/a",
+      "n/a",
+      "n/a",
+      "Generative",
+    ]);
   });
 });
 
@@ -532,7 +606,9 @@ describe("grouped slots", () => {
   it("groups slots under each loaded model, numbered per model", () => {
     const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
     expect(vm.slots.empty).toBe(false);
-    expect(vm.slots.totalSummary).toBe("1 of 3 busy");
+    // The one busy lane holds 12408 / 65536 ≈ 19% of its context, and that is
+    // the worst-case fill the aggregate reports.
+    expect(vm.slots.totalSummary).toBe("1 of 3 busy · peak 19% ctx");
     expect(vm.slots.groups.map((g) => g.modelId)).toEqual([CHAT, REASON]);
 
     const chat = vm.slots.groups[0];
@@ -542,6 +618,11 @@ describe("grouped slots", () => {
       busy: 1,
       total: 2,
       summary: "1/2 busy",
+      // Actively generating → the chip carries its rate; an idle model would not.
+      rateLabel: "63 t/s",
+      peakPct: 19,
+      peakLabel: "19%",
+      peakColor: "var(--text-tertiary)",
     });
     expect(chat?.slots[0]).toMatchObject({
       id: 0,
@@ -551,8 +632,30 @@ describe("grouped slots", () => {
     expect(chat?.slots[1]?.detail).toBe("64k ctx · idle");
 
     const reason = vm.slots.groups[1];
-    expect(reason).toMatchObject({ busy: 0, total: 1, summary: "0/1 busy" });
+    expect(reason).toMatchObject({ busy: 0, total: 1, summary: "0/1 busy", rateLabel: "" });
     expect(reason?.slots[0]?.detail).toBe("32k ctx · idle");
+  });
+
+  it("escalates the peak color and aggregate as a lane fills toward overflow", () => {
+    const busy = snapshot({
+      slots: [
+        // 62259 / 65536 ≈ 95% — into the warning band.
+        {
+          id: 0,
+          modelId: CHAT,
+          promptTokens: 62259,
+          ctxTotal: 65536,
+          decoded: 40,
+          state: "processing",
+        },
+        { id: 1, modelId: CHAT, promptTokens: 0, ctxTotal: 65536, decoded: 0, state: "idle" },
+        { id: 0, modelId: REASON, promptTokens: 0, ctxTotal: 32768, decoded: 0, state: "idle" },
+      ],
+    });
+    const vm = selectDashboard(busy, initialUiState("light"), NOW);
+    expect(vm.slots.groups[0]?.peakPct).toBe(95);
+    expect(vm.slots.groups[0]?.peakColor).toBe("var(--warning)");
+    expect(vm.slots.totalSummary).toBe("1 of 3 busy · peak 95% ctx");
   });
 
   it("shows the empty state when no model is loaded", () => {

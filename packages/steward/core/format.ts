@@ -119,34 +119,125 @@ export function formatTps(tokensPerSecond: number | null): string {
     : "—";
 }
 
+/** Above this share of a slot's context the headroom reading turns amber. */
+export const CONTEXT_WARNING_PCT = 85;
+
+/** At or above this share the reading turns red — a lane about to overflow. */
+export const CONTEXT_ERROR_PCT = 98;
+
 /**
- * A model card's meta line. Loaded: `Q4_0 · 0.42 GB · ctx 40960` (with a GPU-
- * layer or detail tail when present). Not loaded: llama.cpp ships no `meta`, so
- * size and ctx are unknown — the line shows the best-effort quant and the
- * lifecycle word (`Q4_0 · unloaded`) rather than blanks or `NaN`.
+ * Threshold color for a context-headroom reading (0–100). The number is always
+ * printed alongside it, so the color is a second cue, never the only one.
  */
-export function formatModelMeta(model: ModelInfo): string {
-  if (model.sizeGB === null || model.ctx === null) {
-    return model.quant === "" ? model.status : `${model.quant} · ${model.status}`;
-  }
-  const parts = [model.quant, `${formatSizeGB(model.sizeGB)} GB`, `ctx ${model.ctx}`].filter(
-    (part) => part !== "",
-  );
-  const tail = model.gpuLayers === null ? model.detail : `${model.gpuLayers} gpu layers`;
-  if (tail) parts.push(tail);
-  return parts.join(" · ");
+export function contextHeadroomColor(percent: number): string {
+  if (percent >= CONTEXT_ERROR_PCT) return "var(--error)";
+  if (percent > CONTEXT_WARNING_PCT) return "var(--warning)";
+  return "var(--text-tertiary)";
 }
 
 /**
- * A model card's tuning line: `4 slots · flash on · kv q8_0/q8_0`. The slot
- * count is dropped when it is unknown (a loaded model whose `/slots` read
- * failed); flash-attention and KV-cache come from the launch args and always
- * have a value.
+ * The bit-depth a quantisation code implies, as `4-bit`, `16-bit`, … — the first
+ * run of digits in the code (`Q4_0`→`4-bit`, `Q5_K_M`→`5-bit`, `F16`→`16-bit`,
+ * `q8_0`→`8-bit`). It is the human reading that leads a card's identity line and
+ * labels its KV-cache; the exact code stays beside it. Empty when the code holds
+ * no digits (or is itself empty), so the caller drops the token rather than
+ * printing a bare `-bit`.
  */
-export function formatModelTuning(model: ModelInfo): string {
-  const parts = model.parallel === null ? [] : [`${model.parallel} slots`];
-  parts.push(`flash ${model.flashAttn}`, `kv ${model.kvCache}`);
-  return parts.join(" · ");
+export function bitsFromCode(code: string): string {
+  const digits = code.match(/\d+/);
+  return digits === null ? "" : `${digits[0]}-bit`;
+}
+
+/**
+ * The KV-cache bit-depth label, `8-bit` or `8-bit / 5-bit`: each side run through
+ * {@link bitsFromCode}, collapsed to one token when K and V match (the common
+ * case) and kept split only when they genuinely differ. A side whose code has no
+ * digits to convert falls back to the raw code, so the label is never blank.
+ */
+export function formatKvBits(kvCache: string): string {
+  const slash = kvCache.indexOf("/");
+  const kCode = slash === -1 ? kvCache : kvCache.slice(0, slash);
+  const vCode = slash === -1 ? kvCache : kvCache.slice(slash + 1);
+  const k = bitsFromCode(kCode) || kCode;
+  const v = bitsFromCode(vCode) || vCode;
+  return k === v ? k : `${k} / ${v}`;
+}
+
+/**
+ * The value a labeled card field carries when the fact behind it is not
+ * confirmed. A field's fact is trusted only while a process is running for the
+ * model (see the `confirmed` flag the selectors pass): a filename is a guess and
+ * a preset's launch args are intent, neither true until the model loads. Every
+ * field but `Type` collapses to this token when unconfirmed, so every unloaded
+ * card reads the same rather than differing by how much each has configured.
+ */
+export const NA = "n/a";
+
+/** `on`/`off`/`auto` shown title-cased; a lookup keeps the index access honest. */
+const FLASH_LABELS: Record<ModelInfo["flashAttn"], string> = {
+  on: "On",
+  off: "Off",
+  auto: "Auto",
+};
+
+/**
+ * The `Quant` field: `4-bit (Q4_0)` — the bit-depth reading leads, the raw code
+ * rides beside it. {@link NA} when unconfirmed, or when the code carries no
+ * digits to read a depth from (a bare code is the noise this field translates).
+ */
+export function formatQuantField(quant: string, confirmed: boolean): string {
+  if (!confirmed) return NA;
+  const bits = bitsFromCode(quant);
+  return bits === "" ? NA : `${bits} (${quant})`;
+}
+
+/** The `Size` field: `0.42 GB`. {@link NA} until loaded (no `meta`, no bytes). */
+export function formatSizeField(sizeGB: number | null, confirmed: boolean): string {
+  return confirmed && sizeGB !== null ? `${formatSizeGB(sizeGB)} GB` : NA;
+}
+
+/**
+ * The `Context` field: `40k / slot` — the per-slot window each request is handed.
+ * Per-slot only, with no native-window ceiling: the trained max is a separate
+ * fact the labeled grid does not carry. {@link NA} until loaded.
+ */
+export function formatContextField(ctx: number | null, confirmed: boolean): string {
+  return confirmed && ctx !== null ? `${formatTokenCount(ctx)} / slot` : NA;
+}
+
+/**
+ * The `GPU Layers` field: the requested `--n-gpu-layers` as a raw integer (`99`
+ * is llama.cpp's "all layers" sentinel, shown as-is). {@link NA} when the count
+ * is `null` — including a loaded model whose layers were never pinned, because
+ * the effective count is never reported back, so `n/a` is the honest reading.
+ */
+export function formatGpuLayersField(gpuLayers: number | null, confirmed: boolean): string {
+  return confirmed && gpuLayers !== null ? String(gpuLayers) : NA;
+}
+
+/**
+ * The `Flash` field: `On`/`Off`/`Auto`. Can read `Auto` even while loaded — the
+ * server does not report which way `auto` resolved. {@link NA} until loaded.
+ */
+export function formatFlashField(flashAttn: ModelInfo["flashAttn"], confirmed: boolean): string {
+  return confirmed ? FLASH_LABELS[flashAttn] : NA;
+}
+
+/**
+ * The `KV Cache` field: `8-bit`, or `8-bit / 5-bit` when K and V differ — the
+ * per-side bit-depth via {@link formatKvBits}. {@link NA} until loaded.
+ */
+export function formatKvCacheField(kvCache: string, confirmed: boolean): string {
+  return confirmed ? formatKvBits(kvCache) : NA;
+}
+
+/**
+ * The `Type` field: `Generative` or `Embedder`. The one field that never reads
+ * {@link NA} — the router reports a model's modalities even while it is unloaded,
+ * so this is confirmed for every card.
+ */
+export function formatTypeField(embedding: boolean): string {
+  return embedding ? "Embedder" : "Generative";
 }
 
 /** One exported log line. Structurally satisfied by the console's view model. */

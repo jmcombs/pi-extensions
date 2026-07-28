@@ -70,6 +70,20 @@ function quantFromId(id: string): string {
   return match?.[1] ?? "";
 }
 
+/**
+ * Best-effort quant from the `--model` path an unloaded preset launches with:
+ * the token before `.gguf` in the file's basename, e.g.
+ * `…/Qwen3-0.6B-Q4_0.gguf` → `Q4_0`. `""` when the arg is absent or unparseable.
+ * This is what lets an unloaded preset card show its quant even though llama.cpp
+ * ships no `meta` (and so no `ftype`) until the model is resident.
+ */
+function quantFromArgs(args: readonly string[]): string {
+  const path = argValue(args, ["--model", "-m"]);
+  if (path === null) return "";
+  const base = path.slice(path.lastIndexOf("/") + 1).replace(/\.gguf$/i, "");
+  return quantFromId(base);
+}
+
 /** The last path/tag segment of an id: `ggml-org/Qwen3-GGUF:Q4_0` → `Qwen3-GGUF:Q4_0`. */
 function lastSegment(id: string): string {
   const slash = id.lastIndexOf("/");
@@ -148,12 +162,32 @@ function parseModel(raw: unknown): ModelInfo | null {
   // assume a normal text model rather than guessing an embedder.
   const embedding = outputs.length > 0 && !outputs.includes("text");
 
-  // `meta` is only present for loaded models, so size/ctx are known only then.
+  // `meta` is only present for loaded models, so size and the native context
+  // window are known only then; the quant falls back to the launch args (an
+  // unloaded preset names its `.gguf`) and finally to the id.
   const meta = isRecord(raw.meta) ? raw.meta : {};
   const ftype = readString(meta.ftype);
-  const quant = ftype ?? quantFromId(id);
+  const argQuant = quantFromArgs(args);
+  const quant = ftype ?? (argQuant !== "" ? argQuant : quantFromId(id));
   const sizeBytes = readNumber(meta.size);
-  const ctx = readNumber(meta.n_ctx);
+  const nativeCtx = readNumber(meta.n_ctx_train);
+
+  // `--parallel` is a plain integer when pinned; the live slot count later
+  // overrides it for a loaded model, but it is all an unloaded preset has.
+  const parallelArg = argValue(args, ["--parallel", "-np"]);
+  const parallel = parallelArg === null ? null : readNumber(Number(parallelArg));
+
+  // Per-slot context. Loaded models report it directly; an unloaded preset only
+  // states the whole `--ctx-size`, which the router splits across `--parallel`,
+  // so we divide to land on the same per-slot figure a loaded model would show.
+  const metaCtx = readNumber(meta.n_ctx);
+  const ctxSizeArg = argValue(args, ["--ctx-size", "-c"]);
+  const ctxSize = ctxSizeArg === null ? null : readNumber(Number(ctxSizeArg));
+  const ctx =
+    metaCtx ??
+    (ctxSize !== null && ctxSize > 0 && parallel !== null && parallel > 0
+      ? Math.floor(ctxSize / parallel)
+      : null);
 
   // Only a pinned `--n-gpu-layers` counts; a missing flag stays `null` rather
   // than becoming `Number(null) === 0`, which would invent a reading.
@@ -167,11 +201,10 @@ function parseModel(raw: unknown): ModelInfo | null {
     quant,
     sizeGB: sizeBytes === null ? null : sizeBytes / 1e9,
     ctx,
+    nativeCtx,
     gpuLayers,
     detail: embedding ? "embedding" : null,
-    // The runtime slot count is the authority on this; the source fills it in
-    // per loaded model. The parser cannot see slots, so it leaves it unknown.
-    parallel: null,
+    parallel,
     flashAttn: readFlashAttn(args),
     kvCache: readKvCache(args),
     status: modelStatus,

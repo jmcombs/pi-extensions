@@ -11,16 +11,23 @@
 
 import {
   barPercent,
+  contextHeadroomColor,
   formatClock,
+  formatContextField,
+  formatFlashField,
+  formatGpuLayersField,
+  formatKvCacheField,
   formatLogText,
   formatMemory,
-  formatModelMeta,
-  formatModelTuning,
   formatPercent,
+  formatQuantField,
+  formatSizeField,
   formatTemperature,
   formatTokenCount,
   formatTps,
+  formatTypeField,
   formatUptime,
+  NA,
   temperatureBarPercent,
   temperatureColor,
 } from "./format.js";
@@ -112,19 +119,31 @@ export interface GaugeVm {
   color: string;
 }
 
+/**
+ * One labeled cell of a model card's body grid: `Quant: 4-bit (Q4_0)`. The label
+ * set and order are identical on every card; only the values change. `na` is set
+ * when the value is the {@link NA} token, so the UI can dim an unconfirmed field
+ * without re-parsing the string.
+ */
+export interface ModelFieldVm {
+  label: string;
+  value: string;
+  na: boolean;
+}
+
 export interface ModelCardVm {
   id: string;
   short: string;
-  meta: string;
-  /** Second meta line: the model's preset tuning, e.g. `4 slots · flash on · kv q8_0/q8_0`. */
-  tuning: string;
+  /**
+   * The card body: the same seven labeled fields on every card, in a fixed order
+   * (`Type` last), each carrying its value or the `n/a` token when the fact is
+   * not confirmed. Only `Type` is ever confirmed while unloaded.
+   */
+  fields: ModelFieldVm[];
   color: string;
   selected: boolean;
   cardBackground: string;
   cardBorder: string;
-  /** `active · 63 t/s`, `resident · idle`, `unloaded · —` */
-  footerLabel: string;
-  footerColor: string;
   buttonAction: ModelAction;
   buttonLabel: string;
   buttonBackground: string;
@@ -213,6 +232,14 @@ export interface SlotGroupVm {
   total: number;
   /** `2/4 busy` */
   summary: string;
+  /** `63 t/s` while the model is generating; `""` when idle or the rate is unknown. */
+  rateLabel: string;
+  /** The busiest lane's context fill, 0–100 — the group's overflow signal. */
+  peakPct: number;
+  /** `61%`, the peak as a label. Shown only on a busy chip; the number is never color-only. */
+  peakLabel: string;
+  /** Threshold color for {@link peakLabel}: tertiary, then warning, then error. */
+  peakColor: string;
   slots: SlotDotVm[];
 }
 
@@ -222,7 +249,7 @@ export interface SlotsVm {
   /** True when no model is loaded (no groups). */
   empty: boolean;
   emptyLabel: string;
-  /** `3 of 8 processing`, summed across every group. */
+  /** `3 of 8 busy · peak 92% ctx`; the peak clause is dropped when nothing is busy. */
   totalSummary: string;
 }
 
@@ -323,22 +350,6 @@ function selectGauges(snapshot: Snapshot): GaugeVm[] {
   return gauges;
 }
 
-/** The card footer: status word plus, when active, the live generation rate. */
-function modelFooter(model: ModelInfo): { label: string; color: string } {
-  switch (model.status) {
-    case "active":
-      return { label: `active · ${formatTps(model.tokensPerSecond)}`, color: "var(--success)" };
-    case "resident":
-      return { label: "resident · idle", color: "var(--text-tertiary)" };
-    case "loading":
-      return { label: "loading…", color: "var(--text-secondary)" };
-    case "downloading":
-      return { label: "downloading…", color: "var(--text-secondary)" };
-    default:
-      return { label: "unloaded · —", color: "var(--text-subtle)" };
-  }
-}
-
 function selectModels(snapshot: Snapshot, ui: UiState): ModelCardVm[] {
   return snapshot.models.map((model) => {
     const color = modelColor(model.id, model.embedding);
@@ -349,30 +360,50 @@ function selectModels(snapshot: Snapshot, ui: UiState): ModelCardVm[] {
     // whether this operator started it (a local pending flag) or the polled
     // status arrived already `loading`/`downloading` (someone else did).
     const statusPending = model.status === "loading" || model.status === "downloading";
-    const footer = modelFooter(model);
+
+    // A model's facts — quant, size, context, tuning — are only known for
+    // certain once it is loaded and reporting them; before that they are
+    // inference (a filename) or intent (launch args), not confirmed, so every
+    // field but `Type` reads `n/a` and every unloaded card reads the same. The
+    // type is confirmed even unloaded (the router reports the modalities), so it
+    // always carries a real value.
+    const confirmed = model.status === "active" || model.status === "resident";
+
+    // The card body: a fixed label set in a fixed order (`Type` last). `na`
+    // rides along so the view can dim a field without re-reading its string.
+    const fields: ModelFieldVm[] = [
+      { label: "Quant", value: formatQuantField(model.quant, confirmed) },
+      { label: "Size", value: formatSizeField(model.sizeGB, confirmed) },
+      { label: "Context", value: formatContextField(model.ctx, confirmed) },
+      { label: "GPU Layers", value: formatGpuLayersField(model.gpuLayers, confirmed) },
+      { label: "Flash", value: formatFlashField(model.flashAttn, confirmed) },
+      { label: "KV Cache", value: formatKvCacheField(model.kvCache, confirmed) },
+      { label: "Type", value: formatTypeField(model.embedding) },
+    ].map((f) => ({ ...f, na: f.value === NA }));
 
     return {
       id: model.id,
       short: model.short,
-      meta: formatModelMeta(model),
-      // Tuning is a loaded-model fact; unloaded (and in-flight) cards hide it.
-      tuning:
-        model.status === "active" || model.status === "resident" ? formatModelTuning(model) : "",
+      fields,
       color,
       selected,
       cardBackground: selected ? tint(color, 10) : "var(--surface-page)",
       cardBorder: selected ? tint(color, 50) : "var(--border)",
-      footerLabel: footer.label,
-      footerColor: footer.color,
       buttonAction: loaded ? "unload" : "load",
+      // The button is the only place a transition is announced (the header says
+      // nothing now). It distinguishes a download — which pulls weights over the
+      // network and can run minutes — from a load into VRAM, since the wait is so
+      // different; an operator-started action shows its optimistic verb first.
       buttonLabel:
         pendingAction === "unload"
           ? "Unloading…"
-          : pendingAction === "load" || statusPending
-            ? "Loading…"
-            : loaded
-              ? "Unload"
-              : "Load",
+          : model.status === "downloading"
+            ? "Downloading…"
+            : pendingAction === "load" || statusPending
+              ? "Loading…"
+              : loaded
+                ? "Unload"
+                : "Load",
       buttonBackground: loaded ? "var(--surface-page)" : "var(--accent)",
       buttonColor: loaded ? "var(--error)" : "var(--accent-fg)",
       buttonBorder: loaded ? tint("var(--error)", 40) : "var(--accent)",
@@ -538,6 +569,15 @@ function selectSlots(snapshot: Snapshot): SlotsVm {
 
     const dots = modelSlots.map((slot) => selectSlotDot(slot, running));
     const busy = dots.filter((dot) => dot.state === "processing").length;
+    // The busiest lane is the overflow signal — one full lane matters even when
+    // the others are empty — so the group reduces to its max fill, not a mean.
+    const peakPct = dots.reduce((hi, dot) => Math.max(hi, dot.headroomPct), 0);
+    // The rate belongs to a model that is actually generating; an idle model, or
+    // one whose child was launched without `--metrics`, has none to show.
+    const rateLabel =
+      model.status === "active" && model.tokensPerSecond !== null
+        ? formatTps(model.tokensPerSecond)
+        : "";
     groups.push({
       modelId: model.id,
       modelLabel: model.short,
@@ -545,17 +585,25 @@ function selectSlots(snapshot: Snapshot): SlotsVm {
       busy,
       total: dots.length,
       summary: `${busy}/${dots.length} busy`,
+      rateLabel,
+      peakPct,
+      peakLabel: `${peakPct}%`,
+      peakColor: contextHeadroomColor(peakPct),
       slots: dots,
     });
   }
 
   const busyTotal = groups.reduce((sum, group) => sum + group.busy, 0);
   const slotTotal = groups.reduce((sum, group) => sum + group.total, 0);
+  // Worst-case fill across the lanes that are actually working; an idle group
+  // holds no context, so it never sets the peak.
+  const peak = groups.reduce((hi, group) => (group.busy > 0 ? Math.max(hi, group.peakPct) : hi), 0);
+  const peakClause = busyTotal > 0 ? ` · peak ${peak}% ctx` : "";
   return {
     groups,
     empty: groups.length === 0,
     emptyLabel: "no models loaded",
-    totalSummary: `${busyTotal} of ${slotTotal} busy`,
+    totalSummary: `${busyTotal} of ${slotTotal} busy${peakClause}`,
   };
 }
 

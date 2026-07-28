@@ -1,0 +1,41 @@
+{
+  "id": "chat-qwen",
+  "aliases": [],
+  "tags": [],
+  "object": "model",
+  "owned_by": "llamacpp",
+  "created": 1785178141,
+  "status": {
+    "value": "unloaded",
+    "args": [
+      "/opt/homebrew/Cellar/llama.cpp/9960/bin/llama-server",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "0",
+      "--alias",
+      "chat-qwen",
+      "--ctx-size",
+      "8192",
+      "--cache-type-k",
+      "q8_0",
+      "--cache-type-v",
+      "q8_0",
+      "--flash-attn",
+      "on",
+      "--model",
+      "/private/tmp/steward/models/Qwen3-0.6B-Q4_0.gguf",
+      "--n-gpu-layers",
+      "99",
+      "--parallel",
+      "4"
+    ],
+    "preset": "[chat-qwen]\nctx-size = 8192\ncache-type-k = q8_0\ncache-type-v = q8_0\nflash-attn = on\nmodel = /private/tmp/steward/models/Qwen3-0.6B-Q4_0.gguf\nn-gpu-layers = 99\nparallel = 4\n\n"
+  },
+  "architecture": {
+    "input_modalities": ["text"],
+    "output_modalities": ["text"]
+  },
+  "source": "preset",
+  "can_remove": false
+}

@@ -13,6 +13,7 @@ function fixture(name: string): unknown {
 }
 
 const LOADED = fixture("models-loaded.json");
+const UNLOADED_PRESET = fixture("models-unloaded-preset.json");
 
 describe("parseModels", () => {
   it("parses the real loaded model", () => {
@@ -26,6 +27,8 @@ describe("parseModels", () => {
       embedding: false,
       quant: "Q4_0",
       ctx: 40960,
+      // The native training window comes straight off `meta.n_ctx_train`.
+      nativeCtx: 40960,
       gpuLayers: null,
       detail: null,
       // Nothing tuning-related is pinned in this model's launch args, so both
@@ -37,6 +40,28 @@ describe("parseModels", () => {
       tokensPerSecond: null,
     });
     expect(model?.sizeGB).toBeCloseTo(0.423, 3);
+  });
+
+  it("enriches an unloaded preset model from its launch args", () => {
+    // A real capture: the router hands back the launch args for a preset model
+    // even while it is unloaded, so quant, per-slot ctx and parallel are known
+    // with no `meta` — but size and the native window are not.
+    const [model] = parseModels([UNLOADED_PRESET]);
+    expect(model).toMatchObject({
+      id: "chat-qwen",
+      // `--model …/Qwen3-0.6B-Q4_0.gguf` → the quant token before `.gguf`.
+      quant: "Q4_0",
+      // `--ctx-size 8192` split across `--parallel 4`, matching the loaded
+      // per-slot figure.
+      ctx: 2048,
+      parallel: 4,
+      gpuLayers: 99,
+      flashAttn: "on",
+      kvCache: "q8_0/q8_0",
+      sizeGB: null,
+      nativeCtx: null,
+      status: "unloaded",
+    });
   });
 
   it("accepts a bare array as well as the wrapped form", () => {

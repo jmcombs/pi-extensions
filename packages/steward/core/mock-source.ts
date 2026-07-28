@@ -97,6 +97,7 @@ const MODELS = [
     quant: "Q4_K_M",
     sizeGB: 18.4,
     ctx: 65536,
+    nativeCtx: 262144,
     gpuLayers: 48,
     detail: null,
     parallel: 2,
@@ -110,6 +111,7 @@ const MODELS = [
     quant: "Q5_K_M",
     sizeGB: 22.1,
     ctx: 32768,
+    nativeCtx: 262144,
     gpuLayers: 48,
     detail: null,
     parallel: 1,
@@ -123,6 +125,7 @@ const MODELS = [
     quant: "Q4_K_M",
     sizeGB: 9.8,
     ctx: 16384,
+    nativeCtx: 32768,
     gpuLayers: 32,
     detail: null,
     parallel: 1,
@@ -130,12 +133,16 @@ const MODELS = [
     kvCache: "f16/f16",
   },
   {
+    // Seeded unloaded, and tuned like a real preset — quant, per-slot ctx and
+    // parallel come off the launch args even with no `meta`, so its card
+    // exercises the enriched unloaded layout (facts without a size).
     id: "nomic-embed-text-v1.5-f16",
     short: "nomic-embed-text-v1.5",
     embedding: true,
     quant: "F16",
     sizeGB: 0.5,
-    ctx: 8192,
+    ctx: 2048,
+    nativeCtx: 2048,
     gpuLayers: null,
     detail: "embedding",
     parallel: 1,
@@ -360,6 +367,11 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       const active = loaded && running && isBusy(model.id);
       return {
         ...model,
+        // llama.cpp ships no `meta` until a model is resident, so an unloaded
+        // card has no byte size and no native window — only the args-derived
+        // facts survive. Mirroring that here keeps the mock honest.
+        sizeGB: loaded ? model.sizeGB : null,
+        nativeCtx: loaded ? model.nativeCtx : null,
         status: loaded ? (active ? "active" : "resident") : "unloaded",
         tokensPerSecond: active ? (modelRates.get(model.id) ?? 0) : null,
       };

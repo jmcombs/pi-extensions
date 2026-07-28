@@ -1,21 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   barPercent,
+  bitsFromCode,
+  contextHeadroomColor,
   formatClock,
+  formatContextField,
+  formatFlashField,
+  formatGpuLayersField,
+  formatKvBits,
+  formatKvCacheField,
   formatLogText,
   formatMemory,
-  formatModelMeta,
-  formatModelTuning,
   formatPercent,
+  formatQuantField,
+  formatSizeField,
   formatSizeGB,
   formatTemperature,
   formatTokenCount,
   formatTps,
+  formatTypeField,
   formatUptime,
+  NA,
   temperatureBarPercent,
   temperatureColor,
 } from "./format.js";
-import type { ModelInfo } from "./types.js";
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -140,89 +148,141 @@ describe("formatTps", () => {
   });
 });
 
-describe("formatModelMeta", () => {
-  const base: ModelInfo = {
-    id: "qwen3.6-moe-a3b-instruct-q4_k_m",
-    short: "qwen3.6-moe-a3b-instruct",
-    embedding: false,
-    quant: "Q4_K_M",
-    sizeGB: 18.4,
-    ctx: 65536,
-    gpuLayers: 48,
-    detail: null,
-    parallel: 4,
-    flashAttn: "on",
-    kvCache: "q8_0/q8_0",
-    status: "active",
-    tokensPerSecond: 63,
-  };
-
-  it("renders the layer count when there is one", () => {
-    expect(formatModelMeta(base)).toBe("Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers");
+describe("bitsFromCode", () => {
+  it("reads the first run of digits as a bit-depth", () => {
+    expect(bitsFromCode("Q4_0")).toBe("4-bit");
+    expect(bitsFromCode("Q5_K_M")).toBe("5-bit");
+    expect(bitsFromCode("F16")).toBe("16-bit");
+    expect(bitsFromCode("q8_0")).toBe("8-bit");
   });
 
-  it("falls back to the model's own detail for embedders", () => {
-    const embed: ModelInfo = {
-      ...base,
-      id: "nomic-embed-text-v1.5-f16",
-      short: "nomic-embed-text-v1.5",
-      embedding: true,
-      quant: "F16",
-      sizeGB: 0.5,
-      ctx: 8192,
-      gpuLayers: null,
-      detail: "embedding",
-      status: "resident",
-      tokensPerSecond: null,
-    };
-    expect(formatModelMeta(embed)).toBe("F16 · 0.5 GB · ctx 8192 · embedding");
+  it("reads the depth from anywhere in a non-standard code, not just the front", () => {
+    // The digits are not always leading: i-quants prefix with `IQ`, some formats
+    // put the width mid-string. The bit-depth is still the first run of digits.
+    expect(bitsFromCode("IQ2_XXS")).toBe("2-bit");
+    expect(bitsFromCode("IQ4_NL")).toBe("4-bit");
+    expect(bitsFromCode("MXFP4")).toBe("4-bit");
+    expect(bitsFromCode("BF16")).toBe("16-bit");
+    expect(bitsFromCode("TQ1_0")).toBe("1-bit");
   });
 
-  it("omits the tail entirely when neither is available", () => {
-    expect(formatModelMeta({ ...base, gpuLayers: null, detail: null })).toBe(
-      "Q4_K_M · 18.4 GB · ctx 65536",
-    );
-  });
-
-  it("shows the quant and lifecycle word when the model is not loaded", () => {
-    expect(formatModelMeta({ ...base, sizeGB: null, ctx: null, status: "unloaded" })).toBe(
-      "Q4_K_M · unloaded",
-    );
-    expect(
-      formatModelMeta({ ...base, quant: "", sizeGB: null, ctx: null, status: "downloading" }),
-    ).toBe("downloading");
+  it("is empty when the code carries no digits", () => {
+    expect(bitsFromCode("")).toBe("");
+    expect(bitsFromCode("IQ")).toBe("");
   });
 });
 
-describe("formatModelTuning", () => {
-  const base: ModelInfo = {
-    id: "qwen3.6-moe-a3b-instruct-q4_k_m",
-    short: "qwen3.6-moe-a3b-instruct",
-    embedding: false,
-    quant: "Q4_K_M",
-    sizeGB: 18.4,
-    ctx: 65536,
-    gpuLayers: 48,
-    detail: null,
-    parallel: 4,
-    flashAttn: "on",
-    kvCache: "q8_0/q8_0",
-    status: "active",
-    tokensPerSecond: 63,
-  };
-
-  it("renders the preset tuning line", () => {
-    expect(formatModelTuning(base)).toBe("4 slots · flash on · kv q8_0/q8_0");
+describe("formatKvBits", () => {
+  it("collapses the two sides to one bit-depth when they match", () => {
+    expect(formatKvBits("q8_0/q8_0")).toBe("8-bit");
+    expect(formatKvBits("f16/f16")).toBe("16-bit");
   });
 
-  it("reflects a model's own parallel, flash-attn and cache settings", () => {
-    expect(formatModelTuning({ ...base, parallel: 2, flashAttn: "off", kvCache: "f16/f16" })).toBe(
-      "2 slots · flash off · kv f16/f16",
-    );
+  it("keeps them split when K and V differ", () => {
+    expect(formatKvBits("q8_0/q5_1")).toBe("8-bit / 5-bit");
   });
 
-  it("drops the slot count when it is unknown", () => {
-    expect(formatModelTuning({ ...base, parallel: null })).toBe("flash on · kv q8_0/q8_0");
+  it("falls back to the raw side when a side has no digits", () => {
+    expect(formatKvBits("iq/iq")).toBe("iq");
+  });
+});
+
+describe("formatQuantField", () => {
+  it("leads with the bit-depth reading and keeps the code beside it", () => {
+    expect(formatQuantField("Q4_0", true)).toBe("4-bit (Q4_0)");
+    expect(formatQuantField("Q5_K_M", true)).toBe("5-bit (Q5_K_M)");
+  });
+
+  it("is n/a when the model is not confirmed, whatever the guessed code", () => {
+    expect(formatQuantField("Q4_0", false)).toBe(NA);
+  });
+
+  it("is n/a when the code carries no digits to read a depth from", () => {
+    expect(formatQuantField("", true)).toBe(NA);
+    expect(formatQuantField("IQ", true)).toBe(NA);
+  });
+});
+
+describe("formatSizeField", () => {
+  it("renders the on-disk size in GB when loaded", () => {
+    expect(formatSizeField(0.42, true)).toBe("0.42 GB");
+    expect(formatSizeField(18.4, true)).toBe("18.4 GB");
+  });
+
+  it("is n/a when unconfirmed or when there is no meta to report a size", () => {
+    expect(formatSizeField(0.42, false)).toBe(NA);
+    expect(formatSizeField(null, true)).toBe(NA);
+  });
+});
+
+describe("formatContextField", () => {
+  it("renders the per-slot window and never a trained-max clause", () => {
+    expect(formatContextField(40960, true)).toBe("40k / slot");
+    expect(formatContextField(8192, true)).toBe("8k / slot");
+  });
+
+  it("is n/a when unconfirmed or unknown", () => {
+    expect(formatContextField(40960, false)).toBe(NA);
+    expect(formatContextField(null, true)).toBe(NA);
+  });
+});
+
+describe("formatGpuLayersField", () => {
+  it("renders the requested count as-is, sentinel and all", () => {
+    expect(formatGpuLayersField(48, true)).toBe("48");
+    expect(formatGpuLayersField(99, true)).toBe("99");
+    expect(formatGpuLayersField(0, true)).toBe("0");
+  });
+
+  it("is n/a when never pinned — including a loaded model whose layers are unreported", () => {
+    expect(formatGpuLayersField(null, true)).toBe(NA);
+    expect(formatGpuLayersField(48, false)).toBe(NA);
+  });
+});
+
+describe("formatFlashField", () => {
+  it("title-cases the on/off/auto enum when loaded", () => {
+    expect(formatFlashField("on", true)).toBe("On");
+    expect(formatFlashField("off", true)).toBe("Off");
+    // Auto can stand even loaded — the resolved value is not reported back.
+    expect(formatFlashField("auto", true)).toBe("Auto");
+  });
+
+  it("is n/a until loaded", () => {
+    expect(formatFlashField("on", false)).toBe(NA);
+  });
+});
+
+describe("formatKvCacheField", () => {
+  it("collapses the two sides to one bit-depth when they match", () => {
+    expect(formatKvCacheField("q8_0/q8_0", true)).toBe("8-bit");
+    expect(formatKvCacheField("f16/f16", true)).toBe("16-bit");
+  });
+
+  it("keeps the sides split when K and V differ", () => {
+    expect(formatKvCacheField("q8_0/q5_1", true)).toBe("8-bit / 5-bit");
+  });
+
+  it("is n/a until loaded", () => {
+    expect(formatKvCacheField("q8_0/q8_0", false)).toBe(NA);
+  });
+});
+
+describe("formatTypeField", () => {
+  it("names the modality and is never n/a — it is confirmed even unloaded", () => {
+    expect(formatTypeField(false)).toBe("Generative");
+    expect(formatTypeField(true)).toBe("Embedder");
+  });
+});
+
+describe("contextHeadroomColor", () => {
+  it("escalates tertiary → warning → error across the thresholds", () => {
+    expect(contextHeadroomColor(61)).toBe("var(--text-tertiary)");
+    expect(contextHeadroomColor(85)).toBe("var(--text-tertiary)");
+    expect(contextHeadroomColor(86)).toBe("var(--warning)");
+    expect(contextHeadroomColor(97)).toBe("var(--warning)");
+    expect(contextHeadroomColor(98)).toBe("var(--error)");
+    expect(contextHeadroomColor(100)).toBe("var(--error)");
   });
 });
 

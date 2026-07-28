@@ -61,8 +61,18 @@ export interface ModelInfo {
    * reports a `meta` block (where the byte size lives) for resident models.
    */
   sizeGB: number | null;
-  /** Context length, or `null` when unloaded (same reason as {@link sizeGB}). */
+  /**
+   * Per-slot context length. Loaded: `meta.n_ctx`. Unloaded preset: the pinned
+   * `--ctx-size ÷ --parallel`, so it matches the loaded per-slot figure. `null`
+   * when neither is known.
+   */
   ctx: number | null;
+  /**
+   * The model's native (training) context window, `meta.n_ctx_train`. Loaded
+   * only — llama.cpp ships no `meta` until then — so `null` when unloaded. It is
+   * the ceiling the per-slot {@link ctx} is carved out of.
+   */
+  nativeCtx: number | null;
   /**
    * Layers offloaded to the GPU when `--n-gpu-layers` is pinned in the model's
    * launch args, else `null` — the server's own default is not reported back.
@@ -73,7 +83,9 @@ export interface ModelInfo {
   /**
    * Parallel decode slots this model has (`--parallel`). Per-model in routed
    * mode: the router runs one `llama-server` per model, each with its own slot
-   * count. Known from the slot array once loaded; `null` when unloaded.
+   * count. Once loaded the slot array is the authority; an unloaded preset model
+   * gets it from its pinned `--parallel` arg, and it is `null` when neither is
+   * known.
    */
   parallel: number | null;
   /**
