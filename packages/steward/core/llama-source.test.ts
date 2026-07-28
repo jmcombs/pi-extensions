@@ -180,34 +180,53 @@ describe("LlamaSource — snapshot overlay", () => {
         build: "b9960-a935fbffe",
       });
 
-      // Throughput is live: the idle default slots mean no model is processing,
-      // so it reads 0 and seeds the history with one real 0 sample — not the
-      // mock's invented rate and 42-sample series.
+      // Throughput and requests are live: the idle default slots mean no model
+      // is processing, so throughput reads 0, and the request gauges (absent
+      // from the metrics body) read 0 — not the mock's invented figures.
       expect(snapshot.throughputTps).toBe(0);
       expect(snapshot.throughputHistory).toEqual([0]);
+      expect(snapshot.requestsInFlight).toBe(0);
+      expect(snapshot.requestsQueued).toBe(0);
 
       // Everything else must be exactly the fallback's.
       const { config: _c, models: _m, slots: _s, service: _sv, ...liveRest } = snapshot;
       const { config: _c2, models: _m2, slots: _s2, service: _sv2, ...mockRest } = reference;
-      const strip = ({ throughputTps: _t, throughputHistory: _h, ...rest }: typeof liveRest) =>
-        rest;
+      const strip = ({
+        throughputTps: _t,
+        throughputHistory: _h,
+        requestsInFlight: _i,
+        requestsQueued: _q,
+        ...rest
+      }: typeof liveRest) => rest;
       expect(strip(liveRest)).toEqual(strip(mockRest));
     } finally {
       source.close();
     }
   });
 
-  it("aggregates live throughput from a processing model and seeds the history", async () => {
+  it("aggregates live throughput and request gauges from a processing model", async () => {
     const source = new LlamaSource({
       connection: CONNECTION,
       fallback: createFallback(),
-      fetch: routerFetch({ slots: () => Promise.resolve(jsonResponse(200, BUSY_SLOTS)) }),
+      fetch: routerFetch({
+        slots: () => Promise.resolve(jsonResponse(200, BUSY_SLOTS)),
+        metrics: () =>
+          Promise.resolve(
+            textResponse(
+              200,
+              "llamacpp:predicted_tokens_seconds 63.42\nllamacpp:requests_processing 1\nllamacpp:requests_deferred 3\n",
+            ),
+          ),
+      }),
     });
     try {
       const snapshot = await source.snapshot();
-      // predicted_tokens_seconds from METRICS_TEXT, counted because a slot is busy.
+      // predicted_tokens_seconds, counted because a slot is busy.
       expect(snapshot.throughputTps).toBeCloseTo(63.42, 2);
       expect(snapshot.throughputHistory).toEqual([snapshot.throughputTps]);
+      // The real in-flight and queued gauges, taken as-is.
+      expect(snapshot.requestsInFlight).toBe(1);
+      expect(snapshot.requestsQueued).toBe(3);
     } finally {
       source.close();
     }

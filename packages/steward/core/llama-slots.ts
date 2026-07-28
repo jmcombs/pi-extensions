@@ -49,17 +49,42 @@ export function parseSlots(raw: unknown, modelId: string): SlotInfo[] {
   return slots;
 }
 
-/** The metric that carries the generation rate in a `/metrics` scrape. */
-const TPS_PATTERN = /^llamacpp:predicted_tokens_seconds\s+([0-9eE+.-]+)/m;
+/** The `/metrics` values Steward reads, aggregated across a model's instance. */
+export interface LlamaMetrics {
+  /** Generation rate (`predicted_tokens_seconds`), null when absent or `nan`. */
+  tps: number | null;
+  /** Requests being processed (`requests_processing`), 0 when absent. */
+  requestsProcessing: number;
+  /** Requests deferred for a free slot (`requests_deferred`), 0 when absent. */
+  requestsDeferred: number;
+}
 
 /**
- * The generation rate from a Prometheus `/metrics` scrape, or `null` when the
- * line is absent or its value is not a finite number (llama.cpp prints `nan`
- * before the first generation).
+ * Reads one `llamacpp:<name>` gauge from a Prometheus scrape, or `null` when the
+ * line is absent or its value is not finite (llama.cpp prints `nan` before the
+ * first generation).
  */
-export function parseTps(prometheusText: string): number | null {
-  const match = TPS_PATTERN.exec(prometheusText);
+function readGauge(prometheusText: string, name: string): number | null {
+  const match = new RegExp(`^llamacpp:${name}\\s+([0-9eE+.-]+)`, "m").exec(prometheusText);
   if (match?.[1] === undefined) return null;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : null;
+}
+
+/** The generation rate, or `null` when absent or not yet a finite number. */
+export function parseTps(prometheusText: string): number | null {
+  return readGauge(prometheusText, "predicted_tokens_seconds");
+}
+
+/**
+ * The rate and request gauges from a `/metrics` scrape. The request gauges are
+ * counts, so an absent line means zero; the rate is `null` (unknown) when
+ * absent, since 0 t/s and "no reading" are different states.
+ */
+export function parseMetrics(prometheusText: string): LlamaMetrics {
+  return {
+    tps: readGauge(prometheusText, "predicted_tokens_seconds"),
+    requestsProcessing: readGauge(prometheusText, "requests_processing") ?? 0,
+    requestsDeferred: readGauge(prometheusText, "requests_deferred") ?? 0,
+  };
 }

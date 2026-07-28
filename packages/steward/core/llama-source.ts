@@ -29,7 +29,7 @@ import { parseRouterConfig } from "./llama-config.js";
 import type { LlamaConnection } from "./llama-connection.js";
 import { listenAddress } from "./llama-connection.js";
 import { parseModels } from "./llama-models.js";
-import { parseSlots, parseTps } from "./llama-slots.js";
+import { parseMetrics, parseSlots } from "./llama-slots.js";
 import type { StewardDataSource, Unsubscribe } from "./source.js";
 import {
   type ConfigEntry,
@@ -41,6 +41,7 @@ import {
   type SlotInfo,
   type Snapshot,
   THROUGHPUT_HISTORY_SIZE,
+  THROUGHPUT_SAMPLE_SECONDS,
 } from "./types.js";
 
 /** The local process behind the server, for facts HTTP does not expose. */
@@ -94,10 +95,11 @@ const CALL_TIMEOUT_MS = 4000;
 /**
  * The cadence at which a throughput sample is appended to the rolling history.
  * llama.cpp reports an instantaneous rate, not a series, so Steward accumulates
- * one. Gating on the snapshot clock (not the call count) keeps the window ≈2
- * minutes (42 samples) regardless of how many clients are polling.
+ * one, at the same cadence the mock uses so the sparkline's two-minute axis is
+ * true. Gating on the snapshot clock (not the call count) keeps the window at
+ * that span regardless of how many clients are polling.
  */
-const THROUGHPUT_SAMPLE_MS = 2800;
+const THROUGHPUT_SAMPLE_MS = THROUGHPUT_SAMPLE_SECONDS * 1000;
 
 export class LlamaSource implements StewardDataSource {
   readonly name = "llama.cpp";
@@ -136,9 +138,20 @@ export class LlamaSource implements StewardDataSource {
 
     const config = this.#configFromProps(props);
     const service = await this.#serviceFromProps(props);
-    const { models, slots, throughputTps } = await this.#readModelsAndSlots(modelsRaw);
+    const { models, slots, throughputTps, requestsInFlight, requestsQueued } =
+      await this.#readModelsAndSlots(modelsRaw);
     const throughputHistory = this.#sampleThroughput(base.now, throughputTps);
-    return { ...base, config, service, models, slots, throughputTps, throughputHistory };
+    return {
+      ...base,
+      config,
+      service,
+      models,
+      slots,
+      throughputTps,
+      throughputHistory,
+      requestsInFlight,
+      requestsQueued,
+    };
   }
 
   /**
@@ -264,16 +277,22 @@ export class LlamaSource implements StewardDataSource {
    * empty lists (an honest "nothing to show", not the mock's invented models),
    * and a per-model read that fails drops only that model's slots and rate.
    */
-  async #readModelsAndSlots(
-    modelsRaw: unknown,
-  ): Promise<{ models: ModelInfo[]; slots: SlotInfo[]; throughputTps: number }> {
+  async #readModelsAndSlots(modelsRaw: unknown): Promise<{
+    models: ModelInfo[];
+    slots: SlotInfo[];
+    throughputTps: number;
+    requestsInFlight: number;
+    requestsQueued: number;
+  }> {
     const parsed = parseModels(modelsRaw);
 
     const enriched = await Promise.all(
-      parsed.map(async (model): Promise<{ model: ModelInfo; slots: SlotInfo[]; tps: number }> => {
+      parsed.map(async (model): Promise<EnrichedModel> => {
         // Only a resident model has slots to read; loading/downloading/unloaded
         // models have none yet, so we do not probe for them.
-        if (model.status !== "resident") return { model, slots: [], tps: 0 };
+        if (model.status !== "resident") {
+          return { model, slots: [], tps: 0, processing: 0, deferred: 0 };
+        }
 
         const [slotsRaw, metricsText] = await Promise.all([
           this.#getJson(`/slots?model=${encodeURIComponent(model.id)}`),
@@ -282,24 +301,30 @@ export class LlamaSource implements StewardDataSource {
 
         // A dropped per-model read leaves the model resident with no slots
         // rather than removing it from the list entirely.
-        if (slotsRaw === undefined) return { model, slots: [], tps: 0 };
+        if (slotsRaw === undefined) {
+          return { model, slots: [], tps: 0, processing: 0, deferred: 0 };
+        }
 
         const slots = parseSlots(slotsRaw, model.id);
-        const processing = slots.some((slot) => slot.state === "processing");
-        const tps = metricsText === undefined ? null : parseTps(metricsText);
+        const busy = slots.some((slot) => slot.state === "processing");
+        const metrics = metricsText === undefined ? null : parseMetrics(metricsText);
 
         return {
           model: {
             ...model,
-            status: processing ? "active" : "resident",
+            status: busy ? "active" : "resident",
             parallel: slots.length,
-            tokensPerSecond: processing ? tps : null,
+            tokensPerSecond: busy ? (metrics?.tps ?? null) : null,
           },
           slots,
           // llama.cpp's rate gauge persists its last value after generation
           // ends, so a model only contributes to throughput while it is
           // actually processing — an idle model reads 0, not a stale average.
-          tps: processing ? (tps ?? 0) : 0,
+          tps: busy ? (metrics?.tps ?? 0) : 0,
+          // Request gauges are live counts, taken as-is from every resident
+          // model and summed for the band's requests tile.
+          processing: metrics?.requestsProcessing ?? 0,
+          deferred: metrics?.requestsDeferred ?? 0,
         };
       }),
     );
@@ -308,6 +333,8 @@ export class LlamaSource implements StewardDataSource {
       models: enriched.map((entry) => entry.model),
       slots: enriched.flatMap((entry) => entry.slots),
       throughputTps: enriched.reduce((sum, entry) => sum + entry.tps, 0),
+      requestsInFlight: enriched.reduce((sum, entry) => sum + entry.processing, 0),
+      requestsQueued: enriched.reduce((sum, entry) => sum + entry.deferred, 0),
     };
   }
 
@@ -406,6 +433,18 @@ export class LlamaSource implements StewardDataSource {
 interface PropsRead {
   status: number;
   body: unknown | null;
+}
+
+/** One model after its live `/slots` and `/metrics` reads, before aggregation. */
+interface EnrichedModel {
+  model: ModelInfo;
+  slots: SlotInfo[];
+  /** This model's throughput contribution (0 unless a slot is processing). */
+  tps: number;
+  /** Requests this model's instance is processing. */
+  processing: number;
+  /** Requests this model's instance has deferred. */
+  deferred: number;
 }
 
 /** Splits the connection's base URL into a host and a numeric port. */

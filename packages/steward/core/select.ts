@@ -46,9 +46,6 @@ export { modelColor } from "./model-color.js";
  */
 export const LOG_RENDER_LIMIT = 200;
 
-/** Requests tile: the bar reads full at this many requests per minute. */
-const REQUESTS_FULL_SCALE = 30;
-
 /** Throughput tile: the bar reads full at this many tokens per second. */
 const THROUGHPUT_FULL_SCALE = 120;
 
@@ -412,6 +409,13 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
   // uptime and pid, so it does not repeat the port.
   const pid = service.pid === null ? "no process" : `pid ${service.pid}`;
 
+  // The requests tile reports live gauges (in flight, queued) — llama.cpp has
+  // no request-rate metric. The bar fills as the slots fill.
+  const inFlight = running ? snapshot.requestsInFlight : 0;
+  const queued = running ? snapshot.requestsQueued : 0;
+  const slotTotal = snapshot.slots.length;
+  const requestsFill = slotTotal > 0 ? inFlight / slotTotal : inFlight > 0 ? 1 : 0;
+
   return [
     {
       key: "service",
@@ -425,11 +429,11 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
     {
       key: "requests",
       label: "requests",
-      value: running ? countLabel(snapshot.requestsPerMinute) : "0",
-      unit: "req/min",
-      sub: `pi agent · ${snapshot.sessions} sessions`,
+      value: String(inFlight),
+      unit: "in flight",
+      sub: `${queued} queued`,
       color: "var(--accent)",
-      percent: barPercent((running ? snapshot.requestsPerMinute : 0) / REQUESTS_FULL_SCALE),
+      percent: barPercent(requestsFill),
     },
     {
       key: "throughput",

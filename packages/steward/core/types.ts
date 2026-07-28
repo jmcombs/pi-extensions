@@ -164,11 +164,16 @@ export interface Snapshot {
   metrics: HostMetrics;
   /** Aggregate generation rate across all slots, tokens/second. */
   throughputTps: number;
-  requestsPerMinute: number;
+  /**
+   * Requests being processed across all slots right now. llama.cpp exposes no
+   * request-rate metric, so the requests tile reports this live gauge (and
+   * {@link requestsQueued}) rather than a per-minute rate it cannot measure.
+   */
+  requestsInFlight: number;
   /** Rolling tok/s samples, oldest first. 42 samples ≈ 2 minutes. */
   throughputHistory: number[];
-  /** Distinct client sessions attached, for the requests tile sub-line. */
-  sessions: number;
+  /** Requests accepted but waiting for a free slot. */
+  requestsQueued: number;
   config: ConfigEntry[];
 }
 

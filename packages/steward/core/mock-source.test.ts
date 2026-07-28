@@ -77,7 +77,11 @@ describe("createMockSource", () => {
       expect(snapshot.metrics.vramTotalGB).toBe(48);
       expect(snapshot.metrics.ramTotalGB).toBe(128);
       expect(snapshot.throughputHistory).toHaveLength(42);
-      expect(snapshot.sessions).toBe(3);
+      // In-flight requests are exactly the busy slots — the tile and the slots
+      // panel never disagree.
+      expect(snapshot.requestsInFlight).toBe(
+        snapshot.slots.filter((slot) => slot.state === "processing").length,
+      );
       // Per-model tuning (parallel, ctx-per-slot, gpu layers, flash-attn, KV
       // cache) lives on the model cards now; CONFIG keeps only router-wide facts.
       expect(snapshot.config.map((entry) => entry.key)).toEqual([
@@ -165,7 +169,8 @@ describe("createMockSource", () => {
       expect(snapshot.service.startedAt).toBeNull();
       expect(snapshot.service.pid).toBeNull();
       expect(snapshot.throughputTps).toBe(0);
-      expect(snapshot.requestsPerMinute).toBe(0);
+      expect(snapshot.requestsInFlight).toBe(0);
+      expect(snapshot.requestsQueued).toBe(0);
       expect(snapshot.slots.every((slot) => slot.state === "idle")).toBe(true);
       expect(snapshot.models.every((model) => model.status !== "active")).toBe(true);
       expect(snapshot.throughputHistory.at(-1)).toBe(0);

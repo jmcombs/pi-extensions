@@ -99,9 +99,9 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
       cpuTempC: 47,
     },
     throughputTps: 72,
-    requestsPerMinute: 14,
+    requestsInFlight: 2,
     throughputHistory: [40, 60, 80],
-    sessions: 3,
+    requestsQueued: 1,
     config: [{ key: "engine", value: "llama-server b6122" }],
     ...overrides,
   };
@@ -397,7 +397,13 @@ describe("KPI tiles", () => {
       sub: "pid 4821",
       percent: 100,
     });
-    expect(vm.kpis[1]).toMatchObject({ value: "14", sub: "pi agent · 3 sessions", percent: 47 });
+    // Requests tile: live in-flight/queued gauges; the bar fills 2 of 3 slots.
+    expect(vm.kpis[1]).toMatchObject({
+      value: "2",
+      unit: "in flight",
+      sub: "1 queued",
+      percent: 67,
+    });
     expect(vm.kpis[2]).toMatchObject({ value: "72", unit: "tok/s", percent: 60 });
   });
 
@@ -414,29 +420,23 @@ describe("KPI tiles", () => {
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);
     expect(vm.kpis[0]).toMatchObject({ value: "stopped", unit: "", sub: "no process", percent: 0 });
-    expect(vm.kpis[1]?.value).toBe("0");
+    // Requests reads 0 in flight, 0 queued while stopped.
+    expect(vm.kpis[1]).toMatchObject({ value: "0", sub: "0 queued", percent: 0 });
     expect(vm.kpis[2]?.value).toBe("0");
   });
 
-  it("rounds the counters a live source reports to the whole numbers a tile shows", () => {
-    const vm = selectDashboard(
-      snapshot({ throughputTps: 61.837, requestsPerMinute: 13.5 }),
-      initialUiState("light"),
-      NOW,
-    );
-    expect(vm.kpis[1]?.value).toBe("14");
+  it("rounds the throughput a live source reports to the whole number a tile shows", () => {
+    const vm = selectDashboard(snapshot({ throughputTps: 61.837 }), initialUiState("light"), NOW);
     expect(vm.kpis[2]?.value).toBe("62");
     expect(vm.kpis[2]?.percent).toBe(52);
   });
 
-  it("dashes a counter the source could not supply instead of printing NaN", () => {
+  it("dashes throughput the source could not supply instead of printing NaN", () => {
     const vm = selectDashboard(
-      snapshot({ throughputTps: Number.NaN, requestsPerMinute: Number.NaN }),
+      snapshot({ throughputTps: Number.NaN }),
       initialUiState("light"),
       NOW,
     );
-    expect(vm.kpis[1]?.value).toBe("—");
-    expect(vm.kpis[1]?.percent).toBe(0);
     expect(vm.kpis[2]?.value).toBe("—");
     expect(vm.kpis[2]?.percent).toBe(0);
   });

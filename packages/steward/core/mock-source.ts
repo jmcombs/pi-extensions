@@ -80,7 +80,6 @@ const INITIAL_UPTIME_MS = 214 * 60 * 1000;
 
 const VRAM_TOTAL_GB = 48;
 const RAM_TOTAL_GB = 128;
-const SESSIONS = 3;
 const PID = 4821;
 const BUILD = "b6122";
 const HOST = "127.0.0.1";
@@ -190,7 +189,7 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
   const unloaded = new Set<string>(["nomic-embed-text-v1.5-f16"]);
 
   let throughputTps = 0;
-  let requestsPerMinute = 0;
+  let requestsQueued = 0;
   // Sensors are held as fractions of their totals, the way the simulation
   // drifts them; the snapshot converts to the absolute figures the UI shows.
   let vramFraction = 0.62;
@@ -339,7 +338,8 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     cpuTempC = drift(cpuTempC, 38 + cpuUtil * 46);
 
     throughputTps = Math.round(38 + random() * 62);
-    requestsPerMinute = Math.round(9 + random() * 14);
+    // Mostly nothing queued; occasionally one or two wait for a free slot.
+    requestsQueued = Math.max(0, Math.round(random() * 3) - 1);
     vramFraction = Math.min(0.97, 0.55 + random() * 0.2);
     ramFraction = 0.36 + random() * 0.12;
     cpuUtil = 0.12 + random() * 0.3;
@@ -418,6 +418,12 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
   }
 
   function buildSnapshot(): Snapshot {
+    const slots = buildSlots();
+    // In-flight requests are exactly the busy slots, so the requests tile and
+    // the slots panel always agree.
+    const requestsInFlight = running
+      ? slots.filter((slot) => slot.state === "processing").length
+      : 0;
     return {
       now: now(),
       service: {
@@ -429,12 +435,12 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
         build: BUILD,
       },
       models: buildModels(),
-      slots: buildSlots(),
+      slots,
       metrics: buildMetrics(),
       throughputTps: running ? throughputTps : 0,
-      requestsPerMinute: running ? requestsPerMinute : 0,
+      requestsInFlight,
       throughputHistory: [...throughputHistory],
-      sessions: SESSIONS,
+      requestsQueued: running ? requestsQueued : 0,
       config: [...CONFIG],
     };
   }

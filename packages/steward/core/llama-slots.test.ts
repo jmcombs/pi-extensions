@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseSlots, parseTps } from "./llama-slots.js";
+import { parseMetrics, parseSlots, parseTps } from "./llama-slots.js";
 
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(new URL(`./__fixtures__/llama/${name}`, import.meta.url), "utf8"));
@@ -84,5 +84,28 @@ describe("parseTps", () => {
 
   it("returns null when the value is not finite (nan before first generation)", () => {
     expect(parseTps("llamacpp:predicted_tokens_seconds nan\n")).toBeNull();
+  });
+});
+
+describe("parseMetrics", () => {
+  it("reads the rate and the request gauges together", () => {
+    const text = [
+      "llamacpp:predicted_tokens_seconds 128.5",
+      "llamacpp:requests_processing 1",
+      "llamacpp:requests_deferred 4",
+      "",
+    ].join("\n");
+    expect(parseMetrics(text)).toEqual({ tps: 128.5, requestsProcessing: 1, requestsDeferred: 4 });
+  });
+
+  it("treats absent request gauges as zero, but an absent rate as unknown", () => {
+    // Requests are counts (absent means none); the rate is null (no reading)
+    // when the line is missing, distinct from a real 0.
+    expect(parseMetrics("llamacpp:predicted_tokens_seconds 40\n")).toEqual({
+      tps: 40,
+      requestsProcessing: 0,
+      requestsDeferred: 0,
+    });
+    expect(parseMetrics("")).toEqual({ tps: null, requestsProcessing: 0, requestsDeferred: 0 });
   });
 });
