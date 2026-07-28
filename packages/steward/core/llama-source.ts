@@ -31,15 +31,16 @@ import { listenAddress } from "./llama-connection.js";
 import { parseModels } from "./llama-models.js";
 import { parseSlots, parseTps } from "./llama-slots.js";
 import type { StewardDataSource, Unsubscribe } from "./source.js";
-import type {
-  ConfigEntry,
-  LogLine,
-  ModelAction,
-  ModelInfo,
-  ServiceAction,
-  ServiceInfo,
-  SlotInfo,
-  Snapshot,
+import {
+  type ConfigEntry,
+  type LogLine,
+  type ModelAction,
+  type ModelInfo,
+  type ServiceAction,
+  type ServiceInfo,
+  type SlotInfo,
+  type Snapshot,
+  THROUGHPUT_HISTORY_SIZE,
 } from "./types.js";
 
 /** The local process behind the server, for facts HTTP does not expose. */
@@ -90,6 +91,14 @@ export interface LlamaSourceOptions {
 /** How long to wait on any one call before treating the server as unreachable. */
 const CALL_TIMEOUT_MS = 4000;
 
+/**
+ * The cadence at which a throughput sample is appended to the rolling history.
+ * llama.cpp reports an instantaneous rate, not a series, so Steward accumulates
+ * one. Gating on the snapshot clock (not the call count) keeps the window ≈2
+ * minutes (42 samples) regardless of how many clients are polling.
+ */
+const THROUGHPUT_SAMPLE_MS = 2800;
+
 export class LlamaSource implements StewardDataSource {
   readonly name = "llama.cpp";
 
@@ -99,6 +108,10 @@ export class LlamaSource implements StewardDataSource {
   readonly #probeService: ServiceProbe | null;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
+  /** Rolling real throughput samples, oldest first — the band's sparkline. */
+  readonly #throughputHistory: number[] = [];
+  /** Snapshot clock at the last history sample, so sampling stays time-paced. */
+  #lastSampleAt = 0;
 
   constructor(options: LlamaSourceOptions) {
     this.#connection = options.connection;
@@ -123,8 +136,26 @@ export class LlamaSource implements StewardDataSource {
 
     const config = this.#configFromProps(props);
     const service = await this.#serviceFromProps(props);
-    const { models, slots } = await this.#readModelsAndSlots(modelsRaw);
-    return { ...base, config, service, models, slots };
+    const { models, slots, throughputTps } = await this.#readModelsAndSlots(modelsRaw);
+    const throughputHistory = this.#sampleThroughput(base.now, throughputTps);
+    return { ...base, config, service, models, slots, throughputTps, throughputHistory };
+  }
+
+  /**
+   * Appends the current throughput to the rolling history, but only once per
+   * {@link THROUGHPUT_SAMPLE_MS} of snapshot time, so the window spans a fixed
+   * ~2 minutes no matter how often (or from how many clients) snapshots are
+   * taken. Returns a copy so a consumer cannot mutate the live buffer.
+   */
+  #sampleThroughput(now: number, throughputTps: number): number[] {
+    if (now - this.#lastSampleAt >= THROUGHPUT_SAMPLE_MS) {
+      this.#lastSampleAt = now;
+      this.#throughputHistory.push(throughputTps);
+      while (this.#throughputHistory.length > THROUGHPUT_HISTORY_SIZE) {
+        this.#throughputHistory.shift();
+      }
+    }
+    return [...this.#throughputHistory];
   }
 
   recentLogs(limit: number): LogLine[] {
@@ -235,14 +266,14 @@ export class LlamaSource implements StewardDataSource {
    */
   async #readModelsAndSlots(
     modelsRaw: unknown,
-  ): Promise<{ models: ModelInfo[]; slots: SlotInfo[] }> {
+  ): Promise<{ models: ModelInfo[]; slots: SlotInfo[]; throughputTps: number }> {
     const parsed = parseModels(modelsRaw);
 
     const enriched = await Promise.all(
-      parsed.map(async (model): Promise<{ model: ModelInfo; slots: SlotInfo[] }> => {
+      parsed.map(async (model): Promise<{ model: ModelInfo; slots: SlotInfo[]; tps: number }> => {
         // Only a resident model has slots to read; loading/downloading/unloaded
         // models have none yet, so we do not probe for them.
-        if (model.status !== "resident") return { model, slots: [] };
+        if (model.status !== "resident") return { model, slots: [], tps: 0 };
 
         const [slotsRaw, metricsText] = await Promise.all([
           this.#getJson(`/slots?model=${encodeURIComponent(model.id)}`),
@@ -251,7 +282,7 @@ export class LlamaSource implements StewardDataSource {
 
         // A dropped per-model read leaves the model resident with no slots
         // rather than removing it from the list entirely.
-        if (slotsRaw === undefined) return { model, slots: [] };
+        if (slotsRaw === undefined) return { model, slots: [], tps: 0 };
 
         const slots = parseSlots(slotsRaw, model.id);
         const processing = slots.some((slot) => slot.state === "processing");
@@ -265,6 +296,10 @@ export class LlamaSource implements StewardDataSource {
             tokensPerSecond: processing ? tps : null,
           },
           slots,
+          // llama.cpp's rate gauge persists its last value after generation
+          // ends, so a model only contributes to throughput while it is
+          // actually processing — an idle model reads 0, not a stale average.
+          tps: processing ? (tps ?? 0) : 0,
         };
       }),
     );
@@ -272,6 +307,7 @@ export class LlamaSource implements StewardDataSource {
     return {
       models: enriched.map((entry) => entry.model),
       slots: enriched.flatMap((entry) => entry.slots),
+      throughputTps: enriched.reduce((sum, entry) => sum + entry.tps, 0),
     };
   }
 

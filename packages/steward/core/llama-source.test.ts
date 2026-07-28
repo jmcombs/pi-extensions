@@ -180,10 +180,34 @@ describe("LlamaSource — snapshot overlay", () => {
         build: "b9960-a935fbffe",
       });
 
-      // Everything but config/models/slots/service must be exactly the fallback's.
+      // Throughput is live: the idle default slots mean no model is processing,
+      // so it reads 0 and seeds the history with one real 0 sample — not the
+      // mock's invented rate and 42-sample series.
+      expect(snapshot.throughputTps).toBe(0);
+      expect(snapshot.throughputHistory).toEqual([0]);
+
+      // Everything else must be exactly the fallback's.
       const { config: _c, models: _m, slots: _s, service: _sv, ...liveRest } = snapshot;
       const { config: _c2, models: _m2, slots: _s2, service: _sv2, ...mockRest } = reference;
-      expect(liveRest).toEqual(mockRest);
+      const strip = ({ throughputTps: _t, throughputHistory: _h, ...rest }: typeof liveRest) =>
+        rest;
+      expect(strip(liveRest)).toEqual(strip(mockRest));
+    } finally {
+      source.close();
+    }
+  });
+
+  it("aggregates live throughput from a processing model and seeds the history", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ slots: () => Promise.resolve(jsonResponse(200, BUSY_SLOTS)) }),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      // predicted_tokens_seconds from METRICS_TEXT, counted because a slot is busy.
+      expect(snapshot.throughputTps).toBeCloseTo(63.42, 2);
+      expect(snapshot.throughputHistory).toEqual([snapshot.throughputTps]);
     } finally {
       source.close();
     }
@@ -302,8 +326,12 @@ describe("LlamaSource — snapshot overlay", () => {
       ]);
       expect(snapshot.models).toEqual([]);
       expect(snapshot.slots).toEqual([]);
-      // The panels we have not moved yet keep animating from the mock.
-      expect(snapshot.throughputHistory).toHaveLength(42);
+      // Throughput is live: a dead server generates nothing, so it reads 0 and
+      // seeds the history with a real 0 rather than the mock's 42-sample series.
+      expect(snapshot.throughputTps).toBe(0);
+      expect(snapshot.throughputHistory).toEqual([0]);
+      // The host band and requests still animate from the mock (not migrated).
+      expect(snapshot.metrics.vramTotalGB).toBeGreaterThan(0);
       // SERVICE is live now: an unreachable server reads stopped, with no
       // fabricated uptime or pid — not the mock's standing "running".
       expect(snapshot.service.running).toBe(false);

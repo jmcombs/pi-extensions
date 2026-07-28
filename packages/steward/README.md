@@ -25,13 +25,13 @@ glance, and lets you act on all of them without a terminal:
 llama.cpp is the engine and Pi is the client; both are credited in the chrome, never in the
 name. Say "Steward for llama.cpp" on first mention, then just "Steward".
 
-> **Status: the dashboard is mostly simulated, with a live CONFIG panel.** Set
-> `STEWARD_SOURCE=llama` and the CONFIG block reads a real `llama-server` (its `/props`);
-> every other panel — models, slots, service, metrics, throughput, logs — is still generated
-> locally. Left unset (the default) the whole dashboard is simulated, so it needs nothing
-> running. The live reader plugs into the same seam the simulation uses (`core/source.ts`),
-> so the interface you see now is the interface you will get, and more panels move to live in
-> later phases.
+> **Status: live where it counts, simulated where it doesn't yet.** Set
+> `STEWARD_SOURCE=llama` and the config, service, models, slots and throughput panels read a
+> real `llama-server` (`/props`, `/models`, `/slots`, `/metrics`), with real load/unload; the
+> host-metrics band, the requests tile, and the log console are still generated locally. Left
+> unset (the default) the whole dashboard is simulated, so it needs nothing running. The live
+> reader plugs into the same seam the simulation uses (`core/source.ts`), so the interface you
+> see now is the interface you will get, and the remaining panels move to live over time.
 
 ## Quick Start
 
@@ -64,7 +64,7 @@ The dashboard is served on loopback only, and nothing it shows leaves the machin
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `STEWARD_PORT` | `8788` | Port the dashboard binds on loopback. `0` picks a free one. |
-| `STEWARD_SOURCE` | `mock` | `llama` drives the CONFIG panel from a live `llama-server`; anything else keeps the fully simulated dashboard. |
+| `STEWARD_SOURCE` | `mock` | `llama` drives the live panels (config, service, models, slots, throughput) from a real `llama-server`; anything else keeps the fully simulated dashboard. |
 | `LLAMA_BASE_URL` | `http://127.0.0.1:8080` | Where to read `llama-server` when running outside Pi (e.g. the dev server). Inside Pi the provider auth is used instead. |
 | `LLAMA_API_KEY` | _(none)_ | Bearer key for a key-gated `llama-server`, outside Pi. |
 
@@ -74,7 +74,10 @@ ephemeral port and tells you which one it landed on.
 ## Requirements
 
 - Node `>= 22.13.0`
-- A local `llama-server` (llama.cpp) instance
+- A local `llama-server` (llama.cpp) instance in router mode (Pi's default)
+- For live **throughput** and **tokens/sec**, start `llama-server` with `--metrics` — the
+  Prometheus endpoint is off by default. (`--slots`, which powers the slots panel, is on by
+  default.)
 
 ## Development
 
