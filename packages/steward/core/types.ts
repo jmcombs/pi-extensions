@@ -158,6 +158,34 @@ export interface ConfigEntry {
   value: string;
 }
 
+/**
+ * What kind of record a line is, decided by the producer while it parses.
+ *
+ * `proxy` and `args` exist because the console suppresses or folds them by
+ * default and has to be able to say honestly what it is not showing; `rate`
+ * exists so a future suppression needs no parser change. Nothing is ever
+ * dropped for its kind — classification is tagging, so every filter the console
+ * builds on it stays reversible. Absent means `event`: an ordinary line, shown
+ * as-is.
+ *
+ * - `proxy` — the router's `proxy_reques` lines. 86.9% of a real log, and most
+ *   of them are Steward's own `/slots` + `/metrics` polls watching itself.
+ * - `args` — the contiguous continuation run under `spawning … with args:`.
+ *   Individually meaningless (`--ctx-size`, then `131072`), collectively the
+ *   exact launch command line.
+ * - `rate` — the ~3 s in-flight `n_decoded … tg = N t/s` generation line.
+ */
+export type LogKind = "event" | "proxy" | "args" | "rate";
+
+/**
+ * Which process wrote the line: `child` when the router prefixed it with
+ * `[port]`, `router` otherwise. It is the only way to tell a router-wide line
+ * (no model involved — render `router`) from a child line whose port has not
+ * been mapped yet (model genuinely unknown — render `—`). Absent means the
+ * source predates the field, and a null `modelId` is treated as router-wide.
+ */
+export type LogOrigin = "router" | "child";
+
 /** One line of the server log. */
 export interface LogLine {
   /** Monotonic per-source sequence number; also the render key. */
@@ -168,6 +196,29 @@ export interface LogLine {
   /** Model the line was attributed to, or `null` when it is not slot traffic. */
   modelId: string | null;
   message: string;
+  /** What class of record this is; absent means {@link LogKind} `event`. */
+  kind?: LogKind;
+  /** Which process wrote it; absent means the source does not report it. */
+  origin?: LogOrigin;
+}
+
+/**
+ * Whether a log source is connected, and — when it is not — which way it
+ * failed. `unavailable` means no source was ever discovered (nothing to watch);
+ * `missing` means a path IS being watched and the file is not there right now,
+ * which on macOS is routinely `com.apple.tmp_cleaner` unlinking a `/tmp` log
+ * that went three days untouched. The second is self-healing and must not be
+ * reported as the first.
+ */
+export type LogSourceState = "ok" | "unavailable" | "missing";
+
+/** The health of the log source itself, alongside the line stream. */
+export interface LogStreamStatus {
+  source: LogSourceState;
+  /** The path being watched, so the console can name the file it is missing. */
+  path: string | null;
+  /** A readable reason when the source is not `ok`, else `null`. */
+  detail: string | null;
 }
 
 /**

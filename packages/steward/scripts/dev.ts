@@ -11,6 +11,12 @@
  * (there is no Pi provider auth here). The rest of the dashboard stays
  * simulated, and a server that is down or key-gated degrades those panels
  * rather than the whole page.
+ *
+ * The log console follows the real server too, from `STEWARD_LOG_FILE` or the
+ * platform's conventional path. This script reads no `steward.json` — the
+ * config-driven seams (host metrics, service control, drift) stay out on
+ * purpose — so with neither of those present the console keeps showing the
+ * simulated stream.
  */
 
 import type { StewardDataSource } from "../core/source.js";
@@ -21,8 +27,14 @@ async function buildSource(): Promise<StewardDataSource | undefined> {
   const { resolveLlamaConnection } = await import("../core/llama-connection.js");
   const { LlamaSource } = await import("../core/llama-source.js");
   const { createMockSource } = await import("../core/mock-source.js");
+  const { createFileTailer, resolveLogPath } = await import("../server/log-tailer.js");
   const connection = await resolveLlamaConnection();
-  return new LlamaSource({ connection, fallback: createMockSource() });
+  const logPath = resolveLogPath();
+  return new LlamaSource({
+    connection,
+    fallback: createMockSource(),
+    logTail: logPath === null ? undefined : createFileTailer({ path: logPath }),
+  });
 }
 
 const port = Number.parseInt(process.env.STEWARD_PORT ?? "", 10);

@@ -82,12 +82,20 @@ function streamLogs(req: IncomingMessage, res: ServerResponse, source: StewardDa
     gone = true;
   });
 
-  for (const line of source.recentLogs(BACKLOG_LINES)) send(line);
-  const unsubscribe = source.subscribeLogs(send);
+  // Backlog and subscription are taken together, so a line that arrives while
+  // the stream is opening lands in one of them rather than neither. Sources that
+  // predate `attachLogs` fall back to the two calls, which are safe only because
+  // nothing awaits between them — do not insert one here.
+  const attach = source.attachLogs;
+  const attached =
+    attach === undefined
+      ? { backlog: source.recentLogs(BACKLOG_LINES), unsubscribe: source.subscribeLogs(send) }
+      : attach.call(source, send, BACKLOG_LINES);
+  for (const line of attached.backlog) send(line);
 
   res.on("close", () => {
     gone = true;
-    unsubscribe();
+    attached.unsubscribe();
     res.end();
   });
 }

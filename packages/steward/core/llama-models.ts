@@ -213,6 +213,40 @@ function parseModel(raw: unknown): ModelInfo | null {
 }
 
 /**
+ * Which model is listening on which port, from the same `/models` body — the log
+ * console's attribution map.
+ *
+ * The router prefixes every child line with `[port]` and nothing else, so a port
+ * is all the console has to go on. The log *does* state the mapping, in the
+ * `spawning … name=X on port P` line, but that line is written once per load and
+ * is typically thousands of lines behind the live tail (14,010 in one measured
+ * corpus) — so a cold-started console would attribute nothing. HTTP has the
+ * answer on demand instead, and stays right across load/unload cycles because
+ * every poll rebuilds it.
+ *
+ * Only genuinely listening ports are reported: an unloaded preset carries
+ * `--port 0`, which is not a port and would otherwise map every model in the
+ * catalogue onto one imaginary child.
+ */
+export function parseModelPorts(raw: unknown): Map<number, string> {
+  const ports = new Map<number, string>();
+  for (const entry of readModelList(raw)) {
+    if (!isRecord(entry)) continue;
+    const id = readString(entry.id);
+    if (id === null) continue;
+    const status = isRecord(entry.status) ? entry.status : {};
+    const value = argValue(readStringArray(status.args), ["--port"]);
+    if (value === null) continue;
+    const port = Number.parseInt(value, 10);
+    if (!Number.isInteger(port) || port <= 0) continue;
+    // Last wins: ports are ephemeral and a model respawned on a new port must
+    // not be shadowed by a stale entry.
+    ports.set(port, id);
+  }
+  return ports;
+}
+
+/**
  * All models in a `/models` body, in the order the server listed them. Garbage
  * in (`null`, `{}`, wrong types) yields `[]` or drops the offending row; it
  * never throws.

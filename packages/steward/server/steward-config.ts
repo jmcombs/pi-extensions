@@ -74,9 +74,22 @@ export interface LlamaLaunchConfig {
 }
 
 /**
+ * Where this machine's `llama-server` writes its combined stdout/stderr, as
+ * recorded by `/initialize-steward`.
+ *
+ * It is a path Steward READS, never a command it runs, so — unlike the collector
+ * and the control commands — it carries no consent hash: there is nothing here to
+ * approve. The file's ownership gate still applies, because it is the same file
+ * as everything else in this artifact.
+ */
+export interface LogFileConfig {
+  /** Absolute path to the log file to follow. */
+  path: string;
+}
+
+/**
  * The slice of `steward.json` this phase reads. Unknown keys are ignored so the
- * artifact can carry fields later phases own (log paths, …) without this reader
- * rejecting them.
+ * artifact can carry fields later phases own without this reader rejecting them.
  */
 export interface StewardConfig {
   /** Static machine memory layout — picks the HOST gauge SET, not a reading. */
@@ -96,6 +109,13 @@ export interface StewardConfig {
    * affordance — not a reason to reject the whole config.
    */
   control: ServiceControlConfig | null;
+  /**
+   * The log file to follow, or `null` when the artifact records none (or records
+   * an ill-formed one). Optional like the blocks above: a machine with no log
+   * path recorded still gets every other panel, and Steward falls back to
+   * `STEWARD_LOG_FILE` and the platform convention before giving up.
+   */
+  log: LogFileConfig | null;
   /** sha256(command) → `true` for each command the operator has consented to run. */
   consent: Record<string, true>;
 }
@@ -265,6 +285,17 @@ function parseControl(value: unknown): ServiceControlConfig | null {
   return { start, stop, restart };
 }
 
+/**
+ * Validates the optional `log` block. Only a non-empty string path is usable;
+ * anything else yields `null` and the discovery precedence takes over, rather
+ * than handing the tailer a path it cannot watch.
+ */
+function parseLog(value: unknown): LogFileConfig | null {
+  if (!isRecord(value)) return null;
+  const path = parseLabel(value.path);
+  return path === null ? null : { path };
+}
+
 /** Validates the consent map, keeping only `true` entries. */
 function parseConsent(value: unknown): Record<string, true> {
   if (!isRecord(value)) return {};
@@ -355,11 +386,20 @@ export function readStewardConfig(options: ReadStewardConfigOptions = {}): Stewa
     warn(`[steward] ${path}: ignoring llama — it needs a non-empty launchArgv array of strings`);
   }
 
+  // The log path is optional as well, and losing it costs only the console —
+  // but again, say so: a present-but-unusable block would otherwise look exactly
+  // like a machine that never recorded one.
+  const log = parseLog(parsed.log);
+  if (parsed.log !== undefined && log === null) {
+    warn(`[steward] ${path}: ignoring log — it needs a non-empty path string`);
+  }
+
   return {
     memoryTopology,
     hostCollector,
     llama,
     control,
+    log,
     consent: parseConsent(parsed.consent),
   };
 }

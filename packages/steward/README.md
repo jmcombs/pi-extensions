@@ -27,8 +27,9 @@ name. Say "Steward for llama.cpp" on first mention, then just "Steward".
 
 > **Status: live where it counts, simulated where it doesn't yet.** Set
 > `STEWARD_SOURCE=llama` and the config, service, models, slots and throughput panels read a
-> real `llama-server` (`/props`, `/models`, `/slots`, `/metrics`), with real load/unload; the
-> host-metrics band, the requests tile, and the log console are still generated locally. Left
+> real `llama-server` (`/props`, `/models`, `/slots`, `/metrics`), with real load/unload, and
+> the log console follows the server's own log file when one can be found; the
+> host-metrics band and the requests tile are still generated locally. Left
 > unset (the default) the whole dashboard is simulated, so it needs nothing running. The live
 > reader plugs into the same seam the simulation uses (`core/source.ts`), so the interface you
 > see now is the interface you will get, and the remaining panels move to live over time.
@@ -67,6 +68,7 @@ The dashboard is served on loopback only, and nothing it shows leaves the machin
 | `STEWARD_SOURCE` | `mock` | `llama` drives the live panels (config, service, models, slots, throughput) from a real `llama-server`; anything else keeps the fully simulated dashboard. |
 | `LLAMA_BASE_URL` | `http://127.0.0.1:8080` | Where to read `llama-server` when running outside Pi (e.g. the dev server). Inside Pi the provider auth is used instead. |
 | `LLAMA_API_KEY` | _(none)_ | Bearer key for a key-gated `llama-server`, outside Pi. |
+| `STEWARD_LOG_FILE` | _(discovered)_ | The `llama-server` log to follow — its combined stdout/stderr redirect, not `--log-file`, which llama.cpp copies into every child server. Unset, Steward uses the path recorded for this machine, then `/tmp/llama-router.log` if it exists, and otherwise says it has no log source. |
 
 If the preferred port is already taken — a second Pi session, say — Steward falls back to an
 ephemeral port and tells you which one it landed on.

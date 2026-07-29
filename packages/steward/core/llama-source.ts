@@ -31,13 +31,14 @@ import type { HostMetricsProvider } from "./host-metrics.js";
 import { parseRouterConfig } from "./llama-config.js";
 import type { LlamaConnection } from "./llama-connection.js";
 import { listenAddress } from "./llama-connection.js";
-import { parseModels } from "./llama-models.js";
+import { parseModelPorts, parseModels } from "./llama-models.js";
 import { parseMetrics, parseSlots } from "./llama-slots.js";
-import type { StewardDataSource, Unsubscribe } from "./source.js";
+import type { LogAttachment, StewardDataSource, Unsubscribe } from "./source.js";
 import {
   type ConfigEntry,
   type HostMetrics,
   type LogLine,
+  type LogStreamStatus,
   type MemoryTopology,
   type ModelAction,
   type ModelInfo,
@@ -95,6 +96,39 @@ export interface ServiceController {
    * readable detail.
    */
   run(action: ServiceAction): Promise<ServiceControlResult>;
+}
+
+/**
+ * Follows the running server's log and hands the console real lines.
+ *
+ * Node-side (it reads a file, or shells out to a journal), so it is injected
+ * rather than imported here — this module stays free of Node APIs. See
+ * `server/log-tailer.ts` for the file implementation. With none configured, the
+ * log console keeps delegating to the fallback source exactly as before.
+ */
+export interface LogTailer {
+  /** The most recent lines the tailer holds, oldest first. */
+  recent(limit: number): LogLine[];
+  /** Streams every line read after this call. */
+  subscribe(listener: (line: LogLine) => void): Unsubscribe;
+  /**
+   * The backlog and the subscription in one step. Backlog and live tail come
+   * from one offset, so this — and only this — delivers every line exactly once:
+   * a poll landing between a separate `recent` and `subscribe` would put its
+   * lines in neither.
+   */
+  attach(listener: (line: LogLine) => void, limit: number): LogAttachment;
+  /**
+   * Refreshes the port→model map the tailer attributes child lines with. The
+   * router prefixes child lines with `[port]` and nothing else, and the log's own
+   * mapping line is written once per load — so the live `/models` body, which
+   * carries each loaded model's `--port`, is the reliable source.
+   */
+  setPorts(ports: ReadonlyMap<number, string>): void;
+  /** Whether the source is connected, and how it failed when it is not. */
+  status(): LogStreamStatus;
+  /** Releases timers and file handles. */
+  close(): void;
 }
 
 /**
@@ -174,6 +208,13 @@ export interface LlamaSourceOptions {
    * reported as unapproved.
    */
   consentDrift?: ConsentDrift;
+  /**
+   * The live log tail, owned and closed by this source. Present only when a log
+   * source was discovered (see `server/log-tailer.ts`); omitted, the console
+   * keeps delegating to the fallback exactly as it does today rather than
+   * showing an empty panel with no explanation.
+   */
+  logTail?: LogTailer;
 }
 
 /** How long to wait on any one call before treating the server as unreachable. */
@@ -203,6 +244,8 @@ export class LlamaSource implements StewardDataSource {
   readonly #probeDrift: DriftProbe | null;
   /** Declared-but-unapproved commands; static for the life of the process. */
   readonly #consentDrift: ConsentDrift;
+  /** The live log tail, or null when no log source was discovered. */
+  readonly #logTail: LogTailer | null;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
   /** Rolling real throughput samples, oldest first — the band's sparkline. */
@@ -219,6 +262,7 @@ export class LlamaSource implements StewardDataSource {
     this.#host = options.host ?? null;
     this.#probeDrift = options.probeDrift ?? null;
     this.#consentDrift = options.consentDrift ?? NO_CONSENT_DRIFT;
+    this.#logTail = options.logTail ?? null;
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -234,6 +278,12 @@ export class LlamaSource implements StewardDataSource {
       this.#readProps(),
       this.#getJson("/models"),
     ]);
+
+    // The log console attributes a child line by the `[port]` the router
+    // prefixed it with, and this body is where the ports are: one refresh per
+    // snapshot keeps the map right across load/unload cycles without the tailer
+    // needing an HTTP client of its own.
+    this.#logTail?.setPorts(parseModelPorts(modelsRaw));
 
     const config = this.#configFromProps(props);
     const service = await this.#serviceFromProps(props);
@@ -343,12 +393,56 @@ export class LlamaSource implements StewardDataSource {
     return [...this.#throughputHistory];
   }
 
+  /**
+   * The console's backlog: real lines when a log source was discovered, else the
+   * fallback's simulated ones. Both come from the same buffer the live tail
+   * feeds, so replaying this and then subscribing loses nothing and repeats
+   * nothing.
+   */
   recentLogs(limit: number): LogLine[] {
+    if (this.#logTail !== null) return this.#logTail.recent(limit);
     return this.#fallback.recentLogs(limit);
   }
 
   subscribeLogs(listener: (line: LogLine) => void): Unsubscribe {
+    if (this.#logTail !== null) return this.#logTail.subscribe(listener);
     return this.#fallback.subscribeLogs(listener);
+  }
+
+  /**
+   * Opens a console against whichever source is live, atomically. The tailer
+   * does it in one step; the fallback's own two calls are synchronous and
+   * adjacent here, which is the same guarantee by construction.
+   */
+  attachLogs(listener: (line: LogLine) => void, limit: number): LogAttachment {
+    if (this.#logTail !== null) return this.#logTail.attach(listener, limit);
+    const attach = this.#fallback.attachLogs;
+    if (attach !== undefined) return attach.call(this.#fallback, listener, limit);
+    return {
+      backlog: this.#fallback.recentLogs(limit),
+      unsubscribe: this.#fallback.subscribeLogs(listener),
+    };
+  }
+
+  /**
+   * Whether the log console is looking at anything, and what went wrong when it
+   * is not.
+   *
+   * With no tailer configured this reports `unavailable` WHILE
+   * {@link recentLogs} and {@link subscribeLogs} keep serving the fallback's
+   * simulated lines — that combination is deliberate (the fallback behaviour is
+   * preserved byte for byte) and the console must render it honestly: it has
+   * lines, and they are not the server's. An empty console and a console that
+   * was never connected are different states, and only one of them is worth an
+   * operator's time.
+   */
+  logStatus(): LogStreamStatus {
+    if (this.#logTail !== null) return this.#logTail.status();
+    return {
+      source: "unavailable",
+      path: null,
+      detail: "no llama-server log file was discovered",
+    };
   }
 
   /**
@@ -406,6 +500,7 @@ export class LlamaSource implements StewardDataSource {
     for (const controller of this.#inFlight) controller.abort();
     this.#inFlight.clear();
     this.#host?.provider.close();
+    this.#logTail?.close();
     this.#fallback.close();
   }
 

@@ -156,6 +156,20 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   // is nothing to compare against and the check simply reports itself unavailable.
   // The second producer needs no probe: a declared-but-unapproved command is
   // already knowable from the config alone.
+  // The log console. The path comes from `STEWARD_LOG_FILE`, else the recorded
+  // `log.path`, else the platform convention — and the convention only if the
+  // file is really there.
+  //
+  // With no path discovered there is no tailer, and the log console keeps
+  // delegating to the fallback: `recentLogs`/`subscribeLogs` DO serve the
+  // simulation's lines, exactly as they did before this seam existed, while
+  // `logStatus()` reports `unavailable`. So the console can be handed lines and
+  // an `unavailable` source AT THE SAME TIME, and it has to say so — those lines
+  // are not the server's. The tailer itself is built per source below, since
+  // each source owns and closes its own.
+  const { createFileTailer, resolveLogPath } = await import("./server/log-tailer.js");
+  const logPath = resolveLogPath({ config: config?.log ?? null });
+
   const launchArgv = config?.llama?.launchArgv ?? null;
   const { createDriftProbe } =
     launchArgv === null ? { createDriftProbe: null } : await import("./server/drift-probe.js");
@@ -185,6 +199,7 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
       host,
       probeDrift,
       consentDrift: consentGaps,
+      logTail: logPath === null ? undefined : createFileTailer({ path: logPath }),
     });
   };
 }

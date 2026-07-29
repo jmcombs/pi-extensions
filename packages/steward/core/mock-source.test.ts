@@ -3,10 +3,19 @@
  * emits nothing and reports nothing, an unloaded model stops being attributed
  * work, and the buffer never grows without bound. Every test here pins the
  * clock and the randomness, so a failure is a real behavior change.
+ *
+ * The log assertions carry a second burden. The mock is what the dev dashboard
+ * shows, so a mock that misrepresents llama.cpp teaches the whole UI the wrong
+ * lesson — these tests hold it to the measured corpus: the level mix, the
+ * proportion of lines about no model at all, the classes the console filters on,
+ * and the fact that a load and an unload are loud events rather than silent
+ * state changes.
  */
 
 import { describe, expect, it } from "vitest";
+import { parseLogLine } from "./log-parse.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
+import type { LogLine } from "./types.js";
 import { THROUGHPUT_HISTORY_SIZE, THROUGHPUT_SAMPLE_SECONDS } from "./types.js";
 
 /** xorshift32 — deterministic, and varied enough to reach every log branch. */
@@ -106,13 +115,190 @@ describe("createMockSource", () => {
     try {
       const lines = source.recentLogs(1000);
 
-      expect(lines).toHaveLength(60);
-      expect(lines.every((line) => line.modelId !== "nomic-embed-text-v1.5-f16")).toBe(true);
+      expect(lines).toHaveLength(200);
+      // The only lines about the model that is NOT resident are the five that
+      // unloaded it — a real unload names the instance on its way out. Nothing
+      // after that attributes work to it.
+      const gone = lines.filter((line) => line.modelId === "nomic-embed-text-v1.5-f16");
+      expect(gone).toHaveLength(5);
+      expect(gone.at(-1)?.message).toContain("exited with status 0");
+      const last = gone.at(-1);
+      const after = last === undefined ? [] : lines.slice(lines.indexOf(last) + 1);
+      expect(after.length).toBeGreaterThan(0);
+      expect(after.every((line) => line.modelId !== "nomic-embed-text-v1.5-f16")).toBe(true);
       expect(lines.every((line) => line.ts === FIXED_NOW)).toBe(true);
       expect(lines.map((line) => line.seq)).toEqual(lines.map((_line, index) => 618 + index));
-      expect(new Set(lines.map((line) => line.level))).toEqual(new Set(["INFO", "WARN", "ERROR"]));
       expect(source.recentLogs(3)).toEqual(lines.slice(-3));
       expect(source.recentLogs(0)).toEqual([]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("opens on a story: a boot, a load per resident model, a request, a disconnect", () => {
+    const source = createSource();
+    try {
+      const lines = source.recentLogs(1000);
+      const messages = lines.map((line) => line.message);
+
+      // The banner a real router writes within 81 ms of starting, every time.
+      expect(messages[0]).toContain("common_params_print_info: verbosity = 3");
+      expect(messages.some((m) => m.includes("starting server in router mode"))).toBe(true);
+      expect(lines.filter((line) => line.level === "WARN")[0]?.message).toContain(
+        "router mode is experimental",
+      );
+
+      // One spawn per resident model, and the child's own boot lines with it.
+      expect(messages.filter((m) => m.includes("spawning server instance with name=")).length).toBe(
+        3,
+      );
+      expect(messages.some((m) => m === "srv  llama_server: model loaded")).toBe(true);
+
+      // A completed request, including the timing group llama.cpp really emits.
+      expect(messages.some((m) => m.includes("prompt eval time ="))).toBe(true);
+      expect(messages.some((m) => m.includes("graphs reused ="))).toBe(true);
+      expect(messages.some((m) => m.includes("stop processing: n_tokens ="))).toBe(true);
+
+      // A live generation-rate line and a model lifecycle exit, both on the
+      // FIRST paint: the console builder should not have to wait on a dice roll
+      // to see either.
+      const rate = lines.find((line) => line.kind === "rate");
+      expect(rate?.message).toContain("n_decoded =");
+      expect(rate?.message).toContain("t/s");
+      expect(messages.some((m) => m.includes("exited with status 0"))).toBe(true);
+      expect(messages.some((m) => m.includes("unload: stopping model instance name="))).toBe(true);
+
+      // The one ERROR shape a real router produces from a routine client
+      // disconnect — router-wide, with the matching child WARN attributed.
+      const error = lines.find((line) => line.level === "ERROR");
+      expect(error?.message).toBe(
+        "srv    operator(): http client error: Connection handling canceled",
+      );
+      expect(error?.modelId).toBeNull();
+      expect(error?.origin).toBe("router");
+      expect(lines.some((line) => line.message.includes("stop: cancel task"))).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("tags every line with the class and the writer the console filters on", () => {
+    const source = createSource();
+    try {
+      const lines = source.recentLogs(1000);
+      expect(lines.every((line) => line.kind !== undefined && line.origin !== undefined)).toBe(
+        true,
+      );
+
+      const kinds = new Set(lines.map((line) => line.kind));
+      // proxy (Steward's own polling), args (the launch block) and event are all
+      // in the opening scrollback; `rate` only exists while something generates.
+      expect(kinds.has("proxy")).toBe(true);
+      expect(kinds.has("args")).toBe(true);
+      expect(kinds.has("event")).toBe(true);
+
+      // The args block is one contiguous run per load, under its own header, and
+      // it is never attributed to a model: it is the router's command line.
+      const argsRun = lines.filter((line) => line.kind === "args");
+      expect(argsRun.length).toBe(3 * 31);
+      expect(argsRun.every((line) => line.modelId === null && line.origin === "router")).toBe(true);
+      const firstArg = lines.findIndex((line) => line.kind === "args");
+      expect(lines[firstArg - 1]?.message).toContain("spawning server instance with args:");
+      expect(lines.slice(firstArg, firstArg + 31).every((line) => line.kind === "args")).toBe(true);
+      expect(lines[firstArg + 31]?.kind).toBe("event");
+
+      // Every proxy line names its model; that is what makes it attributable.
+      expect(
+        lines
+          .filter((line) => line.kind === "proxy")
+          .every((line) => line.origin === "router" && line.modelId !== null),
+      ).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("keeps a quarter of the console about no model at all, as a real log is", () => {
+    const source = createSource();
+    try {
+      // The console's own default view: proxy lines hidden, the args block
+      // folded. What is left is what an operator actually reads.
+      const shown = source
+        .recentLogs(1000)
+        .filter((line) => line.kind !== "proxy" && line.kind !== "args");
+      const unattributed = shown.filter((line) => line.modelId === null);
+
+      // Measured on a real corpus: 26.1% of the filtered stream is router-wide —
+      // the banner, the catalogue, the args header. The mock used to attribute
+      // 100% of its lines, leaving the `router` column completely unexercised.
+      const share = unattributed.length / shown.length;
+      expect(share).toBeGreaterThan(0.1);
+      expect(share).toBeLessThan(0.45);
+      expect(unattributed.every((line) => line.origin === "router")).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("emits the level mix a real router emits, not a demo's", () => {
+    const source = createSource();
+    try {
+      const counts = { DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0 };
+      let total = 0;
+      // Count everything written, not just what the ring buffer retained.
+      const unsubscribe = source.subscribeLogs((line: LogLine) => {
+        counts[line.level] += 1;
+        total += 1;
+      });
+      for (let i = 0; i < 3000; i += 1) source.tickLogs();
+      unsubscribe();
+
+      // Reality over 15,842 lines and 16 boots: INFO 98.95%, WARN 0.63%,
+      // ERROR 0.00%, DEBUG 0.00% (`D` needs a verbosity nothing runs at). The
+      // old mock claimed 10% WARN and 4% ERROR.
+      expect(total).toBeGreaterThan(1000);
+      expect(counts.INFO / total).toBeGreaterThan(0.97);
+      expect(counts.WARN / total).toBeLessThan(0.02);
+      expect(counts.ERROR / total).toBeLessThan(0.01);
+      expect(counts.DEBUG).toBe(0);
+      // Steward's own polling is most of a real log, and the console's default
+      // view depends on that being true here too.
+      expect(source.recentLogs(500).filter((line) => line.kind === "proxy").length).toBeGreaterThan(
+        300,
+      );
+    } finally {
+      source.close();
+    }
+  });
+
+  it("writes lines the real parser reads back the same way", () => {
+    // The mock is the console's stand-in for llama.cpp, so its grammar has to
+    // survive the parser that reads llama.cpp — otherwise the dev dashboard
+    // exercises a shape production never sees.
+    const source = createSource();
+    try {
+      let previous = null as ReturnType<typeof parseLogLine> | null;
+      for (const line of source.recentLogs(1000)) {
+        // IPC records carry neither an elapsed stamp nor a level, exactly as
+        // they arrive; everything else carries both.
+        const ipc = line.message.startsWith("cmd_child_to_router:");
+        const letter = { INFO: "I", WARN: "W", ERROR: "E", DEBUG: "D" }[line.level];
+        const port = line.origin === "child" ? "[53691] " : "";
+        const raw = ipc
+          ? `${port}${line.message}`
+          : `${port}0.00.715.177 ${letter} ${line.message}`;
+
+        const parsed = parseLogLine(raw, previous);
+        previous = parsed;
+
+        expect(parsed.message).toBe(line.message);
+        expect(parsed.origin).toBe(line.origin);
+        expect(parsed.level).toBe(ipc ? "INFO" : line.level);
+        expect(parsed.kind).toBe(line.kind);
+        // Attribution the parser can reach on its own: a line that names a model
+        // must name the one the mock attributed it to.
+        if (parsed.modelName !== null) expect(parsed.modelName).toBe(line.modelId);
+      }
     } finally {
       source.close();
     }
@@ -216,15 +402,74 @@ describe("createMockSource", () => {
         unloadedSnapshot.slots.every((slot) => slot.modelId !== "qwen3.6-moe-a3b-instruct-q4_k_m"),
       ).toBe(true);
 
+      // The unload itself is loud — five lines naming the instance that went
+      // away, which is what a real router writes. What must stop is the traffic
+      // after it.
       const sinceUnload = source.recentLogs(500).filter((line) => line.seq > lastSeeded);
-      expect(sinceUnload.length).toBeGreaterThan(0);
-      expect(sinceUnload.every((line) => line.modelId !== "qwen3.6-moe-a3b-instruct-q4_k_m")).toBe(
+      expect(sinceUnload[0]?.message).toContain(
+        "unload: stopping model instance name=qwen3.6-moe-a3b-instruct-q4_k_m",
+      );
+      const afterUnload = sinceUnload.slice(5);
+      expect(afterUnload.length).toBeGreaterThan(0);
+      expect(afterUnload.every((line) => line.modelId !== "qwen3.6-moe-a3b-instruct-q4_k_m")).toBe(
         true,
       );
 
       await source.setModel("nomic-embed-text-v1.5-f16", "load");
       const loadedSnapshot = await source.snapshot();
       expect(loadedSnapshot.models[3]?.status).not.toBe("unloaded");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("writes the load and unload bursts a real router writes", async () => {
+    const source = createSource();
+    try {
+      const before = source.recentLogs(1000).at(-1)?.seq ?? 0;
+      await source.setModel("nomic-embed-text-v1.5-f16", "load");
+      const load = source.recentLogs(1000).filter((line) => line.seq > before);
+
+      // 46 lines, 31 of them the args block — the measured shape of a load.
+      expect(load).toHaveLength(46);
+      expect(load.filter((line) => line.kind === "args")).toHaveLength(31);
+      expect(load[0]?.message).toContain(
+        "spawning server instance with name=nomic-embed-text-v1.5-f16 on port ",
+      );
+      expect(load[0]?.modelId).toBe("nomic-embed-text-v1.5-f16");
+      expect(load[1]?.message).toContain("spawning server instance with args:");
+      expect(load[1]?.modelId).toBeNull();
+      // The child's own boot, including the comp-less tokenizer warnings that a
+      // naive `<component> <fn>:` parser gets wrong.
+      expect(load.some((line) => line.level === "WARN" && line.message.startsWith("load: "))).toBe(
+        true,
+      );
+      expect(load.at(-1)?.message).toContain('"state":"ready"');
+
+      const middle = source.recentLogs(1000).at(-1)?.seq ?? 0;
+      await source.setModel("nomic-embed-text-v1.5-f16", "unload");
+      const unload = source.recentLogs(1000).filter((line) => line.seq > middle);
+
+      expect(unload).toHaveLength(5);
+      expect(unload.at(-1)?.message).toContain(
+        "instance name=nomic-embed-text-v1.5-f16 exited with status 0",
+      );
+      // A failed exit is reported at INFO too — the status number is the signal,
+      // never the level.
+      expect(unload.every((line) => line.level === "INFO")).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("says nothing about a load or unload while the service is stopped", async () => {
+    const source = createSource();
+    try {
+      await source.setService("stop");
+      const before = source.recentLogs(1000).length;
+      await source.setModel("nomic-embed-text-v1.5-f16", "load");
+      await source.setModel("qwen3.6-moe-coder-fim-q4_k_m", "unload");
+      expect(source.recentLogs(1000)).toHaveLength(before);
     } finally {
       source.close();
     }
@@ -252,6 +497,31 @@ describe("createMockSource", () => {
       const resumed = source.recentLogs(1000);
       expect(resumed.length).toBeGreaterThan(before);
       expect(resumed.at(-1)?.modelId).toBe("qwen3.6-moe-coder-fim-q4_k_m");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("opens a console in one step, like the real tailer does", () => {
+    const source = createSource();
+    try {
+      const seen: number[] = [];
+      const { backlog, unsubscribe } = source.attachLogs((line) => seen.push(line.seq), 5);
+
+      // Same contract as the file tailer: the backlog is a snapshot taken as the
+      // listener is registered, so nothing can fall between the two.
+      expect(backlog).toEqual(source.recentLogs(5));
+      expect(seen).toEqual([]);
+
+      source.tickLogs();
+      const newest = backlog.at(-1)?.seq ?? 0;
+      expect(seen.every((seq) => seq > newest)).toBe(true);
+
+      unsubscribe();
+      const delivered = seen.length;
+      source.tickLogs();
+      expect(seen).toHaveLength(delivered);
+      expect(source.attachLogs(() => undefined, 0).backlog).toEqual([]);
     } finally {
       source.close();
     }

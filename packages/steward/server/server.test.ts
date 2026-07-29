@@ -58,6 +58,62 @@ function failingSource(detail: string): StewardDataSource {
   };
 }
 
+/**
+ * A source that records HOW the stream route opened it. The two-call pattern
+ * (`recentLogs` then `subscribeLogs`) is only safe while nothing can run
+ * between the calls; this pins the route to the atomic one so a later `await`
+ * cannot silently start dropping lines.
+ */
+function attachRecordingSource(): StewardDataSource & {
+  calls: string[];
+  emit(message: string): void;
+} {
+  const listeners = new Set<(line: LogLine) => void>();
+  let seq = 1;
+  const line = (message: string): LogLine => ({
+    seq: seq++,
+    ts: 1_760_000_000_000,
+    level: "INFO",
+    modelId: null,
+    message,
+    kind: "event",
+    origin: "router",
+  });
+  const backlog = [line("srv  buffered before the client connected")];
+  const source = {
+    name: "recording",
+    calls: [] as string[],
+    snapshot: () => Promise.reject(new Error("not used")),
+    recentLogs: (): LogLine[] => {
+      source.calls.push("recentLogs");
+      return backlog;
+    },
+    subscribeLogs: (listener: (line: LogLine) => void) => {
+      source.calls.push("subscribeLogs");
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    attachLogs: (listener: (line: LogLine) => void, limit: number) => {
+      source.calls.push("attachLogs");
+      listeners.add(listener);
+      return {
+        backlog: backlog.slice(-limit),
+        unsubscribe: () => {
+          listeners.delete(listener);
+        },
+      };
+    },
+    emit: (message: string): void => {
+      const next = line(message);
+      for (const listener of listeners) listener(next);
+    },
+    setService: () => Promise.resolve(),
+    setModel: () => Promise.resolve(),
+    close: () => undefined,
+  };
+  return source;
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -403,6 +459,39 @@ describe("the Steward server", () => {
     await reader.cancel().catch(() => undefined);
     await delay(50);
     expect(() => source.tickLogs()).not.toThrow();
+  });
+
+  it("opens the log stream atomically, not as a backlog read plus a subscribe", async () => {
+    const source = attachRecordingSource();
+    const server = createStewardServer({ port: 0, source });
+    started.push(server);
+    const url = await server.start();
+
+    const controller = new AbortController();
+    const response = await fetch(`${url}/api/logs/stream`, { signal: controller.signal });
+    if (response.body === null) throw new Error("the log stream had no body");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    const nextEvent = async (): Promise<LogLine> => {
+      let buffered = "";
+      while (!buffered.includes("\n\n")) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("the log stream ended early");
+        buffered += decoder.decode(value, { stream: true });
+      }
+      return JSON.parse(buffered.slice("data: ".length, buffered.indexOf("\n\n")));
+    };
+
+    expect((await nextEvent()).message).toBe("srv  buffered before the client connected");
+    source.emit("srv  live line");
+    expect((await nextEvent()).message).toBe("srv  live line");
+    // The route took the backlog and the subscription in one step. Anything
+    // arriving in the gap between two separate calls would be in neither.
+    expect(source.calls).toEqual(["attachLogs"]);
+
+    controller.abort();
+    await reader.cancel().catch(() => undefined);
   });
 
   it("keeps writing safely to a client that vanished mid-stream", async () => {

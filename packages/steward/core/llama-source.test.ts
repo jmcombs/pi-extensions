@@ -14,12 +14,13 @@ import {
   type FetchLike,
   type HostMetricsOverlay,
   LlamaSource,
+  type LogTailer,
   type ServiceController,
   type ServiceControlResult,
 } from "./llama-source.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
 import type { StewardDataSource } from "./source.js";
-import type { MemoryTopology, ServiceAction } from "./types.js";
+import type { LogLine, LogStreamStatus, MemoryTopology, ServiceAction } from "./types.js";
 
 const CONNECTION = { baseUrl: "http://127.0.0.1:8080", apiKey: "" };
 const KEYED = { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" };
@@ -942,6 +943,214 @@ describe("LlamaSource — drift", () => {
     });
     try {
       expect((await source.snapshot()).drift.consent).toEqual(consentDrift);
+    } finally {
+      source.close();
+    }
+  });
+});
+
+describe("LlamaSource — log console", () => {
+  /** A tailer stub that records what the source asks of it. */
+  function fakeTailer(): LogTailer & {
+    ports: ReadonlyMap<number, string>[];
+    closed: number;
+    listeners: number;
+    attached: number;
+  } {
+    const state = {
+      ports: [] as ReadonlyMap<number, string>[],
+      closed: 0,
+      listeners: 0,
+      attached: 0,
+      recent(limit: number): LogLine[] {
+        return [
+          {
+            seq: limit,
+            ts: FIXED_NOW,
+            level: "INFO" as const,
+            modelId: null,
+            message: "srv  llama_server: model loaded",
+            kind: "event" as const,
+            origin: "router" as const,
+          },
+        ];
+      },
+      subscribe(_listener: (line: LogLine) => void): () => void {
+        state.listeners += 1;
+        return () => {
+          state.listeners -= 1;
+        };
+      },
+      attach(listener: (line: LogLine) => void, limit: number) {
+        state.attached += 1;
+        return { backlog: state.recent(limit), unsubscribe: state.subscribe(listener) };
+      },
+      setPorts(ports: ReadonlyMap<number, string>): void {
+        state.ports.push(ports);
+      },
+      status(): LogStreamStatus {
+        return { source: "missing" as const, path: "/tmp/llama-router.log", detail: "gone" };
+      },
+      close(): void {
+        state.closed += 1;
+      },
+    };
+    return state;
+  }
+
+  it("serves real lines from the tailer instead of the fallback's simulated ones", () => {
+    const logTail = fakeTailer();
+    const fallback = createFallback();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback,
+      fetch: routerFetch({}),
+      logTail,
+    });
+    try {
+      // The tailer's buffer, not the mock's — the console stops being a
+      // simulation the moment a real log source exists.
+      expect(source.recentLogs(7)).toEqual([
+        {
+          seq: 7,
+          ts: FIXED_NOW,
+          level: "INFO",
+          modelId: null,
+          message: "srv  llama_server: model loaded",
+          kind: "event",
+          origin: "router",
+        },
+      ]);
+      const unsubscribe = source.subscribeLogs(() => undefined);
+      expect(logTail.listeners).toBe(1);
+      unsubscribe();
+      expect(logTail.listeners).toBe(0);
+      // And the source reports the log's own health, which "no lines" cannot.
+      expect(source.logStatus()).toEqual({
+        source: "missing",
+        path: "/tmp/llama-router.log",
+        detail: "gone",
+      });
+    } finally {
+      source.close();
+    }
+    expect(logTail.closed).toBe(1);
+  });
+
+  it("opens the console in one step, so no line falls between backlog and stream", () => {
+    const logTail = fakeTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      logTail,
+    });
+    try {
+      const { backlog, unsubscribe } = source.attachLogs(() => undefined, 3);
+      // The tailer's own atomic path — not a `recent` followed by a `subscribe`,
+      // which a poll landing in between would empty out of both.
+      expect(logTail.attached).toBe(1);
+      expect(backlog).toHaveLength(1);
+      expect(logTail.listeners).toBe(1);
+      unsubscribe();
+      expect(logTail.listeners).toBe(0);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("opens the console atomically through the fallback too", () => {
+    // The mock, unwrapped, so the test can move the simulation by hand.
+    const fallback = createMockSource({
+      random: seededRandom(20260726),
+      now: () => FIXED_NOW,
+      logIntervalMs: 0,
+      metricsIntervalMs: 0,
+      throughputIntervalMs: 0,
+    });
+    const source = new LlamaSource({ connection: CONNECTION, fallback, fetch: routerFetch({}) });
+    try {
+      const seen: number[] = [];
+      const { backlog, unsubscribe } = source.attachLogs((line) => seen.push(line.seq), 4);
+      expect(backlog).toEqual(fallback.recentLogs(4));
+
+      fallback.tickLogs();
+      expect(seen.length).toBeGreaterThan(0);
+      // No repeat at the seam: everything delivered live is newer than the
+      // backlog it was handed.
+      const newest = backlog.at(-1)?.seq ?? 0;
+      expect(seen.every((seq) => seq > newest)).toBe(true);
+
+      unsubscribe();
+      const delivered = seen.length;
+      fallback.tickLogs();
+      expect(seen).toHaveLength(delivered);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("keeps today's fallback behaviour exactly when no tailer is configured", () => {
+    const fallback = createFallback();
+    const source = new LlamaSource({ connection: CONNECTION, fallback, fetch: routerFetch({}) });
+    try {
+      expect(source.recentLogs(5)).toEqual(fallback.recentLogs(5));
+      const seen: number[] = [];
+      const unsubscribe = source.subscribeLogs((line) => seen.push(line.seq));
+      // Delivered by the fallback, exactly as before.
+      expect(typeof unsubscribe).toBe("function");
+      unsubscribe();
+      // With no log source there is nothing to watch, and saying so is not the
+      // same as reporting a healthy but silent stream.
+      expect(source.logStatus().source).toBe("unavailable");
+      expect(source.logStatus().path).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("refreshes the tailer's port map from /models on every snapshot", async () => {
+    const logTail = fakeTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        models: () =>
+          Promise.resolve(
+            jsonResponse(200, {
+              object: "list",
+              data: [
+                { id: "M1", status: { value: "loaded", args: ["--port", "53691"] } },
+                // An unloaded preset carries `--port 0`, which is not a port.
+                { id: "M2", status: { value: "unloaded", args: ["--port", "0"] } },
+              ],
+            }),
+          ),
+      }),
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      expect(logTail.ports).toHaveLength(1);
+      expect([...(logTail.ports[0] ?? [])]).toEqual([[53691, "M1"]]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("hands the tailer an empty map rather than a wrong one when /models fails", async () => {
+    // The tailer keeps its last known mapping; what matters here is that the
+    // source never invents ports from a failed read.
+    const logTail = fakeTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: refused,
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      expect([...(logTail.ports[0] ?? [])]).toEqual([]);
     } finally {
       source.close();
     }

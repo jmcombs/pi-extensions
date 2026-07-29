@@ -92,6 +92,9 @@ describe("readStewardConfig", () => {
       llama: null,
       // Control is optional: a machine with metrics and no control is valid.
       control: null,
+      // So is the log path: discovery falls back to the env var and the
+      // platform convention before the console gives up.
+      log: null,
       consent: { [hashCommand(COMMAND)]: true },
     });
   });
@@ -188,6 +191,31 @@ describe("readStewardConfig", () => {
       expect(config?.hostCollector.command).toEqual(COMMAND);
       expect(config?.llama).toBeNull();
       expect(warnings.join(" ")).toContain("launchArgv");
+    }
+  });
+
+  it("reads the recorded log path", () => {
+    write({ ...validConfig(), log: { path: "/tmp/llama-router.log" } });
+    expect(readStewardConfig({ path })?.log).toEqual({ path: "/tmp/llama-router.log" });
+  });
+
+  it("leaves log null when the artifact records no path", () => {
+    // Discovery then falls back to STEWARD_LOG_FILE and the platform
+    // convention; the console only gives up after those.
+    write(validConfig());
+    expect(readStewardConfig({ path })?.log).toBeNull();
+  });
+
+  it("warns and ignores an ill-formed log block rather than refusing the config", () => {
+    for (const log of [{ path: "" }, { path: "   " }, { path: 7 }, {}, "/tmp/x.log", []]) {
+      write({ ...validConfig(), log });
+      const warnings: string[] = [];
+      const config = readStewardConfig({ path, warn: (m) => warnings.push(m) });
+      // The log path is read, never executed, so it carries no consent hash —
+      // but an unusable one must not look like a machine that recorded none.
+      expect(config?.hostCollector.command).toEqual(COMMAND);
+      expect(config?.log).toBeNull();
+      expect(warnings.join(" ")).toContain("log");
     }
   });
 

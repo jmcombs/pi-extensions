@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseModels } from "./llama-models.js";
+import { parseModelPorts, parseModels } from "./llama-models.js";
 
 function fixture(name: string): unknown {
   return JSON.parse(readFileSync(new URL(`./__fixtures__/llama/${name}`, import.meta.url), "utf8"));
@@ -144,5 +144,40 @@ describe("parseModels", () => {
     expect(parseModels([{ status: { value: "loaded" } }])).toEqual([]);
     const [model] = parseModels([{ id: "x", status: 7, meta: "no", architecture: 3 }]);
     expect(model).toMatchObject({ id: "x", sizeGB: null, ctx: null, status: "unloaded" });
+  });
+});
+
+describe("parseModelPorts", () => {
+  it("maps the real loaded model to the port its child is listening on", () => {
+    const ports = parseModelPorts({ object: "list", data: [LOADED] });
+    // The log's own mapping line sits thousands of lines behind the live tail,
+    // so this — the launch args of a model that is loaded right now — is what
+    // the console attributes `[port]`-prefixed child lines with.
+    expect([...ports.values()]).toEqual(["Qwen3-0.6B-Q4_0"]);
+    expect([...ports.keys()].every((port) => Number.isInteger(port) && port > 0)).toBe(true);
+  });
+
+  it("ignores an unloaded preset, which carries --port 0", () => {
+    expect(parseModelPorts([UNLOADED_PRESET]).size).toBe(0);
+    expect(
+      parseModelPorts([{ id: "M", status: { value: "loaded", args: ["--port", "0"] } }]).size,
+    ).toBe(0);
+  });
+
+  it("lets the newest spawn win a port, since ports are ephemeral and reused", () => {
+    const ports = parseModelPorts([
+      { id: "old", status: { value: "loaded", args: ["--port", "53691"] } },
+      { id: "new", status: { value: "loaded", args: ["--port", "53691"] } },
+    ]);
+    expect(ports.get(53691)).toBe("new");
+  });
+
+  it("never throws on garbage, and invents no ports", () => {
+    expect(parseModelPorts(null).size).toBe(0);
+    expect(parseModelPorts("nope").size).toBe(0);
+    expect(
+      parseModelPorts([{ id: "M" }, { status: 7 }, { id: "N", status: { args: 3 } }]).size,
+    ).toBe(0);
+    expect(parseModelPorts([{ id: "M", status: { args: ["--port", "not-a-port"] } }]).size).toBe(0);
   });
 });

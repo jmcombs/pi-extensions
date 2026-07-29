@@ -7,6 +7,29 @@
  * and put it down. Nothing here talks to the network, and nothing appends to
  * the log while the service is stopped.
  *
+ * **The log is written against a measured corpus, not from memory.** Everything
+ * it emits was counted in 15,842 real lines over 16 router boots, and the shapes
+ * that a previous version of this file invented — `log_server_r`, `send_error`,
+ * `update_slots` context shifts, bare `prompt eval time` — occur exactly zero
+ * times in reality and are gone. What that buys is a dev dashboard that teaches
+ * the truth about its own console:
+ *
+ *   - **It is bursty, not a metronome.** A real router with a model resident and
+ *     nothing to do writes 0 lines in 44 s. Silence, then 8 lines for a request,
+ *     then silence. The one thing that never stops is Steward's own polling.
+ *   - **`proxy_reques` dominates** — 86.9% of the corpus, because `/slots` and
+ *     `/metrics` each cost one line per poll per loaded model. The console hides
+ *     these by default and has to be able to prove why.
+ *   - **A quarter of it is about no model at all.** The boot banner, the preset
+ *     catalogue and the 31-line launch-args block are router-wide, so they carry
+ *     `modelId: null` and exercise the console's `router` column.
+ *   - **The level mix is INFO with rounding errors** — 98.95% INFO, 0.63% WARN,
+ *     no ERROR at all in four days. ERROR here is a rare simulated client
+ *     disconnect, which is one of only two ways a real router emits one.
+ *   - **Loading and unloading are loud.** A load is 46 lines (31 of them args),
+ *     an unload is 5. Changing state silently, as this mock used to, hid the
+ *     most visible thing an operator ever does.
+ *
  * `random` and `now` are injectable so tests get a fixed simulation, and each
  * ticker can be driven by hand (`tickLogs`, `tickMetrics`, `tickThroughput`)
  * instead of by timers. Keep this module free of Node and DOM APIs — see
@@ -14,12 +37,14 @@
  */
 
 import { unknownDrift } from "./drift.js";
-import type { StewardDataSource, Unsubscribe } from "./source.js";
+import type { LogAttachment, StewardDataSource, Unsubscribe } from "./source.js";
 import type {
   ConfigEntry,
   HostMetrics,
+  LogKind,
   LogLevel,
   LogLine,
+  LogOrigin,
   ModelAction,
   ModelInfo,
   ServiceAction,
@@ -55,6 +80,12 @@ export interface MockSourceOptions {
  * directly and leave the intervals unscheduled.
  */
 export interface MockStewardDataSource extends StewardDataSource {
+  /**
+   * The simulation always opens a console atomically, so callers holding a mock
+   * need no fallback for it (on the seam it is optional, for sources that
+   * predate it).
+   */
+  attachLogs(listener: (line: LogLine) => void, limit: number): LogAttachment;
   /** Emits one batch of log lines: usually one line, sometimes two. */
   tickLogs(): void;
   /** Advances sensors, the rate tiles, and slot churn by one step. */
@@ -72,7 +103,13 @@ const DEFAULT_METRICS_INTERVAL_MS = 1600;
  */
 const DEFAULT_THROUGHPUT_INTERVAL_MS = THROUGHPUT_SAMPLE_SECONDS * 1000;
 const DEFAULT_MAX_LOG_LINES = 500;
-const DEFAULT_SEED_LINES = 60;
+/**
+ * Enough scrollback for the seeded story to be complete: a router boot, one load
+ * per resident model (46 lines each), a request, a disconnect, and some traffic
+ * on top. A client replays 200 lines on connect, so this is exactly what the
+ * console opens on.
+ */
+const DEFAULT_SEED_LINES = 200;
 
 /** Where the sequence numbers pick up, as if the server had been up a while. */
 const INITIAL_SEQ = 617;
@@ -165,6 +202,20 @@ const CONFIG: readonly ConfigEntry[] = [
   { key: "autoload", value: "off" },
 ];
 
+/**
+ * One line the simulation is about to write, before it is given a sequence
+ * number and an arrival stamp. `kind` and `origin` are set here rather than
+ * inferred later for the same reason the real tailer sets them at parse time:
+ * the producer is the only layer that knows.
+ */
+interface LogDraft {
+  level: LogLevel;
+  message: string;
+  modelId: string | null;
+  kind: LogKind;
+  origin: LogOrigin;
+}
+
 /** A slot as the simulation keeps it; {@link SlotInfo} is the projection. */
 interface SlotSim {
   id: number;
@@ -255,71 +306,361 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     return slotGroups.get(modelId)?.some((slot) => slot.state === "processing") ?? false;
   }
 
-  /**
-   * One log line, or `null` when there is nothing to write about. Every line
-   * the simulation produces is slot traffic attributed to the model that
-   * produced it, so with nothing resident the log simply goes quiet.
-   */
-  function makeLine(): LogLine | null {
-    const loaded = MODELS.filter((model) => !unloaded.has(model.id));
-    const model = loaded[Math.floor(random() * loaded.length)];
-    if (model === undefined) return null;
-    // A plausible slot number to name in the line — the model's own slot count.
-    const slot = Math.floor(random() * (model.parallel ?? 1));
-    const task = seq + Math.floor(random() * 3);
-    const roll = random();
+  /** The ephemeral port each resident model's child server listens on. */
+  const modelPorts = new Map<string, number>();
+  /** Task ids, as llama.cpp numbers them: one counter, climbing forever. */
+  let nextTask = 81_000;
+  /** Lines an episode has queued but not yet written — the simulation's burst. */
+  const pending: LogDraft[] = [];
 
-    let level: LogLevel = "INFO";
-    let message: string;
-    if (roll < 0.1) {
-      level = "WARN";
-      message = `slot update_slots: id ${slot} | task ${task} | context shift, n_keep = 1024, n_discard = 2048`;
-    } else if (roll < 0.14) {
-      level = "ERROR";
-      const requested = (random() * 20000 + 66000).toFixed(0);
-      message = `srv send_error: task ${task} | prompt exceeds context window (${requested} > 65536)`;
-    } else if (roll < 0.3) {
-      message = "srv log_server_r: request: POST /v1/chat/completions 127.0.0.1 200 (pi/0.9.4)";
-    } else if (roll < 0.5) {
-      const ms = (200 + random() * 900).toFixed(2);
-      const tokens = Math.floor(300 + random() * 2200);
-      const perToken = (0.3 + random()).toFixed(2);
-      const rate = (900 + random() * 1400).toFixed(1);
-      message = `prompt eval time = ${ms} ms / ${tokens} tokens (${perToken} ms per token, ${rate} tokens per second)`;
-    } else if (roll < 0.68) {
-      const ms = (1500 + random() * 5000).toFixed(2);
-      const runs = Math.floor(60 + random() * 400);
-      const perToken = (9 + random() * 12).toFixed(2);
-      const rate = (45 + random() * 60).toFixed(1);
-      message = `eval time = ${ms} ms / ${runs} runs (${perToken} ms per token, ${rate} tokens per second)`;
-    } else if (roll < 0.82) {
-      message = `slot launch_slot_: id ${slot} | task ${task} | processing task`;
-    } else if (roll < 0.92) {
-      const nPast = Math.floor(1000 + random() * 30000);
-      const cacheTokens = Math.floor(1000 + random() * 30000);
-      message = `slot update_slots: id ${slot} | task ${task} | n_past = ${nPast}, cache_tokens = ${cacheTokens}`;
-    } else {
-      const nTokens = Math.floor(200 + random() * 900);
-      message = `slot release: id ${slot} | task ${task} | stop processing: n_tokens = ${nTokens}, truncated = 0`;
-    }
-
-    seq += 1;
-    return { seq, ts: now(), level, modelId: model.id, message };
+  /** A fresh ephemeral port for a spawning child; real ports are never reused. */
+  function portFor(modelId: string): number {
+    const existing = modelPorts.get(modelId);
+    if (existing !== undefined) return existing;
+    const port = 49_152 + Math.floor(random() * 16_000);
+    modelPorts.set(modelId, port);
+    return port;
   }
 
-  function append(line: LogLine): void {
+  /** A line the router wrote itself: no `[port]` prefix, usually no model. */
+  function router(
+    message: string,
+    modelId: string | null = null,
+    level: LogLevel = "INFO",
+    kind: LogKind = "event",
+  ): LogDraft {
+    return { level, message, modelId, kind, origin: "router" };
+  }
+
+  /** A line a child model server wrote, which the router echoed `[port]`-prefixed. */
+  function child(
+    message: string,
+    modelId: string,
+    level: LogLevel = "INFO",
+    kind: LogKind = "event",
+  ): LogDraft {
+    return { level, message, modelId, kind, origin: "child" };
+  }
+
+  /**
+   * The 11 lines a router writes within 81 ms of starting, every time. They are
+   * router-wide to a line — this is the block that makes `modelId: null` the
+   * common case it really is, and the two `W`s are the only warnings a healthy
+   * router ever produces.
+   */
+  function bootEpisode(): LogDraft[] {
+    return [
+      router(
+        "cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)",
+      ),
+      router(`srv   load_models: Loaded ${MODELS.length} cached model presets`),
+      router(`srv    operator(): Available models (${MODELS.length}):`),
+      ...MODELS.map((model) => router(`srv    operator():     ${model.id}`)),
+      router(
+        "srv  llama_server: starting server in router mode. models will be automatically loaded on-demand",
+      ),
+      router(`srv  llama_server: listening on http://${HOST}:${PORT}`),
+      router("srv  llama_server: NOTE: router mode is experimental", null, "WARN"),
+      router(
+        "srv  llama_server:       it is not recommended to use this mode in untrusted environments",
+        null,
+        "WARN",
+      ),
+    ];
+  }
+
+  /**
+   * The 31 argv tokens a child is spawned with — one per log line, which is
+   * exactly why the console folds them: `--ctx-size` and `131072` are two
+   * separate, individually meaningless records that together are the launch
+   * command Steward's drift check is about.
+   */
+  function launchArgs(model: ModelSpec, port: number): string[] {
+    const [cacheK = "f16", cacheV = "f16"] = model.kvCache.split("/");
+    return [
+      "/opt/homebrew/bin/llama-server",
+      "--model",
+      `/Users/steward/.local/share/llama/models/${model.id}.gguf`,
+      "--alias",
+      model.id,
+      "--ctx-size",
+      String((model.ctx ?? 4096) * (model.parallel ?? 1)),
+      "--parallel",
+      String(model.parallel ?? 1),
+      "--n-gpu-layers",
+      String(model.gpuLayers ?? 99),
+      "--cache-type-k",
+      cacheK,
+      "--cache-type-v",
+      cacheV,
+      "--flash-attn",
+      model.flashAttn,
+      "--threads",
+      "10",
+      "--keep",
+      "-1",
+      "--slots",
+      "--metrics",
+      "--jinja",
+      "--no-webui",
+      "--host",
+      HOST,
+      "--port",
+      String(port),
+      "--verbosity",
+      "3",
+    ];
+  }
+
+  /**
+   * A model load: 46 lines, 31 of them the args block, and the only textual
+   * progress a load has. There is no load-progress line in llama.cpp — the IPC
+   * records carry `value: 0.0` then `1.0` and nothing in between — so the
+   * dashboard's progress comes from `/models`, never from here.
+   */
+  function loadEpisode(model: ModelSpec): LogDraft[] {
+    const port = portFor(model.id);
+    const path = `/Users/steward/.local/share/llama/models/${model.id}.gguf`;
+    return [
+      router(
+        `srv          load: spawning server instance with name=${model.id} on port ${port}`,
+        model.id,
+      ),
+      router("srv          load: spawning server instance with args:"),
+      ...launchArgs(model, port).map((arg) =>
+        router(`srv          load:   ${arg}`, null, "INFO", "args"),
+      ),
+      child(
+        `cmd_child_to_router:state:{"state":"loading","payload":{"id":"${model.id}"},"value":0.0}`,
+        model.id,
+      ),
+      child(
+        "cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)",
+        model.id,
+      ),
+      child(`srv    load_model: loading model '${path}'`, model.id),
+      // Comp-less library warnings: no component, no function convention — the
+      // class the naive `<comp> <fn>:` grammar gets wrong.
+      child(
+        "load: setting token '<|message|>' (200008) attribute to USER_DEFINED (16), old attributes: 8",
+        model.id,
+        "WARN",
+      ),
+      child(
+        "load: setting token '<|channel|>' (200005) attribute to USER_DEFINED (16), old attributes: 8",
+        model.id,
+        "WARN",
+      ),
+      child(
+        "load: special_eog_ids contains both '<|return|>' and '<|end|>' tokens, removing '<|end|>' token from EOG list",
+        model.id,
+        "WARN",
+      ),
+      child(
+        `load: override 'tokenizer.ggml.add_bos_token' to 'true' for ${model.short}`,
+        model.id,
+        "WARN",
+      ),
+      child(
+        `cmd_child_to_router:state:{"state":"loading","payload":{"id":"${model.id}"},"value":0.5}`,
+        model.id,
+      ),
+      child(
+        `srv    load_model: initializing, n_slots = ${model.parallel ?? 1}, n_ctx_slot = ${model.ctx ?? 4096}, kv_unified = 'false'`,
+        model.id,
+      ),
+      child("srv  llama_server: model loaded", model.id),
+      child(`srv  llama_server: listening on http://${HOST}:${port}`, model.id),
+      child(
+        "srv    operator(): child server monitoring thread started, waiting for EOF on stdin...",
+        model.id,
+      ),
+      child(
+        `cmd_child_to_router:state:{"state":"ready","payload":{"id":"${model.id}","meta":{"n_ctx":${model.ctx ?? 4096},"n_ctx_train":${model.nativeCtx ?? 4096},"size":${Math.round((model.sizeGB ?? 1) * 1e9)}}},"value":1.0}`,
+        model.id,
+      ),
+    ];
+  }
+
+  /**
+   * One inference: the router's proxy line and seven child lines, plus a live
+   * rate line for every ~3 s the generation ran. That is the whole of it —
+   * llama.cpp writes nothing else per request.
+   */
+  function requestEpisode(model: ModelSpec, minRateLines = 0): LogDraft[] {
+    const port = portFor(model.id);
+    const task = nextTask;
+    nextTask += 1;
+    const slot = Math.floor(random() * (model.parallel ?? 1));
+    const promptTokens = Math.floor(40 + random() * 3000);
+    const decoded = Math.floor(40 + random() * 600);
+    const promptMs = 40 + random() * 400;
+    const evalMs = decoded * (5 + random() * 8);
+    const tps = (decoded / evalMs) * 1000;
+    const prefix = `slot print_timing: id  ${slot} | task ${task} |`;
+    // One rate line per three seconds of generation, and none at all for a
+    // request that finished inside the window — which is most of them.
+    // `minRateLines` is how the seeded story guarantees the console opens with
+    // at least one, since a dice roll is no way to get first-paint coverage.
+    const rateLines = Math.max(minRateLines, Math.min(3, Math.floor(evalMs / 3000)));
+
+    return [
+      router(
+        `srv  proxy_reques: proxying request to model ${model.id} on port ${port}`,
+        model.id,
+        "INFO",
+        "proxy",
+      ),
+      child(
+        `slot get_availabl: id  ${slot} | task -1 | selected slot by LCP similarity, sim_best = ${random().toFixed(3)} (> 0.100 thold), f_keep = 0.024`,
+        model.id,
+      ),
+      child(
+        `slot launch_slot_: id  ${slot} | task ${task} | processing task, is_child = 0`,
+        model.id,
+      ),
+      ...Array.from({ length: rateLines }, (_unused, index) =>
+        child(
+          `${prefix} n_decoded = ${Math.floor((decoded * (index + 1)) / (rateLines + 1))}, tg = ${tps.toFixed(2)} t/s, tg_3s = ${(tps * (0.9 + random() * 0.2)).toFixed(2)} t/s`,
+          model.id,
+          "INFO",
+          "rate",
+        ),
+      ),
+      child(
+        `${prefix} prompt eval time = ${promptMs.toFixed(2)} ms / ${promptTokens} tokens (${(promptMs / promptTokens).toFixed(2)} ms per token, ${((promptTokens / promptMs) * 1000).toFixed(2)} tokens per second)`,
+        model.id,
+      ),
+      child(
+        `${prefix}        eval time = ${evalMs.toFixed(2)} ms / ${decoded} tokens (${(evalMs / decoded).toFixed(2)} ms per token, ${tps.toFixed(2)} tokens per second)`,
+        model.id,
+      ),
+      child(
+        `${prefix}       total time = ${(promptMs + evalMs).toFixed(2)} ms / ${promptTokens + decoded} tokens`,
+        model.id,
+      ),
+      child(`${prefix}    graphs reused = ${Math.floor(random() * 90000)}`, model.id),
+      child(
+        `slot      release: id  ${slot} | task ${task} | stop processing: n_tokens = ${promptTokens + decoded}, truncated = 0`,
+        model.id,
+      ),
+    ];
+  }
+
+  /**
+   * One `/slots` or `/metrics` poll. This is the line the console hides by
+   * default, and Steward is the one causing it: two per snapshot per loaded
+   * model, forever, whether or not anybody is using the server.
+   */
+  function pollEpisode(model: ModelSpec): LogDraft[] {
+    return [
+      router(
+        `srv  proxy_reques: proxying request to model ${model.id} on port ${portFor(model.id)}`,
+        model.id,
+        "INFO",
+        "proxy",
+      ),
+    ];
+  }
+
+  /** An unload: five lines in about a sixth of a second. */
+  function unloadEpisode(model: ModelSpec): LogDraft[] {
+    return [
+      router(`srv        unload: stopping model instance name=${model.id}`, model.id),
+      router(`srv    operator(): stopping model instance name=${model.id}`, model.id),
+      child("srv    operator(): exit command received, exiting...", model.id),
+      child("srv    operator(): operator(): cleaning up before exit...", model.id),
+      // A failed exit reports the same level; only the status number differs.
+      router(`srv    operator(): instance name=${model.id} exited with status 0`, model.id),
+    ];
+  }
+
+  /**
+   * A client that hangs up mid-stream — one of only two ways a real router logs
+   * an `E`, and the honest one to simulate. Note the shape of it: the ERROR is
+   * router-wide and the matching WARN is attributed, so one event lands in two
+   * different scopes. The console must not invent an attribution to tidy that up.
+   */
+  function disconnectEpisode(model: ModelSpec): LogDraft[] {
+    const task = nextTask;
+    nextTask += 1;
+    return [
+      router("srv    operator(): http client error: Connection handling canceled", null, "ERROR"),
+      child("srv          stop: cancel task, id_task = 0", model.id, "WARN"),
+      child(
+        `slot      release: id  0 | task ${task} | stop processing: n_tokens = ${Math.floor(100 + random() * 900)}, truncated = 0`,
+        model.id,
+      ),
+    ];
+  }
+
+  /**
+   * What happens next on an otherwise idle router. The weights are the measured
+   * ones: Steward's own polling is almost all of it, a real request is rare, an
+   * `E` is rarer still, and sometimes the answer is that nothing happens — which
+   * is the state a real router spends most of its life in.
+   */
+  function planTraffic(): void {
+    const loaded = MODELS.filter((model) => !unloaded.has(model.id));
+    const model = loaded[Math.floor(random() * loaded.length)];
+    // Nothing resident means nothing to proxy and no child to write: the log
+    // goes quiet rather than inventing traffic.
+    if (model === undefined) return;
+
+    const roll = random();
+    if (roll < 0.93) pending.push(...pollEpisode(model));
+    else if (roll < 0.95) pending.push(...requestEpisode(model));
+    else if (roll < 0.951) pending.push(...disconnectEpisode(model));
+    // Otherwise: silence.
+  }
+
+  /**
+   * Forgets queued lines for a model that has just gone away — and everything
+   * queued once nothing is resident at all, because a router with no children
+   * has nothing left in flight to write about.
+   */
+  function dropPending(modelId: string): void {
+    const kept = pending.filter((draft) => draft.modelId !== modelId);
+    pending.length = 0;
+    const anyLeft = MODELS.some((model) => model.id !== modelId && !unloaded.has(model.id));
+    if (anyLeft) pending.push(...kept);
+  }
+
+  function append(draft: LogDraft): void {
+    seq += 1;
+    const line: LogLine = {
+      seq,
+      ts: now(),
+      level: draft.level,
+      modelId: draft.modelId,
+      message: draft.message,
+      kind: draft.kind,
+      origin: draft.origin,
+    };
     log.push(line);
     if (log.length > maxLogLines) log.splice(0, log.length - maxLogLines);
     for (const listener of listeners) listener(line);
   }
 
+  /**
+   * Writes a burst immediately rather than queueing it. Load and unload are
+   * operator actions whose lines land in a couple of hundred milliseconds — long
+   * before the next log tick — and dribbling them out would misrepresent both
+   * the cadence and the causality.
+   */
+  function flush(drafts: readonly LogDraft[]): void {
+    for (const draft of drafts) append(draft);
+  }
+
   /** Seeded lines ignore the running check — they are pre-existing scrollback. */
   function emit(seeded: boolean): void {
     if (!running && !seeded) return;
+    if (pending.length === 0) planTraffic();
     const count = seeded ? 1 : 1 + (random() < 0.4 ? 1 : 0);
     for (let i = 0; i < count; i += 1) {
-      const line = makeLine();
-      if (line !== null) append(line);
+      const draft = pending.shift();
+      if (draft === undefined) return;
+      append(draft);
     }
   }
 
@@ -459,7 +800,30 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     };
   }
 
-  for (let i = 0; i < seedLines; i += 1) emit(true);
+  // The scrollback a client sees on connect is a story, not a sample: the router
+  // booted, loaded what is resident, dropped the model it is no longer holding,
+  // served a request, and had one client hang up. That is what puts the
+  // router-wide rows, the args fold, a live rate line, a model lifecycle exit
+  // and the ERROR path on the console's FIRST paint, rather than leaving them to
+  // the dice.
+  pending.push(...bootEpisode());
+  for (const model of MODELS) {
+    if (!unloaded.has(model.id)) pending.push(...loadEpisode(model));
+  }
+  // Why the embedder is unloaded now: the router evicted it, and said so.
+  const [firstUnloaded] = MODELS.filter((model) => unloaded.has(model.id));
+  if (firstUnloaded !== undefined) pending.push(...unloadEpisode(firstUnloaded));
+  const [firstLoaded] = MODELS.filter((model) => !unloaded.has(model.id));
+  if (firstLoaded !== undefined) {
+    pending.push(...requestEpisode(firstLoaded, 1), ...disconnectEpisode(firstLoaded));
+  }
+  // Then ordinary traffic up to the seed size — mostly Steward's own polling,
+  // which is exactly what a real idle router's tail looks like. Traffic is
+  // bursty and sometimes silent, so this counts lines rather than attempts; the
+  // outer bound keeps a simulation with nothing resident from spinning.
+  for (let attempt = 0; attempt < seedLines * 4 && log.length < seedLines; attempt += 1) {
+    emit(true);
+  }
 
   if (logIntervalMs > 0) logTimer = setInterval(() => emit(false), logIntervalMs);
   if (metricsIntervalMs > 0) metricsTimer = setInterval(tickMetrics, metricsIntervalMs);
@@ -486,6 +850,19 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       };
     },
 
+    attachLogs(listener: (line: LogLine) => void, limit: number): LogAttachment {
+      // One step, no suspension point: the same guarantee the file tailer makes,
+      // so the stream route has one contract whichever source is behind it.
+      const backlog = limit <= 0 ? [] : log.slice(-limit);
+      listeners.add(listener);
+      return {
+        backlog,
+        unsubscribe: () => {
+          listeners.delete(listener);
+        },
+      };
+    },
+
     setService(action: ServiceAction): Promise<void> {
       if (action === "stop") {
         running = false;
@@ -502,14 +879,25 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       if (model === undefined) {
         return Promise.reject(new Error(`Unknown model: ${modelId}`));
       }
+      const wasLoaded = !unloaded.has(modelId);
       if (action === "unload") {
+        // The lines come first: they describe the instance that is going away,
+        // and a real unload names it on the way out.
+        if (running && wasLoaded) flush(unloadEpisode(model));
+        // Traffic still queued for it dies with the instance — a child that has
+        // exited writes nothing, and the console would otherwise show slot work
+        // for a model the dashboard already reports as gone.
+        dropPending(modelId);
         unloaded.add(modelId);
         modelRates.delete(modelId);
         // Its slots go with it; a later load starts from a fresh, idle pool.
         slotGroups.delete(modelId);
+        // Ports are ephemeral: the next load of this model gets a new one.
+        modelPorts.delete(modelId);
       } else {
         unloaded.delete(modelId);
         ensureGroup(model);
+        if (running && !wasLoaded) flush(loadEpisode(model));
       }
       return Promise.resolve();
     },
