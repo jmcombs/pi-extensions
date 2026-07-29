@@ -284,14 +284,17 @@ describe("createMockSource", () => {
         const ipc = line.message.startsWith("cmd_child_to_router:");
         const letter = { INFO: "I", WARN: "W", ERROR: "E", DEBUG: "D" }[line.level];
         const port = line.origin === "child" ? "[53691] " : "";
-        const raw = ipc
-          ? `${port}${line.message}`
-          : `${port}0.00.715.177 ${letter} ${line.message}`;
+        // The FILE's own line: the frame the mock keeps in its own field is
+        // written back in front of the message, exactly as llama.cpp wrote it.
+        const body = `${line.frame?.raw ?? ""}${line.message}`;
+        const raw = ipc ? `${port}${body}` : `${port}0.00.715.177 ${letter} ${body}`;
 
         const parsed = parseLogLine(raw, previous);
         previous = parsed;
 
         expect(parsed.message).toBe(line.message);
+        expect(parsed.frame).toEqual(line.frame ?? null);
+        expect(parsed.family).toBe(line.family);
         expect(parsed.origin).toBe(line.origin);
         expect(parsed.level).toBe(ipc ? "INFO" : line.level);
         expect(parsed.kind).toBe(line.kind);
@@ -635,5 +638,98 @@ describe("createMockSource", () => {
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(source.recentLogs(1000)).toHaveLength(running);
     expect((await source.snapshot()).throughputHistory).toEqual(settled);
+  });
+});
+
+describe("the shapes the console's new columns need to be seen working", () => {
+  /**
+   * None of the task column, the badges or the trace is proven by code that
+   * compiles — each is proven by the simulation producing the shape it is for.
+   * These are the five §8.9 cases, each with the console feature it unblocks.
+   */
+  function seeded() {
+    const source = createSource();
+    try {
+      return source.recentLogs(1000);
+    } finally {
+      source.close();
+    }
+  }
+
+  it("frames its slot lines the way llama.cpp's shared macro does", () => {
+    const framed = seeded().filter((line) => line.frame !== undefined);
+    expect(framed.length).toBeGreaterThan(10);
+    for (const line of framed) {
+      expect(line.frame?.raw).toMatch(/^slot\s+\S+: id\s+-?\d+ \| task -?\d+ \| $/);
+      // Half the trace key. A framed line with no port is untraceable.
+      expect(typeof line.port).toBe("number");
+    }
+  });
+
+  it("writes SPARSE, NON-MONOTONIC task ids, so 'not a request number' is testable", () => {
+    const tasks = seeded()
+      .filter((line) => line.frame !== undefined && line.frame.task >= 0)
+      .map((line) => line.frame?.task ?? 0);
+    // Sparse: consecutive requests are hundreds of ids apart, because every
+    // internal task bumps the same counter.
+    expect(Math.max(...tasks)).toBeGreaterThan(tasks.length);
+    // And at least one DECREASE in file order: ids are allocated at enqueue and
+    // slots granted at dequeue, so a deferred task logs later with a lower id.
+    const decreases = tasks.filter((task, i) => i > 0 && task < (tasks[i - 1] ?? 0));
+    expect(decreases.length).toBeGreaterThan(0);
+  });
+
+  it("collides task ids across two ports, which is why the key is (port, task)", () => {
+    const ports = new Map<number, Set<number>>();
+    for (const line of seeded()) {
+      if (line.frame === undefined || line.port === undefined) continue;
+      const seen = ports.get(line.frame.task) ?? new Set<number>();
+      seen.add(line.port);
+      ports.set(line.frame.task, seen);
+    }
+    const collisions = [...ports].filter(([, seen]) => seen.size > 1);
+    expect(collisions.length).toBeGreaterThan(0);
+  });
+
+  it("writes exactly one `truncated = 1`, and long stretches without one", () => {
+    const lines = seeded();
+    const lost = lines.filter((line) => line.contextLost === true);
+    expect(lost.length).toBe(1);
+    expect(lost[0]?.message).toContain("truncated = 1");
+    // The banner it drives is the exception, not the rule.
+    expect(lines.filter((line) => line.message.includes("truncated = 0")).length).toBeGreaterThan(
+      2,
+    );
+  });
+
+  it("uses a second slot id, so the slot badge's reveal path runs", () => {
+    const slots = new Set(
+      seeded()
+        .filter((line) => line.frame !== undefined)
+        .map((line) => line.frame?.slot),
+    );
+    expect(slots.size).toBeGreaterThan(1);
+  });
+
+  it("reports a cache hit, so the one translating badge has something to translate", () => {
+    const cached = seeded().filter((line) => line.cacheHit !== undefined);
+    expect(cached.length).toBeGreaterThan(0);
+    for (const line of cached) {
+      expect(line.cacheHit).toBeGreaterThanOrEqual(0);
+      expect(line.cacheHit).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("writes a shape no rule matches, so `other` is never zero", () => {
+    // `other` is the drift alarm, and an alarm that has never been seen to fire
+    // has never been seen to work.
+    const other = seeded().filter((line) => line.family === "other");
+    expect(other.length).toBeGreaterThan(0);
+    expect(other.some((line) => line.message.includes("frobnicate"))).toBe(true);
+  });
+
+  it("classifies every line into a family, none of them by a function name", () => {
+    const families = new Set(seeded().map((line) => line.family));
+    expect(families).toEqual(new Set(["requests", "models", "startup", "other"]));
   });
 });

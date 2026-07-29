@@ -8,6 +8,7 @@
  */
 
 import type {
+  LogFamily,
   LogLevel,
   LogLine,
   LogSourceState,
@@ -40,6 +41,28 @@ export const POLL_BUFFER_LIMIT = 200;
 
 /** The level filter, where `all` means "do not filter". */
 export type LevelFilter = LogLevel | "all";
+
+/** The record-type filter, where `any` means "do not filter". */
+export type FamilyFilter = LogFamily | "any";
+
+/**
+ * The request being traced: every line one llama-server task wrote, in file
+ * order.
+ *
+ * Keyed on `(port, task)` and never on `task` alone. Task ids are a per-process
+ * counter starting at 0, so task `0` appears under eight different ports in a
+ * single measured corpus — a trace keyed on the id would mix two models' lines
+ * together and call it one request.
+ */
+export interface TraceRef {
+  port: number;
+  task: number;
+  /**
+   * `seq` of the row that opened it. Retained so a later phase can narrow to
+   * one occurrence when an OS reuses a port, without a state-shape change.
+   */
+  anchorSeq: number;
+}
 
 /**
  * The SSE connection's own state, which is not the same question as whether a
@@ -77,7 +100,16 @@ export interface UiState {
   /** Model id the console is scoped to, or `null` for all models. */
   filterModel: string | null;
   filterLevel: LevelFilter;
-  /** Case-insensitive substring, matched against the message text only. */
+  /**
+   * Which record type the console is scoped to, or `any`. A second filter axis
+   * beside the level chips, single-select for exactly the same reason they are:
+   * a chip's count means one thing, and pressing it yields that many rows.
+   */
+  filterFamily: FamilyFilter;
+  /**
+   * Case-insensitive substring, matched against the line's text — the frame
+   * included, so a task id that is visible on the row is findable in the box.
+   */
   query: string;
   /**
    * Whether proxied-request lines are shown. Default `false`: they are 86.9% of
@@ -96,6 +128,12 @@ export interface UiState {
    * its entry's meaning with it and the stale key simply never matches again.
    */
   expandedArgs: Record<number, true>;
+  /**
+   * The request being traced, or `null`. A trace ignores every filter and says
+   * so out loud, so this is not a filter — it REPLACES the filter stack while
+   * it is set, and every `filter/*` action clears it.
+   */
+  trace: TraceRef | null;
   /** The log stream's connection state, fed by the `EventSource` lifecycle. */
   logStream: LogStreamState;
   /**
@@ -148,9 +186,11 @@ export type UiAction =
   | { type: "filter/model"; modelId: string | null }
   | { type: "filter/model-toggle"; modelId: string }
   | { type: "filter/level"; level: LevelFilter }
+  | { type: "filter/family"; family: FamilyFilter }
   | { type: "filter/query"; query: string }
   | { type: "filter/proxy-toggle" }
   | { type: "logs/pause-toggle" }
+  | { type: "logs/trace"; trace: TraceRef | null }
   | { type: "logs/fold-toggle"; seq: number }
   | { type: "logs/stream-status"; status: LogStreamState }
   | {
@@ -176,9 +216,11 @@ export function initialUiState(theme: Theme): UiState {
     bufferDropped: false,
     filterModel: null,
     filterLevel: "all",
+    filterFamily: "any",
     query: "",
     showProxy: false,
     expandedArgs: {},
+    trace: null,
     logStream: "connecting",
     logSource: "ok",
     logSourcePath: null,
@@ -253,9 +295,25 @@ function adopt(lines: LogLine[]): CappedBuffer {
   return { ...cap(lines), restarted: true };
 }
 
-/** Two deliveries of one line, as opposed to two lines sharing a number. */
+/**
+ * Two deliveries of one line, as opposed to two lines sharing a number.
+ *
+ * **The task id is load-bearing here.** With the pipe frame relocated out of
+ * the message, two different requests' `print_timing: eval time = …` lines can
+ * compare equal on every other field — same stamp resolution, same level, same
+ * model, byte-identical message. {@link appendLines} reads this to tell a
+ * stream replay from a source that restarted its numbering, so without the task
+ * id a restarted server's whole backlog is mistaken for a replay and discarded,
+ * and the console sits there holding the dead source's lines forever.
+ */
 function sameLine(a: LogLine, b: LogLine): boolean {
-  return a.ts === b.ts && a.level === b.level && a.modelId === b.modelId && a.message === b.message;
+  return (
+    a.ts === b.ts &&
+    a.level === b.level &&
+    a.modelId === b.modelId &&
+    a.frame?.task === b.frame?.task &&
+    a.message === b.message
+  );
 }
 
 /**
@@ -301,8 +359,20 @@ function appendLines(log: LogLine[], incoming: readonly LogLine[]): CappedBuffer
 /**
  * Returns the same object when an action is a no-op, so callers can skip a
  * repaint on the many ticks that change nothing.
+ *
+ * **Every `filter/*` action also closes an open trace**, and it happens here
+ * rather than in the handlers — one rule, in one place, that a new control
+ * cannot forget. It is why no chip, pill or toggle is ever disabled while a
+ * trace is open: pressing WARN during a trace exits the trace and applies the
+ * filter, which is the answer an operator expects and the one they get.
  */
 export function reduce(state: UiState, action: UiAction): UiState {
+  const next = apply(state, action);
+  if (next.trace === null || !action.type.startsWith("filter/")) return next;
+  return { ...next, trace: null };
+}
+
+function apply(state: UiState, action: UiAction): UiState {
   switch (action.type) {
     case "logs/append": {
       const { lines: log, droppedSignal, restarted } = appendLines(state.log, action.lines);
@@ -327,9 +397,28 @@ export function reduce(state: UiState, action: UiAction): UiState {
       if (state.filterLevel === action.level) return state;
       return { ...state, filterLevel: action.level };
     }
+    case "filter/family": {
+      if (state.filterFamily === action.family) return state;
+      return { ...state, filterFamily: action.family };
+    }
     case "filter/query": {
       if (state.query === action.query) return state;
       return { ...state, query: action.query };
+    }
+    case "logs/trace": {
+      const current = state.trace;
+      const next = action.trace;
+      if (current === null && next === null) return state;
+      if (
+        current !== null &&
+        next !== null &&
+        current.port === next.port &&
+        current.task === next.task &&
+        current.anchorSeq === next.anchorSeq
+      ) {
+        return state;
+      }
+      return { ...state, trace: next };
     }
     case "filter/proxy-toggle": {
       return { ...state, showProxy: !state.showProxy };

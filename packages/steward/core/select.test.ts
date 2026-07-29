@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ConsentDrift, LaunchDrift } from "./drift.js";
 import { NO_CONSENT_DRIFT, unknownDrift } from "./drift.js";
+import { classifyFamily } from "./log-parse.js";
 import { modelColor } from "./model-color.js";
 import type { LogRowVm } from "./select.js";
 import {
+  CONTEXT_LOST_QUERY,
   consoleAnnouncement,
   consoleFocusRestore,
   countNewLines,
@@ -851,7 +853,10 @@ describe("toolbar", () => {
   it("marks exactly one level chip active", () => {
     const ui = reduce(initialUiState("light"), { type: "filter/level", level: "WARN" });
     const chips = selectDashboard(snapshot(), ui, NOW).toolbar.levelChips;
-    expect(chips.map((c) => c.label)).toEqual(["all", "INFO", "WARN", "ERROR"]);
+    // `any`, not `all`: two adjacent groups whose reset both read `all` and
+    // both show the same number at rest look like one duplicated control.
+    expect(chips.map((c) => c.label)).toEqual(["any", "INFO", "WARN", "ERROR"]);
+    expect(chips[0]?.ariaLabel.startsWith("Any level")).toBe(true);
     expect(chips.filter((c) => c.active).map((c) => c.level)).toEqual(["WARN"]);
     // The hue lives in the tint and the border; the label itself stays legible,
     // because no level colour clears AA as chip text on the light theme.
@@ -1921,12 +1926,29 @@ describe("quiet while the filter is hiding live traffic", () => {
 });
 
 describe("consoleFocusRestore", () => {
+  function input(over: Partial<Parameters<typeof consoleFocusRestore>[0]> = {}) {
+    return {
+      wasInside: true,
+      moved: true,
+      enteringTrace: false,
+      leavingTrace: false,
+      foldKey: null,
+      taskKey: null,
+      exitingTaskKey: null,
+      keys: [] as string[],
+      taskKeys: [] as string[],
+      ...over,
+    };
+  }
+
   it("does nothing while focus was never disturbed", () => {
-    expect(consoleFocusRestore(false, "fold:2", ["fold:2"])).toEqual({ target: "none" });
+    expect(
+      consoleFocusRestore(input({ moved: false, foldKey: "fold:2", keys: ["fold:2"] })),
+    ).toEqual({ target: "none" });
   });
 
   it("lands back on the fold that was toggled, so it can be pressed twice", () => {
-    expect(consoleFocusRestore(true, "fold:2", ["1", "fold:2", "3"])).toEqual({
+    expect(consoleFocusRestore(input({ foldKey: "fold:2", keys: ["1", "fold:2", "3"] }))).toEqual({
       target: "fold",
       key: "fold:2",
     });
@@ -1935,8 +1957,56 @@ describe("consoleFocusRestore", () => {
   it("falls back to the console region when the control is gone for good", () => {
     // "Clear filters" and "show all" both remove themselves; the scrollback the
     // operator was reading is the right place to land, not the top of the page.
-    expect(consoleFocusRestore(true, null, ["1", "2"])).toEqual({ target: "region" });
-    expect(consoleFocusRestore(true, "fold:9", ["1", "2"])).toEqual({ target: "region" });
+    expect(consoleFocusRestore(input({ keys: ["1", "2"] }))).toEqual({ target: "region" });
+    expect(consoleFocusRestore(input({ foldKey: "fold:9", keys: ["1", "2"] }))).toEqual({
+      target: "region",
+    });
+  });
+
+  it("parks on the trace banner's back button when a trace opens", () => {
+    // Opening a trace replaces the whole row set, so the cell that was pressed
+    // is gone. `[ back ]` is the safe landing — the same pattern the service
+    // block's confirm strip uses.
+    expect(consoleFocusRestore(input({ enteringTrace: true, taskKey: "53691:81259" }))).toEqual({
+      target: "back",
+    });
+  });
+
+  it("returns to the task cell the trace came from when it closes", () => {
+    expect(
+      consoleFocusRestore(
+        input({
+          leavingTrace: true,
+          exitingTaskKey: "53691:81259",
+          taskKeys: ["53691:81259", "53691:81260"],
+        }),
+      ),
+    ).toEqual({ target: "task", key: "53691:81259" });
+  });
+
+  it("keeps focus where it is when a control outside the console closed the trace", () => {
+    // Pressing a chip during a trace exits the trace and applies the filter.
+    // Focus belongs to the chip that was pressed — which is exactly why no
+    // control ever has to be disabled while tracing.
+    expect(
+      consoleFocusRestore(
+        input({
+          wasInside: false,
+          moved: false,
+          leavingTrace: true,
+          exitingTaskKey: "53691:81259",
+          taskKeys: ["53691:81259"],
+        }),
+      ),
+    ).toEqual({ target: "none" });
+  });
+
+  it("falls back to the region when the traced row has scrolled out of the buffer", () => {
+    expect(
+      consoleFocusRestore(
+        input({ leavingTrace: true, exitingTaskKey: "53691:81259", taskKeys: [] }),
+      ),
+    ).toEqual({ target: "region" });
   });
 });
 
@@ -1992,5 +2062,602 @@ describe("the announcements that must differ per direction", () => {
         matched: 1412,
       }),
     ).toBe("Older lines dropped from the buffer; showing the latest 500 of 1,412.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Columns, chips, badges and the trace
+// ---------------------------------------------------------------------------
+
+/** The `SLT_*` frame exactly as llama.cpp's shared macro writes it. */
+function frame(fn: string, slot: number, task: number) {
+  return {
+    slot,
+    task,
+    raw: `slot ${fn.slice(0, 12).padStart(12)}: id ${String(slot).padStart(2)} | task ${task} | `,
+  };
+}
+
+/** One pipe-framed slot line, classified through the parser's own rules. */
+function slotLine(
+  seq: number,
+  port: number,
+  modelId: string,
+  fn: string,
+  slot: number,
+  task: number,
+  message: string,
+  over: Partial<LogLine> = {},
+): LogLine {
+  const f = frame(fn, slot, task);
+  return {
+    seq,
+    ts: NOW,
+    level: "INFO",
+    modelId,
+    port,
+    frame: f,
+    message,
+    family: classifyFamily({ frame: f, kind: "event", origin: "child", message }),
+    origin: "child",
+    ...over,
+  };
+}
+
+/** An unframed line, classified the same way. */
+function plainLine(
+  seq: number,
+  message: string,
+  over: Partial<LogLine> & { origin?: "router" | "child" } = {},
+): LogLine {
+  const origin = over.origin ?? "router";
+  const kind = over.kind ?? "event";
+  return {
+    seq,
+    ts: NOW,
+    level: "INFO",
+    modelId: null,
+    message,
+    kind,
+    origin,
+    family: classifyFamily({ frame: null, kind, origin, message }),
+    ...over,
+  };
+}
+
+const PORT_A = 62354;
+const PORT_B = 53691;
+
+/**
+ * A realistic mixed buffer: a boot banner, a spawn with its args run, a child's
+ * own boot line, Steward's own polling, two requests whose task ids COLLIDE
+ * across two ports, and one shape no rule matches.
+ */
+function mixedBuffer(): LogLine[] {
+  return [
+    plainLine(1, "srv  llama_server: starting server in router mode"),
+    plainLine(2, "srv   load_models: Loaded 4 cached model presets"),
+    plainLine(
+      3,
+      `srv          load: spawning server instance with name=${CHAT} on port ${PORT_A}`,
+      {
+        modelId: CHAT,
+      },
+    ),
+    plainLine(4, "srv          load: spawning server instance with args:"),
+    plainLine(5, "srv          load:   --ctx-size", { kind: "args" }),
+    plainLine(6, "srv          load:   131072", { kind: "args" }),
+    plainLine(7, "srv          load:   --parallel", { kind: "args" }),
+    plainLine(8, "load: setting token '<|message|>' (200008) attribute to USER_DEFINED (16)", {
+      origin: "child",
+      modelId: CHAT,
+      port: PORT_A,
+      level: "WARN",
+    }),
+    plainLine(9, `srv  proxy_reques: proxying request to model ${CHAT} on port ${PORT_A}`, {
+      kind: "proxy",
+      modelId: CHAT,
+    }),
+    plainLine(10, `srv  proxy_reques: proxying request to model ${CHAT} on port ${PORT_A}`, {
+      kind: "proxy",
+      modelId: CHAT,
+    }),
+    // Request A: the full lifecycle on port A, task 81259.
+    slotLine(
+      11,
+      PORT_A,
+      CHAT,
+      "get_available_slot",
+      0,
+      -1,
+      "selected slot by LCP similarity, sim_best = 0.473 (> 0.100 thold), f_keep = 0.024",
+      { cacheHit: 0.473 },
+    ),
+    slotLine(12, PORT_A, CHAT, "launch_slot_with_task", 0, 81259, "processing task, is_child = 0"),
+    slotLine(13, PORT_A, CHAT, "print_timings", 0, 81259, "       eval time =   873.11 ms"),
+    slotLine(
+      14,
+      PORT_A,
+      CHAT,
+      "release",
+      0,
+      81259,
+      "stop processing: n_tokens = 193, truncated = 0",
+    ),
+    // Request B: the SAME task id on a different port and a different model.
+    slotLine(
+      15,
+      PORT_B,
+      REASON,
+      "launch_slot_with_task",
+      0,
+      81259,
+      "processing task, is_child = 0",
+    ),
+    slotLine(
+      16,
+      PORT_B,
+      REASON,
+      "release",
+      0,
+      81259,
+      "stop processing: n_tokens = 4096, truncated = 1",
+      { contextLost: true },
+    ),
+    plainLine(17, "srv   frobnicate: widget 3 | zone 7 | reticulating splines"),
+  ];
+}
+
+describe("the task column", () => {
+  function rows(over: Partial<UiState> = {}) {
+    return selectDashboard(snapshot(), consoleUi(mixedBuffer(), over), NOW).console;
+  }
+
+  it("puts a trace button on every framed line that has a task and a port", () => {
+    const cell = rows().lines.find((row) => row.seq === 12)?.task;
+    expect(cell).toEqual({
+      port: PORT_A,
+      task: 81259,
+      key: `${PORT_A}:81259`,
+      label: "▸81259",
+      ariaLabel:
+        "Trace task 81259 on port 62354. This is llama-server's own handle for the request, not a request number.",
+      active: false,
+    });
+  });
+
+  it("leaves the cell empty on `get_availabl`, which has no task yet", () => {
+    // `task -1` in 217/217 measured cases: no task is attached when the slot is
+    // chosen. Inventing one would be the first mis-attribution in a console
+    // built to avoid exactly that — it joins the trace by adjacency instead.
+    expect(rows().lines.find((row) => row.seq === 11)?.task).toBeNull();
+  });
+
+  it("leaves the cell empty on every unframed line", () => {
+    const shown = rows({ showProxy: true });
+    for (const seq of [1, 3, 9, 17]) {
+      expect(shown.lines.find((row) => row.seq === seq)?.task, String(seq)).toBeNull();
+    }
+  });
+
+  it("leaves the cell empty when the port — half the trace key — is unknown", () => {
+    const line = slotLine(20, PORT_A, CHAT, "release", 0, 5, "stop processing");
+    const orphan: LogLine = { ...line };
+    delete orphan.port;
+    const vm = selectDashboard(snapshot(), consoleUi([orphan]), NOW).console;
+    expect(vm.lines[0]?.task).toBeNull();
+  });
+
+  it("collapses the whole column when nothing in the matched set is framed", () => {
+    // An idle router showing eleven banner lines gets the four-column grid
+    // back, not 64px of dead space.
+    expect(rows().showTaskColumn).toBe(true);
+    expect(rows({ filterFamily: "startup" }).showTaskColumn).toBe(false);
+    const counts = selectDashboard(
+      snapshot(),
+      consoleUi(mixedBuffer(), { filterFamily: "startup" }),
+      NOW,
+    ).logCounts;
+    expect(counts.framed).toBe(0);
+  });
+});
+
+describe("row badges", () => {
+  function badges(seq: number, over: Partial<UiState> = {}) {
+    const vm = selectDashboard(snapshot(), consoleUi(mixedBuffer(), over), NOW).console;
+    return vm.lines.find((row) => row.seq === seq)?.badges ?? [];
+  }
+
+  it("flags a reply written from a mutilated context, and only when it says so", () => {
+    expect(badges(16).map((b) => b.key)).toContain("context-lost");
+    const lost = badges(16).find((b) => b.key === "context-lost");
+    expect(lost?.label).toBe("▲ context lost");
+    // Severity in FORM: the glyph and a tinted ground carry it, never a hue as
+    // text — the amber token is ~2.2:1 on the light theme's console ground.
+    expect(lost?.tone).toBe("warn");
+
+    // `truncated = 0` gets NOTHING. A badge on 217 of 217 rows trains the eye
+    // to skip the pixel where the real thing will appear.
+    expect(badges(14).map((b) => b.key)).not.toContain("context-lost");
+  });
+
+  it("translates `sim_best` into a number an operator can read", () => {
+    expect(badges(11).find((b) => b.key === "cache")?.label).toBe("cache 47%");
+  });
+
+  it("shows the slot id only where a model actually has more than one slot", () => {
+    // `parallel` comes off the snapshot, so the reveal rule is authoritative
+    // rather than inferred from the ids seen so far. A permanently-zero column
+    // teaches an operator that the column is meaningless.
+    expect(badges(12).map((b) => b.key)).toContain("slot");
+    const single = selectDashboard(
+      snapshot({
+        models: MODELS.map((model) => (model.id === CHAT ? { ...model, parallel: 1 } : model)),
+      }),
+      consoleUi(mixedBuffer()),
+      NOW,
+    ).console;
+    expect(single.lines.find((row) => row.seq === 12)?.badges.map((b) => b.key)).not.toContain(
+      "slot",
+    );
+  });
+
+  it("renders nothing at all when an enrichment is absent", () => {
+    // Not an empty box, not a dash. A future llama.cpp that renames a payload
+    // costs one missing badge and never a row.
+    expect(badges(1)).toEqual([]);
+    expect(badges(17)).toEqual([]);
+  });
+});
+
+describe("record-type chips", () => {
+  const FAMILIES = ["any", "requests", "models", "startup", "other"] as const;
+
+  it("counts what pressing each chip actually yields", () => {
+    // Asserted by RE-RUNNING the selector, not by arithmetic: the promise is
+    // "this number is what you get if you press it", and only running the whole
+    // pipeline with the chip pressed can check that.
+    const lines = mixedBuffer();
+    for (const showProxy of [false, true]) {
+      for (const level of ["all", "INFO", "WARN"] as const) {
+        for (const query of ["", "processing"]) {
+          const base = consoleUi(lines, { showProxy, filterLevel: level, query });
+          const counts = selectDashboard(snapshot(), base, NOW).logCounts;
+          for (const family of FAMILIES) {
+            const pressed = selectDashboard(
+              snapshot(),
+              { ...base, filterFamily: family },
+              NOW,
+            ).logCounts;
+            expect(
+              counts.families[family],
+              `${family} · proxy=${showProxy} · ${level} · "${query}"`,
+            ).toBe(pressed.matched);
+          }
+        }
+      }
+    }
+  });
+
+  it("counts what pressing each LEVEL chip yields, with a record-type chip applied", () => {
+    const lines = mixedBuffer();
+    for (const family of FAMILIES) {
+      const base = consoleUi(lines, { filterFamily: family });
+      const counts = selectDashboard(snapshot(), base, NOW).logCounts;
+      for (const level of ["all", "INFO", "WARN", "ERROR"] as const) {
+        const pressed = selectDashboard(snapshot(), { ...base, filterLevel: level }, NOW).logCounts;
+        expect(counts.levels[level], `${family} · ${level}`).toBe(pressed.matched);
+      }
+    }
+  });
+
+  it("drives the proxy toggle's count to zero under `models`", () => {
+    // Proxy lines ARE requests, so pressing `models` means the toggle would
+    // reveal none — and the count clause drops out of the label rather than
+    // promising rows that are not there. That falls out of the structure.
+    const counts = selectDashboard(
+      snapshot(),
+      consoleUi(mixedBuffer(), { filterFamily: "models" }),
+      NOW,
+    ).logCounts;
+    expect(counts.hiddenProxy).toBe(0);
+
+    const requests = selectDashboard(
+      snapshot(),
+      consoleUi(mixedBuffer(), { filterFamily: "requests" }),
+      NOW,
+    ).logCounts;
+    expect(requests.hiddenProxy).toBe(2);
+  });
+
+  it("offers four families and a reset that reads `any`", () => {
+    const chips = selectDashboard(snapshot(), consoleUi(mixedBuffer()), NOW).toolbar.familyChips;
+    expect(chips.map((c) => c.family)).toEqual([...FAMILIES]);
+    expect(chips.map((c) => c.label)).toEqual(["any", "requests", "models", "startup", "other"]);
+  });
+
+  it("says out loud that `other` is the drift alarm", () => {
+    const chips = selectDashboard(snapshot(), consoleUi(mixedBuffer()), NOW).toolbar.familyChips;
+    const other = chips.find((c) => c.family === "other");
+    expect(other?.count).toBe(1);
+    expect(other?.ariaLabel).toContain("could not classify");
+    expect(other?.ariaLabel).toContain("stays visible");
+  });
+});
+
+describe("byte-exact export", () => {
+  it("writes the frame back in front of the message on every framed row", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(mixedBuffer(), { showProxy: true }), NOW);
+    const text = selectLogText(vm);
+    // The file's own line, reconstructed: this is what makes relocating the
+    // frame a relocation rather than a rewrite.
+    expect(text).toContain(
+      "slot      release: id  0 | task 81259 | stop processing: n_tokens = 193",
+    );
+    expect(text).toContain(
+      "slot print_timing: id  0 | task 81259 |        eval time =   873.11 ms",
+    );
+
+    for (const line of mixedBuffer()) {
+      const row = vm.exportLines.find((entry) => entry.seq === line.seq);
+      if (row === undefined) continue;
+      expect(`${row.frameRaw}${row.message}`, String(line.seq)).toBe(
+        `${line.frame?.raw ?? ""}${line.message}`,
+      );
+    }
+  });
+});
+
+describe("the `truncated = 1` banner", () => {
+  it("appears only when something actually lost context, and searches for it", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(mixedBuffer()), NOW);
+    expect(vm.logCounts.contextLost).toBe(1);
+    const strip = vm.console.banners.find((banner) => banner.key === "context-lost");
+    // "of the N BUFFERED" — never "N requests today". The buffer is a window and
+    // the copy says so rather than implying a total.
+    //
+    // Regression on the noun: it counts LINES, because lines are what is
+    // counted. `buffered` is a line count and a 500-line window is roughly 20
+    // requests, so "500 buffered requests" was false by a factor of 25 — and at
+    // N=1 the singular agreed with the numerator while sitting against the
+    // denominator ("1 of the 500 buffered request").
+    expect(strip?.text).toBe("▲ 1 of the 17 buffered lines said the reply lost context");
+    expect(strip?.action?.kind).toBe("query-truncated");
+    expect(strip?.tone).toBe("warn");
+  });
+
+  it("agrees with its own denominator at every count", () => {
+    const one = mixedBuffer().slice(15, 16);
+    expect(
+      selectDashboard(snapshot(), consoleUi(one), NOW).console.banners.find(
+        (banner) => banner.key === "context-lost",
+      )?.text,
+    ).toBe("▲ 1 of the 1 buffered line said the reply lost context");
+  });
+
+  it("says nothing at all when nothing has", () => {
+    // There is no "0 requests lost context" state: that would be a health
+    // affirmation about a signal the console can see only a window of.
+    const clean = mixedBuffer().filter((line) => line.contextLost !== true);
+    const vm = selectDashboard(snapshot(), consoleUi(clean), NOW);
+    expect(vm.logCounts.contextLost).toBe(0);
+    expect(vm.console.banners.find((banner) => banner.key === "context-lost")).toBeUndefined();
+  });
+
+  it("finds the rows when its action's literal is used as the query", () => {
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(mixedBuffer(), { query: CONTEXT_LOST_QUERY }),
+      NOW,
+    );
+    expect(vm.logCounts.matched).toBe(1);
+    expect(vm.console.lines[0]?.seq).toBe(16);
+  });
+});
+
+describe("request tracing", () => {
+  function traced(over: Partial<UiState> = {}) {
+    return selectDashboard(
+      snapshot(),
+      consoleUi(mixedBuffer(), {
+        trace: { port: PORT_A, task: 81259, anchorSeq: 12 },
+        ...over,
+      }),
+      NOW,
+    );
+  }
+
+  it("is keyed on (port, task), never on the id alone", () => {
+    // Task ids are a per-process counter from 0, so the same id genuinely
+    // appears under two ports here. Keyed on the id alone this trace would mix
+    // two models' lines together and call it one request.
+    const vm = traced();
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([11, 12, 13, 14]);
+    expect(vm.console.trace?.modelLabel).toBe("qwen3.6-moe-a3b-instruct");
+
+    const other = selectDashboard(
+      snapshot(),
+      consoleUi(mixedBuffer(), { trace: { port: PORT_B, task: 81259, anchorSeq: 15 } }),
+      NOW,
+    );
+    expect(other.console.lines.map((row) => row.seq)).toEqual([15, 16]);
+    expect(other.console.trace?.modelLabel).toBe("qwen3.6-moe-30b-thinking");
+  });
+
+  it("picks up the slot-selection line by adjacency and says so", () => {
+    const vm = traced();
+    // Line 11 is `task -1` and joins by position, not by id.
+    expect(vm.console.lines[0]?.seq).toBe(11);
+    expect(vm.console.trace?.detail).toContain("attached by position");
+    expect(vm.console.trace?.detail).toContain("in file order");
+    expect(vm.console.trace?.detail).toContain("Filters do not apply inside a trace");
+  });
+
+  it("omits the adjacent line rather than mis-attaching one", () => {
+    // The rule degrades by dropping a line, which is the safe direction.
+    const withoutSelection = mixedBuffer().filter((line) => line.seq !== 11);
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(withoutSelection, { trace: { port: PORT_A, task: 81259, anchorSeq: 12 } }),
+      NOW,
+    );
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([12, 13, 14]);
+    expect(vm.console.trace?.detail).not.toContain("attached by position");
+  });
+
+  it("ignores every filter, and says so in its banner", () => {
+    // A trace can span lines the filter stack hides; the answer is that the
+    // filters do not apply, not that the trace is cut short.
+    for (const over of [
+      { filterLevel: "ERROR" as const },
+      { filterFamily: "startup" as const },
+      { filterModel: REASON },
+      { query: "nothing matches this" },
+      { showProxy: true },
+    ]) {
+      const vm = traced(over);
+      expect(
+        vm.console.lines.map((row) => row.seq),
+        JSON.stringify(over),
+      ).toEqual([11, 12, 13, 14]);
+      expect(vm.console.state).toBe("tracing");
+    }
+  });
+
+  it("keeps the chips live and honest while it is open", () => {
+    // Nothing is disabled during a trace, so every count still has to be true:
+    // pressing a chip exits the trace and applies the filter, and the number it
+    // promised is the number that arrives.
+    const vm = traced();
+    const chips = vm.toolbar.familyChips;
+    const plain = selectDashboard(snapshot(), consoleUi(mixedBuffer()), NOW);
+    expect(chips.map((c) => c.count)).toEqual(plain.toolbar.familyChips.map((c) => c.count));
+    expect(vm.toolbar.lineCountLabel).toBe("tracing task 81259 · 4 lines");
+  });
+
+  it("marks the traced rows and flips the task cell's glyph", () => {
+    const vm = traced();
+    expect(vm.console.lines.every((row) => row.traced)).toBe(true);
+    const cell = vm.console.lines.find((row) => row.seq === 12)?.task;
+    expect(cell?.active).toBe(true);
+    expect(cell?.label).toBe("▾81259");
+  });
+
+  it("names the port and no model when the port was never mapped", () => {
+    // The model comes from the port map, never from the neighbouring proxy
+    // line — the only line that names a model carries no task id.
+    const anonymous = mixedBuffer().map((line) =>
+      line.port === PORT_A ? { ...line, modelId: null } : line,
+    );
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(anonymous, { trace: { port: PORT_A, task: 81259, anchorSeq: 12 } }),
+      NOW,
+    );
+    expect(vm.console.trace?.modelLabel).toBe("");
+    expect(vm.console.trace?.title).toContain("port 62354");
+    expect(vm.console.trace?.title).not.toContain(" · qwen");
+  });
+
+  it("surfaces a partial trace rather than showing half a request quietly", () => {
+    const tail = mixedBuffer().slice(11);
+    let ui = consoleUi(tail);
+    ui = { ...ui, bufferDropped: true, trace: { port: PORT_A, task: 81259, anchorSeq: 12 } };
+    const vm = selectDashboard(snapshot(), ui, NOW);
+    expect(vm.console.trace?.partial).toBe(true);
+    expect(vm.console.trace?.title).toContain("earliest lines dropped from the buffer");
+  });
+
+  it("claims nothing was dropped unless something was", () => {
+    // Regression: `partial` was `earliest === 0` alone, so a trace that simply
+    // began at the front of a buffer nothing had ever fallen out of announced
+    // "earliest lines dropped from the buffer" — a warning about a loss that
+    // never happened, on the surface whose whole job is to be trusted.
+    const tail = mixedBuffer().slice(11);
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(tail, { trace: { port: PORT_A, task: 81259, anchorSeq: 12 } }),
+      NOW,
+    );
+    expect(vm.logCounts.bufferDropped).toBe(false);
+    expect(vm.console.trace?.partial).toBe(false);
+    expect(vm.console.trace?.title).not.toContain("dropped from the buffer");
+  });
+
+  /**
+   * Two requests that share `(port, task)` because a child died and respawned
+   * on the same ephemeral port, its task counter starting over. They sit close
+   * together — a restart takes seconds, not hundreds of lines.
+   */
+  function reusedPort(): LogLine[] {
+    return [
+      ...mixedBuffer(),
+      ...Array.from({ length: 18 }, (_unused, i) =>
+        plainLine(100 + i, `srv  proxy_reques: proxying request to model ${CHAT}`, {
+          kind: "proxy",
+          modelId: CHAT,
+        }),
+      ),
+      // The SAME port, now serving a different model: the child was replaced.
+      slotLine(200, PORT_A, REASON, "launch_slot_with_task", 0, 81259, "processing task"),
+      slotLine(201, PORT_A, REASON, "release", 0, 81259, "stop processing: n_tokens = 12"),
+    ];
+  }
+
+  it("never merges two requests that share an id, however close they sit", () => {
+    // Regression: with a 200-line split threshold these two requests were 20
+    // lines apart, so they came back as ONE six-member trace with
+    // `splitRuns: false` — one operator's request silently presented as
+    // another's, with no warning anywhere. The measured maximum gap inside a
+    // real request is 7 lines.
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(reusedPort(), { trace: { port: PORT_A, task: 81259, anchorSeq: 12 } }),
+      NOW,
+    );
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([11, 12, 13, 14]);
+    expect(vm.console.trace?.splitRuns).toBe(true);
+    expect(vm.console.trace?.title).toContain("showing only the one you opened");
+  });
+
+  it("shows the run the operator actually opened, not the first one", () => {
+    // `anchorSeq` is what disambiguates, and it has to work in both directions.
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(reusedPort(), { trace: { port: PORT_A, task: 81259, anchorSeq: 200 } }),
+      NOW,
+    );
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([200, 201]);
+    expect(vm.console.trace?.splitRuns).toBe(true);
+  });
+
+  it("names the model from the traced lines, not from whatever used the port", () => {
+    // Regression: the label was the first `modelId` seen on that port ANYWHERE
+    // in the buffer, so a trace of the new child's request was captioned with
+    // the model that used to hold the port before it.
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(reusedPort(), { trace: { port: PORT_A, task: 81259, anchorSeq: 200 } }),
+      NOW,
+    );
+    expect(vm.console.lines.every((row) => row.model === "qwen3.6-moe-30b-thinking")).toBe(true);
+    expect(vm.console.trace?.modelLabel).toBe("qwen3.6-moe-30b-thinking");
+  });
+
+  it("outranks an empty filter but never a sick source", () => {
+    // A filter that matches nothing says nothing about what a trace is showing;
+    // a log file that is gone says everything about it.
+    expect(traced({ filterQueryUnused: undefined } as Partial<UiState>).console.state).toBe(
+      "tracing",
+    );
+    expect(traced({ logSource: "missing" }).console.state).toBe("file-missing");
+    expect(traced({ paused: true }).console.state).toBe("paused");
+  });
+
+  it("drops the filter-view strips, which do not apply inside it", () => {
+    const vm = traced({ filterModel: CHAT, bufferDropped: true });
+    expect(vm.console.banners.map((banner) => banner.key)).toEqual(["trace"]);
+    expect(vm.console.banners[0]?.action?.kind).toBe("exit-trace");
+    expect(vm.console.banners[0]?.tone).toBe("trace");
   });
 });

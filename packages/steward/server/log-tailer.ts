@@ -194,6 +194,14 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
       message: parsed.message,
       kind: parsed.kind,
       origin: parsed.origin,
+      family: parsed.family,
+      // Every enrichment below is optional on the wire and absent when the
+      // parser did not find it, so a future llama.cpp that renames a payload
+      // costs one empty badge and never a dropped row.
+      ...(parsed.port === null ? {} : { port: parsed.port }),
+      ...(parsed.frame === null ? {} : { frame: parsed.frame }),
+      ...(parsed.contextLost ? { contextLost: true } : {}),
+      ...(parsed.cacheHit === null ? {} : { cacheHit: parsed.cacheHit }),
     };
     lines.push(line);
     if (lines.length > maxLines) lines.splice(0, lines.length - maxLines);

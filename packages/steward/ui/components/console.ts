@@ -17,9 +17,10 @@ import type {
   ConsoleBannerVm,
   ConsoleNoticeVm,
   ConsoleVm,
+  LogBadgeVm,
   LogRowVm,
 } from "../../core/select.js";
-import { consoleFocusRestore, countNewLines } from "../../core/select.js";
+import { consoleFocusRestore, countNewLines, taskKey } from "../../core/select.js";
 import type { View } from "../dom.js";
 import { clear, el, setAttr, setStyle, setText, setVar, syncRows } from "../dom.js";
 
@@ -30,12 +31,20 @@ export interface ConsoleHandlers {
    * happens once that query clears.
    */
   onFold: (seq: number, forced: boolean, count: number) => void;
+  /** Opens a trace on one `(port, task)`, anchored at the row that opened it. */
+  onTrace: (port: number, task: number, anchorSeq: number) => void;
+  /** Closes the open trace: `[ back ]`, `Escape`, or the same cell again. */
+  onExitTrace: () => void;
   /** The button inside a notice or banner: clear filters, show all models. */
   onAction: (kind: ConsoleActionVm["kind"]) => void;
 }
 
 /** How close to the bottom still counts as following the tail, in pixels. */
 const FOLLOW_THRESHOLD_PX = 24;
+
+interface BadgeCell {
+  root: HTMLElement;
+}
 
 interface LogRow {
   root: HTMLElement;
@@ -49,7 +58,20 @@ interface LogRow {
   ts: HTMLElement;
   level: HTMLElement;
   model: HTMLElement;
+  /**
+   * Always present so the row's shape never changes and the incremental patcher
+   * is untouched; hidden when the row has no task. A `<button>` on an ordinary
+   * row and a `<span>` on a fold row, whose own root is already a button.
+   */
+  task: HTMLElement;
+  /** The `(port, task)` this cell traces, or `""` when it has none. */
+  taskKey: string;
+  taskPort: number;
+  taskId: number;
   message: HTMLElement;
+  text: HTMLElement;
+  badgeHost: HTMLElement;
+  badges: BadgeCell[];
 }
 
 interface BannerRow {
@@ -67,6 +89,35 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
 
   const heading = el("h2", { class: "visually-hidden" });
   const top = el("div", { class: "console__banners console__banners--top" });
+  /**
+   * The column labels.
+   *
+   * `aria-hidden`, and deliberately so: the rows below are plain elements, not
+   * a `role="grid"`, and announcing a header over a non-tabular structure would
+   * promise `columnheader` semantics on every row that are not there. Each cell
+   * already carries its own name — the level word, the model word, the task
+   * cell's full sentence — so nothing is lost by keeping this visual.
+   *
+   * They are LABELS, never controls: no button, no `cursor: pointer`, no hover
+   * or press state, nothing that offers to sort. File order is the only valid
+   * order here — task ids are allocated at enqueue and logged at dequeue, so a
+   * deferred task logs later with a LOWER id, and a sorted view of this data
+   * would be wrong rather than merely different.
+   */
+  const head = el("div", {
+    class: "log-row console__head",
+    attrs: { "aria-hidden": "true", hidden: true },
+    children: [
+      el("span", { class: "log-row__ts", text: "time" }),
+      el("span", { class: "log-row__level", text: "level" }),
+      el("span", { class: "log-row__model", text: "model" }),
+      el("span", { class: "log-row__task", text: "task" }),
+      el("span", { class: "log-row__msg", text: "message" }),
+    ],
+  });
+  // One sticky block, so the labels can never separate from the strips above
+  // them or slide out from over their own columns.
+  const sticky = el("div", { class: "console__sticky", children: [top, head] });
   const rows = el("div", { class: "console__rows" });
   const bottom = el("div", { class: "console__banners console__banners--bottom" });
 
@@ -106,7 +157,19 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
       "aria-label": "Server log",
       tabindex: "0",
     },
-    children: [heading, top, notice, rows, bottom, jump],
+    children: [heading, sticky, notice, rows, bottom, jump],
+  });
+
+  /** The trace open at the last paint, so a transition is detectable. */
+  let openTrace: string | null = null;
+
+  root.addEventListener("keydown", (event) => {
+    if (!(event instanceof KeyboardEvent) || event.key !== "Escape") return;
+    // `preventDefault` only while a trace is open, so Escape keeps whatever
+    // meaning the browser gives it everywhere else in the console.
+    if (openTrace === null) return;
+    event.preventDefault();
+    handlers.onExitTrace();
   });
 
   // Follow-state: soft, and distinct from the hard Pause button. Scrolling up
@@ -157,12 +220,28 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
     toBottom();
   });
 
+  function createBadge(): BadgeCell {
+    return { root: el("span", { class: "log-badge" }) };
+  }
+
   function createRow(fold: boolean): LogRow {
     const ts = el("span", { class: "log-row__ts" });
     const level = el("span", { class: "log-row__level" });
     const model = el("span", { class: "log-row__model" });
-    const message = el("span", { class: "log-row__msg" });
-    const children = [ts, level, model, message];
+    // A fold row's own root is a `<button>`, and a button inside a button is
+    // not a thing the DOM will keep. A fold stands for an args run, which is
+    // never framed and so never has a task to trace, so its cell is a span that
+    // holds the grid column open and nothing else.
+    const task: HTMLElement = fold
+      ? el("span", { class: "log-row__task", attrs: { "data-empty": "true" } })
+      : el("button", {
+          class: "log-row__task",
+          attrs: { type: "button", "data-empty": "true" },
+        });
+    const text = el("span", { class: "log-row__text" });
+    const badgeHost = el("span", { class: "log-badges" });
+    const message = el("span", { class: "log-row__msg", children: [text, badgeHost] });
+    const children = [ts, level, model, task, message];
     const row: LogRow = {
       root: fold
         ? el("button", { class: "log-row log-row--fold", attrs: { type: "button" }, children })
@@ -176,11 +255,26 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
       ts,
       level,
       model,
+      task,
+      taskKey: "",
+      taskPort: -1,
+      taskId: -1,
       message,
+      text,
+      badgeHost,
+      badges: [],
     };
     if (fold) {
       row.root.addEventListener("click", () => {
         handlers.onFold(row.foldSeq, row.foldForced, row.foldCount);
+      });
+    } else {
+      task.addEventListener("click", () => {
+        if (row.taskKey === "") return;
+        // Pressing the cell that opened the trace closes it, which is what the
+        // `▾`/`▸` glyph and `aria-pressed` have been saying all along.
+        if (task.getAttribute("aria-pressed") === "true") handlers.onExitTrace();
+        else handlers.onTrace(row.taskPort, row.taskId, row.seq);
       });
     }
     return row;
@@ -195,13 +289,35 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
     setVar(row.model, "model-color", line.modelColor);
     setAttr(row.model, "data-scope", line.scope);
     setAttr(row.model, "title", line.modelTitle === "" ? false : line.modelTitle);
-    setText(row.message, line.message);
+
+    // The cell is always in the grid; when there is no task it is
+    // `visibility: hidden`, which takes it out of the tab order and the
+    // accessibility tree while keeping the column's rhythm intact.
+    const cell = line.task;
+    row.taskKey = cell?.key ?? "";
+    row.taskPort = cell?.port ?? -1;
+    row.taskId = cell?.task ?? -1;
+    setText(row.task, cell?.label ?? "");
+    setAttr(row.task, "data-empty", cell === null ? "true" : false);
+    setAttr(row.task, "aria-label", cell?.ariaLabel ?? false);
+    setAttr(row.task, "title", cell?.ariaLabel ?? false);
+    setAttr(row.task, "aria-pressed", cell === null ? false : String(cell.active));
+
+    setText(row.text, line.message);
+    syncRows(row.badgeHost, row.badges, line.badges.length, createBadge);
+    line.badges.forEach((badge, index) => {
+      const cellNode = row.badges[index];
+      if (cellNode === undefined) return;
+      paintBadge(cellNode, badge);
+    });
+
     // Severity is carried by `data-level` in CSS — a filled badge for WARN and
     // ERROR against a plain token for INFO and DEBUG — so it is a difference in
     // shape, not only in hue.
     setAttr(row.root, "data-level", line.level);
     setAttr(row.root, "data-kind", line.kind);
     setAttr(row.root, "data-fold", line.folded ? "member" : false);
+    setAttr(row.root, "data-traced", line.traced ? "true" : false);
     if (line.fold !== null) {
       row.foldSeq = line.fold.seq;
       row.foldForced = line.fold.forced;
@@ -209,6 +325,12 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
       setAttr(row.root, "aria-expanded", String(line.fold.expanded));
       setAttr(row.root, "aria-label", line.fold.ariaLabel);
     }
+  }
+
+  function paintBadge(cell: BadgeCell, vm: LogBadgeVm): void {
+    setText(cell.root, vm.label);
+    setAttr(cell.root, "title", vm.title);
+    setAttr(cell.root, "data-tone", vm.tone);
   }
 
   function createBanner(): BannerRow {
@@ -274,9 +396,21 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
       const activeFoldKey = focusWasInside
         ? (rendered.find((row) => row.fold && row.root === active)?.key ?? null)
         : null;
+      const activeTaskKey = focusWasInside
+        ? (rendered.find((row) => row.task === active)?.taskKey ?? null)
+        : null;
+
+      const nextTrace = vm.trace === null ? null : taskKey(vm.trace.port, vm.trace.task);
+      const enteringTrace = nextTrace !== null && nextTrace !== openTrace;
+      const leavingTrace = nextTrace === null && openTrace !== null;
+      const exitingTaskKey = openTrace;
+      openTrace = nextTrace;
 
       setText(heading, vm.heading);
       paintNotice(vm.notice);
+      // The header collapses with the column it labels, so it can never sit
+      // over 64px of nothing.
+      setAttr(root, "data-tasks", vm.showTaskColumn ? "some" : "none");
 
       const above = vm.banners.filter((banner) => banner.placement === "top");
       const below = vm.banners.filter((banner) => banner.placement === "bottom");
@@ -292,14 +426,16 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
       });
 
       const lines = vm.lines;
-      const head = lines[0];
+      // Labels over nothing are noise, so they go with the rows.
+      setAttr(head, "hidden", lines.length === 0);
+      const first0 = lines[0];
       let structureChanged = false;
 
       // Retire rows that have scrolled out of the window.
       while (rendered.length > 0) {
         const first = rendered[0];
         if (first === undefined) break;
-        if (head !== undefined && first.seq >= head.seq) break;
+        if (first0 !== undefined && first.seq >= first0.seq) break;
         rows.removeChild(first.root);
         rendered.shift();
         structureChanged = true;
@@ -339,13 +475,29 @@ export function createLogConsole(handlers: ConsoleHandlers): View<ConsoleVm> {
       // when an ancestor turns `display: none`, so "the active element moved
       // while we were patching" catches all three cases without guessing at
       // layout — the notice is hidden, not removed, and the banner is removed.
-      const restore = consoleFocusRestore(
-        focusWasInside && document.activeElement !== active,
-        activeFoldKey,
-        rendered.map((row) => row.key),
-      );
+      const restore = consoleFocusRestore({
+        wasInside: focusWasInside,
+        moved: focusWasInside && document.activeElement !== active,
+        enteringTrace,
+        leavingTrace,
+        foldKey: activeFoldKey,
+        taskKey: activeTaskKey,
+        exitingTaskKey,
+        keys: rendered.map((row) => row.key),
+        taskKeys: rendered.map((row) => row.taskKey).filter((key) => key !== ""),
+      });
       if (restore.target === "fold") {
         rendered.find((row) => row.key === restore.key)?.root.focus();
+      } else if (restore.target === "task") {
+        rendered.find((row) => row.taskKey === restore.key)?.task.focus();
+      } else if (restore.target === "back") {
+        // The trace banner's own action button — the safe landing, and the same
+        // pattern the service block's confirm strip uses.
+        const back = topBanners.find(
+          (banner) => banner.kind === "exit-trace" && !banner.action.hasAttribute("hidden"),
+        );
+        if (back !== undefined) back.action.focus();
+        else root.focus();
       } else if (restore.target === "region") {
         root.focus();
       }

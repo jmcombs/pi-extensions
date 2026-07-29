@@ -270,6 +270,12 @@ export interface LogTextRow {
   time: string;
   level: string;
   model: string;
+  /**
+   * The pipe frame the row moved into its own column, or `""`. Written back in
+   * front of the message so the exported text is the file's own line, not a
+   * reassembly of the parts Steward chose to display.
+   */
+  frameRaw: string;
   message: string;
 }
 
@@ -277,7 +283,12 @@ export interface LogTextRow {
  * The copy/download payload: `HH:MM:SS.mmm LEVEL model message`, one line each.
  * It mirrors what is on screen, filters included — the operator is quoting the
  * console, not dumping the buffer.
+ *
+ * The message half is byte-exact against the source file: the frame the task
+ * column took out of the message goes back in front of it. That is the
+ * guarantee that makes moving the frame legitimate, so it is written here, in
+ * the one function both Copy and Download go through.
  */
 export function formatLogText(rows: readonly LogTextRow[]): string {
-  return rows.map((r) => `${r.time} ${r.level} ${r.model} ${r.message}`).join("\n");
+  return rows.map((r) => `${r.time} ${r.level} ${r.model} ${r.frameRaw}${r.message}`).join("\n");
 }

@@ -290,11 +290,42 @@ describe("formatLogText", () => {
   it("writes one `HH:MM:SS.mmm LEVEL model message` line per row", () => {
     expect(
       formatLogText([
-        { time: "09:04:07.042", level: "INFO", model: "qwen3.6-moe-a3b-instruct", message: "a b" },
-        { time: "09:04:08.100", level: "WARN", model: "qwen3.6-moe-coder-fim", message: "c" },
+        {
+          time: "09:04:07.042",
+          level: "INFO",
+          model: "qwen3.6-moe-a3b-instruct",
+          frameRaw: "",
+          message: "a b",
+        },
+        {
+          time: "09:04:08.100",
+          level: "WARN",
+          model: "qwen3.6-moe-coder-fim",
+          frameRaw: "",
+          message: "c",
+        },
       ]),
     ).toBe(
       "09:04:07.042 INFO qwen3.6-moe-a3b-instruct a b\n09:04:08.100 WARN qwen3.6-moe-coder-fim c",
+    );
+  });
+
+  it("writes the relocated frame back in front of the message", () => {
+    // The task column took `id  0 | task 81259 | ` out of the message; an
+    // export that did not put it back would be a reassembly of the file rather
+    // than the file, and the whole relocation would be a rewrite.
+    expect(
+      formatLogText([
+        {
+          time: "09:04:07.042",
+          level: "INFO",
+          model: "gpt-oss-20b",
+          frameRaw: "slot      release: id  0 | task 81259 | ",
+          message: "stop processing: n_tokens = 193, truncated = 0",
+        },
+      ]),
+    ).toBe(
+      "09:04:07.042 INFO gpt-oss-20b slot      release: id  0 | task 81259 | stop processing: n_tokens = 193, truncated = 0",
     );
   });
 

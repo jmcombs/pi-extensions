@@ -8,6 +8,7 @@
  */
 
 import {
+  CONTEXT_LOST_QUERY,
   consoleAnnouncement,
   driftAnnouncement,
   foldAnnouncement,
@@ -16,7 +17,7 @@ import {
   selectLogText,
   truncationAnnouncement,
 } from "../core/select.js";
-import type { LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
+import type { FamilyFilter, LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
 import { initialUiState, reduce } from "../core/state.js";
 import type {
   LogLine,
@@ -158,18 +159,32 @@ function filterResult(): string {
   return `${counts.matched} of ${counts.buffered} lines.${hidden}`;
 }
 
+/**
+ * The clause a filter announcement carries when it also closed a trace.
+ *
+ * The reducer clears the trace on every `filter/*` action, so a handler cannot
+ * forget it — but the OPERATOR still has to be told, in the same sentence as
+ * the thing they actually asked for. Read before the dispatch, since afterwards
+ * the trace is already gone.
+ */
+function traceClosedPrefix(): string {
+  return ui.trace === null ? "" : "Trace closed. ";
+}
+
 const modelsBlock = createModelsBlock({
   onFilterModel: (modelId) => {
+    const closed = traceClosedPrefix();
     dispatch({ type: "filter/model-toggle", modelId });
     announce(
       ui.filterModel === null
-        ? `Log showing all models — ${filterResult()}`
-        : `Log scoped to ${ui.filterModel} — ${filterResult()}`,
+        ? `${closed}Log showing all models — ${filterResult()}`
+        : `${closed}Log scoped to ${ui.filterModel} — ${filterResult()}`,
     );
   },
   onShowAllLogs: () => {
+    const closed = traceClosedPrefix();
     dispatch({ type: "filter/model", modelId: null });
-    announce(`Log showing all models — ${filterResult()}`);
+    announce(`${closed}Log showing all models — ${filterResult()}`);
   },
   onModelAction: (modelId, action) => {
     void runModel(modelId, action);
@@ -181,29 +196,37 @@ const metricsBand = createMetricsBand(sparkline.el);
 
 const toolbar = createToolbar({
   onLevel: (level: LevelFilter) => {
+    const closed = traceClosedPrefix();
     dispatch({ type: "filter/level", level });
-    announce(`Level filter: ${level === "all" ? "all levels" : level} — ${filterResult()}`);
+    announce(`${closed}Level filter: ${level === "all" ? "any level" : level} — ${filterResult()}`);
+  },
+  onFamily: (family: FamilyFilter) => {
+    const closed = traceClosedPrefix();
+    dispatch({ type: "filter/family", family });
+    announce(`${closed}Kind filter: ${family === "any" ? "any kind" : family} — ${filterResult()}`);
   },
   onQuery: (query) => {
+    const closed = traceClosedPrefix();
     dispatch({ type: "filter/query", query });
     window.clearTimeout(queryTimer);
     queryTimer = window.setTimeout(() => {
       const trimmed = ui.query.trim();
       announce(
         trimmed === ""
-          ? `Search cleared — ${filterResult()}`
-          : `Search "${trimmed}": ${filterResult()}`,
+          ? `${closed}Search cleared — ${filterResult()}`
+          : `${closed}Search "${trimmed}": ${filterResult()}`,
       );
     }, QUERY_ANNOUNCE_MS);
   },
   onToggleProxy: () => {
+    const closed = traceClosedPrefix();
     dispatch({ type: "filter/proxy-toggle" });
     if (snapshot === null) return;
     const counts = selectDashboard(snapshot, ui, snapshot.now).logCounts;
     announce(
       ui.showProxy
-        ? `Proxied requests shown. ${counts.matched} of ${counts.buffered} lines.`
-        : `Proxied requests hidden. ${counts.matched} of ${counts.buffered} lines. Most were Steward's own status polls.`,
+        ? `${closed}Proxied requests shown. ${counts.matched} of ${counts.buffered} lines.`
+        : `${closed}Proxied requests hidden. ${counts.matched} of ${counts.buffered} lines. Most were Steward's own status polls.`,
     );
   },
   onTogglePause: () => {
@@ -224,16 +247,46 @@ const logConsole = createLogConsole({
     // not a live region and that rule does not bend for 31 argument lines.
     announce(foldAnnouncement(count, forced, ui.expandedArgs[seq] === true));
   },
+  onTrace: (port, task, anchorSeq) => {
+    dispatch({ type: "logs/trace", trace: { port, task, anchorSeq } });
+    if (snapshot === null) return;
+    const counts = selectDashboard(snapshot, ui, snapshot.now).logCounts;
+    announce(
+      `Tracing task ${task} on port ${port} — ${counts.traced} lines. Filters do not apply inside a trace.`,
+    );
+  },
+  onExitTrace: () => {
+    if (ui.trace === null) return;
+    dispatch({ type: "logs/trace", trace: null });
+    announce(`Trace closed. ${filterResult()}`);
+  },
   onAction: (kind) => {
-    if (kind === "show-all-models") {
-      dispatch({ type: "filter/model", modelId: null });
-      announce(`Log showing all models — ${filterResult()}`);
+    if (kind === "exit-trace") {
+      if (ui.trace === null) return;
+      dispatch({ type: "logs/trace", trace: null });
+      announce(`Trace closed. ${filterResult()}`);
       return;
     }
+    if (kind === "query-truncated") {
+      // A search, not a fourth filter axis: the box visibly fills with the
+      // literal the message carries, and the operator can edit or clear it.
+      const closed = traceClosedPrefix();
+      dispatch({ type: "filter/query", query: CONTEXT_LOST_QUERY });
+      announce(`${closed}Search "${CONTEXT_LOST_QUERY}": ${filterResult()}`);
+      return;
+    }
+    if (kind === "show-all-models") {
+      const closed = traceClosedPrefix();
+      dispatch({ type: "filter/model", modelId: null });
+      announce(`${closed}Log showing all models — ${filterResult()}`);
+      return;
+    }
+    const closed = traceClosedPrefix();
     dispatch({ type: "filter/model", modelId: null });
     dispatch({ type: "filter/level", level: "all" });
+    dispatch({ type: "filter/family", family: "any" });
     dispatch({ type: "filter/query", query: "" });
-    announce(`Filters cleared — ${filterResult()}`);
+    announce(`${closed}Filters cleared — ${filterResult()}`);
   },
 });
 const slotsStrip = createSlotsStrip();

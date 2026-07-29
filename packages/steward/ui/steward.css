@@ -1208,14 +1208,23 @@ button {
    Console toolbar
    =================================================================== */
 
+/* Two explicit rows, not one wrapping row: two chip groups that wrapped into
+   each other would read as one control set with two resets in it. */
 .toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-chrome);
+}
+
+.toolbar__row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-chrome);
 }
 
 .toolbar__label {
@@ -1238,7 +1247,8 @@ button {
   white-space: nowrap;
 }
 
-.toolbar__levels {
+/* One rule for both chip groups — they are the same component on two axes. */
+.toolbar__chips {
   display: flex;
   gap: 6px;
 }
@@ -1324,14 +1334,52 @@ button {
   box-shadow: var(--ring);
 }
 
+/* Four columns become five. The model cell pays 24px of the task cell's bill;
+   a `short` name is already trimmed of its repo prefix and quant suffix. */
 .log-row {
   display: grid;
-  grid-template-columns: 92px 54px minmax(0, 200px) minmax(0, 1fr);
+  grid-template-columns: 92px 54px minmax(0, 176px) 64px minmax(0, 1fr);
   gap: 12px;
   padding: 3px 18px;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
+}
+
+/* Nothing in the matched set is framed — an idle router showing eleven banner
+   lines gets the original four-column grid back, not 64px of dead space. The
+   attribute sits on the console rather than the row list so the header collapses
+   with the column it labels. */
+.console[data-tasks="none"] .log-row {
+  grid-template-columns: 92px 54px minmax(0, 200px) minmax(0, 1fr);
+}
+
+/* The column labels. LABELS, not controls: no pointer cursor, no hover, no
+   press state — nothing that offers to sort. File order is the only valid order
+   here, and task ids are not monotonic, so a sorted view would be wrong rather
+   than merely different. */
+.console__head {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: default;
+  user-select: none;
+}
+
+.console__head[hidden] {
+  display: none;
+}
+
+/* The header and the strips above it are one sticky block, so the labels can
+   never separate from the strips or slide out from over their own columns. */
+.console__sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-chrome);
 }
 
 .log-row__ts {
@@ -1397,13 +1445,113 @@ button {
   color: var(--text-subtle);
 }
 
+/* The task cell: the same inline-button vocabulary as the args fold, glyph
+   included — `▸` already means "press to reveal more" in this console. */
+.log-row__task {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+/* Scoped to the BUTTON. The header cell carries the same class for the grid's
+   sake, and a pointer cursor plus a hover colour on a column label is exactly
+   the sort affordance a header on this data must never offer — file order is
+   the only valid order. */
+button.log-row__task {
+  cursor: pointer;
+}
+
+/* No task to trace: the cell keeps its grid column so the rhythm never shifts,
+   and `visibility` takes it out of the tab order and the accessibility tree. */
+.log-row__task[data-empty="true"] {
+  visibility: hidden;
+}
+
+button.log-row__task:hover {
+  color: var(--text-primary);
+}
+
+.log-row__task[aria-pressed="true"] {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.log-row__task:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Last, so it wins: with no framed line in the matched set the cell is gone
+   from the header and every row together, not merely emptied. */
+.console[data-tasks="none"] .log-row__task {
+  display: none;
+}
+
 .log-row__msg {
   color: var(--text-secondary);
+}
+
+.log-row__text {
   white-space: pre-wrap;
   /* `pre-wrap` alone will not break an unbroken token: an absolute path or a
      JSON blob would push the layout sideways. Wrap, never truncate — the
      operator needs the whole error string. */
   overflow-wrap: anywhere;
+}
+
+/* Trailing annotations. A leading badge would shift the message's left edge per
+   row and break the rhythm that makes a log scannable. */
+.log-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.log-badges:empty {
+  display: none;
+  margin-left: 0;
+}
+
+.log-badge {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  /* Severity in FORM: a glyph and a tinted ground, with the text at full
+     contrast. `--warning` as text is ~2.2:1 on Latte and is never used here. */
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-muted) 16%, transparent);
+  white-space: nowrap;
+}
+
+.log-badge[data-tone="warn"] {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+}
+
+/* A traced row is part of one request's story rather than the general tail. */
+.log-row[data-traced="true"] {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+/* The header reuses the row's cell classes so its grid can never drift apart
+   from the columns it labels — which means it also inherits their per-cell
+   colours. `--text-subtle` (time) is 1.97:1 and `--text-muted` (model) 2.42:1
+   on the chrome ground in Latte, and these are 10.5px labels. They are text
+   here, not decoration, so every cell is pinned to the same legible token.
+   Declared after the cells themselves so specificity and source order agree. */
+.console__head .log-row__ts,
+.console__head .log-row__level,
+.console__head .log-row__model,
+.console__head .log-row__task,
+.console__head .log-row__msg {
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-style: normal;
 }
 
 /* The launch-argument fold: a real button sitting inline in the scrollback,
@@ -1418,7 +1566,7 @@ button {
   color: inherit;
 }
 
-.log-row--fold:hover .log-row__msg {
+.log-row--fold:hover .log-row__text {
   color: var(--text-primary);
 }
 
@@ -1432,10 +1580,10 @@ button {
 }
 
 /* Strips that coexist with rows. Sticky so they stay legible in a long
-   scrollback — a truncation warning that scrolls away has not warned anyone. */
+   scrollback — a truncation warning that scrolls away has not warned anyone.
+   The top strips get their stickiness from `.console__sticky`, which pins them
+   together with the column header. */
 .console__banners {
-  position: sticky;
-  z-index: 1;
   background: var(--surface-chrome);
 }
 
@@ -1445,12 +1593,10 @@ button {
   padding: 10px 0;
 }
 
-.console__banners--top {
-  top: 0;
-}
-
 .console__banners--bottom {
+  position: sticky;
   bottom: 0;
+  z-index: 1;
 }
 
 .console__banners:empty {
@@ -1497,6 +1643,20 @@ button {
 }
 
 .console__banner[data-tone="warn"] .console__banner-detail {
+  color: var(--text-primary);
+}
+
+/* The trace banner. It needs no new machinery, only a stronger ground than the
+   muted strips it sits among — a trace is a mode, and a mode should look like
+   one. Text stays at full contrast; the accent is the ground and the rule. */
+.console__banner[data-tone="trace"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-left: 2px solid var(--accent);
+  padding-left: 16px;
+}
+
+.console__banner[data-tone="trace"] .console__banner-detail {
   color: var(--text-primary);
 }
 

@@ -54,7 +54,14 @@ describe("parseLogLine", () => {
     expect(line.kind).toBe("event");
     // A child line names no model — its port is the only attribution there is.
     expect(line.modelName).toBeNull();
-    expect(line.message.startsWith("slot print_timing: id  0 | task 81259 |")).toBe(true);
+    // The pipe frame is relocated, not lost: it comes back whole in `frame.raw`
+    // and the message is the payload after it.
+    expect(line.frame).toEqual({
+      slot: 0,
+      task: 81259,
+      raw: "slot print_timing: id  0 | task 81259 | ",
+    });
+    expect(line.message.startsWith("prompt eval time =")).toBe(true);
   });
 
   it("reads library lines that carry no component at all", () => {
@@ -309,7 +316,8 @@ describe("parseLogLine", () => {
     expect(padded.origin).toBe("child");
     expect(padded.port).toBe(8080);
     expect(padded.level).toBe("INFO");
-    expect(padded.message).toBe("slot print_timing: id  0 | task 7 | prompt eval time = 191.34 ms");
+    expect(padded.frame?.raw).toBe("slot print_timing: id  0 | task 7 | ");
+    expect(padded.message).toBe("prompt eval time = 191.34 ms");
 
     // Narrower ports pad wider; the field width itself is not something to rely
     // on, so any amount of padding on either side reads the same.
@@ -327,7 +335,8 @@ describe("parseLogLine", () => {
     );
     expect(ephemeral.origin).toBe("child");
     expect(ephemeral.port).toBe(57409);
-    expect(ephemeral.message.startsWith("slot print_timing:")).toBe(true);
+    expect(ephemeral.frame?.raw).toBe("slot print_timing: id  0 | task 81259 | ");
+    expect(ephemeral.message).toBe("total time = 1064.45 ms");
 
     // Padding is spaces and digits only — bracketed message text stays text.
     for (const raw of ["[ warn ] something", "[80a] something", "[] something"]) {
@@ -400,5 +409,218 @@ describe("parseLogLine", () => {
     for (const raw of raws) {
       expect(raw.endsWith(parseLogLine(raw).message)).toBe(true);
     }
+  });
+});
+
+describe("the relocated pipe frame", () => {
+  const TIMING =
+    "[62354] 1408.02.762.105 I slot print_timing: id  0 | task 81259 |        eval time =   873.11 ms /   120 tokens";
+
+  it("re-forms the file's own line from `frame.raw` and the message", () => {
+    // This is the load-bearing guarantee: without it, moving the frame out of
+    // the message is a rewrite of the record rather than a relocation of one
+    // field, and Copy/Download stop reproducing the file.
+    const line = parseLogLine(TIMING);
+    expect(line.frame?.raw).toBe("slot print_timing: id  0 | task 81259 | ");
+    expect(line.message).toBe("       eval time =   873.11 ms /   120 tokens");
+    expect(TIMING.endsWith(`${line.frame?.raw}${line.message}`)).toBe(true);
+  });
+
+  it("reads the slot and the task off the frame, negatives included", () => {
+    const selected = parseLogLine(
+      "[62354] I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.473 (> 0.100 thold), f_keep = 0.024",
+    );
+    // `task -1` is llama.cpp saying "no task is attached yet", 217/217 times.
+    // It has to survive parsing as -1, because that is what tells the console
+    // to render no trace button on this row.
+    expect(selected.frame).toEqual({
+      slot: 0,
+      task: -1,
+      raw: "slot get_availabl: id  0 | task -1 | ",
+    });
+  });
+
+  it("leaves a line that merely LOOKS framed completely alone", () => {
+    // The degradation case: an invented future llama.cpp with a renamed
+    // function and its own pipe-looking payload. It renders completely, its
+    // pipes untouched, under `any` and under `other`.
+    const line = parseLogLine(
+      "1401.19.775.771 I srv   frobnicate: widget 3 | zone 7 | reticulating splines",
+    );
+    expect(line.frame).toBeNull();
+    expect(line.message).toBe("srv   frobnicate: widget 3 | zone 7 | reticulating splines");
+    expect(line.family).toBe("other");
+  });
+
+  it("treats a frame whose numbers do not parse as no frame at all", () => {
+    // An enrichment that cannot be trusted is better absent than wrong: the row
+    // renders exactly as it did before any of this existed.
+    const line = parseLogLine("[62354] I slot print_timing: id  x | task y | eval time = 1 ms");
+    expect(line.frame).toBeNull();
+    expect(line.message).toBe("slot print_timing: id  x | task y | eval time = 1 ms");
+  });
+});
+
+describe("the nullable payload enrichments", () => {
+  it("reads `truncated = 1` and stays silent on `truncated = 0`", () => {
+    const lost = parseLogLine(
+      "[62354] I slot      release: id  0 | task 81402 | stop processing: n_tokens = 4096, truncated = 1",
+    );
+    expect(lost.contextLost).toBe(true);
+
+    const fine = parseLogLine(
+      "[62354] I slot      release: id  0 | task 81259 | stop processing: n_tokens = 193, truncated = 0",
+    );
+    expect(fine.contextLost).toBe(false);
+  });
+
+  it("misses silently when the payload key is renamed", () => {
+    // `n_past` → `n_tokens` happened inside the observation window, silently.
+    // When the next rename lands, the extractor misses, the badge never
+    // appears, the count stays 0 — and the operator can still READ the value in
+    // the message text, which is the whole design.
+    const renamed = parseLogLine(
+      "[62354] I slot      release: id  0 | task 81402 | stop processing: n_tokens = 4096, was_clipped = 1",
+    );
+    expect(renamed.contextLost).toBe(false);
+    expect(renamed.frame?.task).toBe(81402);
+    expect(renamed.message).toContain("was_clipped = 1");
+  });
+
+  it("reads `sim_best` as a 0–1 fraction", () => {
+    const line = parseLogLine(
+      "[62354] I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.473 (> 0.100 thold), f_keep = 0.024",
+    );
+    expect(line.cacheHit).toBe(0.473);
+    expect(
+      parseLogLine(
+        "[62354] I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1",
+      ).cacheHit,
+    ).toBeNull();
+  });
+});
+
+describe("classifyFamily", () => {
+  function family(raw: string, previous: ParsedLogLine | null = null): string {
+    return parseLogLine(raw, previous).family;
+  }
+
+  it("puts every pipe-framed slot line under requests", () => {
+    expect(
+      family("[62354] I slot launch_slot_: id  0 | task 81259 | processing task, is_child = 0"),
+    ).toBe("requests");
+    // A WARN framed line is still a request record; the level chip is the other
+    // axis and they do not collapse into each other.
+    expect(
+      family(
+        "[62354] W slot create_check: id  0 | task 81259 | erasing old context checkpoint (pos_min = 0)",
+      ),
+    ).toBe("requests");
+  });
+
+  it("puts a proxied request under requests, where its toggle lives", () => {
+    expect(family("I srv  proxy_reques: proxying request to model gpt-oss-20b on port 62354")).toBe(
+      "requests",
+    );
+  });
+
+  it("puts the args header under models, so the fold is not orphaned", () => {
+    // The header carries no `name=` and would otherwise land in `other`, split
+    // off from the 31 rows it introduces.
+    expect(family("I srv          load: spawning server instance with args:")).toBe("models");
+
+    const header = parseLogLine("I srv          load: spawning server instance with args:");
+    expect(family("I srv          load:   --ctx-size", header)).toBe("models");
+  });
+
+  it("puts anything naming an instance under models", () => {
+    for (const raw of [
+      "I srv          load: spawning server instance with name=gpt-oss-20b on port 53691",
+      "I srv        unload: stopping model instance name=gpt-oss-20b",
+      "I srv    unload_lru: models_max limit reached, removing LRU name=gpt-oss-20b",
+      "I srv    operator(): instance name=gpt-oss-20b exited with status 0",
+    ]) {
+      expect(family(raw), raw).toBe("models");
+    }
+  });
+
+  it("puts a child's own output under models without ever naming a function", () => {
+    // The component-less vocab warnings come from `llama_vocab::impl::load` —
+    // a completely different `load` from the router's. The `[port]` prefix is
+    // what catches them, so no rule has to know that.
+    expect(
+      family(
+        "[53691] W load: setting token '<|message|>' (200008) attribute to USER_DEFINED (16), old attributes: 8",
+      ),
+    ).toBe("models");
+    expect(family("[53691] I srv  llama_server: model loaded")).toBe("models");
+  });
+
+  it("puts the router's boot vocabulary under startup", () => {
+    for (const raw of [
+      "I srv  llama_server: starting server in router mode. models will be loaded on-demand",
+      "I srv  llama_server: listening on http://127.0.0.1:8080",
+      "W srv  llama_server: NOTE: router mode is experimental",
+      "W srv  llama_server: it is not recommended to use this mode in untrusted environments",
+      "I srv   load_models: Loaded 9 cached model presets",
+      "I srv    operator(): Available models (9) (*: custom preset)",
+      "I cmn  common_param: common_params_print_info: verbosity = 3",
+      "I srv          init: chat template supports preserving reasoning",
+    ]) {
+      expect(family(raw), raw).toBe("startup");
+    }
+  });
+
+  it("keeps the preset catalogue's members with the header they hang off", () => {
+    // The members carry nothing but a model id — no literal to key on — so
+    // membership is positional, exactly as it is for the launch-args run. Left
+    // to the prose list alone they piled into `other`: ~230 lines per router
+    // boot, which is a floor under the one count that is supposed to mean
+    // "something new turned up".
+    let previous = parseLogLine("I srv    operator(): Available models (9) (*: custom preset)");
+    expect(previous.family).toBe("startup");
+    for (const raw of [
+      "I srv    operator():     gemma-4-31B-it-Q8_0",
+      "I srv    operator():     gpt-oss-20b-MXFP4",
+      "I srv    operator():   * qwen3.6-35b-a3b (aliases: qwen3.6-35b-a3b)",
+    ]) {
+      const line = parseLogLine(raw, previous);
+      expect(line.family, raw).toBe("startup");
+      previous = line;
+    }
+
+    // And the run ENDS at the first line that is not indented under it, so an
+    // unrelated line after the catalogue is classified on its own merits.
+    expect(parseLogLine("I srv   frobnicate: widget 3", previous).family).toBe("other");
+  });
+
+  it("does not start a catalogue run from nowhere", () => {
+    // The indentation shape alone means nothing: without the header before it,
+    // an indented line is just a line.
+    expect(parseLogLine("I srv    operator():     gemma-4-31B-it-Q8_0").family).toBe("other");
+    const unrelated = parseLogLine("I srv   frobnicate: widget 3");
+    expect(parseLogLine("I srv    operator():     gemma-4-31B-it-Q8_0", unrelated).family).toBe(
+      "other",
+    );
+  });
+
+  it("drops an unrecognised shape into other rather than dropping the row", () => {
+    // `other` is the drift alarm, and it needs no alarm built: a new
+    // llama-server message shape lands there and stays visible.
+    expect(family("I srv   frobnicate: widget 3 | zone 7 | reticulating splines")).toBe("other");
+    const line = parseLogLine("I srv   frobnicate: widget 3 | zone 7 | reticulating splines");
+    expect(line.message).toBe("srv   frobnicate: widget 3 | zone 7 | reticulating splines");
+  });
+
+  it("never reads a function name, so `operator()` cannot decide anything", () => {
+    // The same 12-char token covers the preset catalogue, child shutdown, model
+    // lifecycle and HTTP exceptions — four unrelated concerns — so it lands in
+    // whichever family its OTHER properties put it in, and never in one because
+    // of the token itself.
+    expect(family("I srv    operator(): instance name=gpt-oss-20b exited with status 0")).toBe(
+      "models",
+    );
+    expect(family("[53691] I srv    operator(): exit command received, exiting...")).toBe("models");
+    expect(family('W srv    operator(): got exception: {"error":"bad request"}')).toBe("other");
   });
 });

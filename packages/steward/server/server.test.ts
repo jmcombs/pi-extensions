@@ -670,10 +670,55 @@ describe("the console's own text contrast", () => {
 
   it("never paints console text with the tertiary token, which fails in Latte", () => {
     const css = readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
-    const consoleRules = [...css.matchAll(/(\.(?:console|log-row|chip)[^{]*)\{([^}]*)\}/g)];
+    // `log-badge` is in the alternation because the trailing annotations are
+    // console text too, and a guard that does not scan a surface is not
+    // guarding it — the gap, not the colour, is what this line fixes.
+    const consoleRules = [
+      ...css.matchAll(/(\.(?:console|log-row|log-badge|chip)[^{]*)\{([^}]*)\}/g),
+    ];
     const offenders = consoleRules
       .filter(([, , body]) => /(?:^|[;\s])color:\s*var\(--text-tertiary\)/.test(body ?? ""))
       .map(([, selector]) => selector?.trim());
     expect(offenders).toEqual([]);
+  });
+
+  it("paints every column header cell with a token that clears AA in Latte", () => {
+    // The header reuses the ROW's cell classes so its grid can never drift from
+    // the columns it labels — and therefore inherits their per-cell colours.
+    // `--text-subtle` (time) is 1.97:1 and `--text-muted` (model) 2.42:1 on the
+    // chrome ground in Latte, at 10.5px. Every cell has to be pinned back.
+    const css = readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
+    // The one block that pins them, and every cell the header renders.
+    const pinned = [...css.matchAll(/((?:\.console__head\s+\.log-row__[a-z]+,?\s*)+)\{([^}]*)\}/g)]
+      .filter(([, , body]) => /(?:^|[;\s])color:\s*var\(--text-secondary\)/.test(body ?? ""))
+      .map(([, selector]) => selector ?? "")
+      .join(" ");
+    for (const cell of ["ts", "level", "model", "task", "msg"]) {
+      expect(pinned, `header cell ${cell} is not pinned to a legible token`).toContain(
+        `.console__head .log-row__${cell}`,
+      );
+    }
+  });
+
+  it("gives the column headers no sort affordance of any kind", () => {
+    // A header on a grid of aligned cells reads as a table, and a table's
+    // affordance is `sortable` — the one thing this data must never do. File
+    // order is the only valid order: task ids are allocated at enqueue and
+    // logged at dequeue, so a deferred task logs LATER with a LOWER id.
+    //
+    // The header carries `.log-row__task` for the grid's sake, so any pointer
+    // cursor or hover state on that class leaks onto a column label.
+    const css = readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
+    for (const [selector, body] of css.matchAll(/(?<!button)(\.log-row__task[^{]*)\{([^}]*)\}/g)) {
+      expect(body ?? "", `${selector?.trim()} must not offer a pointer`).not.toMatch(
+        /cursor:\s*pointer/,
+      );
+      expect(selector ?? "", `${selector?.trim()} must not style a bare hover`).not.toMatch(
+        /:hover/,
+      );
+    }
+    // The affordances live on the BUTTON, which is the only thing that acts.
+    expect(/button\.log-row__task[^{]*\{[^}]*cursor:\s*pointer/.test(css)).toBe(true);
+    expect(/button\.log-row__task:hover/.test(css)).toBe(true);
   });
 });

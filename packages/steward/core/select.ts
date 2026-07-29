@@ -36,10 +36,11 @@ import {
   temperatureColor,
 } from "./format.js";
 import { modelColor } from "./model-color.js";
-import type { LevelFilter, UiState } from "./state.js";
+import type { FamilyFilter, LevelFilter, TraceRef, UiState } from "./state.js";
 import { LOG_BUFFER_LIMIT, visibleBuffer } from "./state.js";
 import type {
   ConfigEntry,
+  LogFamily,
   LogKind,
   LogLevel,
   LogLine,
@@ -86,6 +87,42 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
 };
 
 const LEVEL_FILTERS: LevelFilter[] = ["all", "INFO", "WARN", "ERROR"];
+
+/**
+ * The record-type chips. Four families and a reset, not the research's six:
+ * proxied requests are already a toggle whose default is additive suppression
+ * (which no member of a single-select set can express), and the launch-args
+ * block is already a fold that collapses 31 rows to 1 without leaving the
+ * scrollback.
+ */
+const FAMILY_FILTERS: FamilyFilter[] = ["any", "requests", "models", "startup", "other"];
+
+/**
+ * The literal the context-lost banner puts in the search box.
+ *
+ * A search, deliberately, and not a fourth filter axis: the token is in the
+ * message text, the box visibly fills with it, the operator can edit or clear
+ * it, and the existing count grammar reports the result honestly. It also
+ * degrades perfectly — if llama.cpp renames the token, nothing matches, the
+ * count is 0 and the banner never appears.
+ */
+export const CONTEXT_LOST_QUERY = "truncated = 1";
+
+/**
+ * How far apart two members of one trace may sit before they are two different
+ * requests that happen to share an id.
+ *
+ * The measured maximum gap INSIDE a real request is 7 buffer lines (p99 = 5),
+ * so 16 leaves better than a 2× margin over anything a genuine request has ever
+ * produced while still catching a child that died and respawned on the same
+ * ephemeral port a few seconds later — a reuse observed 20 lines apart, which a
+ * wider threshold swallows whole and reports as one request.
+ *
+ * It errs toward splitting, and that is the right direction: a split trace
+ * announces itself in the banner and shows the run that was clicked, while a
+ * merged one silently presents two operators' requests as one.
+ */
+const TRACE_SPLIT_GAP = 16;
 
 /** Shown wherever a reading the source could not supply would otherwise print. */
 const NO_READING = "—";
@@ -346,6 +383,43 @@ export interface FoldVm {
   ariaLabel: string;
 }
 
+/**
+ * The task cell — a control, not a readout. `null` on an unframed line, on a
+ * line whose port Steward never saw, and on `get_availabl` (task `-1`: no task
+ * is attached yet, and inventing one would be the first mis-attribution in a
+ * console built to avoid exactly that).
+ */
+export interface TaskCellVm {
+  port: number;
+  task: number;
+  /** Stable identity for focus restoration across a repaint. */
+  key: string;
+  /** `▸81259` collapsed, `▾81259` while this task is being traced. */
+  label: string;
+  /**
+   * Says what a task id IS, which the numeral cannot: llama-server's own handle
+   * for the request, sparse, reused across children and not a request number.
+   */
+  ariaLabel: string;
+  /** True while this row's task is the one being traced. */
+  active: boolean;
+}
+
+/**
+ * A trailing annotation on a row's message.
+ *
+ * Trailing, not leading: a leading badge shifts the message's left edge per row
+ * and breaks the column rhythm that makes a log scannable. Severity is carried
+ * in FORM — a glyph and a tinted ground with the text at full contrast — never
+ * by an amber that is 2.16:1 on the light theme's console ground.
+ */
+export interface LogBadgeVm {
+  key: "context-lost" | "cache" | "slot";
+  label: string;
+  title: string;
+  tone: "warn" | "neutral";
+}
+
 export interface LogRowVm {
   /**
    * Row identity for the incremental patcher. A fold row and the first line of
@@ -363,7 +437,18 @@ export interface LogRowVm {
   modelTitle: string;
   scope: LineScope;
   kind: LogKind;
+  /** The trace entry point, or `null` when this row has no task to trace. */
+  task: TaskCellVm | null;
+  /**
+   * The pipe frame this row's task cell stands in for, or `""`. Carried so an
+   * export can write the file's own line back; never painted.
+   */
+  frameRaw: string;
   message: string;
+  /** Absent enrichments render NOTHING — not an empty box, not a dash. */
+  badges: LogBadgeVm[];
+  /** True while this row is part of the open trace. */
+  traced: boolean;
   /** True for a line rendered inside an expanded fold. */
   folded: boolean;
   /** Non-null only on the fold row itself. */
@@ -381,10 +466,20 @@ export interface ProxyToggleVm {
   title: string;
 }
 
+/** One record-type chip. The same component as a level chip, a different axis. */
+export interface FamilyChipVm extends PillVm {
+  family: FamilyFilter;
+  /** What pressing it yields — every OTHER filter applied and this axis lifted. */
+  count: number;
+  countLabel: string;
+  ariaLabel: string;
+}
+
 export interface ToolbarVm {
   activeModelLabel: string;
   activeModelBackground: string;
   activeModelColor: string;
+  familyChips: FamilyChipVm[];
   levelChips: LevelChipVm[];
   proxyToggle: ProxyToggleVm;
   query: string;
@@ -421,8 +516,24 @@ export interface LogCountsVm {
   bufferDropped: boolean;
   /** The render cap bit: {@link matched} exceeds {@link LOG_RENDER_LIMIT}. */
   renderCapped: boolean;
-  /** Per-chip counts, each with the other filters applied. */
+  /** Per-chip counts, each with the other filters applied and its own lifted. */
   levels: Record<LevelFilter, number>;
+  /** The same promise on the second axis. */
+  families: Record<FamilyFilter, number>;
+  /**
+   * Matched lines carrying a pipe frame. Drives the task column's existence —
+   * over the MATCHED SET, not the painted window, so it flips at most once per
+   * session instead of on every scroll.
+   */
+  framed: number;
+  /**
+   * Buffered lines that said `truncated = 1`. Counted over the buffer, not the
+   * matched set, because the banner it drives says "of the N buffered" and the
+   * two numbers have to be about the same population.
+   */
+  contextLost: number;
+  /** Lines in the open trace, or 0 when nothing is being traced. */
+  traced: number;
 }
 
 /**
@@ -438,17 +549,21 @@ export type ConsoleState =
   | "reconnecting"
   | "stopped"
   | "paused"
+  // A trace outranks `empty-filtered` — it ignores the filters, so a filter
+  // that matches nothing says nothing about what a trace is showing — but not
+  // the four source-health states, which are facts about the source itself.
+  | "tracing"
   | "empty-filtered"
   | "cold"
   | "quiet"
   | "streaming";
 
-export type ConsoleTone = "info" | "warn" | "muted";
+export type ConsoleTone = "info" | "warn" | "muted" | "trace";
 
 /** What a notice or banner offers to do about itself. */
 export interface ConsoleActionVm {
   label: string;
-  kind: "clear-filters" | "show-all-models";
+  kind: "clear-filters" | "show-all-models" | "exit-trace" | "query-truncated";
   ariaLabel: string;
 }
 
@@ -474,12 +589,43 @@ export interface ConsoleBannerVm {
   action: ConsoleActionVm | null;
 }
 
+/** The open trace, as its banner renders it. */
+export interface TraceVm {
+  port: number;
+  task: number;
+  /**
+   * The model, from the port map. `""` when the port is unmapped — never
+   * invented, and never read off the neighbouring `proxy_reques` line, which is
+   * the only line that names a model and carries no task id.
+   */
+  modelLabel: string;
+  count: number;
+  /** `▾ tracing task 81259 · port 53691 · gpt-oss-20b · 9 lines`, plus guards. */
+  title: string;
+  /** The sentences that answer "what IS a task id", said where it matters. */
+  detail: string;
+  backLabel: string;
+  backAriaLabel: string;
+  /** The earliest member sits at the front of a buffer that has dropped lines. */
+  partial: boolean;
+  /** The port was reused and another request shares this id; only one is shown. */
+  splitRuns: boolean;
+}
+
 export interface ConsoleVm {
   state: ConsoleState;
   lines: LogRowVm[];
   notice: ConsoleNoticeVm | null;
   banners: ConsoleBannerVm[];
   paused: boolean;
+  /** The open trace, or `null`. */
+  trace: TraceVm | null;
+  /**
+   * Whether the row grid carries a task column at all. False collapses it —
+   * an idle router showing eleven banner lines gets the original four-column
+   * grid back, not 64px of dead space.
+   */
+  showTaskColumn: boolean;
   /** Lines that arrived behind a frozen buffer, so Pause can say what it costs. */
   frozenBehind: number;
   /** The visually-hidden heading inside the region. */
@@ -1081,15 +1227,29 @@ const ROUTER_TITLE = "router-wide — this line is not about any one model";
 const UNKNOWN_TITLE =
   "model unknown — this line came from a child process on a port Steward has not mapped yet";
 
-/** One line after the model scope and level chip, before grouping. */
+/**
+ * One line after the model scope, with every filter axis staged as a boolean.
+ *
+ * Staging them rather than applying them in sequence is what makes two axes of
+ * honest chip counts possible: one walk over the grouped set can lift any one
+ * axis and leave the rest applied, which is exactly what a chip's number
+ * promises.
+ */
 interface StagedLine {
   line: LogLine;
   scope: LineScope;
   kind: LogKind;
+  family: LogFamily;
   /** True when the active query matches, or when there is no query. */
   hit: boolean;
   /** False only for a proxy line while the toggle is off. */
   shown: boolean;
+  /** Passes the level chip as it is set right now. */
+  levelPass: boolean;
+  /** Passes the record-type chip as it is set right now. */
+  familyPass: boolean;
+  /** `seq` of the args run this belongs to, or `null` for a standalone line. */
+  runId: number | null;
 }
 
 /** A line that survived the whole filter stack, with its fold membership. */
@@ -1100,11 +1260,25 @@ interface KeptLine {
   /** `seq` of the args run this belongs to, or `null` for a standalone line. */
   runId: number | null;
   hit: boolean;
+  /** True while this row belongs to the open trace. */
+  traced: boolean;
+}
+
+/** The text a query is matched against: the file's line, frame included. */
+function lineText(line: LogLine): string {
+  return `${line.frame?.raw ?? ""}${line.message}`;
+}
+
+/** The trace key, composed at the call site rather than stored on the record. */
+export function taskKey(port: number, task: number): string {
+  return `${port}:${task}`;
 }
 
 /** Everything one pass over the buffer produces. */
 interface LogSelection {
   rows: LogRowVm[];
+  /** The open trace's membership and guards, or `null`. */
+  trace: TraceSelection | null;
   exportLines: LogRowVm[];
   counts: LogCountsVm;
   /** Arrival stamp of the newest matching line, or `null` when none match. */
@@ -1122,6 +1296,80 @@ interface RowContext {
   shorts: Map<string, ModelInfo>;
   /** The model the console is scoped to, or `null`. */
   scoped: string | null;
+  /** The open trace, so a row can say whether its task is the one being traced. */
+  trace: TraceRef | null;
+}
+
+/**
+ * The trace entry point for a row, or `null`.
+ *
+ * `null` for an unframed line, for a line whose port Steward never saw (half
+ * the trace key is missing, and a trace on the other half would be a
+ * mis-attribution), and for `get_availabl`, which is `task -1` in 217/217
+ * measured cases because no task is attached yet. That last one joins its trace
+ * by adjacency instead, and the banner says so.
+ */
+function taskCell(line: LogLine, trace: TraceRef | null): TaskCellVm | null {
+  const frame = line.frame;
+  const port = line.port;
+  if (frame === undefined || port === undefined || frame.task < 0) return null;
+  const active = trace !== null && trace.port === port && trace.task === frame.task;
+  return {
+    port,
+    task: frame.task,
+    key: taskKey(port, frame.task),
+    // `▸` already means "press to reveal more" in this console and `▾` means
+    // "showing"; the task cell reuses the args fold's vocabulary exactly.
+    label: `${active ? "▾" : "▸"}${frame.task}`,
+    ariaLabel: `Trace task ${frame.task} on port ${port}. This is llama-server's own handle for the request, not a request number.`,
+    active,
+  };
+}
+
+/**
+ * A row's trailing annotations. Every one is a nullable enrichment: an absent
+ * reading renders nothing at all, so a llama.cpp that renames a payload costs
+ * one missing badge and never a row.
+ */
+function logBadges(line: LogLine, model: ModelInfo | undefined): LogBadgeVm[] {
+  const badges: LogBadgeVm[] = [];
+  // Only ever for `= 1`. A `truncated: no` badge on 217 of 217 rows is the
+  // definition of crying wolf: it trains the eye to skip the exact pixel where
+  // the real thing will appear.
+  if (line.contextLost === true) {
+    badges.push({
+      key: "context-lost",
+      label: "▲ context lost",
+      title:
+        "A context shift discarded the front of this conversation before the reply was written.",
+      tone: "warn",
+    });
+  }
+  // The one extraction that TRANSLATES rather than repeats: an operator knows
+  // what "cache 47%" means and does not know what `sim_best = 0.473` means.
+  if (line.cacheHit !== undefined && Number.isFinite(line.cacheHit)) {
+    const percent = Math.round(line.cacheHit * 100);
+    badges.push({
+      key: "cache",
+      label: `cache ${percent}%`,
+      title: `${percent}% of this prompt was already in the slot's KV cache, so only the rest had to be prefilled.`,
+      tone: "neutral",
+    });
+  }
+  // Revealed by the model's own `--parallel`, which the snapshot already
+  // carries — an authoritative rule rather than one inferred from the values
+  // seen so far. On a one-slot server every slot id is 0 and a column of zeros
+  // teaches an operator that the column is meaningless.
+  const parallel = model?.parallel ?? null;
+  if (line.frame !== undefined && parallel !== null && parallel > 1) {
+    badges.push({
+      key: "slot",
+      label: `slot ${line.frame.slot}`,
+      title: `Decode slot ${line.frame.slot} of this model's ${parallel}.`,
+      tone: "neutral",
+    });
+  }
+  return badges;
 }
 
 function logRow(
@@ -1158,6 +1406,12 @@ function logRow(
     modelTitle: scope === "router" ? ROUTER_TITLE : scope === "unknown" ? UNKNOWN_TITLE : "",
     scope,
     kind,
+    // A fold row stands for a whole args run, which is unframed and carries no
+    // enrichment of its own; both come back empty on their own merits.
+    task: taskCell(line, ctx.trace),
+    frameRaw: line.frame?.raw ?? "",
+    badges: fold === null ? logBadges(line, model) : [],
+    traced: entry.traced,
     message,
     folded,
     fold,
@@ -1180,112 +1434,163 @@ function foldLabel(
 }
 
 /**
- * The whole log pipeline for one repaint: filter, count honestly, group the
- * launch-argument runs, and cap what reaches the DOM.
+ * Marks the contiguous launch-argument runs, in place.
  *
- * The filters are AND-ed, but the ORDER they are counted in matters. Model
- * scope, then level, then query, then the proxy toggle — so `hiddenProxy` is
- * "lines dropped ONLY for being proxy traffic", which is what the toolbar
- * promises pressing the toggle would reveal. Counting proxy lines that the
- * query would have excluded anyway would make that chip a lie.
- */
-/** What one run of the level → query → proxy half of the pipeline produced. */
-interface Collected {
-  kept: KeptLine[];
-  /** Lines dropped ONLY for being proxy traffic — already past model+level+query. */
-  hiddenProxy: number;
-  proxyShown: number;
-  /** Kept lines that live inside an args fold. */
-  folded: number;
-}
-
-/**
- * Applies the level chip, then the proxy toggle, then the query — grouping the
- * contiguous launch-argument runs on the way.
- *
- * Factored out because the level chips need to run it too: a chip's count is
- * only honest if it is the result of the same pipeline with that chip pressed.
- *
- * Run membership is decided BEFORE the query, on purpose: 31 argument lines are
- * one artifact — the exact launch command — and a search for `ctx-size` that
- * returned 2 of them and hid the other 29 would answer a question nobody asked.
- * A run the query misses entirely is dropped like any other non-matching line.
+ * Membership is decided BEFORE the query, the level chip and the record-type
+ * chip, on purpose: 31 argument lines are one artifact — the exact launch
+ * command — and a search for `ctx-size` that returned 2 of them and hid the
+ * other 29 would answer a question nobody asked.
  *
  * The scan walks the SHOWN lines only, so a suppressed proxy line interleaved
  * with a spawn cannot split one launch command into two folds.
  */
-function collect(scoped: readonly StagedLine[], level: LevelFilter, query: string): Collected {
-  const staged: StagedLine[] = [];
-  let hiddenProxy = 0;
-  for (const entry of scoped) {
-    if (level !== "all" && entry.line.level !== level) continue;
-    if (!entry.shown) {
-      if (entry.hit) hiddenProxy += 1;
-      continue;
-    }
-    staged.push(entry);
-  }
-
-  const kept: KeptLine[] = [];
-  let proxyShown = 0;
-  let folded = 0;
-  for (let i = 0; i < staged.length; ) {
-    const entry = staged[i];
-    if (entry === undefined) {
-      i += 1;
-      continue;
-    }
+function groupRuns(staged: readonly StagedLine[]): void {
+  let runId: number | null = null;
+  let inRun = false;
+  for (const entry of staged) {
+    if (!entry.shown) continue;
     if (entry.kind !== "args") {
-      if (entry.hit) {
-        if (entry.kind === "proxy") proxyShown += 1;
-        kept.push({
-          line: entry.line,
-          scope: entry.scope,
-          kind: entry.kind,
-          runId: null,
-          hit: true,
-        });
-      }
-      i += 1;
+      inRun = false;
+      runId = null;
       continue;
     }
-
-    let end = i;
-    while (end < staged.length && staged[end]?.kind === "args") end += 1;
-    const run = staged.slice(i, end);
-    const runId = entry.line.seq;
-    if (query === "" || run.some((member) => member.hit)) {
-      for (const member of run) {
-        kept.push({
-          line: member.line,
-          scope: member.scope,
-          kind: member.kind,
-          runId,
-          hit: member.hit,
-        });
-        folded += 1;
-      }
-    }
-    i = end;
+    if (!inRun) runId = entry.line.seq;
+    entry.runId = runId;
+    inRun = true;
   }
-
-  return { kept, hiddenProxy, proxyShown, folded };
 }
 
+/**
+ * The membership of one trace, and the two things that can be wrong with it.
+ *
+ * Both guards are surfaced rather than silently handled: a partial trace and a
+ * reused port are things the operator has to know, and a console that quietly
+ * showed half a request would be worse than one that says it is showing half.
+ */
+export interface TraceSelection {
+  members: LogLine[];
+  /** The earliest member is the oldest line held, and the buffer HAS evicted. */
+  partial: boolean;
+  /** The id belongs to more than one run on this port; only one is shown. */
+  splitRuns: boolean;
+  /** The model the port maps to, or `null` when Steward never mapped it. */
+  modelId: string | null;
+  /** True when the first member joined by adjacency rather than by task id. */
+  adjacent: boolean;
+}
+
+/**
+ * Every line one llama-server task wrote, in file order.
+ *
+ * Keyed on `(port, task)`. The opening `get_availabl` line carries `task -1` —
+ * no task is attached when the slot is chosen — so it joins by ADJACENCY, and
+ * only when the line immediately before the earliest member is on the same
+ * port, framed, and carries `-1`. Anything else and the trace simply starts at
+ * `launch_slot_`: the rule breaks by omitting a line, which is the safe
+ * direction for a console built to avoid mis-attribution.
+ *
+ * Deliberately NOT joined: the `proxy_reques` line. It is the only line that
+ * names the model and it carries no task id, so joining it would be adjacency
+ * at 1.25 lines/second of Steward's own polling. The model comes from the port
+ * map instead, or the banner names no model at all.
+ */
+export function selectTrace(
+  buffer: readonly LogLine[],
+  trace: TraceRef,
+  /** The buffer has evicted a signal line this session — see {@link TraceSelection.partial}. */
+  bufferDropped: boolean,
+): TraceSelection {
+  const matches: number[] = [];
+  buffer.forEach((line, index) => {
+    if (line.port === trace.port && line.frame?.task === trace.task) matches.push(index);
+  });
+
+  // An id can belong to two different requests: ports are ephemeral, and a
+  // child that died and respawned on the same one starts its task counter at 0
+  // again. Members more than a request's width apart are therefore two runs,
+  // and merging them would present one operator's request as another's — the
+  // exact mis-attribution this console is built to avoid. `anchorSeq` says
+  // which one was actually clicked, so only that run is shown.
+  const runs: number[][] = [];
+  for (const index of matches) {
+    const current = runs.at(-1);
+    const previous = current?.at(-1);
+    if (current === undefined || previous === undefined || index - previous > TRACE_SPLIT_GAP) {
+      runs.push([index]);
+    } else {
+      current.push(index);
+    }
+  }
+
+  // The run holding the row that opened the trace. If that row has since been
+  // evicted there is nothing to disambiguate with, so the newest run wins —
+  // still one request, never a merge of two.
+  const chosen =
+    runs.find((run) => run.some((index) => buffer[index]?.seq === trace.anchorSeq)) ??
+    runs.at(-1) ??
+    [];
+  const indices = [...chosen];
+
+  const first = indices[0];
+  let adjacent = false;
+  if (first !== undefined && first > 0) {
+    const before = buffer[first - 1];
+    if (before !== undefined && before.port === trace.port && before.frame?.task === -1) {
+      indices.unshift(first - 1);
+      adjacent = true;
+    }
+  }
+
+  const members = indices
+    .map((index) => buffer[index])
+    .filter((line): line is LogLine => line !== undefined);
+
+  return {
+    members,
+    // Only true when lines were ACTUALLY evicted. A trace that simply starts at
+    // the front of a buffer nothing has fallen out of is complete, and saying
+    // otherwise would be a warning about a loss that never happened.
+    partial: indices[0] === 0 && bufferDropped,
+    splitRuns: runs.length > 1,
+    // Read off the traced lines themselves, never off "some line that used this
+    // port once": a child that respawned on a reused port would otherwise have
+    // the banner name the model that USED to be there.
+    modelId: members.find((line) => line.modelId !== null)?.modelId ?? null,
+    adjacent,
+  };
+}
+
+/**
+ * The whole log pipeline for one repaint: stage every axis, group the
+ * launch-argument runs, count honestly, and cap what reaches the DOM.
+ *
+ * Two filter axes mean the counts cannot be a sequence of narrowing passes.
+ * Each is staged as a boolean on the line, the runs are grouped once, and a
+ * single walk lifts one axis at a time — so `levels[WARN]` is what pressing
+ * WARN yields with the record-type chip still applied, `families[models]` is
+ * what pressing `models` yields with the level chip still applied, and
+ * `hiddenProxy` is what the toggle would reveal with both applied. Every one of
+ * those numbers is literally true under every combination of the others.
+ */
 function selectLog(snapshot: Snapshot, ui: UiState): LogSelection {
   const ctx: RowContext = {
     shorts: new Map(snapshot.models.map((m) => [m.id, m])),
     scoped: ui.filterModel,
+    trace: ui.trace,
   };
   const rawQuery = ui.query.trim();
   const query = rawQuery.toLowerCase();
   const buffer = visibleBuffer(ui);
 
   let hiddenRouter = 0;
-  let hiddenProxy = 0;
-  const scoped: StagedLine[] = [];
+  let contextLost = 0;
+  const staged: StagedLine[] = [];
 
   for (const line of buffer) {
+    // Counted over the whole buffer, matching or not: the banner it drives says
+    // "of the N buffered", and both halves of that sentence have to be about
+    // the same population.
+    if (line.contextLost === true) contextLost += 1;
     const scope = lineScope(line);
     if (ui.filterModel !== null && line.modelId !== ui.filterModel) {
       // Scoping to one model silently removes the boot banner, the preset
@@ -1295,35 +1600,79 @@ function selectLog(snapshot: Snapshot, ui: UiState): LogSelection {
       continue;
     }
     const kind = line.kind ?? "event";
-    scoped.push({
+    const family = line.family ?? "other";
+    staged.push({
       line,
       scope,
       kind,
-      hit: query === "" || line.message.toLowerCase().includes(query),
+      family,
+      // Matched against the file's own line, frame included: the task id is
+      // visible on the row, so it has to be findable in the box.
+      hit: query === "" || lineText(line).toLowerCase().includes(query),
       shown: kind !== "proxy" || ui.showProxy,
+      levelPass: ui.filterLevel === "all" || line.level === ui.filterLevel,
+      familyPass: ui.filterFamily === "any" || family === ui.filterFamily,
+      runId: null,
     });
   }
 
-  const main = collect(scoped, ui.filterLevel, query);
-  hiddenProxy = main.hiddenProxy;
+  groupRuns(staged);
 
-  // Each chip's count is what pressing it would ACTUALLY yield, so it runs the
-  // whole pipeline — run-grouping included. Counting per line before the runs
-  // are grouped gets it wrong the moment a query hits inside a fold: the fold
-  // adopts its whole run, so the chip would promise fewer rows than the console
-  // is already showing, and the spec's promise ("the number is what you get if
-  // you press it") would be false in the one case an operator is searching.
-  const levels: Record<LevelFilter, number> = {
-    all: collect(scoped, "all", query).kept.length,
-    DEBUG: collect(scoped, "DEBUG", query).kept.length,
-    INFO: collect(scoped, "INFO", query).kept.length,
-    WARN: collect(scoped, "WARN", query).kept.length,
-    ERROR: collect(scoped, "ERROR", query).kept.length,
+  // A run is one artifact, so a hit anywhere in it counts for all of it.
+  const runHit = new Map<number, boolean>();
+  for (const entry of staged) {
+    if (entry.runId === null) continue;
+    runHit.set(entry.runId, (runHit.get(entry.runId) ?? false) || entry.hit);
+  }
+  for (const entry of staged) {
+    if (entry.runId !== null) entry.hit = query === "" || (runHit.get(entry.runId) ?? false);
+  }
+
+  const levels: Record<LevelFilter, number> = { all: 0, DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0 };
+  const families: Record<FamilyFilter, number> = {
+    any: 0,
+    requests: 0,
+    models: 0,
+    startup: 0,
+    other: 0,
   };
+  const kept: KeptLine[] = [];
+  let hiddenProxy = 0;
+  let proxyShown = 0;
+  let folded = 0;
+  let framed = 0;
 
-  const kept = main.kept;
-  const proxyShown = main.proxyShown;
-  const folded = main.folded;
+  for (const entry of staged) {
+    if (!entry.hit) continue;
+    if (!entry.shown) {
+      // Dropped ONLY for being proxy traffic — already past the model scope,
+      // the query, the level chip and the record-type chip. That is what makes
+      // the toggle's number a promise rather than an upper bound.
+      if (entry.levelPass && entry.familyPass) hiddenProxy += 1;
+      continue;
+    }
+    if (entry.familyPass) {
+      levels.all += 1;
+      levels[entry.line.level] += 1;
+    }
+    if (entry.levelPass) {
+      families.any += 1;
+      families[entry.family] += 1;
+    }
+    if (!entry.levelPass || !entry.familyPass) continue;
+    kept.push({
+      line: entry.line,
+      scope: entry.scope,
+      kind: entry.kind,
+      runId: entry.runId,
+      hit: true,
+      traced: false,
+    });
+    if (entry.kind === "proxy") proxyShown += 1;
+    if (entry.runId !== null) folded += 1;
+    if (entry.line.frame !== undefined) framed += 1;
+  }
+
   const matched = kept.length;
   const renderCapped = matched > LOG_RENDER_LIMIT;
   const cutAt = renderCapped ? matched - LOG_RENDER_LIMIT : 0;
@@ -1347,7 +1696,10 @@ function selectLog(snapshot: Snapshot, ui: UiState): LogSelection {
     let end = i;
     while (end < painted.length && painted[end]?.runId === entry.runId) end += 1;
     const run = painted.slice(i, end);
-    const matches = query === "" ? 0 : run.filter((member) => member.hit).length;
+    const matches =
+      query === ""
+        ? 0
+        : run.filter((member) => lineText(member.line).toLowerCase().includes(query)).length;
     // A hit inside a collapsed fold opens it and says why, without touching
     // what the operator set: clearing the query puts the fold back.
     const forced = matches > 0;
@@ -1396,8 +1748,39 @@ function selectLog(snapshot: Snapshot, ui: UiState): LogSelection {
     i = end;
   }
 
+  // The trace branch, taken AFTER the counts and BEFORE the rows are handed
+  // out: membership ignores every filter, but the chips keep reporting the
+  // filtered buffer so they stay live and honest while a trace is open. That is
+  // what lets every control stay enabled — pressing one exits the trace and
+  // applies itself, and its number was already true.
+  let trace: TraceSelection | null = null;
+  if (ui.trace !== null) {
+    trace = selectTrace(buffer, ui.trace, ui.bufferDropped);
+    rows.length = 0;
+    for (const line of trace.members.slice(-LOG_RENDER_LIMIT)) {
+      rows.push(
+        logRow(
+          ctx,
+          {
+            line,
+            scope: lineScope(line),
+            kind: line.kind ?? "event",
+            runId: null,
+            hit: true,
+            traced: true,
+          },
+          String(line.seq),
+          line.message,
+          false,
+          null,
+        ),
+      );
+    }
+  }
+
   return {
     rows,
+    trace,
     exportLines: kept.map((entry) =>
       logRow(ctx, entry, String(entry.line.seq), entry.line.message, false, null),
     ),
@@ -1412,6 +1795,10 @@ function selectLog(snapshot: Snapshot, ui: UiState): LogSelection {
       bufferDropped: ui.bufferDropped,
       renderCapped,
       levels,
+      families,
+      framed,
+      contextLost,
+      traced: trace === null ? 0 : trace.members.length,
     },
     newestMatchedAt: kept.at(-1)?.line.ts ?? null,
     newestBufferedAt: buffer.at(-1)?.ts ?? null,
@@ -1422,6 +1809,7 @@ function selectLog(snapshot: Snapshot, ui: UiState): LogSelection {
 function activeFilters(ui: UiState, shorts: Map<string, ModelInfo>): string[] {
   const clauses: string[] = [];
   if (ui.filterModel !== null) clauses.push(shorts.get(ui.filterModel)?.short ?? ui.filterModel);
+  if (ui.filterFamily !== "any") clauses.push(ui.filterFamily);
   if (ui.filterLevel !== "all") clauses.push(ui.filterLevel);
   const query = ui.query.trim();
   if (query !== "") clauses.push(`"${query}"`);
@@ -1431,7 +1819,7 @@ function activeFilters(ui: UiState, shorts: Map<string, ModelInfo>): string[] {
 const CLEAR_FILTERS: ConsoleActionVm = {
   label: "Clear filters",
   kind: "clear-filters",
-  ariaLabel: "Clear the model, level and search filters",
+  ariaLabel: "Clear the model, record type, level and search filters",
 };
 
 const SHOW_ALL_MODELS: ConsoleActionVm = {
@@ -1439,6 +1827,95 @@ const SHOW_ALL_MODELS: ConsoleActionVm = {
   kind: "show-all-models",
   ariaLabel: "Show every model's lines, including the router-wide ones",
 };
+
+const EXIT_TRACE: ConsoleActionVm = {
+  label: "back",
+  kind: "exit-trace",
+  ariaLabel: "Close the trace and go back to the filtered log",
+};
+
+const SHOW_CONTEXT_LOST: ConsoleActionVm = {
+  label: "show them",
+  kind: "query-truncated",
+  // Named as the search it is, so nobody expects a fourth filter chip to appear.
+  ariaLabel: `Search the log for ${CONTEXT_LOST_QUERY}`,
+};
+
+/**
+ * The strip that makes `truncated = 1` findable.
+ *
+ * The level is NOT rewritten to make it findable — llama-server says INFO and
+ * the console says INFO, because an operator who has learned that the ERROR
+ * chip means "llama-server said E" must be able to keep believing that. So the
+ * badge alone would be findable only by scrolling, and this is the strip that
+ * fixes it.
+ *
+ * It appears only when the count is above zero. There is no "0 requests lost
+ * context" state: that would be a health affirmation about a signal the console
+ * can only see a 500-line window of, which is why the copy says "buffered"
+ * rather than implying a total.
+ */
+export function truncatedBanner(counts: LogCountsVm): ConsoleBannerVm | null {
+  if (counts.contextLost <= 0) return null;
+  // "lines", because lines are what is counted. `buffered` is a LINE count, and
+  // a 500-line window is roughly 20 requests — so "500 buffered requests" would
+  // be false by a factor of 25, in the one strip whose whole job is to be
+  // trusted. The noun also has to agree with the number it sits against, which
+  // is the denominator.
+  const noun = counts.buffered === 1 ? "line" : "lines";
+  return {
+    key: "context-lost",
+    placement: "top",
+    tone: "warn",
+    text: `▲ ${formatCount(counts.contextLost)} of the ${formatCount(
+      counts.buffered,
+    )} buffered ${noun} said the reply lost context`,
+    detail: "A context shift discarded the front of the conversation before the reply was written.",
+    action: SHOW_CONTEXT_LOST,
+  };
+}
+
+/** The open trace, as its banner reads it. */
+function selectTraceVm(
+  trace: TraceRef,
+  selection: TraceSelection,
+  shorts: Map<string, ModelInfo>,
+): TraceVm {
+  const modelLabel =
+    selection.modelId === null ? "" : (shorts.get(selection.modelId)?.short ?? selection.modelId);
+  const model = modelLabel === "" ? "" : ` · ${modelLabel}`;
+  // Both guards are said out loud rather than handled quietly. The rows are the
+  // same either way; what changes is whether the operator knows.
+  const partial = selection.partial ? " · earliest lines dropped from the buffer" : "";
+  // Two requests share this id because the port was reused. Only the one that
+  // was clicked is shown — merging them would be a mis-attribution — and the
+  // banner says so rather than letting a short trace look like the whole story.
+  const split = selection.splitRuns
+    ? ` · another request on port ${trace.port} shares this id — showing only the one you opened`
+    : "";
+  // "in file order" closes off sorting; there is no header a reader could take
+  // for a sort control, and task ids are not monotonic anyway (a deferred task
+  // is allocated its id at enqueue and logs later with a lower one).
+  const adjacency = selection.adjacent
+    ? " The first line has no task id of its own — it is attached by position."
+    : "";
+  return {
+    port: trace.port,
+    task: trace.task,
+    modelLabel,
+    count: selection.members.length,
+    title: `▾ tracing task ${trace.task} · port ${trace.port}${model} · ${formatLines(
+      selection.members.length,
+    )}${partial}${split}`,
+    detail:
+      "Every line llama-server wrote for this request, in file order. Filters do not apply inside a trace. Task ids are llama-server's internal handles: sparse, reused across children, and not in order." +
+      adjacency,
+    backLabel: EXIT_TRACE.label,
+    backAriaLabel: EXIT_TRACE.ariaLabel,
+    partial: selection.partial,
+    splitRuns: selection.splitRuns,
+  };
+}
 
 /** Paths macOS's `tmp_cleaner` unlinks after three untouched days. */
 const TMP_PREFIXES = ["/tmp/", "/private/tmp/"];
@@ -1474,6 +1951,9 @@ function consoleState(
   if (ui.logStream === "reconnecting") return "reconnecting";
   if (!snapshot.service.running) return "stopped";
   if (ui.paused) return "paused";
+  // Above `empty-filtered`: a trace ignores the filters, so a filter stack that
+  // matches nothing says nothing about what the trace is showing.
+  if (ui.trace !== null) return "tracing";
   if (counts.matched === 0 && counts.buffered > 0) return "empty-filtered";
   if (counts.buffered === 0) return "cold";
   // `LogLine.ts` is Steward's ARRIVAL stamp, so the newest matching row's stamp
@@ -1550,6 +2030,21 @@ function selectConsole(
     counts.hiddenProxy > 0 ? ` · ${formatCount(counts.hiddenProxy)} proxied lines hidden` : "";
   const frozenBehind =
     ui.paused && ui.frozen !== null ? Math.max(0, ui.log.length - ui.frozen.length) : 0;
+  const trace =
+    ui.trace === null || selection.trace === null
+      ? null
+      : selectTraceVm(ui.trace, selection.trace, shorts);
+
+  if (trace !== null) {
+    banners.push({
+      key: "trace",
+      placement: "top",
+      tone: "trace",
+      text: trace.title,
+      detail: trace.detail,
+      action: EXIT_TRACE,
+    });
+  }
 
   if (state === "reconnecting") {
     banners.push({
@@ -1576,7 +2071,13 @@ function selectConsole(
     });
   }
 
-  if (counts.renderCapped || counts.bufferDropped) {
+  // Everything below describes the FILTERED view, and filters do not apply
+  // inside a trace — so while one is open these strips would be claims about a
+  // console nobody is looking at.
+  const contextLostStrip = trace === null ? truncatedBanner(counts) : null;
+  if (contextLostStrip !== null) banners.push(contextLostStrip);
+
+  if (trace === null && (counts.renderCapped || counts.bufferDropped)) {
     const shown = `showing the latest ${formatCount(counts.rendered)} of ${formatCount(
       counts.matched,
     )} matching`;
@@ -1596,7 +2097,7 @@ function selectConsole(
     });
   }
 
-  if (ui.filterModel !== null && counts.hiddenRouter > 0) {
+  if (trace === null && ui.filterModel !== null && counts.hiddenRouter > 0) {
     const label = shorts.get(ui.filterModel)?.short ?? ui.filterModel;
     banners.push({
       key: "scope",
@@ -1744,6 +2245,11 @@ function selectConsole(
     notice,
     banners,
     paused: ui.paused,
+    trace,
+    // A trace is nothing but framed rows, so the column always exists inside
+    // one. Outside, it is keyed on the whole matched set rather than the
+    // painted window, so it flips at most once per session and never on scroll.
+    showTaskColumn: trace !== null || counts.framed > 0,
     frozenBehind,
     // The stamp is Steward's arrival time, not llama-server's own elapsed
     // counter, and nothing on screen says so to a screen reader otherwise.
@@ -1796,10 +2302,19 @@ export function consoleAnnouncement(
 
 /** The honest count clause: what is shown, out of what, and what is held back. */
 function lineCountLabel(ui: UiState, counts: LogCountsVm): string {
+  // Inside a trace the count is about the trace, not the filter stack — the
+  // filters are not applying, so reporting them would be a lie by omission.
+  if (ui.trace !== null) {
+    return `tracing task ${ui.trace.task} · ${formatLines(counts.traced)}`;
+  }
   // Proxy suppression alone is not "filtering" — the operator did not ask for
   // it, so the count keeps its plain form and the suppression gets its own
   // clause rather than silently shrinking the numerator.
-  const filtering = ui.filterModel !== null || ui.filterLevel !== "all" || ui.query.trim() !== "";
+  const filtering =
+    ui.filterModel !== null ||
+    ui.filterLevel !== "all" ||
+    ui.filterFamily !== "any" ||
+    ui.query.trim() !== "";
   const head = counts.renderCapped
     ? `showing ${formatCount(counts.rendered)} of ${formatCount(counts.matched)}`
     : filtering
@@ -1838,13 +2353,57 @@ function selectProxyToggle(ui: UiState, counts: LogCountsVm): ProxyToggleVm {
   };
 }
 
+// Both reset chips read `any`, under a group label that names the axis. Two
+// adjacent groups whose reset both read `all` and both show the same number at
+// rest look like one duplicated control; `any kind` / `any level` does not.
 const LEVEL_CHIP_NAMES: Record<LevelFilter, string> = {
-  all: "All levels",
+  all: "Any level",
   DEBUG: "Debug",
   INFO: "Info",
   WARN: "Warnings",
   ERROR: "Errors",
 };
+
+/**
+ * What each record-type chip is FOR, in the accessible name — including
+ * `other`'s, which is the one that says out loud that it is the drift alarm.
+ */
+const FAMILY_CHIP_NAMES: Record<FamilyFilter, string> = {
+  any: "Any kind",
+  requests: "Requests",
+  models: "Models",
+  startup: "Startup",
+  other:
+    "Other — lines Steward could not classify. A new llama-server message shape lands here and stays visible",
+};
+
+const FAMILY_CHIP_LABELS: Record<FamilyFilter, string> = {
+  any: "any",
+  requests: "requests",
+  models: "models",
+  startup: "startup",
+  other: "other",
+};
+
+function selectFamilyChips(ui: UiState, counts: LogCountsVm): FamilyChipVm[] {
+  return FAMILY_FILTERS.map((family) => {
+    const active = ui.filterFamily === family;
+    const count = counts.families[family];
+    return {
+      family,
+      label: FAMILY_CHIP_LABELS[family],
+      count,
+      countLabel: formatCount(count),
+      ariaLabel: `${FAMILY_CHIP_NAMES[family]} — ${formatLines(count)}`,
+      active,
+      background: active ? tint("var(--accent)", 18) : "var(--surface-page)",
+      // Same reasoning as the level chips: the hue stays in the tint and the
+      // border, where it decorates, and never carries the meaning.
+      color: active ? "var(--text-primary)" : "var(--text-secondary)",
+      borderColor: active ? tint("var(--accent)", 45) : "var(--border)",
+    };
+  });
+}
 
 function selectToolbar(
   ui: UiState,
@@ -1858,13 +2417,14 @@ function selectToolbar(
     activeModelLabel: activeModel?.short ?? ui.filterModel ?? "all models",
     activeModelBackground: tint(activeColor, activeModel === undefined ? 16 : 18),
     activeModelColor: activeColor,
+    familyChips: selectFamilyChips(ui, counts),
     levelChips: LEVEL_FILTERS.map((level) => {
       const color = level === "all" ? "var(--accent)" : LEVEL_COLORS[level];
       const active = ui.filterLevel === level;
       const count = counts.levels[level];
       return {
         level,
-        label: level === "all" ? "all" : level,
+        label: level === "all" ? "any" : level,
         count,
         countLabel: formatCount(count),
         ariaLabel: `${LEVEL_CHIP_NAMES[level]} — ${formatLines(count)}`,
@@ -2000,6 +2560,10 @@ export function selectDashboard(snapshot: Snapshot, ui: UiState, now: number): D
  * arguments as a single fold row, so exporting what is on screen would hand an
  * operator diagnosing a bad launch a truncated dump with the launch command
  * itself replaced by the words "31 launch arguments".
+ *
+ * Each row writes `frameRaw + message`, so the message half is byte-identical
+ * to the file's line — the frame the task column took out goes back in. That
+ * guarantee is what makes relocating the frame a relocation.
  */
 export function selectLogText(vm: DashboardVm): string {
   return formatLogText(vm.exportLines);
@@ -2037,21 +2601,57 @@ export function selectLogExportSummary(counts: LogCountsVm): string {
  * what they were doing. The DOM plumbing lives in `console.ts`; the DECISION
  * lives here so it can be reasoned about and tested without a browser.
  */
-export type FocusRestore = { target: "fold"; key: string } | { target: "region" | "none" };
+export type FocusRestore =
+  | { target: "fold"; key: string }
+  | { target: "task"; key: string }
+  | { target: "back" }
+  | { target: "region" | "none" };
 
-export function consoleFocusRestore(
-  /** Focus was inside the console and the browser has since moved it. */
-  moved: boolean,
+export interface FocusRestoreInput {
+  /** Focus was inside the console when the repaint began. */
+  wasInside: boolean;
+  /** Focus was inside AND the browser has since moved it. */
+  moved: boolean;
+  /** This repaint opened a trace. */
+  enteringTrace: boolean;
+  /** This repaint closed one. */
+  leavingTrace: boolean;
   /** The key of the fold row that had focus, or `null` for anything else. */
-  foldKey: string | null,
+  foldKey: string | null;
+  /** The key of the task cell that had focus, or `null` for anything else. */
+  taskKey: string | null;
+  /** The `(port, task)` key of the trace being left, or `null`. */
+  exitingTaskKey: string | null;
   /** The row keys present after the repaint. */
-  keys: readonly string[],
-): FocusRestore {
-  if (!moved) return { target: "none" };
+  keys: readonly string[];
+  /** The task-cell keys present after the repaint. */
+  taskKeys: readonly string[];
+}
+
+export function consoleFocusRestore(input: FocusRestoreInput): FocusRestore {
+  // Entering a trace replaces the whole row set, so the cell that was pressed
+  // is gone. Focus parks on `[ back ]` — the safe choice, and the same pattern
+  // the service block's confirm strip uses.
+  if (input.enteringTrace && input.wasInside) return { target: "back" };
+  // Leaving one puts the operator back on the task cell they came from, so the
+  // trace can be re-opened with one press. Only when focus was inside the
+  // console: a chip that closed the trace as a side effect keeps its own focus,
+  // which is why no control has to be disabled while tracing.
+  if (input.leavingTrace && input.wasInside) {
+    return input.exitingTaskKey !== null && input.taskKeys.includes(input.exitingTaskKey)
+      ? { target: "task", key: input.exitingTaskKey }
+      : { target: "region" };
+  }
+  if (!input.moved) return { target: "none" };
   // The equivalent control first: a fold that was toggled still exists under
   // the same key, and landing back on it is the only outcome that lets an
   // operator press it twice.
-  if (foldKey !== null && keys.includes(foldKey)) return { target: "fold", key: foldKey };
+  if (input.foldKey !== null && input.keys.includes(input.foldKey)) {
+    return { target: "fold", key: input.foldKey };
+  }
+  if (input.taskKey !== null && input.taskKeys.includes(input.taskKey)) {
+    return { target: "task", key: input.taskKey };
+  }
   return { target: "region" };
 }
 

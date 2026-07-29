@@ -186,6 +186,41 @@ export type LogKind = "event" | "proxy" | "args" | "rate";
  */
 export type LogOrigin = "router" | "child";
 
+/**
+ * Operator-facing grouping of records — the console's `kind` chips.
+ *
+ * Deliberately four values, not the research's six: proxied requests already
+ * have a purpose-built toggle and the launch-args block already has a fold, so
+ * neither earns a chip. Absent means `other`.
+ *
+ * `other` is the drift alarm and needs no alarm built: a llama-server message
+ * shape Steward has never seen lands there and stays visible, and a count that
+ * starts climbing is the signal.
+ */
+export type LogFamily = "requests" | "models" | "startup" | "other";
+
+/**
+ * The `id %2d | task %d | ` frame that every `SLT_*` macro emits.
+ *
+ * One shared literal in llama.cpp's `server-common.h`, byte-identical from
+ * b4500 (Jan 2025) through b10090 (Jul 2026) across two file moves — the
+ * strongest structural guarantee the log offers, and the only one worth
+ * relocating out of the message.
+ */
+export interface LogFrame {
+  /** `(slot).id`, 0 .. n_parallel-1. Always 0 on a `--parallel 1` server. */
+  slot: number;
+  /** `(slot).task->id`, or -1 where no task is attached yet (`get_available_slot`). */
+  task: number;
+  /**
+   * The frame exactly as the file wrote it, INCLUDING the `slot print_timing: `
+   * head it sits behind, so `raw + message` re-forms the line byte for byte.
+   * That is the guarantee that makes the relocation a relocation rather than a
+   * rewrite: Copy and Download reproduce the file, not a reassembly of it.
+   */
+  raw: string;
+}
+
 /** One line of the server log. */
 export interface LogLine {
   /** Monotonic per-source sequence number; also the render key. */
@@ -195,11 +230,41 @@ export interface LogLine {
   level: LogLevel;
   /** Model the line was attributed to, or `null` when it is not slot traffic. */
   modelId: string | null;
+  /**
+   * Everything after {@link LogFrame.raw} when the line was framed, and the
+   * whole text after the level letter when it was not. Always a verbatim SUFFIX
+   * of the line as the file wrote it — nothing is paraphrased, reordered or
+   * dropped.
+   */
   message: string;
   /** What class of record this is; absent means {@link LogKind} `event`. */
   kind?: LogKind;
   /** Which process wrote it; absent means the source does not report it. */
   origin?: LogOrigin;
+  /**
+   * The `[port]` prefix's port. HALF THE TRACE KEY: task ids are a per-process
+   * counter from 0, so task `0` appears under 8 different ports in a single
+   * measured corpus. A trace keyed on the id alone would be a real,
+   * user-visible bug — it would show one request's lines mixed with another
+   * model's.
+   */
+  port?: number;
+  /**
+   * The pipe frame, when the line carried one. When absent, {@link message} is
+   * the whole text after the level letter, exactly as before this existed, and
+   * the task cell is empty — which is the whole degradation path.
+   */
+  frame?: LogFrame;
+  /** Which chip the line answers to; absent means {@link LogFamily} `other`. */
+  family?: LogFamily;
+  /**
+   * `truncated = 1` on a release line: this request's reply was written from a
+   * context a shift had already cut the front off. Absent means the line did
+   * not say so — never that it said no.
+   */
+  contextLost?: boolean;
+  /** `sim_best` — the fraction of the prompt already in KV cache, 0–1. */
+  cacheHit?: number;
 }
 
 /**

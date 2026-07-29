@@ -59,7 +59,7 @@
  * is worse than one that shows it.
  */
 
-import type { LogKind, LogLevel, LogOrigin } from "./types.js";
+import type { LogFamily, LogFrame, LogKind, LogLevel, LogOrigin } from "./types.js";
 
 /** One parsed line, before the tailer stamps it with a `seq` and a `ts`. */
 export interface ParsedLogLine {
@@ -82,7 +82,23 @@ export interface ParsedLogLine {
    */
   namedPort: number | null;
   kind: LogKind;
-  /** Everything after the level letter, verbatim — what the console renders. */
+  /**
+   * The `SLT_*` macro's pipe frame, or `null` when the line did not carry one.
+   * A nullable enrichment like every other: no match means the line is returned
+   * whole and the console renders it exactly as it did before this existed.
+   */
+  frame: LogFrame | null;
+  /** Which console chip the line answers to. Never `null` — see {@link classifyFamily}. */
+  family: LogFamily;
+  /** `truncated = 1` on a release line. `false` means the line did not say so. */
+  contextLost: boolean;
+  /** `sim_best` as a 0–1 fraction, or `null` where the line reported none. */
+  cacheHit: number | null;
+  /**
+   * Everything after {@link frame} (or after the level letter when unframed),
+   * verbatim — what the console renders. `frame.raw + message` re-forms the
+   * line the file wrote, byte for byte.
+   */
   message: string;
 }
 
@@ -139,6 +155,70 @@ const PROXIED = /proxying request to model (\S+)(?: on port (\d+))?/;
 /** The port a `name=`-bearing line associates the model with, when it states one. */
 const NAMED_PORT = /\bon port (\d+)/;
 
+/**
+ * `slot print_timing: id  0 | task 81259 | ` — the `SLT_*` macro's frame,
+ * applied to the text after the level letter.
+ *
+ * Group 1 is the WHOLE prefix through the second pipe, head included, because
+ * that is the only split under which `frame.raw + message` re-forms the line
+ * byte for byte — and byte-exact export is what makes relocating the frame a
+ * relocation rather than a rewrite. The `[\s\S]*` tail is what keeps this a
+ * nullable enrichment: a line that does not match comes back whole and
+ * untouched, with the frame still in its message where it always was.
+ */
+const FRAME = /^(.*?\bid\s+(-?\d+)\s\|\stask\s(-?\d+)\s\|\s)([\s\S]*)$/;
+
+/**
+ * `truncated = 1` on a `release` line: a context shift discarded the front of
+ * this request's conversation before the reply was written. Only ever read as a
+ * positive — `truncated = 0` is 217/217 of a measured corpus and a badge on
+ * every one of them would train the eye to skip the pixel where the real thing
+ * appears.
+ */
+const TRUNCATED = /\btruncated\s*=\s*1\b/;
+
+/** `sim_best = 0.473` — the fraction of the prompt already in the KV cache. */
+const SIM_BEST = /\bsim_best\s*=\s*([01]?\.\d+|\d+)/;
+
+/** The args block's header, which carries no `name=` of its own. */
+const SPAWNING = /spawning server instance/;
+
+/**
+ * The router's own boot vocabulary — the ONE place the family classifier reads
+ * prose, and the reason it is a list of literal substrings rather than a
+ * function name: `operator()` is 41% of llama.cpp's log call sites and covers
+ * four unrelated concerns, so any rule keyed on a function name is broken
+ * before it ships. A phrase that churns costs one row moving to `other`, which
+ * is visible, countable and never a dropped line.
+ */
+/**
+ * A line INDENTED under a header — the shape of a continuation, whatever it
+ * continues. Two or more spaces after the `<component> <fn>:` head is what
+ * separates it from an ordinary line, and it reads the component literal (a
+ * macro constant, byte-stable for 18 months) and the indentation, never the
+ * function name.
+ *
+ * The router's preset catalogue is emitted this way: one `Available models (N)`
+ * header followed by a line per preset, each carrying nothing but a model id.
+ * There is no literal in those lines to key on — so, exactly like the launch
+ * args, membership is positional.
+ */
+const INDENTED_CONTINUATION = /^srv\s+\S+:\s{2,}\S/;
+
+/** The header the preset catalogue hangs off. */
+const CATALOGUE_HEADER = /Available models \(/;
+
+const STARTUP_PHRASES: readonly string[] = [
+  "starting server in router mode",
+  "listening on",
+  "router mode is experimental",
+  "untrusted environments",
+  "model presets",
+  "Available models (",
+  "common_params_print_info",
+  "chat template supports",
+];
+
 function toLevel(letter: string | undefined): LogLevel {
   switch (letter) {
     case "W":
@@ -176,6 +256,102 @@ function readNamed(message: string): { modelName: string | null; namedPort: numb
     return { modelName: named[1] ?? null, namedPort: toPort(NAMED_PORT.exec(message)?.[1]) };
   }
   return { modelName: null, namedPort: null };
+}
+
+/**
+ * Splits the pipe frame off the front of a message, or leaves it alone.
+ *
+ * The split point is the second pipe, so what comes back satisfies
+ * `frame.raw + body === message` for every input, matched or not. A frame whose
+ * numbers do not parse is treated as no frame at all: an enrichment that cannot
+ * be trusted is better absent than wrong, and the row renders exactly as it did
+ * before.
+ */
+function readFrame(message: string): { frame: LogFrame | null; body: string } {
+  const match = FRAME.exec(message);
+  if (match === null) return { frame: null, body: message };
+  const slot = Number.parseInt(match[2] ?? "", 10);
+  const task = Number.parseInt(match[3] ?? "", 10);
+  if (!Number.isInteger(slot) || !Number.isInteger(task)) return { frame: null, body: message };
+  return { frame: { slot, task, raw: match[1] ?? "" }, body: match[4] ?? "" };
+}
+
+/** `sim_best` as a 0–1 fraction, or `null` when the line reported none. */
+function readCacheHit(message: string): number | null {
+  const match = SIM_BEST.exec(message);
+  if (match === null) return null;
+  const value = Number.parseFloat(match[1] ?? "");
+  return Number.isFinite(value) ? value : null;
+}
+
+/** What {@link classifyFamily} needs. A subset of a parsed line, so a simulated
+ * source can classify its own drafts through the same rules instead of a copy. */
+export interface FamilyInput {
+  frame: LogFrame | null;
+  kind: LogKind;
+  origin: LogOrigin;
+  /** The post-frame message — the same text {@link ParsedLogLine.message} carries. */
+  message: string;
+  /**
+   * The line immediately before this one, for the one positional rule: the
+   * preset catalogue's members carry no literal of their own and belong to
+   * their header. Omit it and they fall to `other`, which is visible and
+   * countable — the rule degrades the same way every other one does.
+   */
+  previous?: { family: LogFamily; message: string } | null;
+}
+
+/**
+ * Whether this line continues a preset-catalogue run. Membership is positional,
+ * exactly as it is for the launch-args block and for the same reason: the run
+ * is N self-contained lines with no continuation marker of their own, and a
+ * line that does not match ends it.
+ */
+function continuesCatalogue(
+  previous: { family: LogFamily; message: string } | null | undefined,
+  message: string,
+): boolean {
+  if (previous === null || previous === undefined) return false;
+  const inRun =
+    previous.family === "startup" &&
+    (CATALOGUE_HEADER.test(previous.message) || INDENTED_CONTINUATION.test(previous.message));
+  return inRun && INDENTED_CONTINUATION.test(message);
+}
+
+/**
+ * Which console chip a line answers to. First match wins.
+ *
+ * **It reads zero function names**, and that is the whole point: llama.cpp's
+ * `__func__` values are truncated to 12 characters, collide (`print_timing` is
+ * three different functions), mean two unrelated things depending on component
+ * (`load`), and are `operator()` for 41% of call sites. The rules key on the
+ * 18-month-stable pipe frame, on classifications the parser already made, on
+ * the `[port]` prefix, and — once, in rule 6 — on prose.
+ *
+ * Only rule 6 can rot, and when it does a row moves to `other`. Nothing is ever
+ * dropped, and `other`'s count is the alarm.
+ */
+export function classifyFamily(input: FamilyInput): LogFamily {
+  // 1. Pipe-framed: the line is a slot doing work on a request.
+  if (input.frame !== null) return "requests";
+  // 2. A proxied request IS a request, even though the toggle owns showing it.
+  if (input.kind === "proxy") return "requests";
+  // 3. The launch-args run is part of the model coming up.
+  if (input.kind === "args") return "models";
+  // 4. Anything that names an instance — spawn, unload, LRU eviction, exit. The
+  //    args HEADER carries no `name=` and is caught by name, or it would land in
+  //    `other`, orphaned from the fold it introduces.
+  if (NAMED.test(input.message) || SPAWNING.test(input.message)) return "models";
+  // 5. A child process wrote it, so it is that model's own boot/vocab/KV output.
+  //    This is what catches the component-less vocab warnings without ever
+  //    naming `llama_vocab::impl::load`.
+  if (input.origin === "child") return "models";
+  // 6. The one prose-dependent rule, plus the catalogue members that hang off
+  //    one of its phrases positionally.
+  if (STARTUP_PHRASES.some((phrase) => input.message.includes(phrase))) return "startup";
+  if (continuesCatalogue(input.previous, input.message)) return "startup";
+  // 7. Everything else stays visible, and countable.
+  return "other";
 }
 
 /**
@@ -230,15 +406,23 @@ export function parseLogLine(raw: string, previous: ParsedLogLine | null = null)
       modelName: null,
       namedPort: null,
       kind: "event",
+      frame: null,
+      family: "other",
+      contextLost: false,
+      cacheHit: null,
       message: clean,
     };
   }
 
   const port = toPort(match[1]);
   const level = toLevel(match[3]);
-  const message = match[4] ?? "";
   const origin: LogOrigin = port === null ? "router" : "child";
-  const { modelName, namedPort } = readNamed(message);
+  // The frame comes off first, so every enrichment below reads the same text
+  // the console will paint. Framed lines carry no `name=` and are never proxy
+  // or args records, so nothing the older rules depended on moved.
+  const { frame, body } = readFrame(match[4] ?? "");
+  const { modelName, namedPort } = readNamed(body);
+  const kind = classify(body, origin, previous);
 
   return {
     level,
@@ -246,7 +430,11 @@ export function parseLogLine(raw: string, previous: ParsedLogLine | null = null)
     port,
     modelName,
     namedPort,
-    kind: classify(message, origin, previous),
-    message,
+    kind,
+    frame,
+    family: classifyFamily({ frame, kind, origin, message: body, previous }),
+    contextLost: TRUNCATED.test(body),
+    cacheHit: readCacheHit(body),
+    message: body,
   };
 }

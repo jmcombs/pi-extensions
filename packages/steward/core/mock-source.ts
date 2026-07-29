@@ -37,10 +37,13 @@
  */
 
 import { unknownDrift } from "./drift.js";
+import { classifyFamily } from "./log-parse.js";
 import type { LogAttachment, StewardDataSource, Unsubscribe } from "./source.js";
 import type {
   ConfigEntry,
   HostMetrics,
+  LogFamily,
+  LogFrame,
   LogKind,
   LogLevel,
   LogLine,
@@ -105,9 +108,11 @@ const DEFAULT_THROUGHPUT_INTERVAL_MS = THROUGHPUT_SAMPLE_SECONDS * 1000;
 const DEFAULT_MAX_LOG_LINES = 500;
 /**
  * Enough scrollback for the seeded story to be complete: a router boot, one load
- * per resident model (46 lines each), a request, a disconnect, and some traffic
- * on top. A client replays 200 lines on connect, so this is exactly what the
- * console opens on.
+ * per resident model (46 lines each), the four requests that put the task
+ * column, the badges and the trace on screen, a disconnect, and some traffic on
+ * top. A client replays 200 lines on connect, so this is exactly what the
+ * console opens on — and the story has to keep fitting inside it, or the boot
+ * banner falls off the first paint.
  */
 const DEFAULT_SEED_LINES = 200;
 
@@ -214,6 +219,25 @@ interface LogDraft {
   modelId: string | null;
   kind: LogKind;
   origin: LogOrigin;
+  /** The child's port for a `[port]`-prefixed line: half the trace key. */
+  port?: number;
+  /** The `SLT_*` pipe frame, on the lines that really carry one. */
+  frame?: LogFrame;
+  contextLost?: boolean;
+  cacheHit?: number;
+}
+
+/**
+ * `slot print_timing: id  0 | task 81259 | ` exactly as llama.cpp's shared
+ * `SLT_*` macro writes it: `slot %12.*s: id %2d | task %d | `, function name
+ * right-aligned and truncated in a 12-character field.
+ */
+function frameFor(fn: string, slot: number, task: number): LogFrame {
+  return {
+    slot,
+    task,
+    raw: `slot ${fn.slice(0, 12).padStart(12)}: id ${String(slot).padStart(2)} | task ${task} | `,
+  };
 }
 
 /** A slot as the simulation keeps it; {@link SlotInfo} is the projection. */
@@ -308,10 +332,28 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
 
   /** The ephemeral port each resident model's child server listens on. */
   const modelPorts = new Map<string, number>();
-  /** Task ids, as llama.cpp numbers them: one counter, climbing forever. */
-  let nextTask = 81_000;
+  /**
+   * Task ids, as llama.cpp really allocates them: **one counter per child
+   * process, starting at 0**. So two children genuinely collide — both their
+   * first requests are `task 0` — which is exactly why a trace is keyed on
+   * `(port, task)` and never on the id alone.
+   */
+  const taskCounters = new Map<number, number>();
   /** Lines an episode has queued but not yet written — the simulation's burst. */
   const pending: LogDraft[] = [];
+
+  /**
+   * The next task id on one child, with the measured shape: **sparse**, with
+   * deltas of up to a few hundred, because every internal task (metrics, slot
+   * save, cancel) bumps the same counter. A task id is an opaque handle, not a
+   * request number, and the console's copy says so — this is what makes that
+   * claim testable.
+   */
+  function nextTaskFor(port: number): number {
+    const current = taskCounters.get(port) ?? 0;
+    taskCounters.set(port, current + 1 + Math.floor(random() * 400));
+    return current;
+  }
 
   /** A fresh ephemeral port for a spawning child; real ports are never reused. */
   function portFor(modelId: string): number {
@@ -339,7 +381,25 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     level: LogLevel = "INFO",
     kind: LogKind = "event",
   ): LogDraft {
-    return { level, message, modelId, kind, origin: "child" };
+    return { level, message, modelId, kind, origin: "child", port: portFor(modelId) };
+  }
+
+  /** A pipe-framed `slot` line — the only class of line that carries a task. */
+  function slotLine(
+    fn: string,
+    slot: number,
+    task: number,
+    body: string,
+    modelId: string,
+    kind: LogKind = "event",
+    extra: { level?: LogLevel; contextLost?: boolean; cacheHit?: number } = {},
+  ): LogDraft {
+    return {
+      ...child(body, modelId, extra.level ?? "INFO", kind),
+      frame: frameFor(fn, slot, task),
+      ...(extra.contextLost === true ? { contextLost: true } : {}),
+      ...(extra.cacheHit === undefined ? {} : { cacheHit: extra.cacheHit }),
+    };
   }
 
   /**
@@ -487,22 +547,41 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
    * rate line for every ~3 s the generation ran. That is the whole of it —
    * llama.cpp writes nothing else per request.
    */
-  function requestEpisode(model: ModelSpec, minRateLines = 0): LogDraft[] {
+  interface RequestOptions {
+    /**
+     * Rate lines to guarantee. The seeded story needs at least one on first
+     * paint, and a dice roll is no way to get first-paint coverage.
+     */
+    minRateLines?: number;
+    /**
+     * A task id to use instead of the counter's next. The seeded story uses it
+     * twice: once for a request that logs a LOWER id than the one before it on
+     * the same port (ids are allocated at enqueue and slots granted at dequeue,
+     * so a deferred task really does log out of order), and once to make two
+     * children collide on the same id.
+     */
+    task?: number;
+    /** Pins the decode slot, so the slot badge's reveal path is exercised. */
+    slot?: number;
+    /** Emits `truncated = 1` — the one signal that a reply lost its context. */
+    truncated?: boolean;
+  }
+
+  function requestEpisode(model: ModelSpec, options: RequestOptions = {}): LogDraft[] {
     const port = portFor(model.id);
-    const task = nextTask;
-    nextTask += 1;
-    const slot = Math.floor(random() * (model.parallel ?? 1));
+    const task = options.task ?? nextTaskFor(port);
+    const slot = options.slot ?? Math.floor(random() * (model.parallel ?? 1));
     const promptTokens = Math.floor(40 + random() * 3000);
     const decoded = Math.floor(40 + random() * 600);
     const promptMs = 40 + random() * 400;
     const evalMs = decoded * (5 + random() * 8);
     const tps = (decoded / evalMs) * 1000;
-    const prefix = `slot print_timing: id  ${slot} | task ${task} |`;
+    const cacheHit = Number(random().toFixed(3));
     // One rate line per three seconds of generation, and none at all for a
     // request that finished inside the window — which is most of them.
-    // `minRateLines` is how the seeded story guarantees the console opens with
-    // at least one, since a dice roll is no way to get first-paint coverage.
-    const rateLines = Math.max(minRateLines, Math.min(3, Math.floor(evalMs / 3000)));
+    const rateLines = Math.max(options.minRateLines ?? 0, Math.min(3, Math.floor(evalMs / 3000)));
+    const timing = (body: string): LogDraft =>
+      slotLine("print_timings", slot, task, body, model.id);
 
     return [
       router(
@@ -511,38 +590,46 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
         "INFO",
         "proxy",
       ),
-      child(
-        `slot get_availabl: id  ${slot} | task -1 | selected slot by LCP similarity, sim_best = ${random().toFixed(3)} (> 0.100 thold), f_keep = 0.024`,
+      // `task -1`: no task is attached when the slot is chosen, which is why
+      // this line has no trace button and joins its trace by adjacency.
+      slotLine(
+        "get_available_slot",
+        slot,
+        -1,
+        `selected slot by LCP similarity, sim_best = ${cacheHit.toFixed(3)} (> 0.100 thold), f_keep = 0.024`,
         model.id,
+        "event",
+        { cacheHit },
       ),
-      child(
-        `slot launch_slot_: id  ${slot} | task ${task} | processing task, is_child = 0`,
-        model.id,
-      ),
+      slotLine("launch_slot_with_task", slot, task, "processing task, is_child = 0", model.id),
       ...Array.from({ length: rateLines }, (_unused, index) =>
-        child(
-          `${prefix} n_decoded = ${Math.floor((decoded * (index + 1)) / (rateLines + 1))}, tg = ${tps.toFixed(2)} t/s, tg_3s = ${(tps * (0.9 + random() * 0.2)).toFixed(2)} t/s`,
+        slotLine(
+          "print_timings_tg",
+          slot,
+          task,
+          `n_decoded = ${Math.floor((decoded * (index + 1)) / (rateLines + 1))}, tg = ${tps.toFixed(2)} t/s, tg_3s = ${(tps * (0.9 + random() * 0.2)).toFixed(2)} t/s`,
           model.id,
-          "INFO",
           "rate",
         ),
       ),
-      child(
-        `${prefix} prompt eval time = ${promptMs.toFixed(2)} ms / ${promptTokens} tokens (${(promptMs / promptTokens).toFixed(2)} ms per token, ${((promptTokens / promptMs) * 1000).toFixed(2)} tokens per second)`,
-        model.id,
+      timing(
+        `prompt eval time = ${promptMs.toFixed(2)} ms / ${promptTokens} tokens (${(promptMs / promptTokens).toFixed(2)} ms per token, ${((promptTokens / promptMs) * 1000).toFixed(2)} tokens per second)`,
       ),
-      child(
-        `${prefix}        eval time = ${evalMs.toFixed(2)} ms / ${decoded} tokens (${(evalMs / decoded).toFixed(2)} ms per token, ${tps.toFixed(2)} tokens per second)`,
-        model.id,
+      timing(
+        `       eval time = ${evalMs.toFixed(2)} ms / ${decoded} tokens (${(evalMs / decoded).toFixed(2)} ms per token, ${tps.toFixed(2)} tokens per second)`,
       ),
-      child(
-        `${prefix}       total time = ${(promptMs + evalMs).toFixed(2)} ms / ${promptTokens + decoded} tokens`,
-        model.id,
+      timing(
+        `      total time = ${(promptMs + evalMs).toFixed(2)} ms / ${promptTokens + decoded} tokens`,
       ),
-      child(`${prefix}    graphs reused = ${Math.floor(random() * 90000)}`, model.id),
-      child(
-        `slot      release: id  ${slot} | task ${task} | stop processing: n_tokens = ${promptTokens + decoded}, truncated = 0`,
+      timing(`   graphs reused = ${Math.floor(random() * 90000)}`),
+      slotLine(
+        "release",
+        slot,
+        task,
+        `stop processing: n_tokens = ${promptTokens + decoded}, truncated = ${options.truncated === true ? 1 : 0}`,
         model.id,
+        "event",
+        options.truncated === true ? { contextLost: true } : {},
       ),
     ];
   }
@@ -582,16 +669,28 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
    * different scopes. The console must not invent an attribution to tidy that up.
    */
   function disconnectEpisode(model: ModelSpec): LogDraft[] {
-    const task = nextTask;
-    nextTask += 1;
+    const task = nextTaskFor(portFor(model.id));
     return [
       router("srv    operator(): http client error: Connection handling canceled", null, "ERROR"),
       child("srv          stop: cancel task, id_task = 0", model.id, "WARN"),
-      child(
-        `slot      release: id  0 | task ${task} | stop processing: n_tokens = ${Math.floor(100 + random() * 900)}, truncated = 0`,
+      slotLine(
+        "release",
+        0,
+        task,
+        `stop processing: n_tokens = ${Math.floor(100 + random() * 900)}, truncated = 0`,
         model.id,
       ),
     ];
+  }
+
+  /**
+   * A shape no classifier rule matches: router-origin, unframed, no `name=`,
+   * none of the boot vocabulary — and a payload that LOOKS pipe-framed without
+   * being it. It exists so `other` is never zero, because `other` is the drift
+   * alarm and an alarm that has never fired has never been seen to work.
+   */
+  function unclassifiedEpisode(): LogDraft[] {
+    return [router("srv   frobnicate: widget 3 | zone 7 | reticulating splines")];
   }
 
   /**
@@ -626,6 +725,9 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
     if (anyLeft) pending.push(...kept);
   }
 
+  /** The line before the one being appended — the catalogue rule's only state. */
+  let lastLine: { family: LogFamily; message: string } | null = null;
+
   function append(draft: LogDraft): void {
     seq += 1;
     const line: LogLine = {
@@ -636,7 +738,24 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       message: draft.message,
       kind: draft.kind,
       origin: draft.origin,
+      // Through the parser's own rules, not a copy of them: a simulation that
+      // classified its lines differently from the real source would be a second
+      // grammar to keep in step, and the two would drift.
+      family: classifyFamily({
+        frame: draft.frame ?? null,
+        kind: draft.kind,
+        origin: draft.origin,
+        message: draft.message,
+        // The catalogue rule is positional, so the simulation has to carry the
+        // same one line of state the parser does.
+        previous: lastLine === null ? null : { family: lastLine.family, message: lastLine.message },
+      }),
+      ...(draft.port === undefined ? {} : { port: draft.port }),
+      ...(draft.frame === undefined ? {} : { frame: draft.frame }),
+      ...(draft.contextLost === true ? { contextLost: true } : {}),
+      ...(draft.cacheHit === undefined ? {} : { cacheHit: draft.cacheHit }),
     };
+    lastLine = { family: line.family ?? "other", message: line.message };
     log.push(line);
     if (log.length > maxLogLines) log.splice(0, log.length - maxLogLines);
     for (const listener of listeners) listener(line);
@@ -813,10 +932,32 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
   // Why the embedder is unloaded now: the router evicted it, and said so.
   const [firstUnloaded] = MODELS.filter((model) => unloaded.has(model.id));
   if (firstUnloaded !== undefined) pending.push(...unloadEpisode(firstUnloaded));
-  const [firstLoaded] = MODELS.filter((model) => !unloaded.has(model.id));
+  // Then the cases none of this is visible without. Each is here because a
+  // console feature is unproven until the simulation produces the shape it is
+  // for: an operator (and a test) has to be able to SEE it working.
+  const loadedForStory = MODELS.filter((model) => !unloaded.has(model.id));
+  const [firstLoaded, secondLoaded] = loadedForStory;
   if (firstLoaded !== undefined) {
-    pending.push(...requestEpisode(firstLoaded, 1), ...disconnectEpisode(firstLoaded));
+    // A first request, which takes task 0 on its port — sparse ids start there.
+    pending.push(...requestEpisode(firstLoaded, { minRateLines: 1, task: 0, slot: 0 }));
+    // A SECOND slot id, so the slot badge's `parallel > 1` reveal path runs.
+    pending.push(
+      ...requestEpisode(firstLoaded, { slot: (firstLoaded.parallel ?? 1) > 1 ? 1 : 0, task: 211 }),
+    );
+    // A task id that goes DOWN in file order — ids are allocated at enqueue and
+    // slots granted at dequeue, so a deferred task logs later with a lower id —
+    // carrying the `truncated = 1` that is 0/217 on the machine this was
+    // measured on, and is exactly why it has to be reachable here.
+    pending.push(...requestEpisode(firstLoaded, { task: 209, slot: 0, truncated: true }));
+    pending.push(...disconnectEpisode(firstLoaded));
   }
+  // Two children, two ports, the SAME task id. A trace keyed on the id alone
+  // shows both models' lines under one request; keyed on `(port, task)` it does
+  // not, and the difference is visible here.
+  if (secondLoaded !== undefined) {
+    pending.push(...requestEpisode(secondLoaded, { task: 0 }));
+  }
+  pending.push(...unclassifiedEpisode());
   // Then ordinary traffic up to the seed size — mostly Steward's own polling,
   // which is exactly what a real idle router's tail looks like. Traffic is
   // bursty and sometimes silent, so this counts lines rather than attempts; the

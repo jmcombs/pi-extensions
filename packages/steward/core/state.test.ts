@@ -484,3 +484,93 @@ describe("bufferDropped across a source restart", () => {
     expect(state.bufferDropped).toBe(true);
   });
 });
+
+describe("restart detection after the frame moved out of the message", () => {
+  /**
+   * A `print_timing` line as the parser now produces it: the whole `id N |
+   * task N | ` frame in its own field, the payload in `message`. Two different
+   * requests' `eval time` lines are byte-identical in every field EXCEPT the
+   * task id — which is precisely why the id has to be part of the comparison.
+   */
+  function timing(seq: number, task: number): LogLine {
+    return {
+      seq,
+      ts: 1_700_000_000_000 + seq,
+      level: "INFO",
+      modelId: "gpt-oss-20b",
+      port: 62354,
+      frame: {
+        slot: 0,
+        task,
+        raw: `slot print_timing: id  0 | task ${task} | `,
+      },
+      message: "       eval time =   873.11 ms /   120 tokens",
+    };
+  }
+
+  it("adopts a restarted source whose lines differ only by task id", () => {
+    // The bug this pins: with the frame relocated, `sameLine` compared two
+    // different tasks' timing lines as EQUAL. `appendLines` reads it to tell a
+    // stream replay from a source that restarted its numbering, so a restarted
+    // server's whole backlog would be mistaken for a replay and discarded —
+    // and the console would sit there holding the dead source's lines forever.
+    const held = [timing(1, 81259), timing(2, 81259)];
+    const state = reduce(initialUiState("light"), { type: "logs/append", lines: held });
+
+    const fresh = [timing(1, 90001), timing(2, 90002)];
+    const next = reduce(state, { type: "logs/append", lines: fresh });
+    expect(next.log).toEqual(fresh);
+  });
+
+  it("still treats a genuine replay of the same lines as a replay", () => {
+    const held = [timing(1, 81259), timing(2, 81260)];
+    const state = reduce(initialUiState("light"), { type: "logs/append", lines: held });
+    expect(reduce(state, { type: "logs/append", lines: held })).toBe(state);
+  });
+});
+
+describe("the trace", () => {
+  const TRACE = { port: 62354, task: 81259, anchorSeq: 12 };
+
+  it("opens and closes, and no-ops on the same reference", () => {
+    const open = reduce(initialUiState("light"), { type: "logs/trace", trace: TRACE });
+    expect(open.trace).toEqual(TRACE);
+    expect(reduce(open, { type: "logs/trace", trace: { ...TRACE } })).toBe(open);
+    expect(reduce(open, { type: "logs/trace", trace: null }).trace).toBeNull();
+  });
+
+  it("is closed by EVERY filter action, in the reducer", () => {
+    // In the reducer and not in a handler, so a control added later cannot
+    // forget it — which is what lets the toolbar leave everything enabled while
+    // a trace is open.
+    const actions = [
+      { type: "filter/model", modelId: "gpt-oss-20b" },
+      { type: "filter/model-toggle", modelId: "gpt-oss-20b" },
+      { type: "filter/level", level: "WARN" },
+      { type: "filter/family", family: "models" },
+      { type: "filter/query", query: "eval" },
+      { type: "filter/proxy-toggle" },
+    ] as const;
+    for (const action of actions) {
+      const open = reduce(initialUiState("light"), { type: "logs/trace", trace: TRACE });
+      expect(reduce(open, action).trace, action.type).toBeNull();
+    }
+  });
+
+  it("is closed even by a filter action that changes nothing else", () => {
+    // Pressing the chip that is already pressed still means "leave the trace".
+    let state = reduce(initialUiState("light"), { type: "filter/level", level: "WARN" });
+    state = reduce(state, { type: "logs/trace", trace: TRACE });
+    const next = reduce(state, { type: "filter/level", level: "WARN" });
+    expect(next.trace).toBeNull();
+    expect(next.filterLevel).toBe("WARN");
+  });
+
+  it("survives everything that is not a filter", () => {
+    let state = reduce(initialUiState("light"), { type: "logs/trace", trace: TRACE });
+    state = reduce(state, { type: "logs/append", lines: [line(1)] });
+    state = reduce(state, { type: "logs/pause-toggle" });
+    state = reduce(state, { type: "theme/toggle" });
+    expect(state.trace).toEqual(TRACE);
+  });
+});
