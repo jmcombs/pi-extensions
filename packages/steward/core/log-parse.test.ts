@@ -264,4 +264,141 @@ describe("parseLogLine", () => {
     expect(long.message.startsWith("srv  proxy_reques:")).toBe(true);
     expect(long.message).not.toContain("1408.02.766.799");
   });
+
+  it("strips an elapsed stamp of any minutes width, because the field never wraps", () => {
+    // llama.cpp prints the stamp "%d.%02d.%03d.%03d" from a minute counter, so
+    // only the last three fields are fixed-width. Everything from a one-minute
+    // child to a four-digit-minute router has to lose the same field.
+    const widths = [
+      ["0.00.051.592", "gguf_init_from_file: failed to open GGUF file"],
+      ["9.07.001.000", "srv    operator(): task done"],
+      ["99.59.999.999", "srv  llama_server: the last two-digit minute"],
+      // Past 100 minutes the field simply grows; 180 is a three-hour process.
+      ["180.05.123.456", "srv  proxy_reques: proxying request to model gpt-oss-20b"],
+      // The longest-running boot in the real corpus reached 1597 minutes.
+      ["1597.42.318.004", "srv        unload: stopping model instance name=gpt-oss-20b"],
+      ["100000.00.000.000", "srv  llama_server: absurd, and still just a field"],
+    ] as const;
+
+    for (const [stamp, rest] of widths) {
+      const line = parseLogLine(`${stamp} I ${rest}`);
+      expect(line.level).toBe("INFO");
+      expect(line.message).toBe(rest);
+      // A child line wears the same stamp behind the router's port prefix.
+      const child = parseLogLine(`[57409] ${stamp} W ${rest}`);
+      expect(child.origin).toBe("child");
+      expect(child.port).toBe(57409);
+      expect(child.level).toBe("WARN");
+      expect(child.message).toBe(rest);
+    }
+
+    // The fixed-width fields stay fixed: a stamp-shaped thing that is not one
+    // is message text, not a stamp to swallow.
+    const notAStamp = parseLogLine("1.2.3.4 I srv x");
+    expect(notAStamp.message).toBe("1.2.3.4 I srv x");
+  });
+
+  it("reads the `[port]` prefix through the space padding the router adds", () => {
+    // The router forwards child output as LOG("[%5d] %s", port, buffer), so the
+    // port is right-aligned in a five-wide field. A four-digit port therefore
+    // arrives with a leading space, and a parser demanding `[\d+]` loses both
+    // the child origin and the port that is the line's only attribution.
+    const padded = parseLogLine(
+      "[ 8080] 12.34.567.890 I slot print_timing: id  0 | task 7 | prompt eval time = 191.34 ms",
+    );
+    expect(padded.origin).toBe("child");
+    expect(padded.port).toBe(8080);
+    expect(padded.level).toBe("INFO");
+    expect(padded.message).toBe("slot print_timing: id  0 | task 7 | prompt eval time = 191.34 ms");
+
+    // Narrower ports pad wider; the field width itself is not something to rely
+    // on, so any amount of padding on either side reads the same.
+    for (const prefix of ["[  443]", "[   80]", "[    8]", "[8080 ]", "[ 8080 ]"]) {
+      const line = parseLogLine(`${prefix} 0.00.000.001 E srv  llama_server: exiting`);
+      expect(line.origin).toBe("child");
+      expect(line.level).toBe("ERROR");
+      expect(line.message).toBe("srv  llama_server: exiting");
+    }
+
+    // Regression: the five-digit ephemeral ports that fill a real corpus, and
+    // which are why the padding went unnoticed, are unchanged.
+    const ephemeral = parseLogLine(
+      "[57409] 1408.02.762.105 I slot print_timing: id  0 | task 81259 | total time = 1064.45 ms",
+    );
+    expect(ephemeral.origin).toBe("child");
+    expect(ephemeral.port).toBe(57409);
+    expect(ephemeral.message.startsWith("slot print_timing:")).toBe(true);
+
+    // Padding is spaces and digits only — bracketed message text stays text.
+    for (const raw of ["[ warn ] something", "[80a] something", "[] something"]) {
+      const line = parseLogLine(raw);
+      expect(line.origin).toBe("router");
+      expect(line.port).toBeNull();
+      expect(line.message).toBe(raw);
+    }
+  });
+
+  it("reads a router-forwarded line that has neither level nor elapsed stamp", () => {
+    // The router forwards with LOG(), which is GGML_LOG_LEVEL_NONE, and the
+    // whole prefix block — timestamp AND level letter — is skipped for that
+    // level. So the router contributes only `[port] `; whatever framing follows
+    // belongs to the child, and there may be none.
+    const ipc = parseLogLine(
+      '[ 8080] cmd_child_to_router:state:{"state":"ready","payload":{"id":"gpt-oss-20b"}}',
+    );
+    expect(ipc.origin).toBe("child");
+    expect(ipc.port).toBe(8080);
+    expect(ipc.level).toBe("INFO");
+    expect(ipc.kind).toBe("event");
+    expect(ipc.message).toBe(
+      'cmd_child_to_router:state:{"state":"ready","payload":{"id":"gpt-oss-20b"}}',
+    );
+
+    // A child run with --no-log-prefix forwards bare text, which must not be
+    // mined for a stamp or a level that is not there.
+    const bare = parseLogLine("[57409] srv  llama_server: model loaded");
+    expect(bare.origin).toBe("child");
+    expect(bare.port).toBe(57409);
+    expect(bare.level).toBe("INFO");
+    expect(bare.message).toBe("srv  llama_server: model loaded");
+
+    // Timestamps without the level letter, and the letter without a timestamp,
+    // are both reachable (--no-log-prefix gates both, --no-log-timestamps only
+    // the stamp), and each field is read on its own.
+    const stampOnly = parseLogLine("[57409] 0.00.080.351 cmn  common_param: verbosity = 3");
+    expect(stampOnly.level).toBe("INFO");
+    expect(stampOnly.message).toBe("cmn  common_param: verbosity = 3");
+
+    const levelOnly = parseLogLine("[ 8080] E gguf_init_from_file: failed to open GGUF file");
+    expect(levelOnly.origin).toBe("child");
+    expect(levelOnly.port).toBe(8080);
+    expect(levelOnly.level).toBe("ERROR");
+    expect(levelOnly.message).toBe("gguf_init_from_file: failed to open GGUF file");
+
+    // A forwarded line whose text is empty is still a child line, not a crash.
+    const empty = parseLogLine("[ 8080] ");
+    expect(empty.origin).toBe("child");
+    expect(empty.port).toBe(8080);
+    expect(empty.message).toBe("");
+  });
+
+  it("keeps the message a verbatim suffix of the raw line, whatever the framing", () => {
+    // The invariant the console depends on: parsing removes a prefix and never
+    // rewrites anything. Verified across a real corpus; pinned here on the
+    // shapes that have prefixes to remove.
+    const raws = [
+      "1401.19.775.771 I srv  proxy_reques: proxying request to model gpt-oss-20b on port 62354",
+      "[57409] 1408.02.762.105 I slot print_timing: id  0 | task 81259 | total time = 1064.45 ms",
+      "[ 8080] 180.05.123.456 E gguf_init_from_file: failed to open GGUF file '/m/broken.gguf'",
+      '[ 8080] cmd_child_to_router:state:{"state":"loading"}',
+      "[57409] srv  llama_server: model loaded",
+      "  --ctx-size",
+      "0.00.051.592 E llama_model_load: error loading model",
+      "]]] {{{ ???",
+      "",
+    ];
+    for (const raw of raws) {
+      expect(raw.endsWith(parseLogLine(raw).message)).toBe(true);
+    }
+  });
 });

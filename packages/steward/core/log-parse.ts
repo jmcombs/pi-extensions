@@ -10,11 +10,31 @@
  * free-form message text*:
  *
  * ```
- * ^(?:\[(?<port>\d+)\]\s+)?                # router-added child prefix
- *  (?:(?<elapsed>\d+\.\d{2}\.\d{3}\.\d{3})\s+)?   # per-process elapsed MM.SS.mmm.uuu
+ * ^(?:\[ *(?<port>\d+) *\]\s+)?            # router-added child prefix
+ *  (?:(?<elapsed>\d+\.\d{2}\.\d{3}\.\d{3})\s+)?   # per-process elapsed M+.SS.mmm.uuu
  *  (?:(?<level>[IWED])\s+)?                # level letter
  *  (?<message>.*)$                         # message, verbatim
  * ```
+ *
+ * Three details of that shape are dictated by llama.cpp's `printf` formats, and
+ * each of them has bitten a parser written from a sample of one log:
+ *
+ * - **The `[port]` prefix is space-padded.** The router forwards child output as
+ *   `LOG("[%5d] %s", port, buffer)`, so the port is right-aligned in a
+ *   five-wide field: `[57409]` for an ephemeral port, but `[ 8080]` for a
+ *   four-digit one. Requiring `\[\d+\]` silently demotes every such line to a
+ *   router line and throws away its model attribution.
+ * - **The elapsed stamp's leading field is unbounded.** It is printed
+ *   `"%d.%02d.%03d.%03d"` from a running total of *minutes* — only the last
+ *   three fields are fixed-width. A process up for three hours stamps
+ *   `180.05.123.456`, and a long-lived router reaches four digits.
+ * - **A forwarded child line carries no router-side framing at all.** `LOG` is
+ *   `GGML_LOG_LEVEL_NONE`, and the whole prefix block — timestamp *and* level
+ *   letter — is skipped for that level. What follows `[port] ` is the child's
+ *   own line, complete with whatever prefix the child itself emitted, or none
+ *   at all when the child used `LOG` too (the `cmd_child_to_router:state:` IPC
+ *   records). Every field ahead of the message is therefore independently
+ *   optional, which is why they are matched that way rather than as a unit.
  *
  * The `<component> <fn>:` shape (`srv  proxy_reques:`, `slot print_timing:`) is a
  * convention of *some* call sites, NOT log structure, and requiring it is wrong:
@@ -69,8 +89,13 @@ export interface ParsedLogLine {
 /**
  * `[port]`, elapsed and level are each optional; the message is whatever is
  * left. Deliberately no component/function group — see the module comment.
+ *
+ * The padding inside the brackets is tolerated on both sides so a change of
+ * field width or alignment upstream cannot cost us attribution; only digits and
+ * spaces are accepted there, so message text such as `[warn] …` is still text.
+ * The minutes field is `\d+` because it counts minutes without wrapping.
  */
-const LINE = /^(?:\[(\d+)\]\s+)?(?:(\d+\.\d{2}\.\d{3}\.\d{3})\s+)?(?:([IWED])\s+)?([\s\S]*)$/;
+const LINE = /^(?:\[ *(\d+) *\]\s+)?(?:(\d+\.\d{2}\.\d{3}\.\d{3})\s+)?(?:([IWED])\s+)?([\s\S]*)$/;
 
 /**
  * ANSI SGR sequences. A file sink never contains them (verified: 0 of 15,842
