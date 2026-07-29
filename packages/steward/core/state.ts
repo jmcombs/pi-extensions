@@ -7,13 +7,46 @@
  * and DOM APIs — see `./types.ts`.
  */
 
-import type { LogLevel, LogLine, ModelAction, ModelStatus, ServiceAction } from "./types.js";
+import type {
+  LogLevel,
+  LogLine,
+  LogSourceState,
+  ModelAction,
+  ModelStatus,
+  ServiceAction,
+} from "./types.js";
 
-/** How many lines the browser keeps. Older lines fall off the front. */
+/**
+ * How many SIGNAL lines the browser keeps — every line whose kind is not
+ * `proxy`. Older ones fall off the front.
+ *
+ * Signal and poll traffic get separate budgets because they arrive at wildly
+ * different rates: an idle router emits no signal at all and ~1.25 proxied
+ * requests per second per loaded model, most of them Steward's own status
+ * polling. Under one shared budget that metronome evicts the boot banner — the
+ * thing the operator opened the console to read — within minutes, and hiding
+ * proxy lines in the VIEW does nothing about it, because the eviction already
+ * happened in the buffer.
+ */
 export const LOG_BUFFER_LIMIT = 500;
+
+/**
+ * How many `proxy` lines the browser keeps. Deliberately much smaller than
+ * {@link LOG_BUFFER_LIMIT}: this class is a recency window ("what has been
+ * asked of the router lately"), not a history, and it is the only class that
+ * can arrive faster than an operator can read.
+ */
+export const POLL_BUFFER_LIMIT = 200;
 
 /** The level filter, where `all` means "do not filter". */
 export type LevelFilter = LogLevel | "all";
+
+/**
+ * The SSE connection's own state, which is not the same question as whether a
+ * log source exists: a live stream can be carrying nothing, and a dead stream
+ * can leave a full buffer on screen.
+ */
+export type LogStreamState = "connecting" | "live" | "reconnecting";
 
 /**
  * `system` follows the OS `prefers-color-scheme` and is the default; `light` and
@@ -34,11 +67,52 @@ export interface UiState {
   /** Buffer snapshot taken when the operator paused, or `null` when live. */
   frozen: LogLine[] | null;
   paused: boolean;
+  /**
+   * True once the buffer has evicted a SIGNAL line, so the console can say that
+   * older lines are gone rather than letting the window look complete. Proxy
+   * evictions do not set it: that class is a recency window by design, and a
+   * permanent banner about it would say nothing.
+   */
+  bufferDropped: boolean;
   /** Model id the console is scoped to, or `null` for all models. */
   filterModel: string | null;
   filterLevel: LevelFilter;
   /** Case-insensitive substring, matched against the message text only. */
   query: string;
+  /**
+   * Whether proxied-request lines are shown. Default `false`: they are 86.9% of
+   * a real log and most of them are Steward polling itself. Never a hard drop —
+   * on a router serving external clients they are the only inbound-traffic
+   * evidence in the file — and the toolbar always counts out loud what the
+   * toggle is holding back.
+   *
+   * Deliberately NOT persisted: an operator who left it on would come back to a
+   * console filling at 1.25 lines/second with no memory of why.
+   */
+  showProxy: boolean;
+  /**
+   * The args folds the operator has opened, keyed by the `seq` of the run's
+   * first line. Absent means collapsed; a run that falls out of the buffer takes
+   * its entry's meaning with it and the stale key simply never matches again.
+   */
+  expandedArgs: Record<number, true>;
+  /** The log stream's connection state, fed by the `EventSource` lifecycle. */
+  logStream: LogStreamState;
+  /**
+   * Whether the server has a log source at all, and how it is failing when it
+   * does not. `ok` until the stream says otherwise, so a console that has not
+   * heard yet does not accuse anything.
+   */
+  logSource: LogSourceState;
+  /** The path the server is watching, so the console can name the file it misses. */
+  logSourcePath: string | null;
+  /**
+   * The server's own reason the source is not `ok` (`… could not be read
+   * (EACCES)`), or `null`. Rendered verbatim rather than paraphrased: it is the
+   * difference between an operator fixing a permission and hunting a bug that
+   * does not exist.
+   */
+  logSourceDetail: string | null;
   theme: Theme;
   /** Set for a beat after Copy, so the button can acknowledge. */
   copied: boolean;
@@ -75,7 +149,16 @@ export type UiAction =
   | { type: "filter/model-toggle"; modelId: string }
   | { type: "filter/level"; level: LevelFilter }
   | { type: "filter/query"; query: string }
+  | { type: "filter/proxy-toggle" }
   | { type: "logs/pause-toggle" }
+  | { type: "logs/fold-toggle"; seq: number }
+  | { type: "logs/stream-status"; status: LogStreamState }
+  | {
+      type: "logs/source-status";
+      source: LogSourceState;
+      path: string | null;
+      detail: string | null;
+    }
   | { type: "theme/toggle" }
   | { type: "copy/flag"; copied: boolean }
   | { type: "service/pending"; action: ServiceAction | null }
@@ -90,9 +173,16 @@ export function initialUiState(theme: Theme): UiState {
     log: [],
     frozen: null,
     paused: false,
+    bufferDropped: false,
     filterModel: null,
     filterLevel: "all",
     query: "",
+    showProxy: false,
+    expandedArgs: {},
+    logStream: "connecting",
+    logSource: "ok",
+    logSourcePath: null,
+    logSourceDetail: null,
     theme,
     copied: false,
     pendingService: null,
@@ -103,8 +193,64 @@ export function initialUiState(theme: Theme): UiState {
   };
 }
 
-function cap(lines: LogLine[]): LogLine[] {
-  return lines.length > LOG_BUFFER_LIMIT ? lines.slice(lines.length - LOG_BUFFER_LIMIT) : lines;
+/** A capped buffer, plus whether capping it cost the operator any signal. */
+interface CappedBuffer {
+  lines: LogLine[];
+  /** True when at least one line that was NOT proxy traffic had to be evicted. */
+  droppedSignal: boolean;
+  /**
+   * True when the batch REPLACED the buffer rather than extending it — a source
+   * that started over. It means precisely "nothing held is older than this
+   * buffer", so whatever the previous source dropped is no longer a fact about
+   * what is on screen.
+   */
+  restarted: boolean;
+}
+
+/**
+ * Trims the buffer to its two budgets: {@link LOG_BUFFER_LIMIT} signal lines
+ * and {@link POLL_BUFFER_LIMIT} proxy lines.
+ *
+ * The walk goes newest-first so each budget is spent on the most recent lines
+ * of its class, and the survivors are re-reversed — so the result is still ONE
+ * array, still ascending by `seq`, which is what `appendLines`' replay/restart
+ * detection reads. The same array object comes back when nothing was dropped,
+ * so an append that changes nothing stays a no-op.
+ */
+function cap(lines: LogLine[]): CappedBuffer {
+  let signal = 0;
+  let poll = 0;
+  let dropped = false;
+  let droppedSignal = false;
+  const kept: LogLine[] = [];
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (line === undefined) continue;
+    if (line.kind === "proxy") {
+      if (poll < POLL_BUFFER_LIMIT) {
+        poll += 1;
+        kept.push(line);
+      } else {
+        dropped = true;
+      }
+    } else if (signal < LOG_BUFFER_LIMIT) {
+      signal += 1;
+      kept.push(line);
+    } else {
+      dropped = true;
+      droppedSignal = true;
+    }
+  }
+
+  if (!dropped) return { lines, droppedSignal: false, restarted: false };
+  kept.reverse();
+  return { lines: kept, droppedSignal, restarted: false };
+}
+
+/** {@link cap}, for a batch that replaces the buffer instead of extending it. */
+function adopt(lines: LogLine[]): CappedBuffer {
+  return { ...cap(lines), restarted: true };
 }
 
 /** Two deliveries of one line, as opposed to two lines sharing a number. */
@@ -127,27 +273,29 @@ function sameLine(a: LogLine, b: LogLine): boolean {
  * while an overlap that agrees is a replay and only the genuinely new lines are
  * kept.
  */
-function appendLines(log: LogLine[], incoming: readonly LogLine[]): LogLine[] {
+function appendLines(log: LogLine[], incoming: readonly LogLine[]): CappedBuffer {
   const newest = incoming.at(-1);
-  if (newest === undefined) return log;
+  if (newest === undefined) return { lines: log, droppedSignal: false, restarted: false };
   const last = log.at(-1);
   const oldest = log[0];
-  if (last === undefined || oldest === undefined) return cap(incoming.slice());
+  if (last === undefined || oldest === undefined) return adopt(incoming.slice());
 
   if (incoming.some((line) => line.seq <= last.seq)) {
     // A batch that ends below everything held cannot be a replay: the source
     // would have had to go backwards to produce it.
-    if (newest.seq < oldest.seq) return cap(incoming.slice());
+    if (newest.seq < oldest.seq) return adopt(incoming.slice());
 
     const held = new Map(log.map((line) => [line.seq, line]));
     for (const line of incoming) {
       const previous = held.get(line.seq);
-      if (previous !== undefined && !sameLine(previous, line)) return cap(incoming.slice());
+      if (previous !== undefined && !sameLine(previous, line)) return adopt(incoming.slice());
     }
   }
 
   const fresh = incoming.filter((line) => line.seq > last.seq);
-  return fresh.length === 0 ? log : cap(log.concat(fresh));
+  return fresh.length === 0
+    ? { lines: log, droppedSignal: false, restarted: false }
+    : cap(log.concat(fresh));
 }
 
 /**
@@ -157,8 +305,15 @@ function appendLines(log: LogLine[], incoming: readonly LogLine[]): LogLine[] {
 export function reduce(state: UiState, action: UiAction): UiState {
   switch (action.type) {
     case "logs/append": {
-      const log = appendLines(state.log, action.lines);
-      return log === state.log ? state : { ...state, log };
+      const { lines: log, droppedSignal, restarted } = appendLines(state.log, action.lines);
+      // Once true it stays true — the operator has lost lines and the console
+      // keeps saying so — EXCEPT across a restart, which replaces the buffer
+      // whole. Carrying the flag over would leave a permanent "older lines
+      // dropped" banner on a console holding every line the new source ever
+      // wrote, which is the opposite of the truth it was added to tell.
+      const bufferDropped = restarted ? droppedSignal : state.bufferDropped || droppedSignal;
+      if (log === state.log && bufferDropped === state.bufferDropped) return state;
+      return { ...state, log, bufferDropped };
     }
     case "filter/model": {
       if (state.filterModel === action.modelId) return state;
@@ -176,11 +331,39 @@ export function reduce(state: UiState, action: UiAction): UiState {
       if (state.query === action.query) return state;
       return { ...state, query: action.query };
     }
+    case "filter/proxy-toggle": {
+      return { ...state, showProxy: !state.showProxy };
+    }
     case "logs/pause-toggle": {
       // Pausing freezes what is on screen; the live buffer keeps filling behind
       // it so Resume drops the operator back into the present, not the past.
       if (state.paused) return { ...state, paused: false, frozen: null };
       return { ...state, paused: true, frozen: state.log.slice() };
+    }
+    case "logs/fold-toggle": {
+      const expandedArgs = { ...state.expandedArgs };
+      if (expandedArgs[action.seq] === true) delete expandedArgs[action.seq];
+      else expandedArgs[action.seq] = true;
+      return { ...state, expandedArgs };
+    }
+    case "logs/stream-status": {
+      if (state.logStream === action.status) return state;
+      return { ...state, logStream: action.status };
+    }
+    case "logs/source-status": {
+      if (
+        state.logSource === action.source &&
+        state.logSourcePath === action.path &&
+        state.logSourceDetail === action.detail
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        logSource: action.source,
+        logSourcePath: action.path,
+        logSourceDetail: action.detail,
+      };
     }
     case "theme/toggle": {
       const next: Theme =

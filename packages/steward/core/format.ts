@@ -55,6 +55,31 @@ export function formatClock(timestampMs: number): string {
   )}`;
 }
 
+/**
+ * The same clock without milliseconds, for prose that names a moment rather
+ * than identifying a line — `nothing new since 14:19:02`. The millisecond field
+ * is what makes two adjacent lines distinguishable; in a sentence it is noise.
+ */
+export function formatClockSeconds(timestampMs: number): string {
+  const d = new Date(timestampMs);
+  return `${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}:${pad(d.getSeconds(), 2)}`;
+}
+
+/**
+ * A line count with thousands separators — `1,203`. Log counts run into the
+ * thousands within minutes, and an unseparated `1203` beside a `209` is a
+ * comparison the operator has to make character by character.
+ */
+export function formatCount(value: number): string {
+  const whole = Number.isFinite(value) ? Math.trunc(value) : 0;
+  return whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/** `1 line` / `240 lines`, grouped. The singular is worth the branch. */
+export function formatLines(value: number): string {
+  return `${formatCount(value)} ${value === 1 ? "line" : "lines"}`;
+}
+
 /** A 0–1 fraction as a whole-percent label, e.g. `78%`. */
 export function formatPercent(fraction: number): string {
   return `${Math.round(Number.isFinite(fraction) ? fraction * 100 : 0)}%`;

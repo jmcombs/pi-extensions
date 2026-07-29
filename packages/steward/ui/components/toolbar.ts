@@ -11,6 +11,7 @@ import { el, setAttr, setText, setVar, syncRows } from "../dom.js";
 export interface ToolbarHandlers {
   onLevel: (level: LevelFilter) => void;
   onQuery: (query: string) => void;
+  onToggleProxy: () => void;
   onTogglePause: () => void;
   onCopy: () => void;
   onDownload: () => void;
@@ -18,6 +19,8 @@ export interface ToolbarHandlers {
 
 interface ChipRow {
   root: HTMLElement;
+  label: HTMLElement;
+  count: HTMLElement;
   level: LevelFilter;
 }
 
@@ -40,6 +43,14 @@ export function createToolbar(handlers: ToolbarHandlers): View<ToolbarVm> {
         if (target instanceof HTMLInputElement) handlers.onQuery(target.value);
       },
     },
+  });
+  // The two filtering controls sit together: level group, then this, then the
+  // search box. Focus order is label → model pill → levels → proxied → search →
+  // count → pause → copy → download.
+  const proxy = el("button", {
+    class: "chip chip--proxy",
+    attrs: { type: "button" },
+    on: { click: handlers.onToggleProxy },
   });
   const count = el("span", { class: "toolbar__count" });
   const pause = el("button", {
@@ -66,6 +77,7 @@ export function createToolbar(handlers: ToolbarHandlers): View<ToolbarVm> {
       el("span", { class: "toolbar__label", text: "filter" }),
       active,
       levels,
+      proxy,
       el("label", {
         class: "visually-hidden",
         text: "Search the log",
@@ -80,8 +92,14 @@ export function createToolbar(handlers: ToolbarHandlers): View<ToolbarVm> {
   });
 
   function createChip(): ChipRow {
+    const label = el("span", { class: "chip__label" });
+    // The count is its own span so it can hold the muted colour whatever the
+    // chip's state is: a zero must never read as a tick, least of all on ERROR.
+    const count = el("span", { class: "chip__count" });
     const row: ChipRow = {
-      root: el("button", { class: "chip", attrs: { type: "button" } }),
+      root: el("button", { class: "chip", attrs: { type: "button" }, children: [label, count] }),
+      label,
+      count,
       level: "all",
     };
     row.root.addEventListener("click", () => {
@@ -92,11 +110,15 @@ export function createToolbar(handlers: ToolbarHandlers): View<ToolbarVm> {
 
   function paintChip(row: ChipRow, chip: LevelChipVm): void {
     row.level = chip.level;
-    setText(row.root, chip.label);
+    setText(row.label, chip.label);
+    setText(row.count, chip.countLabel);
     setVar(row.root, "bg", chip.background);
     setVar(row.root, "fg", chip.color);
     setVar(row.root, "bd", chip.borderColor);
     setAttr(row.root, "aria-pressed", String(chip.active));
+    // The visible label is `WARN 2`, which a screen reader would read as two
+    // unrelated tokens. The name says what the number is.
+    setAttr(row.root, "aria-label", chip.ariaLabel);
   }
 
   return {
@@ -111,6 +133,11 @@ export function createToolbar(handlers: ToolbarHandlers): View<ToolbarVm> {
         const row = chips[index];
         if (row !== undefined) paintChip(row, chip);
       });
+
+      setText(proxy, vm.proxyToggle.label);
+      setAttr(proxy, "aria-pressed", String(vm.proxyToggle.pressed));
+      setAttr(proxy, "aria-label", vm.proxyToggle.ariaLabel);
+      setAttr(proxy, "title", vm.proxyToggle.title);
 
       // The operator owns the field while typing; only correct it if the state
       // and the box have genuinely drifted apart.

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { UiState } from "./state.js";
-import { initialUiState, LOG_BUFFER_LIMIT, reduce, visibleBuffer } from "./state.js";
+import {
+  initialUiState,
+  LOG_BUFFER_LIMIT,
+  POLL_BUFFER_LIMIT,
+  reduce,
+  visibleBuffer,
+} from "./state.js";
 import type { LogLine } from "./types.js";
 
 function line(seq: number, message = `line ${seq}`): LogLine {
@@ -292,5 +298,189 @@ describe("drift dismissal", () => {
   it("can be cleared", () => {
     const dismissed = reduce(initialUiState("light"), { type: "drift/dismiss", key: "k" });
     expect(reduce(dismissed, { type: "drift/dismiss", key: null }).dismissedDrift).toBeNull();
+  });
+});
+
+describe("the class-aware buffer cap", () => {
+  function proxy(seq: number): LogLine {
+    return { ...line(seq, `proxy ${seq}`), kind: "proxy" };
+  }
+
+  it("spends a separate budget on signal and on poll traffic", () => {
+    // 400 proxy lines then 20 signal lines: under one shared budget the signal
+    // would still be there, but on a real router the ratio is 87:13 and the
+    // banner the operator wants is what gets evicted.
+    const lines = [
+      ...Array.from({ length: 400 }, (_, i) => proxy(i)),
+      ...Array.from({ length: 20 }, (_, i) => line(400 + i)),
+    ];
+    const state = reduce(initialUiState("light"), { type: "logs/append", lines });
+    const kinds = state.log.map((entry) => entry.kind ?? "event");
+    expect(kinds.filter((kind) => kind === "proxy")).toHaveLength(POLL_BUFFER_LIMIT);
+    expect(kinds.filter((kind) => kind !== "proxy")).toHaveLength(20);
+  });
+
+  it("keeps the newest of each class and stays ascending by seq", () => {
+    const lines = Array.from({ length: POLL_BUFFER_LIMIT + 50 }, (_, i) => proxy(i));
+    const state = reduce(initialUiState("light"), { type: "logs/append", lines });
+    expect(state.log[0]?.seq).toBe(50);
+    expect(state.log.at(-1)?.seq).toBe(POLL_BUFFER_LIMIT + 49);
+    const seqs = state.log.map((entry) => entry.seq);
+    expect([...seqs].sort((a, b) => a - b)).toEqual(seqs);
+  });
+
+  it("caps signal lines at the signal budget", () => {
+    const lines = Array.from({ length: LOG_BUFFER_LIMIT + 30 }, (_, i) => line(i));
+    const state = reduce(initialUiState("light"), { type: "logs/append", lines });
+    expect(state.log).toHaveLength(LOG_BUFFER_LIMIT);
+    expect(state.log[0]?.seq).toBe(30);
+  });
+
+  it("flags a dropped SIGNAL line and never a dropped proxy line", () => {
+    const proxied = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: Array.from({ length: POLL_BUFFER_LIMIT + 10 }, (_, i) => proxy(i)),
+    });
+    // A proxy eviction is the recency window working as designed; saying so
+    // would put a permanent banner on every live router.
+    expect(proxied.bufferDropped).toBe(false);
+
+    const signal = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: Array.from({ length: LOG_BUFFER_LIMIT + 1 }, (_, i) => line(i)),
+    });
+    expect(signal.bufferDropped).toBe(true);
+  });
+
+  it("keeps the flag raised once lines have been lost", () => {
+    let state = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: Array.from({ length: LOG_BUFFER_LIMIT + 1 }, (_, i) => line(i)),
+    });
+    state = reduce(state, { type: "logs/append", lines: [line(LOG_BUFFER_LIMIT + 1)] });
+    expect(state.bufferDropped).toBe(true);
+  });
+
+  it("leaves the restart-detection path intact", () => {
+    const state = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: [line(0), line(1), line(2)],
+    });
+    const restarts = reduce(state, {
+      type: "logs/append",
+      lines: [restarted(0), restarted(1)],
+    });
+    expect(restarts.log.map((entry) => entry.message)).toEqual([
+      "restarted line 0",
+      "restarted line 1",
+    ]);
+  });
+});
+
+describe("the proxied-request toggle", () => {
+  it("starts hidden and flips", () => {
+    const state = initialUiState("light");
+    expect(state.showProxy).toBe(false);
+    const shown = reduce(state, { type: "filter/proxy-toggle" });
+    expect(shown.showProxy).toBe(true);
+    expect(reduce(shown, { type: "filter/proxy-toggle" }).showProxy).toBe(false);
+  });
+});
+
+describe("args folds", () => {
+  it("opens and closes one run, keyed by its first seq", () => {
+    const open = reduce(initialUiState("light"), { type: "logs/fold-toggle", seq: 12 });
+    expect(open.expandedArgs).toEqual({ 12: true });
+    expect(reduce(open, { type: "logs/fold-toggle", seq: 12 }).expandedArgs).toEqual({});
+  });
+
+  it("keeps runs independent", () => {
+    let state = reduce(initialUiState("light"), { type: "logs/fold-toggle", seq: 12 });
+    state = reduce(state, { type: "logs/fold-toggle", seq: 40 });
+    expect(state.expandedArgs).toEqual({ 12: true, 40: true });
+  });
+});
+
+describe("log stream and source health", () => {
+  it("starts connecting against a source it has not been told about", () => {
+    const state = initialUiState("light");
+    expect(state.logStream).toBe("connecting");
+    // `ok` until told otherwise: a console that has not heard yet must not
+    // accuse the server of anything.
+    expect(state.logSource).toBe("ok");
+    expect(state.logSourcePath).toBeNull();
+    expect(state.logSourceDetail).toBeNull();
+  });
+
+  it("records the stream state and no-ops on a repeat", () => {
+    const live = reduce(initialUiState("light"), { type: "logs/stream-status", status: "live" });
+    expect(live.logStream).toBe("live");
+    expect(reduce(live, { type: "logs/stream-status", status: "live" })).toBe(live);
+  });
+
+  it("records the source state with the path it names", () => {
+    const missing = reduce(initialUiState("light"), {
+      type: "logs/source-status",
+      source: "missing",
+      path: "/tmp/llama-router.log",
+      detail: "/tmp/llama-router.log does not exist",
+    });
+    expect(missing.logSource).toBe("missing");
+    expect(missing.logSourcePath).toBe("/tmp/llama-router.log");
+    // The server's own words are kept: they are what tells an operator whether
+    // to fix a permission or wait for the file to come back.
+    expect(missing.logSourceDetail).toBe("/tmp/llama-router.log does not exist");
+    expect(
+      reduce(missing, {
+        type: "logs/source-status",
+        source: "missing",
+        path: "/tmp/llama-router.log",
+        detail: "/tmp/llama-router.log does not exist",
+      }),
+    ).toBe(missing);
+  });
+});
+
+describe("bufferDropped across a source restart", () => {
+  it("clears the flag when the buffer is replaced wholesale", () => {
+    // A restart replaces the buffer, so nothing on screen is older than it.
+    // Carrying the flag over would leave a permanent "older lines dropped"
+    // banner on a console holding every line the new source ever wrote.
+    let state = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: Array.from({ length: LOG_BUFFER_LIMIT + 120 }, (_, i) => line(i + 1)),
+    });
+    expect(state.bufferDropped).toBe(true);
+
+    state = reduce(state, {
+      type: "logs/append",
+      lines: Array.from({ length: 11 }, (_, i) => restarted(i + 1)),
+    });
+    expect(state.log).toHaveLength(11);
+    expect(state.log.map((entry) => entry.message)).toEqual(
+      Array.from({ length: 11 }, (_, i) => `restarted line ${i + 1}`),
+    );
+    expect(state.bufferDropped).toBe(false);
+  });
+
+  it("raises it again if the NEW source overruns the buffer", () => {
+    let state = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: [line(1), line(2), line(3)],
+    });
+    state = reduce(state, {
+      type: "logs/append",
+      lines: Array.from({ length: LOG_BUFFER_LIMIT + 5 }, (_, i) => restarted(i + 1)),
+    });
+    expect(state.bufferDropped).toBe(true);
+  });
+
+  it("keeps the flag across an ordinary append that drops nothing", () => {
+    let state = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: Array.from({ length: LOG_BUFFER_LIMIT + 1 }, (_, i) => line(i + 1)),
+    });
+    state = reduce(state, { type: "logs/append", lines: [line(LOG_BUFFER_LIMIT + 2)] });
+    expect(state.bufferDropped).toBe(true);
   });
 });

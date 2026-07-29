@@ -4,13 +4,14 @@
  * unscheduled, so every assertion is about what the server actually returned.
  */
 
-import { rm, symlink } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { readFile, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMockSource, type MockStewardDataSource } from "../core/mock-source.js";
 import type { StewardDataSource } from "../core/source.js";
-import type { LogLine, Snapshot } from "../core/types.js";
+import type { LogLine, LogStreamStatus, Snapshot } from "../core/types.js";
 import { assertTypeStripping } from "./assets.js";
 import { createStewardServer, type StewardServer } from "./index.js";
 
@@ -67,6 +68,7 @@ function failingSource(detail: string): StewardDataSource {
 function attachRecordingSource(): StewardDataSource & {
   calls: string[];
   emit(message: string): void;
+  logStatus?: () => LogStreamStatus;
 } {
   const listeners = new Set<(line: LogLine) => void>();
   let seq = 1;
@@ -494,6 +496,61 @@ describe("the Steward server", () => {
     await reader.cancel().catch(() => undefined);
   });
 
+  it("sends the source's health on its own event, before the first line", async () => {
+    const source = attachRecordingSource();
+    // A source that is streaming perfectly and has no file to read: the console
+    // has to be able to tell that apart from a quiet router, and no LINE can
+    // carry it — the absence of lines is the whole point.
+    source.logStatus = () => ({
+      source: "unavailable",
+      path: null,
+      detail: "no llama-server log file was discovered",
+    });
+    const server = createStewardServer({ port: 0, source });
+    started.push(server);
+    const url = await server.start();
+
+    const controller = new AbortController();
+    const response = await fetch(`${url}/api/logs/stream`, { signal: controller.signal });
+    if (response.body === null) throw new Error("the log stream had no body");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    let buffered = "";
+    while (buffered.split("\n\n").length < 3) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+    }
+    const frames = buffered.split("\n\n");
+    expect(frames[0]).toBe(
+      'event: source\ndata: {"source":"unavailable","path":null,"detail":"no llama-server log file was discovered"}',
+    );
+    // The lines keep flowing behind an unavailable source, which is exactly the
+    // combination the console must render honestly.
+    expect(frames[1]).toContain("buffered before the client connected");
+
+    controller.abort();
+    await reader.cancel().catch(() => undefined);
+  });
+
+  it("omits the source frame entirely for a source that cannot report on itself", async () => {
+    const source = attachRecordingSource();
+    const server = createStewardServer({ port: 0, source });
+    started.push(server);
+    const url = await server.start();
+
+    const controller = new AbortController();
+    const response = await fetch(`${url}/api/logs/stream`, { signal: controller.signal });
+    if (response.body === null) throw new Error("the log stream had no body");
+    const reader = response.body.getReader();
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).not.toContain("event: source");
+
+    controller.abort();
+    await reader.cancel().catch(() => undefined);
+  });
+
   it("keeps writing safely to a client that vanished mid-stream", async () => {
     const { url, source } = await boot(3);
     const controller = new AbortController();
@@ -531,5 +588,92 @@ describe("the Steward server", () => {
 
     controller.abort();
     await reader.cancel().catch(() => undefined);
+  });
+});
+
+describe("the shipped stylesheet", () => {
+  it("never carries a warn tone as text colour", async () => {
+    // `--warning` is Catppuccin amber, which inverts per theme: ~15:1 on Mocha
+    // and ~1.9:1 on Latte's console ground. A warn NOTICE is exactly the
+    // surface whose job is telling the operator the console is not showing the
+    // truth, so its words stay at full contrast and the tone rides the glyph,
+    // the tinted ground and the amber rule instead.
+    const css = await readFile(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
+    const warnRules = [...css.matchAll(/\[data-tone="warn"\][^{]*\{([^}]*)\}/g)].map((m) => m[1]);
+    expect(warnRules.length).toBeGreaterThan(0);
+    for (const body of warnRules) {
+      const color = /(?:^|[;\s])color:\s*([^;]+)/.exec(body ?? "");
+      if (color !== null) expect(color[1]?.trim()).not.toBe("var(--warning)");
+    }
+  });
+
+  it("defines the on-amber foreground as a fixed near-black in both themes", () => {
+    // The WARN badge's text. `--latte-crust` would have inverted with the theme
+    // and failed in Latte; this token is deliberately theme-independent.
+    const css = readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
+    const declared = [...css.matchAll(/--on-warning:\s*([^;]+);/g)].map((m) => m[1]?.trim());
+    expect(declared).toHaveLength(2);
+    expect(new Set(declared)).toEqual(new Set(["#11111b"]));
+  });
+});
+
+describe("the console's own text contrast", () => {
+  /** WCAG relative luminance of an `#rrggbb` colour. */
+  function luminance(hex: string): number {
+    const channel = (value: number): number => {
+      const c = value / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+    return 0.2126 * channel(r ?? 0) + 0.7152 * channel(g ?? 0) + 0.0722 * channel(b ?? 0);
+  }
+
+  function contrast(a: string, b: string): number {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+  }
+
+  it("clears AA for every token the console paints text with, in BOTH themes", () => {
+    // Latte is the trap: the same alias resolves to a light value there and a
+    // pastel in Mocha, so a token that reads beautifully in the dark theme can
+    // sit at 3.7:1 in the light one. Every console string is 11.5–12px, which
+    // is small text — 4.5:1, no large-text exemption.
+    const themes = [
+      {
+        name: "latte",
+        primary: "#4c4f69",
+        secondary: "#5c5f77",
+        chrome: "#dce0e8",
+        page: "#eff1f5",
+      },
+      {
+        name: "mocha",
+        primary: "#cdd6f4",
+        secondary: "#bac2de",
+        chrome: "#11111b",
+        page: "#1e1e2e",
+      },
+    ];
+    for (const theme of themes) {
+      for (const fg of [theme.primary, theme.secondary]) {
+        for (const bg of [theme.chrome, theme.page]) {
+          expect(contrast(fg, bg), `${theme.name} ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  it("clears AA for the WARN badge's fixed on-amber foreground in both themes", () => {
+    expect(contrast("#11111b", "#df8e1d")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#11111b", "#f9e2af")).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("never paints console text with the tertiary token, which fails in Latte", () => {
+    const css = readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
+    const consoleRules = [...css.matchAll(/(\.(?:console|log-row|chip)[^{]*)\{([^}]*)\}/g)];
+    const offenders = consoleRules
+      .filter(([, , body]) => /(?:^|[;\s])color:\s*var\(--text-tertiary\)/.test(body ?? ""))
+      .map(([, selector]) => selector?.trim());
+    expect(offenders).toEqual([]);
   });
 });

@@ -7,10 +7,24 @@
  * Nothing here derives a displayed value — that all lives in `core/select.ts`.
  */
 
-import { driftAnnouncement, selectDashboard, selectLogText } from "../core/select.js";
+import {
+  consoleAnnouncement,
+  driftAnnouncement,
+  foldAnnouncement,
+  selectDashboard,
+  selectLogExportSummary,
+  selectLogText,
+  truncationAnnouncement,
+} from "../core/select.js";
 import type { LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
 import { initialUiState, reduce } from "../core/state.js";
-import type { LogLine, ModelAction, ServiceAction, Snapshot } from "../core/types.js";
+import type {
+  LogLine,
+  LogStreamStatus,
+  ModelAction,
+  ServiceAction,
+  Snapshot,
+} from "../core/types.js";
 import { createLogConsole } from "./components/console.js";
 import { createHostBlock } from "./components/gauges.js";
 import { createMetricsBand } from "./components/metrics.js";
@@ -32,6 +46,13 @@ const COPY_FEEDBACK_MS = 1400;
 /** Backoff before re-opening a dropped log stream. */
 const RECONNECT_DELAY_MS = 2000;
 
+/**
+ * How long typing settles before the search result is announced. Announcing per
+ * keystroke would machine-gun the polite region; announcing the RESULT COUNT
+ * once the operator stops is the useful half of it.
+ */
+const QUERY_ANNOUNCE_MS = 500;
+
 const THEME_KEY = "steward.theme";
 
 const rail = document.getElementById("steward-rail");
@@ -43,8 +64,13 @@ let ui: UiState = initialUiState(readTheme());
 let snapshot: Snapshot | null = null;
 let snapshotAt = 0;
 let copyTimer = 0;
+let queryTimer = 0;
 /** The drift notice already announced, so the poll cannot repeat it. */
 let announcedDrift: string | null = null;
+/** The console state already announced, so the render clock cannot repeat it. */
+let announcedConsole: string | null = null;
+/** Set once the truncation banner has been announced, so it is said once. */
+let announcedTruncation = false;
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -120,12 +146,30 @@ const serviceBlock = createServiceBlock({
 
 const hostBlock = createHostBlock();
 
+/**
+ * `88 of 340 lines` for the polite region — the result of a filter change, not
+ * the change itself. An operator who cannot see the console needs to know what
+ * the control did, and the count is the whole of what it did.
+ */
+function filterResult(): string {
+  if (snapshot === null) return "";
+  const counts = selectDashboard(snapshot, ui, snapshot.now).logCounts;
+  const hidden = counts.hiddenProxy > 0 ? ` ${counts.hiddenProxy} proxied lines are hidden.` : "";
+  return `${counts.matched} of ${counts.buffered} lines.${hidden}`;
+}
+
 const modelsBlock = createModelsBlock({
   onFilterModel: (modelId) => {
     dispatch({ type: "filter/model-toggle", modelId });
+    announce(
+      ui.filterModel === null
+        ? `Log showing all models — ${filterResult()}`
+        : `Log scoped to ${ui.filterModel} — ${filterResult()}`,
+    );
   },
   onShowAllLogs: () => {
     dispatch({ type: "filter/model", modelId: null });
+    announce(`Log showing all models — ${filterResult()}`);
   },
   onModelAction: (modelId, action) => {
     void runModel(modelId, action);
@@ -138,9 +182,29 @@ const metricsBand = createMetricsBand(sparkline.el);
 const toolbar = createToolbar({
   onLevel: (level: LevelFilter) => {
     dispatch({ type: "filter/level", level });
+    announce(`Level filter: ${level === "all" ? "all levels" : level} — ${filterResult()}`);
   },
   onQuery: (query) => {
     dispatch({ type: "filter/query", query });
+    window.clearTimeout(queryTimer);
+    queryTimer = window.setTimeout(() => {
+      const trimmed = ui.query.trim();
+      announce(
+        trimmed === ""
+          ? `Search cleared — ${filterResult()}`
+          : `Search "${trimmed}": ${filterResult()}`,
+      );
+    }, QUERY_ANNOUNCE_MS);
+  },
+  onToggleProxy: () => {
+    dispatch({ type: "filter/proxy-toggle" });
+    if (snapshot === null) return;
+    const counts = selectDashboard(snapshot, ui, snapshot.now).logCounts;
+    announce(
+      ui.showProxy
+        ? `Proxied requests shown. ${counts.matched} of ${counts.buffered} lines.`
+        : `Proxied requests hidden. ${counts.matched} of ${counts.buffered} lines. Most were Steward's own status polls.`,
+    );
   },
   onTogglePause: () => {
     dispatch({ type: "logs/pause-toggle" });
@@ -152,7 +216,26 @@ const toolbar = createToolbar({
   onDownload: downloadLog,
 });
 
-const logConsole = createLogConsole();
+const logConsole = createLogConsole({
+  onFold: (seq, forced, count) => {
+    dispatch({ type: "logs/fold-toggle", seq });
+    // Read back off the NEW state. Announced once — the lines themselves are
+    // never announced, not even for a user-initiated expansion: the console is
+    // not a live region and that rule does not bend for 31 argument lines.
+    announce(foldAnnouncement(count, forced, ui.expandedArgs[seq] === true));
+  },
+  onAction: (kind) => {
+    if (kind === "show-all-models") {
+      dispatch({ type: "filter/model", modelId: null });
+      announce(`Log showing all models — ${filterResult()}`);
+      return;
+    }
+    dispatch({ type: "filter/model", modelId: null });
+    dispatch({ type: "filter/level", level: "all" });
+    dispatch({ type: "filter/query", query: "" });
+    announce(`Filters cleared — ${filterResult()}`);
+  },
+});
 const slotsStrip = createSlotsStrip();
 
 rail.append(serviceBlock.el, hostBlock.el, modelsBlock.el);
@@ -184,13 +267,30 @@ function render(): void {
   announcedDrift = drift.key;
   if (drift.message !== null) announce(drift.message);
 
+  // The console's own state — no source, file gone, reconnecting, stopped,
+  // quiet — speaks through the same polite region and by the same rule: once
+  // per transition, never per poll and never per line.
+  const spoken = consoleAnnouncement(vm.console, ui.logSourcePath, announcedConsole);
+  announcedConsole = spoken.key;
+  if (spoken.message !== null) announce(spoken.message);
+
+  // Losing lines is worth saying once, when it first happens — and in the same
+  // two forms the banner uses, so it can never read "showing the latest 300 of
+  // 300". A source restart clears the flag and re-arms the announcement,
+  // because the next drop is a new thing that happened.
+  if (!vm.logCounts.bufferDropped) announcedTruncation = false;
+  else if (!announcedTruncation) {
+    announcedTruncation = true;
+    announce(truncationAnnouncement(vm.logCounts));
+  }
+
   serviceBlock.update(vm.service);
   hostBlock.update(vm.gauges);
   modelsBlock.update({ models: vm.models, allLogsPill: vm.allLogsPill });
   metricsBand.update(vm.kpis);
   sparkline.update(vm.spark);
   toolbar.update(vm.toolbar);
-  logConsole.update({ lines: vm.lines, paused: ui.paused });
+  logConsole.update(vm.console);
   slotsStrip.update(vm.slots);
 }
 
@@ -244,6 +344,9 @@ function enqueue(line: LogLine): void {
 
 function connectLogs(): void {
   const source = new EventSource("/api/logs/stream");
+  source.addEventListener("open", () => {
+    dispatch({ type: "logs/stream-status", status: "live" });
+  });
   source.addEventListener("message", (event) => {
     if (!(event instanceof MessageEvent)) return;
     try {
@@ -252,9 +355,28 @@ function connectLogs(): void {
       // A malformed frame is not worth tearing the stream down for.
     }
   });
+  // The health of the log SOURCE is a different question from the health of
+  // this connection: the server can be streaming perfectly and have no file to
+  // read, or be watching a path that macOS deleted out from under it. It rides
+  // its own named event so an old client's `message` handler never sees it.
+  source.addEventListener("source", (event) => {
+    if (!(event instanceof MessageEvent)) return;
+    try {
+      const status = JSON.parse(String(event.data)) as LogStreamStatus;
+      dispatch({
+        type: "logs/source-status",
+        source: status.source,
+        path: status.path,
+        detail: status.detail,
+      });
+    } catch {
+      // Same reasoning as a malformed line: not worth a teardown.
+    }
+  });
   source.addEventListener("error", () => {
     // EventSource retries on its own, but only while the connection is merely
     // interrupted. A closed stream (server restart) needs a fresh one.
+    dispatch({ type: "logs/stream-status", status: "reconnecting" });
     if (source.readyState !== EventSource.CLOSED) return;
     window.setTimeout(connectLogs, RECONNECT_DELAY_MS);
   });
@@ -349,11 +471,18 @@ async function runModel(modelId: string, action: ModelAction): Promise<void> {
   await refresh();
 }
 
+/** What was exported, said honestly — it is not what is on screen. */
+function exportSummary(): string {
+  if (snapshot === null) return "";
+  return selectLogExportSummary(selectDashboard(snapshot, ui, snapshot.now).logCounts);
+}
+
 async function copyLog(): Promise<void> {
   const text = currentLogText();
+  const summary = exportSummary();
   try {
     await navigator.clipboard.writeText(text);
-    announce("Copied the visible log.");
+    announce(`Copied ${summary}`);
   } catch {
     announce("The browser refused clipboard access.");
     return;
@@ -366,12 +495,13 @@ async function copyLog(): Promise<void> {
 }
 
 function downloadLog(): void {
+  const summary = exportSummary();
   const url = URL.createObjectURL(new Blob([currentLogText()], { type: "text/plain" }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = "llama-server.log";
   anchor.click();
-  announce("Downloading llama-server.log.");
+  announce(`Downloading llama-server.log — ${summary}`);
   window.setTimeout(() => {
     URL.revokeObjectURL(url);
   }, 2000);

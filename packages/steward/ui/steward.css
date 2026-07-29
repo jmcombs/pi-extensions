@@ -89,6 +89,10 @@
   --warning: var(--latte-yellow);
   --error: var(--latte-red);
   --info: var(--latte-teal);
+  /* Text ON an amber fill. Fixed near-black in BOTH themes on purpose: the
+     crust token inverts per theme, and the light theme's #dce0e8 on #df8e1d is
+     roughly 1.7:1 — unreadable exactly where the WARN badge needs to shout. */
+  --on-warning: #11111b;
 
   /* Links, selection, cursor */
   --link: var(--latte-blue);
@@ -192,6 +196,7 @@
   --warning: var(--latte-yellow);
   --error: var(--latte-red);
   --info: var(--latte-teal);
+  --on-warning: #11111b;
   --link: var(--latte-blue);
   --link-hover: var(--latte-sky);
   --link-visited: var(--latte-lavender);
@@ -1238,10 +1243,35 @@ button {
   gap: 6px;
 }
 
+/* Tabular digits, or the whole toolbar jitters every time a count ticks. */
+.toolbar__count,
+.chip__count {
+  font-variant-numeric: tabular-nums;
+}
+
 .toolbar__count {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+.chip__label + .chip__count {
+  margin-left: 6px;
+}
+
+/* The count segment is muted in every chip state. A zero must never read as a
+   tick — llama-server logs nothing at all for a rejected request, so `ERROR 0`
+   is a fact about the file and not a health check. */
+.chip__count {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* The proxied toggle sits with the level group, so it inherits the chip's
+   shape; only its glyph and its pressed state distinguish it. */
+.chip--proxy[aria-pressed="true"] {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
 }
 
 .search {
@@ -1282,8 +1312,16 @@ button {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 10px 0;
   background: var(--surface-chrome);
+  /* A browser scroll anchor would fight the follow logic for the scroll top. */
+  overflow-anchor: none;
+}
+
+/* The console is focusable and keyboard-scrollable, so it needs a visible ring
+   like every other control in this sheet. */
+.console:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
 }
 
 .log-row {
@@ -1301,8 +1339,43 @@ button {
 }
 
 .log-row__level {
-  color: var(--level-color, var(--info));
   font-weight: 700;
+  justify-self: start;
+}
+
+/* Severity in FORM, not hue: WARN and ERROR read as a filled box, INFO and
+   DEBUG as plain text. That difference survives a monochrome display and a
+   colour-blind reader, and it fixes the contrast — every level colour fails AA
+   as 12px text on the light theme's console ground. */
+/* Quiet, but still readable: the plain-token-vs-filled-box difference is what
+   encodes severity here, so the token does not also need to be dim. The
+   tertiary token is 3.73:1 on this ground in the light theme, and swapping one
+   AA failure for another would miss the point of moving severity into form. */
+.log-row[data-level="INFO"] .log-row__level,
+.log-row[data-level="DEBUG"] .log-row__level {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.log-row[data-level="WARN"] .log-row__level {
+  background: var(--warning);
+  color: var(--on-warning);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+
+.log-row[data-level="ERROR"] .log-row__level {
+  background: var(--error);
+  color: var(--accent-fg);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+
+/* Redundant with the badge, and the point: an error is scannable down the
+   gutter without reading a single token. */
+.log-row[data-level="ERROR"] {
+  border-left: 2px solid var(--error);
+  padding-left: 16px;
 }
 
 .log-row__model {
@@ -1312,16 +1385,200 @@ button {
   white-space: nowrap;
 }
 
+/* A router-wide line says the word `router`, italic — a real word a screen
+   reader can read, where an em dash is silence. The dash stays reserved for a
+   child line whose port Steward has not mapped. */
+.log-row__model[data-scope="router"] {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.log-row__model[data-scope="unknown"] {
+  color: var(--text-subtle);
+}
+
 .log-row__msg {
   color: var(--text-secondary);
   white-space: pre-wrap;
+  /* `pre-wrap` alone will not break an unbroken token: an absolute path or a
+     JSON blob would push the layout sideways. Wrap, never truncate — the
+     operator needs the whole error string. */
+  overflow-wrap: anywhere;
 }
 
-.console__empty {
+/* The launch-argument fold: a real button sitting inline in the scrollback,
+   which is where the operator is looking and the only interactive thing there. */
+.log-row--fold {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.log-row--fold:hover .log-row__msg {
+  color: var(--text-primary);
+}
+
+.log-row--fold:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.log-row[data-fold="member"] .log-row__msg {
+  padding-left: 12px;
+}
+
+/* Strips that coexist with rows. Sticky so they stay legible in a long
+   scrollback — a truncation warning that scrolls away has not warned anyone. */
+.console__banners {
+  position: sticky;
+  z-index: 1;
+  background: var(--surface-chrome);
+}
+
+/* The rows carry the console's padding, not the console, so a sticky strip can
+   sit flush against the scrollport edge with no gap of content above it. */
+.console__rows {
+  padding: 10px 0;
+}
+
+.console__banners--top {
+  top: 0;
+}
+
+.console__banners--bottom {
+  bottom: 0;
+}
+
+.console__banners:empty {
+  display: none;
+}
+
+/* `--text-secondary`, not `--text-tertiary`: these strips carry real sentences
+   ("showing the latest 500 of 1,412", "nothing new since 14:19:02") and the
+   tertiary token is 3.73:1 on the light theme's console ground, under AA at
+   11.5px. Muted enough to recede, legible enough to be read. */
+.console__banner {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 18px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.console__banners--bottom .console__banner {
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Warn tone is carried by the ⚠ glyph, the tinted ground and the amber rule —
+   form, not hue. The amber token itself is ~2.2:1 as text on the light theme's
+   console ground and would fail AA on exactly the surfaces whose whole job is
+   telling the operator the console is not showing the truth. It stays where it
+   is decoration and never where it is the sentence. */
+.console__banner[data-tone="warn"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border-left: 2px solid var(--warning);
+  padding-left: 16px;
+}
+
+.console__banner-detail {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.console__banner[data-tone="warn"] .console__banner-detail {
+  color: var(--text-primary);
+}
+
+.console__banner-action[hidden],
+.console__notice-action[hidden] {
+  display: none;
+}
+
+.console__notice {
+  display: grid;
+  gap: 6px;
   padding: 20px 18px;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--text-subtle);
+  color: var(--text-secondary);
+  justify-items: start;
+}
+
+.console__notice-head {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.console__notice[data-tone="warn"] {
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  padding-left: 16px;
+}
+
+/* Same reasoning as the warn banner: the glyph and the amber rule carry the
+   tone, the words stay at full contrast in both themes. */
+.console__notice[data-tone="warn"] .console__notice-head {
+  color: var(--text-primary);
+}
+
+.console__notice-detail {
+  margin: 0;
+  max-width: 68ch;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* The glyph inherits full-contrast text on purpose. It is the FORM half of the
+   tone cue, so it has to be legible; amber survives in the rule and the tint,
+   which are decoration and carry nothing on their own. */
+.console__notice[data-tone="warn"] .console__notice-detail {
+  color: var(--text-primary);
+}
+
+.console__notice-glyph:empty {
+  display: none;
+}
+
+/* The soft counterpart to Pause: scrolling up holds the view while the buffer
+   keeps filling, and this offers the way back. */
+.console__jump {
+  position: sticky;
+  bottom: 12px;
+  display: block;
+  margin: 8px auto 0;
+  height: 28px;
+  padding: 0 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.console__jump[hidden] {
+  display: none;
+}
+
+.console__jump:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
 }
 
 /* ===================================================================

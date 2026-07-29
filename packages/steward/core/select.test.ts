@@ -2,10 +2,22 @@ import { describe, expect, it } from "vitest";
 import type { ConsentDrift, LaunchDrift } from "./drift.js";
 import { NO_CONSENT_DRIFT, unknownDrift } from "./drift.js";
 import { modelColor } from "./model-color.js";
-import { driftAnnouncement, LOG_RENDER_LIMIT, selectDashboard, selectLogText } from "./select.js";
+import type { LogRowVm } from "./select.js";
+import {
+  consoleAnnouncement,
+  consoleFocusRestore,
+  countNewLines,
+  driftAnnouncement,
+  foldAnnouncement,
+  LOG_RENDER_LIMIT,
+  selectDashboard,
+  selectLogExportSummary,
+  selectLogText,
+  truncationAnnouncement,
+} from "./select.js";
 import type { UiState } from "./state.js";
 import { initialUiState, reduce } from "./state.js";
-import type { LogLine, ModelInfo, ServiceAction, Snapshot } from "./types.js";
+import type { LogLine, ModelInfo, ServiceAction, ServiceInfo, Snapshot } from "./types.js";
 
 const NOW = new Date(2024, 0, 15, 9, 4, 7, 42).getTime();
 const STARTED = NOW - (3 * 3_600_000 + 34 * 60_000);
@@ -127,6 +139,19 @@ function logLine(seq: number, over: Partial<LogLine> = {}): LogLine {
 
 function withLines(ui: UiState, lines: LogLine[]): UiState {
   return reduce(ui, { type: "logs/append", lines });
+}
+
+/** The same service, not running — the console's `stopped` state. */
+function stoppedService(): ServiceInfo {
+  return {
+    running: false,
+    startedAt: null,
+    pid: null,
+    host: "127.0.0.1",
+    port: 8080,
+    build: "b6122",
+    controls: ["start", "stop", "restart"],
+  };
 }
 
 describe("service block", () => {
@@ -713,7 +738,7 @@ describe("the filter stack", () => {
   ];
 
   function seqs(ui: UiState): number[] {
-    return selectDashboard(snapshot(), ui, NOW).lines.map((l) => l.seq);
+    return selectDashboard(snapshot(), ui, NOW).console.lines.map((row) => row.seq);
   }
 
   it("scopes to one model", () => {
@@ -754,7 +779,7 @@ describe("the filter stack", () => {
     ui = reduce(ui, { type: "filter/level", level: "INFO" });
     ui = reduce(ui, { type: "filter/query", query: "eval" });
     expect(seqs(ui)).toEqual([3]);
-    expect(selectDashboard(snapshot(), ui, NOW).toolbar.lineCountLabel).toBe("1 lines");
+    expect(selectDashboard(snapshot(), ui, NOW).toolbar.lineCountLabel).toBe("1 of 4");
   });
 
   it("keeps showing the frozen buffer while paused", () => {
@@ -777,24 +802,37 @@ describe("the filter stack", () => {
 describe("log rows", () => {
   it("colors the model column while all models are shown", () => {
     const ui = withLines(initialUiState("light"), [logLine(1)]);
-    const row = selectDashboard(snapshot(), ui, NOW).lines[0];
+    const row = selectDashboard(snapshot(), ui, NOW).console.lines[0];
     expect(row?.time).toBe("09:04:07.042");
     expect(row?.model).toBe("qwen3.6-moe-a3b-instruct");
     expect(row?.modelColor).toBe(modelColor(CHAT, false));
-    expect(row?.levelColor).toBe("var(--info)");
+    // Severity is `data-level` in CSS now — a filled badge against a plain
+    // token — so the row model carries no colour for it at all.
+    expect(row).not.toHaveProperty("levelColor");
   });
 
   it("mutes the model column once the console is scoped to one model", () => {
     let ui = withLines(initialUiState("light"), [logLine(1)]);
     ui = reduce(ui, { type: "filter/model-toggle", modelId: CHAT });
-    expect(selectDashboard(snapshot(), ui, NOW).lines[0]?.modelColor).toBe("var(--text-muted)");
+    expect(selectDashboard(snapshot(), ui, NOW).console.lines[0]?.modelColor).toBe(
+      "var(--text-muted)",
+    );
   });
 
-  it("marks lines that belong to no model", () => {
+  it("names the router on a line that belongs to no model", () => {
     const ui = withLines(initialUiState("light"), [logLine(1, { modelId: null })]);
-    const row = selectDashboard(snapshot(), ui, NOW).lines[0];
-    expect(row?.model).toBe("—");
+    const row = selectDashboard(snapshot(), ui, NOW).console.lines[0];
+    expect(row?.model).toBe("router");
+    expect(row?.scope).toBe("router");
     expect(row?.modelColor).toBe("var(--text-muted)");
+  });
+
+  it("keeps the dash for a child line whose port is unmapped", () => {
+    const ui = withLines(initialUiState("light"), [logLine(1, { modelId: null, origin: "child" })]);
+    const row = selectDashboard(snapshot(), ui, NOW).console.lines[0];
+    expect(row?.model).toBe("—");
+    expect(row?.scope).toBe("unknown");
+    expect(row?.modelTitle).toContain("has not mapped yet");
   });
 });
 
@@ -813,9 +851,13 @@ describe("toolbar", () => {
   it("marks exactly one level chip active", () => {
     const ui = reduce(initialUiState("light"), { type: "filter/level", level: "WARN" });
     const chips = selectDashboard(snapshot(), ui, NOW).toolbar.levelChips;
-    expect(chips.map((c) => c.label)).toEqual(["all levels", "INFO", "WARN", "ERROR"]);
+    expect(chips.map((c) => c.label)).toEqual(["all", "INFO", "WARN", "ERROR"]);
     expect(chips.filter((c) => c.active).map((c) => c.level)).toEqual(["WARN"]);
-    expect(chips[2]?.color).toBe("var(--warning)");
+    // The hue lives in the tint and the border; the label itself stays legible,
+    // because no level colour clears AA as chip text on the light theme.
+    expect(chips[2]?.color).toBe("var(--text-primary)");
+    expect(chips[2]?.background).toContain("var(--warning)");
+    expect(chips[1]?.color).toBe("var(--text-tertiary)");
   });
 
   it("labels pause and copy from state", () => {
@@ -1132,5 +1174,823 @@ describe("driftAnnouncement", () => {
   it("forgets the watermark when there is no notice, so a return is announced", () => {
     expect(driftAnnouncement(null, "a")).toEqual({ message: null, key: null });
     expect(driftAnnouncement(notice("a"), null).message).toBe("announcement for a");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The log console
+// ---------------------------------------------------------------------------
+
+function ui(over: Partial<UiState> = {}): UiState {
+  return { ...initialUiState("light"), ...over };
+}
+
+/** A UI holding `lines`, plus any state the reducer has no action for. */
+function consoleUi(lines: LogLine[], over: Partial<UiState> = {}): UiState {
+  return { ...withLines(initialUiState("light"), lines), ...over };
+}
+
+/** Signal lines the buffer holds whole, then proxy lines that push past the cap. */
+const OVER_CAP_SIGNAL = 400;
+const OVER_CAP_PROXY = 180;
+const OVER_CAP_TOTAL = OVER_CAP_SIGNAL + OVER_CAP_PROXY;
+
+function overCap(): LogLine[] {
+  return [
+    ...Array.from({ length: OVER_CAP_SIGNAL }, (_, i) => logLine(i + 1)),
+    ...Array.from({ length: OVER_CAP_PROXY }, (_, i) =>
+      logLine(OVER_CAP_SIGNAL + i + 1, { kind: "proxy", message: "proxying" }),
+    ),
+  ];
+}
+
+describe("the proxied-request toggle", () => {
+  const lines = [
+    logLine(1, { message: "srv  llama_server: model loaded" }),
+    logLine(2, { kind: "proxy", message: "srv  proxy_reques: proxying request to model gemma" }),
+    logLine(3, { kind: "proxy", message: "srv  proxy_reques: proxying request to model gemma" }),
+    logLine(4, { kind: "proxy", message: "srv  proxy_reques: proxying request to model qwen" }),
+    logLine(5, { message: "srv  llama_server: listening" }),
+  ];
+
+  it("hides proxied lines by default and counts what pressing it would reveal", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines), NOW);
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([1, 5]);
+    expect(vm.logCounts.hiddenProxy).toBe(3);
+    expect(vm.toolbar.proxyToggle.label).toBe("▸ 3 proxied");
+    expect(vm.toolbar.proxyToggle.pressed).toBe(false);
+  });
+
+  it("counts only lines dropped SOLELY by the toggle", () => {
+    // With `gemma` typed, pressing the toggle would reveal two lines, not
+    // three. A chip that still read 3 would be promising a line the query
+    // already excluded.
+    const scoped = consoleUi(lines, { query: "gemma" });
+    const vm = selectDashboard(snapshot(), scoped, NOW);
+    expect(vm.logCounts.hiddenProxy).toBe(2);
+    expect(vm.toolbar.proxyToggle.label).toBe("▸ 2 proxied");
+  });
+
+  it("keeps the chip operable with nothing to reveal", () => {
+    const vm = selectDashboard(snapshot(), consoleUi([logLine(1)]), NOW);
+    expect(vm.toolbar.proxyToggle.label).toBe("▸ proxied");
+    expect(vm.toolbar.proxyToggle.ariaLabel).toContain("None are hidden");
+  });
+
+  it("shows them all and says what the console is now mostly made of", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines, { showProxy: true }), NOW);
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([1, 2, 3, 4, 5]);
+    expect(vm.logCounts.hiddenProxy).toBe(0);
+    expect(vm.toolbar.proxyToggle.label).toBe("▾ proxied shown");
+    expect(vm.toolbar.proxyToggle.pressed).toBe(true);
+    expect(vm.toolbar.proxyToggle.ariaLabel).toContain("3 of the 5 lines shown");
+  });
+
+  it("is orthogonal to the level chip", () => {
+    const warned = [...lines, logLine(6, { level: "WARN", message: "context shift" })];
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi(warned, { filterLevel: "WARN", showProxy: true }),
+      NOW,
+    );
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([6]);
+  });
+});
+
+describe("the toolbar count", () => {
+  const lines = [logLine(1), logLine(2), logLine(3, { kind: "proxy", message: "proxying" })];
+
+  function label(state: UiState): string {
+    return selectDashboard(snapshot(), state, NOW).toolbar.lineCountLabel;
+  }
+
+  it("reads plainly when nothing the operator set is filtering", () => {
+    expect(label(consoleUi([logLine(1), logLine(2)]))).toBe("2 lines");
+  });
+
+  it("keeps the plain form and names the suppression separately", () => {
+    // Proxy suppression is not something the operator asked for, so it does not
+    // turn the count into `2 of 3` — it gets its own clause instead.
+    expect(label(consoleUi(lines))).toBe("2 lines · 1 proxied hidden");
+  });
+
+  it("switches to `n of m` once a filter is set", () => {
+    expect(label(consoleUi(lines, { filterLevel: "INFO", showProxy: true }))).toBe("3 of 3");
+  });
+
+  it("says it is showing a window when the render cap bites", () => {
+    // It takes proxy lines to get there: with them hidden the matched set can
+    // never exceed the signal buffer, which is why the cap is that size.
+    expect(label(consoleUi(overCap(), { showProxy: true }))).toBe(
+      `showing ${LOG_RENDER_LIMIT} of ${OVER_CAP_TOTAL}`,
+    );
+  });
+});
+
+describe("level chips", () => {
+  const lines = [
+    logLine(1, { level: "INFO" }),
+    logLine(2, { level: "INFO" }),
+    logLine(3, { level: "WARN", message: "context shift" }),
+    logLine(4, { level: "INFO", kind: "proxy", message: "proxying" }),
+  ];
+
+  function counts(state: UiState): Record<string, number> {
+    const chips = selectDashboard(snapshot(), state, NOW).toolbar.levelChips;
+    return Object.fromEntries(chips.map((chip) => [chip.level, chip.count]));
+  }
+
+  it("counts with the OTHER filters applied, so each number is a promise", () => {
+    expect(counts(consoleUi(lines))).toEqual({ all: 3, INFO: 2, WARN: 1, ERROR: 0 });
+  });
+
+  it("keeps counting past its own level, so switching chips is predictable", () => {
+    // Standing on WARN, the INFO chip still reports what INFO would show.
+    expect(counts(consoleUi(lines, { filterLevel: "WARN" }))).toEqual({
+      all: 3,
+      INFO: 2,
+      WARN: 1,
+      ERROR: 0,
+    });
+  });
+
+  it("follows the proxy toggle and the query", () => {
+    expect(counts(consoleUi(lines, { showProxy: true }))).toEqual({
+      all: 4,
+      INFO: 3,
+      WARN: 1,
+      ERROR: 0,
+    });
+    expect(counts(consoleUi(lines, { query: "context" }))).toEqual({
+      all: 1,
+      INFO: 0,
+      WARN: 1,
+      ERROR: 0,
+    });
+  });
+
+  it("leaves an empty chip operable and unstyled as reassurance", () => {
+    const error = selectDashboard(snapshot(), consoleUi(lines), NOW).toolbar.levelChips.find(
+      (chip) => chip.level === "ERROR",
+    );
+    expect(error?.count).toBe(0);
+    expect(error?.countLabel).toBe("0");
+    // Disabling it would teach the operator the control is broken, and an inert
+    // ERROR chip reads as "no errors possible" — which is false.
+    expect(error).not.toHaveProperty("disabled");
+    expect(error?.color).toBe("var(--text-tertiary)");
+  });
+});
+
+describe("the launch-argument fold", () => {
+  const args = ["/opt/homebrew/bin/llama-server", "--ctx-size", "131072", "--parallel", "4"];
+  const lines = [
+    logLine(1, { modelId: null, message: "srv  load: spawning server instance with args:" }),
+    ...args.map((arg, i) =>
+      logLine(2 + i, { modelId: null, kind: "args", message: `srv  load:   ${arg}` }),
+    ),
+    logLine(2 + args.length, { message: "srv  llama_server: model loaded" }),
+  ];
+
+  it("collapses a contiguous run into one row and keeps the header visible", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines), NOW);
+    expect(vm.console.lines).toHaveLength(3);
+    expect(vm.console.lines[0]?.message).toContain("spawning server instance with args");
+    const fold = vm.console.lines[1]?.fold;
+    expect(fold?.count).toBe(5);
+    expect(fold?.expanded).toBe(false);
+    expect(fold?.label).toBe("▸ 5 launch arguments");
+    expect(fold?.ariaLabel).toBe("Show the 5 launch arguments");
+    expect(vm.console.lines[1]?.key).toBe("fold:2");
+  });
+
+  it("expands under the run's first seq and marks the members", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines, { expandedArgs: { 2: true } }), NOW);
+    expect(vm.console.lines).toHaveLength(8);
+    expect(vm.console.lines[1]?.fold?.label).toBe("▾ 5 launch arguments");
+    expect(vm.console.lines[1]?.fold?.expanded).toBe(true);
+    expect(vm.console.lines.filter((row) => row.folded)).toHaveLength(5);
+    expect(vm.console.lines[2]?.message).toContain("llama-server");
+  });
+
+  it("gives a fold row a key of its own, so a toggle cannot patch it in place", () => {
+    // The fold row and the first line of its run share a `seq`; only the key
+    // tells them apart, and the patcher rebuilds rather than reshape a button.
+    const collapsed = selectDashboard(snapshot(), consoleUi(lines), NOW).console.lines;
+    const expanded = selectDashboard(
+      snapshot(),
+      consoleUi(lines, { expandedArgs: { 2: true } }),
+      NOW,
+    ).console.lines;
+    expect(collapsed[1]?.seq).toBe(2);
+    expect(expanded[2]?.seq).toBe(2);
+    expect(collapsed[1]?.key).not.toBe(expanded[2]?.key);
+  });
+
+  it("opens itself for a query that hits inside, and labels the hits", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines, { query: "ctx-size" }), NOW);
+    const fold = vm.console.lines[0]?.fold;
+    expect(fold?.expanded).toBe(true);
+    expect(fold?.forced).toBe(true);
+    expect(fold?.matches).toBe(1);
+    expect(fold?.label).toBe('▾ 5 launch arguments · 1 match "ctx-size"');
+    // The whole block stays: 31 arguments are one artifact, and handing back 2
+    // of them would answer a question nobody asked.
+    expect(vm.console.lines.filter((row) => row.folded)).toHaveLength(5);
+  });
+
+  it("does not mutate the collapsed state it overrode", () => {
+    const state = consoleUi(lines, { query: "ctx-size" });
+    expect(selectDashboard(snapshot(), state, NOW).console.lines[0]?.fold?.expanded).toBe(true);
+    const cleared = reduce(state, { type: "filter/query", query: "" });
+    expect(selectDashboard(snapshot(), cleared, NOW).console.lines[1]?.fold?.expanded).toBe(false);
+  });
+
+  it("drops a run the query misses entirely", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines, { query: "spawning" }), NOW);
+    expect(vm.console.lines.map((row) => row.seq)).toEqual([1]);
+  });
+
+  it("splits two runs that are not adjacent", () => {
+    const split = [
+      logLine(1, { modelId: null, kind: "args", message: "--a" }),
+      logLine(2, { message: "srv  load: model loaded" }),
+      logLine(3, { modelId: null, kind: "args", message: "--b" }),
+    ];
+    const vm = selectDashboard(snapshot(), consoleUi(split), NOW);
+    expect(vm.console.lines.map((row) => row.fold?.seq ?? null)).toEqual([1, null, 3]);
+  });
+
+  it("says so when the run reaches the front of a window that lost lines", () => {
+    const cut = lines.slice(1);
+    const vm = selectDashboard(snapshot(), consoleUi(cut, { bufferDropped: true }), NOW);
+    expect(vm.console.lines[0]?.fold?.truncated).toBe(true);
+    expect(vm.console.lines[0]?.fold?.label).toBe("▸ 5 launch arguments (older lines dropped)");
+  });
+
+  it("claims no truncation when nothing was actually dropped", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines.slice(1)), NOW);
+    expect(vm.console.lines[0]?.fold?.truncated).toBe(false);
+  });
+});
+
+describe("console state precedence", () => {
+  const lines = [logLine(1), logLine(2)];
+
+  function state(over: Partial<UiState>, snap = snapshot(), now = NOW): string {
+    return selectDashboard(snap, consoleUi(lines, over), now).console.state;
+  }
+
+  it("reports no source above everything else", () => {
+    expect(state({ logSource: "unavailable", paused: true })).toBe("no-source");
+  });
+
+  it("reports a missing file above a reconnecting stream", () => {
+    expect(state({ logSource: "missing", logStream: "reconnecting" })).toBe("file-missing");
+  });
+
+  it("reports reconnecting above a stopped service", () => {
+    expect(state({ logStream: "reconnecting" }, snapshot({ service: stoppedService() }))).toBe(
+      "reconnecting",
+    );
+  });
+
+  it("reports stopped above paused", () => {
+    expect(state({ paused: true }, snapshot({ service: stoppedService() }))).toBe("stopped");
+  });
+
+  it("reports paused above quiet, because a frozen buffer always goes stale", () => {
+    const frozen = { ...consoleUi(lines), paused: true, frozen: lines };
+    expect(selectDashboard(snapshot(), frozen, NOW + 10 * 60_000).console.state).toBe("paused");
+  });
+
+  it("reports an empty filter result before a cold start", () => {
+    // A filter that excludes everything must never masquerade as "waiting for
+    // the first line", which would send the operator looking for a dead stream.
+    expect(state({ filterLevel: "ERROR" })).toBe("empty-filtered");
+  });
+
+  it("reports cold only with a genuinely empty buffer", () => {
+    expect(selectDashboard(snapshot(), ui(), NOW).console.state).toBe("cold");
+  });
+
+  it("reports quiet from the newest matching line's arrival stamp", () => {
+    expect(state({}, snapshot(), NOW + 61_000)).toBe("quiet");
+    expect(state({}, snapshot(), NOW + 59_000)).toBe("streaming");
+  });
+});
+
+describe("console notices and banners", () => {
+  const lines = [logLine(1), logLine(2)];
+
+  function vmFor(over: Partial<UiState>, snap = snapshot(), now = NOW) {
+    return selectDashboard(snap, consoleUi(lines, over), now).console;
+  }
+
+  it("keeps the simulated lines but refuses to call them the server's", () => {
+    const console = vmFor({ logSource: "unavailable" });
+    expect(console.lines).toHaveLength(2);
+    expect(console.notice?.title).toBe("No log source connected");
+    expect(console.notice?.tone).toBe("warn");
+    expect(console.notice?.detail).toContain("built-in simulation, not this machine's log");
+  });
+
+  it("drops the simulation clause when there is nothing on screen to explain", () => {
+    const console = selectDashboard(snapshot(), ui({ logSource: "unavailable" }), NOW).console;
+    expect(console.notice?.detail).not.toContain("simulation");
+  });
+
+  it("names the missing file and never calls it a rotation", () => {
+    const console = vmFor({ logSource: "missing", logSourcePath: "/tmp/llama-router.log" });
+    const banner = console.banners.find((entry) => entry.key === "file-missing");
+    expect(banner?.placement).toBe("bottom");
+    expect(banner?.tone).toBe("warn");
+    expect(banner?.detail).toContain("/tmp/llama-router.log no longer exists.");
+    expect(banner?.detail).toContain("three days");
+    expect(banner?.detail).toContain("outside /tmp");
+    expect(banner?.detail).not.toContain("rotat");
+    // Nothing failed, so nothing here is an error.
+    expect(banner?.detail).not.toContain("error");
+  });
+
+  it("drops the /tmp explanation for a path /tmp cleaning cannot touch", () => {
+    const console = vmFor({
+      logSource: "missing",
+      logSourcePath: "/Users/me/.local/state/llama/router.log",
+    });
+    const banner = console.banners.find((entry) => entry.key === "file-missing");
+    expect(banner?.detail).toContain("/Users/me/.local/state/llama/router.log no longer exists.");
+    expect(banner?.detail).not.toContain("/tmp");
+    expect(banner?.detail).toContain("picks the log back up");
+  });
+
+  it("takes the whole panel when the buffer is empty too", () => {
+    const console = selectDashboard(
+      snapshot(),
+      ui({ logSource: "missing", logSourcePath: "/tmp/llama-router.log" }),
+      NOW,
+    ).console;
+    expect(console.notice?.state).toBe("file-missing");
+    expect(console.banners.some((entry) => entry.key === "file-missing")).toBe(false);
+  });
+
+  it("renders quiet as a footer under the lines, not a takeover", () => {
+    const console = vmFor({}, snapshot(), NOW + 61_000);
+    expect(console.notice).toBeNull();
+    expect(console.lines).toHaveLength(2);
+    const quiet = console.banners.find((entry) => entry.key === "quiet");
+    expect(quiet?.placement).toBe("bottom");
+    expect(quiet?.text).toBe("▪ quiet · 2 lines · nothing new since 09:04:07");
+  });
+
+  it("says out loud what a quiet console is still not showing", () => {
+    const withProxy = [...lines, logLine(3, { kind: "proxy", message: "proxying" })];
+    const console = selectDashboard(snapshot(), consoleUi(withProxy), NOW + 61_000).console;
+    const quiet = console.banners.find((entry) => entry.key === "quiet");
+    expect(quiet?.text).toContain("1 proxied lines hidden");
+  });
+
+  it("keeps the lines and adds a footer when the service stops", () => {
+    const console = vmFor({}, snapshot({ service: stoppedService() }));
+    expect(console.lines).toHaveLength(2);
+    const stopped = console.banners.find((entry) => entry.key === "stopped");
+    expect(stopped?.text).toBe("⏹ Service stopped · log is idle · last line 09:04:07");
+  });
+
+  it("refuses to call an empty ERROR console a health check", () => {
+    const console = vmFor({ filterLevel: "ERROR" });
+    expect(console.notice?.title).toBe("No ERROR lines among the 2 buffered.");
+    expect(console.notice?.detail).toContain("This is not a health check");
+    expect(console.notice?.detail).toContain("reports a failed model load at INFO");
+    expect(console.notice?.action?.kind).toBe("clear-filters");
+  });
+
+  it("names the filters that excluded everything", () => {
+    const console = vmFor({ filterLevel: "WARN", query: "context" });
+    expect(console.notice?.title).toBe('No lines match WARN + "context".');
+    expect(console.notice?.detail).toBe("2 lines are buffered.");
+  });
+
+  it("tells the operator what a model scope is hiding", () => {
+    const mixed = [
+      logLine(1, { modelId: CHAT }),
+      logLine(2, { modelId: null, message: "srv  llama_server: listening" }),
+      logLine(3, { modelId: null, message: "srv  llama_server: router mode" }),
+    ];
+    const console = selectDashboard(
+      snapshot(),
+      consoleUi(mixed, { filterModel: CHAT }),
+      NOW,
+    ).console;
+    const scope = console.banners.find((entry) => entry.key === "scope");
+    expect(scope?.text).toBe("scoped to qwen3.6-moe-a3b-instruct · 2 router-wide lines hidden");
+    expect(scope?.action?.kind).toBe("show-all-models");
+  });
+
+  it("says which limit bit, in words that never claim a rotation", () => {
+    const capped = selectDashboard(
+      snapshot(),
+      consoleUi(overCap(), { showProxy: true }),
+      NOW,
+    ).console;
+    expect(capped.banners.find((entry) => entry.key === "truncation")?.text).toBe(
+      `showing the latest ${LOG_RENDER_LIMIT} of ${OVER_CAP_TOTAL} matching lines`,
+    );
+
+    const dropped = selectDashboard(
+      snapshot(),
+      consoleUi(lines, { bufferDropped: true }),
+      NOW,
+    ).console;
+    expect(dropped.banners.find((entry) => entry.key === "truncation")?.text).toBe(
+      "500-line buffer · older lines dropped",
+    );
+
+    const both = selectDashboard(
+      snapshot(),
+      consoleUi(overCap(), { showProxy: true, bufferDropped: true }),
+      NOW,
+    ).console;
+    expect(both.banners.find((entry) => entry.key === "truncation")?.text).toBe(
+      `showing the latest ${LOG_RENDER_LIMIT} of ${OVER_CAP_TOTAL} matching · older lines dropped from the 500-line buffer`,
+    );
+    // Never "rotated" and never "reset": launchd appends across restarts, so a
+    // restart is simply more lines.
+    for (const banner of both.banners) expect(banner.text).not.toContain("rotat");
+  });
+
+  it("counts what is arriving behind a frozen buffer", () => {
+    let state = withLines(initialUiState("light"), lines);
+    state = reduce(state, { type: "logs/pause-toggle" });
+    state = withLines(state, [logLine(3), logLine(4), logLine(5)]);
+    const console = selectDashboard(snapshot(), state, NOW).console;
+    expect(console.frozenBehind).toBe(3);
+    expect(console.banners.find((entry) => entry.key === "paused")?.text).toBe(
+      "⏸ Paused · buffer frozen · 3 lines arrived behind it",
+    );
+  });
+
+  it("names the timestamp for a screen reader", () => {
+    expect(vmFor({}).heading).toBe("Server log — times are local arrival time");
+  });
+});
+
+describe("consoleAnnouncement", () => {
+  function consoleFor(over: Partial<UiState>, snap = snapshot(), now = NOW) {
+    return selectDashboard(snap, consoleUi([logLine(1)], over), now).console;
+  }
+
+  it("says the state once and then stays silent", () => {
+    const console = consoleFor({ logSource: "unavailable" });
+    const first = consoleAnnouncement(console, null, null);
+    expect(first).toEqual({ message: "No log source connected.", key: "no-source" });
+    expect(consoleAnnouncement(console, null, first.key).message).toBeNull();
+  });
+
+  it("re-announces a missing file only when the path changes", () => {
+    const console = consoleFor({ logSource: "missing", logSourcePath: "/tmp/a.log" });
+    const said = consoleAnnouncement(console, "/tmp/a.log", null);
+    expect(said.message).toBe("The log file /tmp/a.log is gone. Steward is still watching for it.");
+    expect(consoleAnnouncement(console, "/tmp/a.log", said.key).message).toBeNull();
+    expect(consoleAnnouncement(console, "/tmp/b.log", said.key).message).toContain("/tmp/b.log");
+  });
+
+  it("announces the reconnection, but only after a loss", () => {
+    const healthy = consoleFor({});
+    expect(consoleAnnouncement(healthy, null, "reconnecting").message).toBe(
+      "Log stream connected.",
+    );
+    expect(consoleAnnouncement(healthy, null, null).message).toBeNull();
+  });
+
+  it("leaves pause and filters to the handlers that caused them", () => {
+    expect(consoleAnnouncement(consoleFor({ paused: true }), null, null).message).toBeNull();
+    expect(
+      consoleAnnouncement(consoleFor({ filterLevel: "ERROR" }), null, null).message,
+    ).toBeNull();
+  });
+});
+
+describe("the export payload", () => {
+  it("exports every matching buffered line, past the render cap", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(overCap(), { showProxy: true }), NOW);
+    expect(vm.console.lines).toHaveLength(LOG_RENDER_LIMIT);
+    expect(vm.exportLines).toHaveLength(OVER_CAP_TOTAL);
+    expect(selectLogText(vm).split("\n")).toHaveLength(OVER_CAP_TOTAL);
+  });
+
+  it("expands the folds, so the launch command is in what was copied", () => {
+    const lines = [
+      logLine(1, { modelId: null, message: "srv  load: spawning server instance with args:" }),
+      logLine(2, { modelId: null, kind: "args", message: "--ctx-size" }),
+      logLine(3, { modelId: null, kind: "args", message: "131072" }),
+    ];
+    const vm = selectDashboard(snapshot(), consoleUi(lines), NOW);
+    expect(vm.console.lines).toHaveLength(2);
+    expect(selectLogText(vm)).toContain("--ctx-size");
+    expect(selectLogText(vm)).toContain("131072");
+    expect(selectLogText(vm)).not.toContain("launch arguments");
+    expect(vm.logCounts.folded).toBe(2);
+  });
+
+  it("honours the filters, because the operator is quoting the console", () => {
+    const lines = [logLine(1, { level: "INFO" }), logLine(2, { level: "WARN", message: "shift" })];
+    const vm = selectDashboard(snapshot(), consoleUi(lines, { filterLevel: "WARN" }), NOW);
+    expect(vm.exportLines.map((row) => row.seq)).toEqual([2]);
+  });
+
+  it("says what it wrote out, including what it left behind", () => {
+    const lines = [
+      logLine(1, { modelId: null, message: "spawning server instance with args:" }),
+      logLine(2, { modelId: null, kind: "args", message: "--ctx-size" }),
+      logLine(3, { kind: "proxy", message: "proxying" }),
+    ];
+    const vm = selectDashboard(snapshot(), consoleUi(lines), NOW);
+    expect(selectLogExportSummary(vm.logCounts)).toBe(
+      "2 lines, including 1 folded launch argument. 1 proxied line was hidden.",
+    );
+  });
+});
+
+describe("a fold a search is holding open", () => {
+  const lines = [
+    logLine(1, { modelId: null, kind: "args", message: "--ctx-size" }),
+    logLine(2, { modelId: null, kind: "args", message: "131072" }),
+  ];
+
+  it("names what the press actually does, rather than promising to hide it", () => {
+    const fold = selectDashboard(snapshot(), consoleUi(lines, { query: "ctx" }), NOW).console
+      .lines[0]?.fold;
+    expect(fold?.expanded).toBe(true);
+    expect(fold?.sticky).toBe(false);
+    expect(fold?.ariaLabel).toBe(
+      "2 launch arguments, open because the search matches inside them. Keep them open once the search is cleared.",
+    );
+  });
+
+  it("offers to collapse it once the search clears, when it was already open", () => {
+    const fold = selectDashboard(
+      snapshot(),
+      consoleUi(lines, { query: "ctx", expandedArgs: { 1: true } }),
+      NOW,
+    ).console.lines[0]?.fold;
+    expect(fold?.sticky).toBe(true);
+    expect(fold?.ariaLabel).toContain("Collapse them once the search is cleared.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regressions — each of these was a proven defect, reproduced before it was fixed
+// ---------------------------------------------------------------------------
+
+describe("chip counts against a fold the query opened", () => {
+  // The fold adopts its whole run when the query hits inside it, so counting
+  // per line before the runs are grouped made the chips promise fewer rows than
+  // the console was already showing.
+  const lines = [
+    logLine(1, { modelId: null, message: "load: spawning server instance with args:" }),
+    logLine(2, { modelId: null, kind: "args", message: "--ctx-size" }),
+    logLine(3, { modelId: null, kind: "args", message: "131072" }),
+    logLine(4, { modelId: null, kind: "args", message: "--parallel" }),
+    logLine(5, { modelId: null, kind: "args", message: "4" }),
+    logLine(6, { modelId: null, kind: "args", message: "--flash-attn" }),
+  ];
+
+  it("keeps the `all` chip equal to the matched total", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(lines, { query: "ctx-size" }), NOW);
+    const all = vm.toolbar.levelChips.find((chip) => chip.level === "all");
+    expect(vm.logCounts.matched).toBe(5);
+    expect(all?.count).toBe(vm.logCounts.matched);
+  });
+
+  it("keeps every other chip a promise of what pressing it yields", () => {
+    const state = consoleUi(lines, { query: "ctx-size" });
+    for (const chip of selectDashboard(snapshot(), state, NOW).toolbar.levelChips) {
+      const pressed = selectDashboard(snapshot(), { ...state, filterLevel: chip.level }, NOW);
+      expect(chip.count).toBe(pressed.logCounts.matched);
+    }
+  });
+
+  it("counts a chip through the run-adoption rule, not per line", () => {
+    // One WARN argument line among four INFO ones: pressing WARN adopts the run.
+    const mixed = [
+      logLine(1, { modelId: null, kind: "args", message: "--ctx-size" }),
+      logLine(2, { modelId: null, kind: "args", level: "WARN", message: "131072" }),
+    ];
+    const state = consoleUi(mixed, { query: "ctx-size" });
+    const warn = selectDashboard(snapshot(), state, NOW).toolbar.levelChips.find(
+      (chip) => chip.level === "WARN",
+    );
+    const pressed = selectDashboard(snapshot(), { ...state, filterLevel: "WARN" }, NOW);
+    expect(warn?.count).toBe(pressed.logCounts.matched);
+  });
+});
+
+describe("a fold's truncation claim", () => {
+  const run = [
+    logLine(700, { modelId: null, kind: "args", message: "--ctx-size" }),
+    logLine(701, { modelId: null, kind: "args", message: "131072" }),
+    logLine(702, { modelId: null, kind: "args", message: "--parallel" }),
+    logLine(703, { modelId: null, kind: "args", message: "4" }),
+    logLine(704, { modelId: null, kind: "args", message: "--flash-attn" }),
+  ];
+
+  it("stays silent for a complete run in a buffer that dropped OTHER lines", () => {
+    // The buffer losing lines is a fact about the buffer. This run is whole,
+    // and "(older lines dropped)" on a complete launch command would send the
+    // operator looking for arguments that were never missing.
+    const older = Array.from({ length: 3 }, (_, i) => logLine(i + 1, { message: `older ${i}` }));
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi([...older, ...run], { bufferDropped: true }),
+      NOW,
+    );
+    const fold = vm.console.lines.find((row) => row.fold !== null)?.fold;
+    expect(fold?.count).toBe(5);
+    expect(fold?.truncated).toBe(false);
+    expect(fold?.label).toBe("▸ 5 launch arguments");
+  });
+
+  it("speaks when the run itself starts at the oldest line the buffer holds", () => {
+    const vm = selectDashboard(snapshot(), consoleUi(run, { bufferDropped: true }), NOW);
+    expect(vm.console.lines[0]?.fold?.truncated).toBe(true);
+  });
+
+  it("speaks when the render slice cut into the middle of the run", () => {
+    // The run sits at the very front, and the matched set overshoots the render
+    // cap by two — so the painted window opens on the run's THIRD argument and
+    // the fold is genuinely holding 3 of 5.
+    const head = Array.from({ length: 5 }, (_, i) =>
+      logLine(i + 1, { modelId: null, kind: "args", message: `--arg-${i}` }),
+    );
+    const signal = Array.from({ length: 297 }, (_, i) => logLine(6 + i, { message: `event ${i}` }));
+    const proxied = Array.from({ length: 200 }, (_, i) =>
+      logLine(303 + i, { kind: "proxy", message: "proxying" }),
+    );
+    const vm = selectDashboard(
+      snapshot(),
+      consoleUi([...head, ...signal, ...proxied], { showProxy: true }),
+      NOW,
+    );
+    expect(vm.logCounts.matched).toBe(LOG_RENDER_LIMIT + 2);
+    expect(vm.logCounts.renderCapped).toBe(true);
+    const fold = vm.console.lines[0]?.fold;
+    expect(fold?.count).toBe(3);
+    expect(fold?.truncated).toBe(true);
+    expect(fold?.label).toBe("▸ 3 launch arguments (older lines dropped)");
+  });
+});
+
+describe("a suppressed proxy line inside a spawn", () => {
+  it("does not split one launch command into two folds", () => {
+    const lines = [
+      logLine(1, { modelId: null, message: "load: spawning server instance with args:" }),
+      logLine(2, { modelId: null, kind: "args", message: "--ctx-size" }),
+      logLine(3, { modelId: null, kind: "args", message: "131072" }),
+      logLine(4, { kind: "proxy", message: "proxy_reques: proxying request" }),
+      logLine(5, { modelId: null, kind: "args", message: "--parallel" }),
+      logLine(6, { modelId: null, kind: "args", message: "4" }),
+    ];
+    const vm = selectDashboard(snapshot(), consoleUi(lines), NOW);
+    const folds = vm.console.lines.filter((row) => row.fold !== null);
+    expect(folds).toHaveLength(1);
+    expect(folds[0]?.fold?.count).toBe(4);
+  });
+});
+
+describe("an unavailable source that DOES have a path", () => {
+  const lines = [logLine(1, { message: "srv  llama_server: model loaded" })];
+
+  it("never calls real lines a simulation, and quotes the server's reason", () => {
+    // `unavailable` covers both "never wired up" and "found it, cannot read
+    // it". In the second case the buffered lines are the server's own, and
+    // claiming otherwise is the inverse of the failure this console prevents.
+    const console = selectDashboard(
+      snapshot(),
+      consoleUi(lines, {
+        logSource: "unavailable",
+        logSourcePath: "/var/log/llama-router.log",
+        logSourceDetail: "/var/log/llama-router.log could not be read (EACCES)",
+      }),
+      NOW,
+    ).console;
+    expect(console.notice?.title).toBe("The log file cannot be read");
+    expect(console.notice?.detail).toContain("(EACCES)");
+    expect(console.notice?.detail).not.toContain("simulation");
+    expect(console.notice?.detail).not.toContain("has not been pointed at");
+    expect(console.notice?.tone).toBe("warn");
+  });
+
+  it("still says the lines are simulated when no path was ever found", () => {
+    const console = selectDashboard(
+      snapshot(),
+      consoleUi(lines, { logSource: "unavailable" }),
+      NOW,
+    ).console;
+    expect(console.notice?.title).toBe("No log source connected");
+    expect(console.notice?.detail).toContain("built-in simulation, not this machine's log");
+  });
+});
+
+describe("quiet while the filter is hiding live traffic", () => {
+  it("refuses to claim silence when lines are arriving that the filter hides", () => {
+    const lines = [
+      logLine(1, { level: "WARN", ts: NOW - 300_000, message: "router mode banner" }),
+      logLine(2, { level: "INFO", ts: NOW, message: "fresh info line" }),
+    ];
+    const console = selectDashboard(
+      snapshot(),
+      consoleUi(lines, { filterLevel: "WARN" }),
+      NOW,
+    ).console;
+    expect(console.state).toBe("quiet");
+    const quiet = console.banners.find((entry) => entry.key === "quiet");
+    expect(quiet?.text).toContain("lines are still arriving that the filter hides");
+  });
+
+  it("still reports a genuinely silent router plainly", () => {
+    const lines = [logLine(1, { level: "WARN", ts: NOW - 300_000, message: "banner" })];
+    const console = selectDashboard(
+      snapshot(),
+      consoleUi(lines, { filterLevel: "WARN" }),
+      NOW,
+    ).console;
+    const quiet = console.banners.find((entry) => entry.key === "quiet");
+    expect(quiet?.text).not.toContain("still arriving");
+  });
+});
+
+describe("consoleFocusRestore", () => {
+  it("does nothing while focus was never disturbed", () => {
+    expect(consoleFocusRestore(false, "fold:2", ["fold:2"])).toEqual({ target: "none" });
+  });
+
+  it("lands back on the fold that was toggled, so it can be pressed twice", () => {
+    expect(consoleFocusRestore(true, "fold:2", ["1", "fold:2", "3"])).toEqual({
+      target: "fold",
+      key: "fold:2",
+    });
+  });
+
+  it("falls back to the console region when the control is gone for good", () => {
+    // "Clear filters" and "show all" both remove themselves; the scrollback the
+    // operator was reading is the right place to land, not the top of the page.
+    expect(consoleFocusRestore(true, null, ["1", "2"])).toEqual({ target: "region" });
+    expect(consoleFocusRestore(true, "fold:9", ["1", "2"])).toEqual({ target: "region" });
+  });
+});
+
+describe("countNewLines", () => {
+  function row(seq: number, fold: boolean): LogRowVm {
+    const rows = selectDashboard(
+      snapshot(),
+      consoleUi([logLine(seq, { modelId: null, kind: fold ? "args" : "event" })]),
+      NOW,
+    ).console.lines;
+    return rows[0] as LogRowVm;
+  }
+
+  it("counts lines, not rows, so an expanded fold cannot inflate the tally", () => {
+    // A fold row shares its `seq` with the first line of its run.
+    const fold = row(5, true);
+    const plain = row(6, false);
+    expect(fold.fold).not.toBeNull();
+    expect(countNewLines([fold, plain], 4)).toBe(1);
+    expect(countNewLines([fold, plain], 6)).toBe(0);
+  });
+});
+
+describe("the announcements that must differ per direction", () => {
+  it("says opening and closing differently", () => {
+    expect(foldAnnouncement(31, false, true)).toBe("31 launch arguments shown.");
+    expect(foldAnnouncement(31, false, false)).toBe("31 launch arguments hidden.");
+  });
+
+  it("says what the press changed while a search is holding the fold open", () => {
+    // Both presses leave the fold visible, so "shown" twice would be one
+    // sentence for two opposite actions.
+    const opened = foldAnnouncement(31, true, true);
+    const closed = foldAnnouncement(31, true, false);
+    expect(opened).not.toBe(closed);
+    expect(opened).toBe("31 launch arguments will stay open when the search is cleared.");
+    expect(closed).toBe("31 launch arguments will stay collapsed when the search is cleared.");
+  });
+
+  it("never announces a window it is not showing", () => {
+    const counts = selectDashboard(snapshot(), consoleUi([logLine(1)]), NOW).logCounts;
+    // `rendered === matched` — the render cap never bit, so the sentence must
+    // not read "showing the latest 1 of 1".
+    expect(truncationAnnouncement({ ...counts, bufferDropped: true })).toBe(
+      "Older lines dropped from the 500-line buffer.",
+    );
+    expect(
+      truncationAnnouncement({
+        ...counts,
+        bufferDropped: true,
+        renderCapped: true,
+        rendered: 500,
+        matched: 1412,
+      }),
+    ).toBe("Older lines dropped from the buffer; showing the latest 500 of 1,412.");
   });
 });
