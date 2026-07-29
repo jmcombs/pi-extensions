@@ -110,9 +110,8 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const { LlamaSource } = await import("./core/llama-source.js");
   const { createMockSource } = await import("./core/mock-source.js");
   const { createListenerProbe } = await import("./server/service-probe.js");
-  const { readStewardConfig, hostCollectorConsented, consentedControls } = await import(
-    "./server/steward-config.js"
-  );
+  const { readStewardConfig, hostCollectorConsented, consentedControls, consentDrift } =
+    await import("./server/steward-config.js");
   const connection = await resolveLlamaConnection(ctx);
   const probeService = createListenerProbe();
 
@@ -149,6 +148,22 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const control =
     createServiceController === null ? undefined : createServiceController(controlCommands);
 
+  // Drift re-validation. `steward.json` is written once and then trusted, so a
+  // plist edited afterwards would leave the dashboard asserting facts that
+  // stopped being true — and, because a compliant machine renders nothing, doing
+  // it silently. The probe re-reads the running process's argv each snapshot and
+  // diffs it against what was recorded; with no `llama.launchArgv` recorded there
+  // is nothing to compare against and the check simply reports itself unavailable.
+  // The second producer needs no probe: a declared-but-unapproved command is
+  // already knowable from the config alone.
+  const launchArgv = config?.llama?.launchArgv ?? null;
+  const { createDriftProbe } =
+    launchArgv === null ? { createDriftProbe: null } : await import("./server/drift-probe.js");
+  // The probe holds only a per-pid cache, so one instance serves every source.
+  const probeDrift =
+    createDriftProbe === null || launchArgv === null ? undefined : createDriftProbe({ launchArgv });
+  const consentGaps = config === null ? undefined : consentDrift(config);
+
   return () => {
     // A fresh collector per source: a start that fails to bind closes the source
     // it was handed (killing its collector), so a retry must not reuse a spent one.
@@ -168,6 +183,8 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
       probeService,
       control,
       host,
+      probeDrift,
+      consentDrift: consentGaps,
     });
   };
 }

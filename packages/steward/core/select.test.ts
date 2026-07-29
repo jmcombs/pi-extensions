@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import type { ConsentDrift, LaunchDrift } from "./drift.js";
+import { NO_CONSENT_DRIFT, unknownDrift } from "./drift.js";
 import { modelColor } from "./model-color.js";
-import { LOG_RENDER_LIMIT, selectDashboard, selectLogText } from "./select.js";
+import { driftAnnouncement, LOG_RENDER_LIMIT, selectDashboard, selectLogText } from "./select.js";
 import type { UiState } from "./state.js";
 import { initialUiState, reduce } from "./state.js";
 import type { LogLine, ModelInfo, ServiceAction, Snapshot } from "./types.js";
@@ -100,6 +102,9 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
       cpuTempC: 47,
     },
     memoryTopology: "discrete",
+    // The default machine is one Steward could not re-check (no recorded argv),
+    // which must render exactly as silently as a compliant one.
+    drift: unknownDrift("no launch command was recorded for this machine"),
     throughputTps: 72,
     requestsInFlight: 2,
     throughputHistory: [40, 60, 80],
@@ -923,5 +928,209 @@ describe("selectLogText", () => {
     expect(selectLogText(selectDashboard(snapshot(), ui, NOW))).toBe(
       "09:04:07.042 WARN qwen3.6-moe-30b-thinking context shift",
     );
+  });
+});
+
+/** A `drifted` launch verdict with the given added/removed flag groups. */
+function launchDrift(over: Partial<LaunchDrift> = {}): LaunchDrift {
+  return { status: "drifted", added: [], removed: [], program: null, reason: null, ...over };
+}
+
+/** A snapshot whose drift state is exactly what the test is about. */
+function drifted(launch: LaunchDrift, consent: ConsentDrift = NO_CONSENT_DRIFT): Snapshot {
+  return snapshot({ drift: { launch, consent } });
+}
+
+describe("drift notice", () => {
+  it("says nothing at all about a machine that matches its config", () => {
+    // The load-bearing silence: a compliant machine gets no badge, no "all
+    // good", nothing. That is what makes the notice mean something when it does
+    // appear.
+    const clean = drifted({ status: "clean", added: [], removed: [], program: null, reason: null });
+    expect(selectDashboard(clean, initialUiState("light"), NOW).service.drift).toBeNull();
+  });
+
+  it("says nothing about a machine it could not check", () => {
+    // `unknown` renders exactly like `clean` — but it is never a claim that the
+    // machine is fine, and a later phase can tell the two apart on the snapshot.
+    const vm = selectDashboard(
+      snapshot({ drift: unknownDrift("the service is not running") }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift).toBeNull();
+  });
+
+  it("names the flag that was removed and what to run about it", () => {
+    const vm = selectDashboard(
+      drifted(launchDrift({ removed: ["--metrics"] })),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift?.messages).toEqual([
+      "Launch flags changed since setup: --metrics removed.",
+    ]);
+    expect(vm.service.drift?.fix).toBe("Re-run /initialize-steward to re-detect this machine.");
+    expect(vm.service.drift?.title).toBe("Configuration drift");
+  });
+
+  it("reports removals and additions in one sentence", () => {
+    const vm = selectDashboard(
+      drifted(launchDrift({ removed: ["--metrics", "--slots"], added: ["--port 8081"] })),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift?.messages[0]).toBe(
+      "Launch flags changed since setup: --metrics and --slots removed, --port 8081 added.",
+    );
+  });
+
+  it("summarises a long list rather than printing the whole command line", () => {
+    const vm = selectDashboard(
+      drifted(launchDrift({ removed: ["--a", "--b", "--c", "--d", "--e"] })),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift?.messages[0]).toBe(
+      "Launch flags changed since setup: --a, --b, --c and 2 more removed.",
+    );
+  });
+
+  it("spells out a changed binary instead of drawing an arrow", () => {
+    // An arrow glyph is silence to a screen reader, and this text is the whole
+    // content of the announcement.
+    const vm = selectDashboard(
+      drifted(
+        launchDrift({
+          program: {
+            recorded: "/opt/homebrew/bin/llama-server",
+            observed: "/usr/local/bin/llama-server",
+          },
+        }),
+      ),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift?.messages).toEqual([
+      "The server binary changed since setup: it was /opt/homebrew/bin/llama-server, and is now /usr/local/bin/llama-server.",
+    ]);
+  });
+
+  it("explains a collector that is declared but not approved", () => {
+    const vm = selectDashboard(
+      drifted(unknownDrift("not checked").launch, { hostCollector: true, controls: [] }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift?.messages).toEqual([
+      "The host-metrics collector is declared but not approved, so no host readings are being collected.",
+    ]);
+  });
+
+  it("explains unapproved control commands, singular and plural", () => {
+    const one = selectDashboard(
+      drifted(unknownDrift("not checked").launch, { hostCollector: false, controls: ["restart"] }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(one.service.drift?.messages).toEqual([
+      "The restart command is declared but not approved, so it is not offered.",
+    ]);
+
+    const two = selectDashboard(
+      drifted(unknownDrift("not checked").launch, {
+        hostCollector: false,
+        controls: ["stop", "restart"],
+      }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(two.service.drift?.messages).toEqual([
+      "The stop and restart commands are declared but not approved, so they are not offered.",
+    ]);
+  });
+
+  it("gathers both producers into one notice", () => {
+    const vm = selectDashboard(
+      drifted(launchDrift({ removed: ["--metrics"] }), { hostCollector: true, controls: [] }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.drift?.messages).toHaveLength(2);
+    expect(vm.service.drift?.announcement).toBe(
+      "Configuration drift. Launch flags changed since setup: --metrics removed. The host-metrics collector is declared but not approved, so no host readings are being collected. Re-run /initialize-steward to re-detect this machine.",
+    );
+  });
+
+  it("hides a notice the operator dismissed", () => {
+    const drift = drifted(launchDrift({ removed: ["--metrics"] }));
+    const shown = selectDashboard(drift, initialUiState("light"), NOW).service.drift;
+    expect(shown).not.toBeNull();
+    const ui = reduce(initialUiState("light"), { type: "drift/dismiss", key: shown?.key ?? "" });
+    expect(selectDashboard(drift, ui, NOW).service.drift).toBeNull();
+  });
+
+  it("brings the notice back when what drifted changes", () => {
+    // A dismissal may buy quiet about ONE mismatch; it may never hide a new one.
+    const first = drifted(launchDrift({ removed: ["--metrics"] }));
+    const key = selectDashboard(first, initialUiState("light"), NOW).service.drift?.key ?? "";
+    const ui = reduce(initialUiState("light"), { type: "drift/dismiss", key });
+
+    const worse = drifted(launchDrift({ removed: ["--metrics", "--slots"] }));
+    const vm = selectDashboard(worse, ui, NOW);
+    expect(vm.service.drift).not.toBeNull();
+    expect(vm.service.drift?.key).not.toBe(key);
+  });
+
+  it("keys the notice by what drifted, not by when it was seen", () => {
+    const one = selectDashboard(
+      drifted(launchDrift({ removed: ["--metrics"] })),
+      initialUiState("light"),
+      NOW,
+    ).service.drift;
+    const again = selectDashboard(
+      drifted(launchDrift({ removed: ["--metrics"] })),
+      initialUiState("light"),
+      NOW + 60_000,
+    ).service.drift;
+    expect(one?.key).toBe(again?.key);
+  });
+});
+
+describe("driftAnnouncement", () => {
+  const notice = (key: string) => ({
+    key,
+    title: "Configuration drift",
+    messages: ["something changed"],
+    fix: "Re-run /initialize-steward to re-detect this machine.",
+    dismissLabel: "Dismiss",
+    dismissAriaLabel: "Dismiss",
+    ariaLabel: "Configuration drift",
+    announcement: `announcement for ${key}`,
+  });
+
+  it("announces a notice the operator has not heard yet", () => {
+    expect(driftAnnouncement(notice("a"), null)).toEqual({
+      message: "announcement for a",
+      key: "a",
+    });
+  });
+
+  it("stays silent while the same mismatch persists", () => {
+    // The poll runs every 1.6s; repeating this would make the status region
+    // useless for everything else on the page.
+    expect(driftAnnouncement(notice("a"), "a")).toEqual({ message: null, key: "a" });
+  });
+
+  it("announces again when the mismatch changes", () => {
+    expect(driftAnnouncement(notice("b"), "a")).toEqual({
+      message: "announcement for b",
+      key: "b",
+    });
+  });
+
+  it("forgets the watermark when there is no notice, so a return is announced", () => {
+    expect(driftAnnouncement(null, "a")).toEqual({ message: null, key: null });
+    expect(driftAnnouncement(notice("a"), null).message).toBe("announcement for a");
   });
 });

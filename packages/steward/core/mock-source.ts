@@ -13,6 +13,7 @@
  * `./types.ts`.
  */
 
+import { unknownDrift } from "./drift.js";
 import type { StewardDataSource, Unsubscribe } from "./source.js";
 import type {
   ConfigEntry,
@@ -445,6 +446,11 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       // phase Steward reads this from the `steward.json` config artifact; here it
       // is a fixed property of the simulated machine, never a per-tick reading.
       memoryTopology: "discrete",
+      // The simulation has no launchd plist to re-read and no consent map to
+      // fall out of, so it asserts NOTHING about drift. `unknown` renders no
+      // notice — and, unlike a fabricated `clean`, it is not a claim that a
+      // machine the mock never looked at is configured correctly.
+      drift: unknownDrift("the simulated source does not re-validate launch flags"),
       throughputTps: running ? throughputTps : 0,
       requestsInFlight,
       throughputHistory: [...throughputHistory],

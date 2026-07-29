@@ -199,6 +199,20 @@ describe("LlamaSource — snapshot overlay", () => {
       expect(snapshot.requestsInFlight).toBe(0);
       expect(snapshot.requestsQueued).toBe(0);
 
+      // Drift is the live source's own answer, never the fallback's: with no
+      // recorded argv there is nothing to re-check, and that is reported as
+      // "unknown" rather than borrowed from the simulation.
+      expect(snapshot.drift).toEqual({
+        launch: {
+          status: "unknown",
+          added: [],
+          removed: [],
+          program: null,
+          reason: "no launch command was recorded for this machine",
+        },
+        consent: { hostCollector: false, controls: [] },
+      });
+
       // Everything else must be exactly the fallback's.
       const { config: _c, models: _m, slots: _s, service: _sv, ...liveRest } = snapshot;
       const { config: _c2, models: _m2, slots: _s2, service: _sv2, ...mockRest } = reference;
@@ -207,6 +221,7 @@ describe("LlamaSource — snapshot overlay", () => {
         throughputHistory: _h,
         requestsInFlight: _i,
         requestsQueued: _q,
+        drift: _d,
         ...rest
       }: typeof liveRest) => rest;
       expect(strip(liveRest)).toEqual(strip(mockRest));
@@ -782,5 +797,153 @@ describe("LlamaSource — host overlay", () => {
     await source.snapshot();
     source.close();
     expect(closes()).toBe(1);
+  });
+});
+
+describe("LlamaSource — drift", () => {
+  const DRIFTED = {
+    status: "drifted" as const,
+    added: [],
+    removed: ["--metrics"],
+    program: null,
+    reason: null,
+  };
+
+  it("carries the probe's verdict onto the snapshot", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeDrift: async () => DRIFTED,
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.drift.launch).toEqual(DRIFTED);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("checks the very process the SERVICE block reported, not a second lookup", async () => {
+    // One pid resolution per snapshot: re-resolving it here would cost another
+    // `lsof` AND let the two land on different processes across a restart, so
+    // the notice could describe a process the SERVICE block is not showing.
+    const seen: (number | null)[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeService: async () => ({ pid: 4821, startedAt: null }),
+      probeDrift: async (pid) => {
+        seen.push(pid);
+        return DRIFTED;
+      },
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.service.pid).toBe(4821);
+      expect(seen).toEqual([4821]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("hands the probe a null pid when the process could not be identified", async () => {
+    // No service probe configured (or one that found nothing): the check is
+    // unavailable, and the probe is the one that says so.
+    const seen: (number | null)[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeDrift: async (pid) => {
+        seen.push(pid);
+        return { ...DRIFTED, status: "unknown" as const, reason: "no pid" };
+      },
+    });
+    try {
+      expect((await source.snapshot()).drift.launch.status).toBe("unknown");
+      expect(seen).toEqual([null]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reports unknown — never clean — when no launch argv was recorded", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.drift.launch.status).toBe("unknown");
+      expect(snapshot.drift.launch.reason).toBe("no launch command was recorded for this machine");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("does not judge the flags of a service that is not running", async () => {
+    // Nothing is listening, so there is no argv to read: a "clean" verdict here
+    // would be an assertion about a process that does not exist.
+    let probed = false;
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: refused,
+      probeDrift: async () => {
+        probed = true;
+        return DRIFTED;
+      },
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.service.running).toBe(false);
+      expect(snapshot.drift.launch).toMatchObject({
+        status: "unknown",
+        reason: "the service is not running",
+      });
+      expect(probed).toBe(false);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("degrades to unknown when the probe rejects, rather than failing the snapshot", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeDrift: async () => {
+        throw new Error("lsof exploded");
+      },
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.drift.launch.status).toBe("unknown");
+      // The rest of the snapshot is untouched: a failed drift check may never
+      // be the reason a repaint loses its live panels.
+      expect(snapshot.models.map((m) => m.id)).toEqual(["M1", "M2"]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reports declared-but-unapproved commands every snapshot, running or not", async () => {
+    // Consent drift is config, not a reading — it does not depend on the server
+    // being reachable, and a stopped service must still explain its dead buttons.
+    const consentDrift = { hostCollector: true, controls: ["stop" as const] };
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: refused,
+      consentDrift,
+    });
+    try {
+      expect((await source.snapshot()).drift.consent).toEqual(consentDrift);
+    } finally {
+      source.close();
+    }
   });
 });

@@ -9,6 +9,7 @@
  * cannot know which. Keep this module free of Node and DOM APIs.
  */
 
+import type { ConsentDrift, LaunchDrift } from "./drift.js";
 import {
   barPercent,
   contextHeadroomColor,
@@ -122,6 +123,36 @@ export interface ServiceConfirmVm {
   cancelLabel: string;
 }
 
+/**
+ * The drift notice — the one surface both drift producers write to.
+ *
+ * It exists only when something is actually wrong. A compliant machine renders
+ * NOTHING here: no "all good" badge, no reassurance. That is the point of the
+ * whole check — the dashboard's silence has to mean something, so it may never
+ * be spent on a machine Steward could not verify (a `unknown` launch check is
+ * silent too, and the operator is told nothing rather than told it is fine).
+ */
+export interface DriftNoticeVm {
+  /**
+   * Identity of this exact mismatch. A dismissal is bound to it, so dismissing
+   * "`--metrics` removed" cannot also hide "`--slots` removed" arriving later:
+   * the key changes and the notice comes back.
+   */
+  key: string;
+  title: string;
+  /** One line per thing that no longer matches; never empty. */
+  messages: string[];
+  /** What to do about it, in words, naming the command that does it. */
+  fix: string;
+  dismissLabel: string;
+  /** Says out loud that dismissing does not make the mismatch go away. */
+  dismissAriaLabel: string;
+  /** The notice region's accessible name. */
+  ariaLabel: string;
+  /** The whole notice as one sentence, for the polite status region. */
+  announcement: string;
+}
+
 /** The affordance shown in place of controls when none are configured. */
 export interface ServiceSetupVm {
   label: string;
@@ -157,6 +188,13 @@ export interface ServiceVm {
   themeLabel: string;
   /** The start/stop/restart row, its confirm strip, and any failure notice. */
   controls: ServiceControlsVm;
+  /**
+   * The config-drift notice, or `null` when there is nothing to report (or the
+   * operator dismissed this exact one). It lives in this block because this is
+   * where the router facts `steward.json` claims are rendered — the notice says
+   * those facts have stopped being true.
+   */
+  drift: DriftNoticeVm | null;
   /**
    * The router facts (role, binary, listen, …) folded in from what was the
    * separate CONFIG block. They render below the status as this block's third
@@ -456,6 +494,140 @@ function selectServiceControls(snapshot: Snapshot, ui: UiState): ServiceControls
   };
 }
 
+/** How many flag groups a notice names before it summarises the rest. */
+const DRIFT_LIST_LIMIT = 3;
+
+/** The Pi command that re-detects this machine and rewrites `steward.json`. */
+const SETUP_COMMAND = "/initialize-steward";
+
+/** Human-readable action names for the consent-drift sentence. */
+const CONTROL_NAMES: Record<ServiceAction, string> = {
+  start: "start",
+  stop: "stop",
+  restart: "restart",
+};
+
+/** `--metrics and --slots`, or `--a, --b, --c and 4 more` past the limit. */
+function driftList(groups: readonly string[]): string {
+  if (groups.length <= DRIFT_LIST_LIMIT) return joinNames([...groups]);
+  const head = groups.slice(0, DRIFT_LIST_LIMIT).join(", ");
+  return `${head} and ${groups.length - DRIFT_LIST_LIMIT} more`;
+}
+
+/**
+ * The launch-argv half of the notice: one line naming exactly what changed.
+ * Only a `drifted` verdict speaks. `clean` says nothing (a compliant machine is
+ * not nagged), and `unknown` says nothing either — Steward could not check, so
+ * it has nothing to report and does not pretend otherwise.
+ */
+function launchDriftMessages(launch: LaunchDrift): string[] {
+  if (launch.status !== "drifted") return [];
+  const messages: string[] = [];
+  const changes: string[] = [];
+  if (launch.removed.length > 0) changes.push(`${driftList(launch.removed)} removed`);
+  if (launch.added.length > 0) changes.push(`${driftList(launch.added)} added`);
+  if (changes.length > 0) {
+    messages.push(`Launch flags changed since setup: ${changes.join(", ")}.`);
+  }
+  if (launch.program !== null) {
+    // Spelled out rather than arrowed: an arrow glyph is silence to a screen
+    // reader, and this line is the whole content of the alert.
+    messages.push(
+      `The server binary changed since setup: it was ${launch.program.recorded}, and is now ${launch.program.observed}.`,
+    );
+  }
+  return messages;
+}
+
+/**
+ * The consent half: a command `steward.json` declares that the operator has not
+ * approved. Steward refusing to run it is the gate working as designed — but an
+ * inert panel with no explanation looks exactly like one that was never set up,
+ * so the reason is said out loud.
+ */
+function consentDriftMessages(consent: ConsentDrift): string[] {
+  const messages: string[] = [];
+  if (consent.hostCollector) {
+    messages.push(
+      "The host-metrics collector is declared but not approved, so no host readings are being collected.",
+    );
+  }
+  if (consent.controls.length > 0) {
+    const names = consent.controls.map((action) => CONTROL_NAMES[action]);
+    messages.push(
+      names.length === 1
+        ? `The ${names[0]} command is declared but not approved, so it is not offered.`
+        : `The ${joinNames(names)} commands are declared but not approved, so they are not offered.`,
+    );
+  }
+  return messages;
+}
+
+/**
+ * The drift notice, or `null` when there is nothing honest to say.
+ *
+ * Dismissal is bound to {@link DriftNoticeVm.key} and lives in memory only: the
+ * notice returns on the next reload, and immediately if what drifted changes.
+ * A mismatch that is still there must never be hidden by a click the operator
+ * made ten minutes ago — the whole feature is a promise that silence means
+ * compliance.
+ */
+function selectDrift(snapshot: Snapshot, ui: UiState): DriftNoticeVm | null {
+  const { launch, consent } = snapshot.drift;
+  const messages = [...launchDriftMessages(launch), ...consentDriftMessages(consent)];
+  if (messages.length === 0) return null;
+
+  const key = [
+    launch.status === "drifted"
+      ? `launch:-${launch.removed.join(" ")}:+${launch.added.join(" ")}:${
+          launch.program === null ? "" : launch.program.observed
+        }`
+      : "",
+    consent.hostCollector ? "collector" : "",
+    consent.controls.length > 0 ? `controls:${consent.controls.join(",")}` : "",
+  ].join("|");
+  if (ui.dismissedDrift === key) return null;
+
+  const fix = `Re-run ${SETUP_COMMAND} to re-detect this machine.`;
+  return {
+    key,
+    title: "Configuration drift",
+    messages,
+    fix,
+    dismissLabel: "Dismiss",
+    dismissAriaLabel:
+      "Dismiss the configuration drift notice. It returns while the mismatch is still there.",
+    ariaLabel: "Configuration drift",
+    announcement: `Configuration drift. ${messages.join(" ")} ${fix}`,
+  };
+}
+
+/** What the polite status region should say about drift, and the new watermark. */
+export interface DriftAnnouncement {
+  /** The sentence to announce, or `null` when nothing has changed. */
+  message: string | null;
+  /** The key to remember, so the same notice is not announced twice. */
+  key: string | null;
+}
+
+/**
+ * Decides whether a drift notice is worth announcing.
+ *
+ * The snapshot poll runs every 1.6 s and drift persists across all of them, so
+ * announcing per repaint would turn a screen reader into a metronome. The notice
+ * is announced when it is NEW — a different mismatch, or the first one after a
+ * clean stretch — and stays silent otherwise. Losing the notice resets the
+ * watermark, so a mismatch that returns is announced again.
+ */
+export function driftAnnouncement(
+  notice: DriftNoticeVm | null,
+  lastKey: string | null,
+): DriftAnnouncement {
+  if (notice === null) return { message: null, key: null };
+  if (notice.key === lastKey) return { message: null, key: lastKey };
+  return { message: notice.announcement, key: notice.key };
+}
+
 function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
   const { service } = snapshot;
   const running = service.running;
@@ -479,6 +651,7 @@ function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
     themeGlyph,
     themeLabel,
     controls: selectServiceControls(snapshot, ui),
+    drift: selectDrift(snapshot, ui),
     config: snapshot.config,
   };
 }

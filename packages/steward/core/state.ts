@@ -58,6 +58,15 @@ export interface UiState {
   serviceFailure: ServiceFailure | null;
   /** Model actions awaiting their POST, keyed by model id. */
   pendingModels: Record<string, ModelAction>;
+  /**
+   * The key of the drift notice the operator dismissed, or `null`.
+   *
+   * Deliberately in memory and deliberately keyed: it is forgotten on reload,
+   * and a mismatch that CHANGES gets a new key and reappears. Dismissal buys
+   * quiet for this session, never a dashboard that looks compliant while it is
+   * not — which is the one thing this notice exists to prevent.
+   */
+  dismissedDrift: string | null;
 }
 
 export type UiAction =
@@ -72,6 +81,7 @@ export type UiAction =
   | { type: "service/pending"; action: ServiceAction | null }
   | { type: "service/confirm"; action: ServiceAction | null }
   | { type: "service/failure"; failure: ServiceFailure | null }
+  | { type: "drift/dismiss"; key: string | null }
   | { type: "model/pending"; modelId: string; action: ModelAction | null }
   | { type: "models/observed"; models: readonly { id: string; status: ModelStatus }[] };
 
@@ -89,6 +99,7 @@ export function initialUiState(theme: Theme): UiState {
     confirmService: null,
     serviceFailure: null,
     pendingModels: {},
+    dismissedDrift: null,
   };
 }
 
@@ -191,6 +202,10 @@ export function reduce(state: UiState, action: UiAction): UiState {
     case "service/failure": {
       if (state.serviceFailure === null && action.failure === null) return state;
       return { ...state, serviceFailure: action.failure };
+    }
+    case "drift/dismiss": {
+      if (state.dismissedDrift === action.key) return state;
+      return { ...state, dismissedDrift: action.key };
     }
     case "model/pending": {
       const pendingModels = { ...state.pendingModels };

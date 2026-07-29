@@ -14,7 +14,7 @@
  * A command that failed leaves an alert here rather than nothing at all.
  */
 
-import type { ServiceControlVm, ServiceVm } from "../../core/select.js";
+import type { DriftNoticeVm, ServiceControlVm, ServiceVm } from "../../core/select.js";
 import type { ServiceAction } from "../../core/types.js";
 import type { View } from "../dom.js";
 import { el, setAttr, setText, setVar, svg, syncRows } from "../dom.js";
@@ -27,6 +27,11 @@ export interface ServiceHandlers {
   onConfirmService: (action: ServiceAction) => void;
   /** Dismisses the confirm strip without acting. */
   onCancelService: () => void;
+  /**
+   * Quiets the drift notice for this session. It is keyed by what drifted, so
+   * the notice returns on a reload and the moment the mismatch changes.
+   */
+  onDismissDrift: (key: string) => void;
 }
 
 /** One router fact: `listen   127.0.0.1:8080`. Patched per repaint. */
@@ -170,6 +175,47 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
     attrs: { role: "alert", hidden: true, tabindex: "-1" },
   });
 
+  // The drift notice. It sits directly under the status readout — above the
+  // controls and the router facts it contradicts — because a machine that no
+  // longer matches `steward.json` is the first thing about this block that is
+  // not true. It carries no `aria-live` of its own: `main.ts` announces it once
+  // through the page's polite status region, and a second live region would
+  // repeat every line on every 1.6 s poll.
+  const driftTitle = el("p", { class: "service__drift-title" });
+  const driftDismiss = el("button", {
+    class: "btn btn--sm service__drift-dismiss",
+    attrs: { type: "button" },
+  });
+  const driftList = el("ul", { class: "service__drift-list" });
+  const driftRows: { root: HTMLElement }[] = [];
+  const driftFix = el("p", { class: "service__drift-fix" });
+  const drift = el("section", {
+    class: "service__drift",
+    attrs: { hidden: true },
+    children: [
+      el("div", {
+        class: "service__drift-head",
+        children: [
+          // The tone is carried by the word "drift", the icon, and the border —
+          // never by colour alone.
+          el("span", {
+            class: "service__drift-icon",
+            text: "!",
+            attrs: { "aria-hidden": "true" },
+          }),
+          driftTitle,
+          driftDismiss,
+        ],
+      }),
+      driftList,
+      driftFix,
+    ],
+  });
+  let driftKey: string | null = null;
+  driftDismiss.addEventListener("click", () => {
+    if (driftKey !== null) handlers.onDismissDrift(driftKey);
+  });
+
   const facts = el("div", { class: "config-list service__facts" });
   const rows: FactRow[] = [];
 
@@ -184,6 +230,7 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
         children: [mark(), el("h1", { class: "lockup__name", text: "Steward" })],
       }),
       el("div", { class: "service__status-row", children: [status, theme] }),
+      drift,
       controls,
       setup,
       confirm,
@@ -191,6 +238,33 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
       facts,
     ],
   });
+
+  /** Patches the drift notice, or hides it when there is nothing to report. */
+  function updateDrift(vm: DriftNoticeVm | null): void {
+    driftKey = vm?.key ?? null;
+    // Dismissing hides the section the Dismiss button lives in, so read focus
+    // BEFORE hiding it: a keyboard operator who clicked Dismiss would otherwise
+    // be dropped at the top of the document. The status readout is the same
+    // anchor the confirm strip falls back to.
+    const focusWasInside = drift.contains(document.activeElement);
+    setAttr(drift, "hidden", vm === null);
+    if (vm === null) {
+      if (focusWasInside) status.focus();
+      return;
+    }
+    setAttr(drift, "aria-label", vm.ariaLabel);
+    setText(driftTitle, vm.title);
+    setText(driftDismiss, vm.dismissLabel);
+    setAttr(driftDismiss, "aria-label", vm.dismissAriaLabel);
+    syncRows(driftList, driftRows, vm.messages.length, () => ({
+      root: el("li", { class: "service__drift-item" }),
+    }));
+    vm.messages.forEach((message, index) => {
+      const row = driftRows[index];
+      if (row !== undefined) setText(row.root, message);
+    });
+    setText(driftFix, vm.fix);
+  }
 
   return {
     el: root,
@@ -206,6 +280,8 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
       setText(theme, vm.themeGlyph);
       setAttr(theme, "aria-label", vm.themeLabel);
       setAttr(theme, "title", vm.themeLabel);
+
+      updateDrift(vm.drift);
 
       const { controls: cvm } = vm;
       setAttr(controls, "hidden", cvm.buttons.length === 0);

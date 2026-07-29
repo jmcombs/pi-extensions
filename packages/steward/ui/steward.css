@@ -730,6 +730,82 @@ button {
   display: none;
 }
 
+/* Config drift: the machine no longer matches what `steward.json` says about
+   it. Warning-toned and set off by a left rule so it reads as a break in the
+   block, but it is only ever as loud as it needs to be — it appears at all only
+   when something is genuinely wrong, and a compliant machine renders nothing
+   here. The tone is never the only signal: the heading says "Configuration
+   drift", the glyph repeats it, and every line is a sentence. */
+.service__drift {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.service__drift[hidden] {
+  display: none;
+}
+
+.service__drift-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.service__drift-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--warning) 28%, transparent);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--warning);
+}
+
+.service__drift-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--warning);
+}
+
+.service__drift-dismiss {
+  flex: none;
+}
+
+.service__drift-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.service__drift-item {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.service__drift-fix {
+  margin: 7px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
 /* The router identity, divided from the live state/control row above by a
    hairline. Uptime and pid live in the metrics band's service tile, not here. */
 .service__facts {

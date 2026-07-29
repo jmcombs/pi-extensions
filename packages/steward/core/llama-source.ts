@@ -25,6 +25,8 @@
  * `AbortSignal` are all cross-runtime globals.
  */
 
+import type { ConsentDrift, DriftProbe, DriftState, LaunchDrift } from "./drift.js";
+import { NO_CONSENT_DRIFT, unknownLaunchDrift } from "./drift.js";
 import type { HostMetricsProvider } from "./host-metrics.js";
 import { parseRouterConfig } from "./llama-config.js";
 import type { LlamaConnection } from "./llama-connection.js";
@@ -156,6 +158,22 @@ export interface LlamaSourceOptions {
    * (memory topology and sensors) rides through from the fallback unchanged.
    */
   host?: HostMetricsOverlay;
+  /**
+   * Re-reads the launch argv of the process behind {@link ServiceInfo.pid} and
+   * diffs it against the one `steward.json` recorded. Injected (it is Node-side
+   * and platform-specific) and present only when the config carries a
+   * `llama.launchArgv` to compare against; omitted, the snapshot reports drift
+   * `unknown` — the check is unavailable, which is not the same as passing it.
+   * It needs {@link LlamaSourceOptions.probeService} to have found a pid, so
+   * without a service probe the check reports itself unavailable too.
+   */
+  probeDrift?: DriftProbe;
+  /**
+   * Commands `steward.json` declares but has not approved, computed once from
+   * the config (it cannot change while the process runs). Omitted, nothing is
+   * reported as unapproved.
+   */
+  consentDrift?: ConsentDrift;
 }
 
 /** How long to wait on any one call before treating the server as unreachable. */
@@ -181,6 +199,10 @@ export class LlamaSource implements StewardDataSource {
   readonly #control: ServiceController | null;
   /** The live host-metrics overlay, or null when no collector is configured. */
   readonly #host: HostMetricsOverlay | null;
+  /** The launch-argv re-check, or null when nothing was recorded to check. */
+  readonly #probeDrift: DriftProbe | null;
+  /** Declared-but-unapproved commands; static for the life of the process. */
+  readonly #consentDrift: ConsentDrift;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
   /** Rolling real throughput samples, oldest first — the band's sparkline. */
@@ -195,6 +217,8 @@ export class LlamaSource implements StewardDataSource {
     this.#probeService = options.probeService ?? null;
     this.#control = options.control ?? null;
     this.#host = options.host ?? null;
+    this.#probeDrift = options.probeDrift ?? null;
+    this.#consentDrift = options.consentDrift ?? NO_CONSENT_DRIFT;
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -221,10 +245,12 @@ export class LlamaSource implements StewardDataSource {
     // With no collector, the band — including `memoryTopology` — rides through
     // from the fallback via `...base`, exactly as before.
     const host = this.#overlayHost(base);
+    const drift = await this.#readDrift(service);
     return {
       ...base,
       config,
       service,
+      drift,
       models,
       slots,
       throughputTps,
@@ -262,6 +288,42 @@ export class LlamaSource implements StewardDataSource {
         }
       : UNAVAILABLE_METRICS;
     return { metrics, memoryTopology: this.#host.topology };
+  }
+
+  /**
+   * Whether this machine still matches what `steward.json` says about it.
+   *
+   * The launch check runs against the process the SERVICE block just resolved —
+   * the same pid, from the same lookup, in the same snapshot — so the two can
+   * never describe different processes across a restart, and the port is not
+   * looked up twice. A stopped service (or one whose pid we could not resolve)
+   * has nothing to re-read and reports `unknown` rather than "clean": a server
+   * that is not running cannot be running the right flags. A probe that throws
+   * is a failed check, never a verdict — the whole point of this field is that
+   * Steward stops asserting facts it did not verify.
+   *
+   * Consent drift is config, not a reading: it is computed once and reported
+   * every snapshot unchanged.
+   */
+  async #readDrift(service: ServiceInfo): Promise<DriftState> {
+    const consent = this.#consentDrift;
+    const probe = this.#probeDrift;
+    if (probe === null) {
+      return {
+        launch: unknownLaunchDrift("no launch command was recorded for this machine"),
+        consent,
+      };
+    }
+    if (!service.running) {
+      return { launch: unknownLaunchDrift("the service is not running"), consent };
+    }
+    let launch: LaunchDrift;
+    try {
+      launch = await probe(service.pid);
+    } catch {
+      launch = unknownLaunchDrift("the launch command line could not be read");
+    }
+    return { launch, consent };
   }
 
   /**

@@ -7,6 +7,8 @@
  * type-checked by both the Node project and the browser project.
  */
 
+import type { DriftState } from "./drift.js";
+
 /** Log severities Steward renders. `DEBUG` is parsed but rarely emitted. */
 export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
 
@@ -186,6 +188,15 @@ export interface Snapshot {
    * the `steward.json` config artifact; today the mock reports `discrete`.
    */
   memoryTopology: MemoryTopology;
+  /**
+   * Whether this machine still matches what `steward.json` says about it: the
+   * live launch argv against the recorded one, and any command declared but not
+   * approved. Always present, because "we did not check" ({@link
+   * import("./drift.js").LaunchDrift} `unknown`) is a distinct answer from "we
+   * checked and it matches" — and only the first of those is honest when the
+   * check could not run.
+   */
+  drift: DriftState;
   /** Aggregate generation rate across all slots, tokens/second. */
   throughputTps: number;
   /**

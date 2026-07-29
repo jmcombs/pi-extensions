@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { ConsentDrift } from "../core/drift.js";
 import type { MemoryTopology, ServiceAction } from "../core/types.js";
 
 /** The environment variable that overrides the default config location. */
@@ -54,14 +55,40 @@ export interface ServiceControlConfig {
 }
 
 /**
+ * What `/initialize-steward` observed about how `llama-server` is launched on
+ * this machine — the baseline the live process is re-checked against on every
+ * snapshot (see `server/drift-probe.ts`).
+ *
+ * It is a RECORD, not an instruction: Steward never launches anything from it
+ * and it carries no consent, which is why it needs no hash. `mechanism` and
+ * `label` are descriptive only (`launchd`, `gui/501/com.llamacpp.router`) and
+ * exist so a later phase can point the operator at the right file to fix.
+ */
+export interface LlamaLaunchConfig {
+  /** The argv the server was observed running with, `argv[0]` first. */
+  launchArgv: string[];
+  /** How it is launched (`launchd`, `systemd`, …), or `null` when unrecorded. */
+  mechanism: string | null;
+  /** The job/unit label, or `null` when unrecorded. */
+  label: string | null;
+}
+
+/**
  * The slice of `steward.json` this phase reads. Unknown keys are ignored so the
- * artifact can carry fields later phases own (launch argv, log paths, …)
- * without this reader rejecting them.
+ * artifact can carry fields later phases own (log paths, …) without this reader
+ * rejecting them.
  */
 export interface StewardConfig {
   /** Static machine memory layout — picks the HOST gauge SET, not a reading. */
   memoryTopology: MemoryTopology;
   hostCollector: HostCollectorConfig;
+  /**
+   * The recorded launch argv, or `null` when the artifact does not carry one
+   * (or carries an ill-formed one). Optional on purpose: drift re-validation is
+   * then simply unavailable — the dashboard says nothing about launch flags
+   * rather than refusing the whole config over a block nothing else depends on.
+   */
+  llama: LlamaLaunchConfig | null;
   /**
    * Start/stop/restart commands, or `null` when the artifact declares none (or
    * declares them ill-formed). Control is optional: a machine may have metrics
@@ -150,6 +177,27 @@ export function consentedControls(config: StewardConfig): Partial<Record<Service
   return commands;
 }
 
+/**
+ * The commands this config declares but has NOT approved — the second producer
+ * of the dashboard's drift notice.
+ *
+ * A declared, unapproved command is Steward's security gate doing its job: the
+ * collector is not spawned, the button is not offered. But silence makes the
+ * resulting inert panel look identical to one that was never set up, and an
+ * operator who edited a command in `steward.json` (invalidating its hash) has no
+ * way to learn that is why their gauges went dark. This turns that into
+ * something the UI can say out loud.
+ */
+export function consentDrift(config: StewardConfig): ConsentDrift {
+  return {
+    hostCollector: !hostCollectorConsented(config),
+    controls:
+      config.control === null
+        ? []
+        : CONTROL_ACTIONS.filter((action) => !controlConsented(config, action)),
+  };
+}
+
 /** True for a non-null, non-array object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -177,6 +225,30 @@ function parseCommand(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.length === 0) return null;
   if (!value.every((part) => typeof part === "string")) return null;
   return [...(value as string[])];
+}
+
+/** An optional descriptive string, trimmed, or `null` when absent/empty. */
+function parseLabel(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * Validates the optional `llama` block. Only `launchArgv` is load-bearing — it
+ * is the baseline the drift check diffs against — so a block without a usable
+ * one yields `null` (drift checking unavailable) rather than a half-recorded
+ * baseline that could report a mismatch against nothing.
+ */
+function parseLlama(value: unknown): LlamaLaunchConfig | null {
+  if (!isRecord(value)) return null;
+  const launchArgv = parseCommand(value.launchArgv);
+  if (launchArgv === null) return null;
+  return {
+    launchArgv,
+    mechanism: parseLabel(value.mechanism),
+    label: parseLabel(value.label),
+  };
 }
 
 /**
@@ -275,9 +347,18 @@ export function readStewardConfig(options: ReadStewardConfigOptions = {}): Stewa
     warn(`[steward] ${path}: ignoring control — it needs a start, stop and restart command`);
   }
 
+  // The launch record is optional too, and losing it costs only the drift
+  // check — but silently, so a block that is present and unusable says so:
+  // otherwise the dashboard would look exactly like a compliant machine.
+  const llama = parseLlama(parsed.llama);
+  if (parsed.llama !== undefined && llama === null) {
+    warn(`[steward] ${path}: ignoring llama — it needs a non-empty launchArgv array of strings`);
+  }
+
   return {
     memoryTopology,
     hostCollector,
+    llama,
     control,
     consent: parseConsent(parsed.consent),
   };

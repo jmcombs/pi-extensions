@@ -271,3 +271,26 @@ describe("theme and copy flag", () => {
     expect(reduce(copied, { type: "copy/flag", copied: false }).copied).toBe(false);
   });
 });
+
+describe("drift dismissal", () => {
+  it("remembers the key of the dismissed notice", () => {
+    const dismissed = reduce(initialUiState("light"), { type: "drift/dismiss", key: "launch:-x" });
+    expect(dismissed.dismissedDrift).toBe("launch:-x");
+  });
+
+  it("starts with nothing dismissed, so a reload shows the mismatch again", () => {
+    // The dismissal is session state on purpose: a mismatch that is still there
+    // must never be hidden by a click from a previous page load.
+    expect(initialUiState("light").dismissedDrift).toBeNull();
+  });
+
+  it("is a no-op when the same notice is dismissed twice", () => {
+    const dismissed = reduce(initialUiState("light"), { type: "drift/dismiss", key: "k" });
+    expect(reduce(dismissed, { type: "drift/dismiss", key: "k" })).toBe(dismissed);
+  });
+
+  it("can be cleared", () => {
+    const dismissed = reduce(initialUiState("light"), { type: "drift/dismiss", key: "k" });
+    expect(reduce(dismissed, { type: "drift/dismiss", key: null }).dismissedDrift).toBeNull();
+  });
+});

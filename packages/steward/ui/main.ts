@@ -7,7 +7,7 @@
  * Nothing here derives a displayed value — that all lives in `core/select.ts`.
  */
 
-import { selectDashboard, selectLogText } from "../core/select.js";
+import { driftAnnouncement, selectDashboard, selectLogText } from "../core/select.js";
 import type { LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
 import { initialUiState, reduce } from "../core/state.js";
 import type { LogLine, ModelAction, ServiceAction, Snapshot } from "../core/types.js";
@@ -43,6 +43,8 @@ let ui: UiState = initialUiState(readTheme());
 let snapshot: Snapshot | null = null;
 let snapshotAt = 0;
 let copyTimer = 0;
+/** The drift notice already announced, so the poll cannot repeat it. */
+let announcedDrift: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -110,6 +112,10 @@ const serviceBlock = createServiceBlock({
     announce("Cancelled.");
     dispatch({ type: "service/confirm", action: null });
   },
+  onDismissDrift: (key) => {
+    dispatch({ type: "drift/dismiss", key });
+    announce("Drift notice dismissed. It returns while the mismatch is still there.");
+  },
 });
 
 const hostBlock = createHostBlock();
@@ -169,6 +175,14 @@ function render(): void {
   // against it rather than against a browser clock that may be minutes off.
   const now = snapshot.now + (Date.now() - snapshotAt);
   const vm = selectDashboard(snapshot, ui, now);
+
+  // Drift is announced when it is NEW, never on every poll: the same mismatch
+  // is still there 1.6 s later, and repeating it would make the status region
+  // unusable. `driftAnnouncement` owns that decision (and the watermark reset
+  // that lets a mismatch which comes back be announced again).
+  const drift = driftAnnouncement(vm.service.drift, announcedDrift);
+  announcedDrift = drift.key;
+  if (drift.message !== null) announce(drift.message);
 
   serviceBlock.update(vm.service);
   hostBlock.update(vm.gauges);

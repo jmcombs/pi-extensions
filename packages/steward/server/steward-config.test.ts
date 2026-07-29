@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  consentDrift,
   consentedControls,
   controlConsented,
   hashCommand,
@@ -28,6 +29,16 @@ const START = ["launchctl", "kickstart", LABEL];
 const STOP = ["launchctl", "kill", "SIGTERM", LABEL];
 const RESTART = ["launchctl", "kickstart", "-k", LABEL];
 const CONTROL = { start: START, stop: STOP, restart: RESTART };
+
+/** The launch argv `/initialize-steward` records for the drift check. */
+const LAUNCH_ARGV = [
+  "/opt/homebrew/bin/llama-server",
+  "--host",
+  "127.0.0.1",
+  "--port",
+  "8080",
+  "--metrics",
+];
 
 /** A well-formed config object with consent already granted for {@link COMMAND}. */
 function validConfig(): Record<string, unknown> {
@@ -76,6 +87,9 @@ describe("readStewardConfig", () => {
     expect(config).toEqual<StewardConfig>({
       memoryTopology: "unified",
       hostCollector: { command: COMMAND, intervalMs: 1000 },
+      // The launch record is optional too: without it the drift check is simply
+      // unavailable, which is not a reason to refuse the config.
+      llama: null,
       // Control is optional: a machine with metrics and no control is valid.
       control: null,
       consent: { [hashCommand(COMMAND)]: true },
@@ -127,6 +141,54 @@ describe("readStewardConfig", () => {
 
     write({ memoryTopology: "discrete", hostCollector: { command: COMMAND, intervalMs: 0 } });
     expect(readStewardConfig({ path })).toBeNull();
+  });
+
+  it("reads the recorded launch argv, mechanism and label", () => {
+    write({
+      ...validConfig(),
+      llama: { launchArgv: LAUNCH_ARGV, mechanism: "launchd", label: LABEL },
+    });
+    expect(readStewardConfig({ path })?.llama).toEqual({
+      launchArgv: LAUNCH_ARGV,
+      mechanism: "launchd",
+      label: LABEL,
+    });
+  });
+
+  it("keeps the launch argv when only the descriptive fields are missing", () => {
+    // `mechanism` and `label` only point the operator at the right file to fix;
+    // the argv is the part the drift check needs.
+    write({ ...validConfig(), llama: { launchArgv: LAUNCH_ARGV } });
+    expect(readStewardConfig({ path })?.llama).toEqual({
+      launchArgv: LAUNCH_ARGV,
+      mechanism: null,
+      label: null,
+    });
+  });
+
+  it("leaves llama null when the artifact records no launch argv", () => {
+    // Drift checking is then unavailable — which is a state the dashboard shows
+    // by saying nothing, not a reason to refuse a config nothing else needs it for.
+    write(validConfig());
+    expect(readStewardConfig({ path })?.llama).toBeNull();
+  });
+
+  it("warns and ignores an ill-formed llama block rather than refusing the config", () => {
+    for (const llama of [
+      { launchArgv: [] },
+      { launchArgv: "llama-server --metrics" },
+      { launchArgv: ["llama-server", 8080] },
+      { mechanism: "launchd" },
+      "launchd",
+    ]) {
+      write({ ...validConfig(), llama });
+      const warnings: string[] = [];
+      const config = readStewardConfig({ path, warn: (m) => warnings.push(m) });
+      // The rest of the config still works: only the drift check is lost.
+      expect(config?.hostCollector.command).toEqual(COMMAND);
+      expect(config?.llama).toBeNull();
+      expect(warnings.join(" ")).toContain("launchArgv");
+    }
   });
 
   it("ignores unknown keys and keeps only true consent entries", () => {
@@ -260,6 +322,44 @@ describe("hostCollectorConsented", () => {
     });
     const config = readStewardConfig({ path });
     expect(config && hostCollectorConsented(config)).toBe(false);
+  });
+});
+
+describe("consentDrift", () => {
+  it("reports nothing when every declared command is approved", () => {
+    write(controlledConfig());
+    const config = readStewardConfig({ path });
+    expect(config && consentDrift(config)).toEqual({ hostCollector: false, controls: [] });
+  });
+
+  it("reports a collector that is declared but not approved", () => {
+    // Exactly what an operator hits after hand-editing the collector command:
+    // the hash no longer matches, Steward refuses to run it, and the host band
+    // goes dark. Without this the empty band is indistinguishable from a
+    // machine that never configured one.
+    write({ ...validConfig(), consent: {} });
+    const config = readStewardConfig({ path });
+    expect(config && consentDrift(config)).toEqual({ hostCollector: true, controls: [] });
+  });
+
+  it("reports the declared control actions that are not approved, in render order", () => {
+    write({
+      ...controlledConfig(),
+      consent: { [hashCommand(COMMAND)]: true, [hashCommand(STOP)]: true },
+    });
+    const config = readStewardConfig({ path });
+    expect(config && consentDrift(config)).toEqual({
+      hostCollector: false,
+      controls: ["start", "restart"],
+    });
+  });
+
+  it("reports no control gap when the artifact declares no control at all", () => {
+    // Nothing declared is not a mismatch — it is a machine that was never set
+    // up for control, which the SERVICE block already says with its setup CTA.
+    write(validConfig());
+    const config = readStewardConfig({ path });
+    expect(config && consentDrift(config)).toEqual({ hostCollector: false, controls: [] });
   });
 });
 
