@@ -38,6 +38,7 @@ import {
 import { modelColor } from "./model-color.js";
 import type { FamilyFilter, LevelFilter, TraceRef, UiState } from "./state.js";
 import { LOG_BUFFER_LIMIT, visibleBuffer } from "./state.js";
+import type { TemperatureUnit } from "./temperature.js";
 import type {
   ConfigEntry,
   LogFamily,
@@ -1022,12 +1023,18 @@ function utilGauge(key: string, label: string, util: number, color: string): Gau
   };
 }
 
-/** A temperature gauge. Only ever built from a finite reading, so always solid. */
-function tempGauge(key: string, label: string, celsius: number): GaugeVm {
+/**
+ * A temperature gauge. Only ever built from a finite reading, so always solid.
+ *
+ * The unit reaches the LABEL and nothing else: the bar's position and the
+ * threshold color are computed from the Celsius reading whichever unit is on
+ * screen, so switching units moves the text and moves nothing else.
+ */
+function tempGauge(key: string, label: string, celsius: number, unit: TemperatureUnit): GaugeVm {
   return {
     key,
     label,
-    value: formatTemperature(celsius),
+    value: formatTemperature(celsius, unit),
     percent: temperatureBarPercent(celsius),
     color: temperatureColor(celsius),
     track: "solid",
@@ -1040,8 +1047,12 @@ function tempGauge(key: string, label: string, celsius: number): GaugeVm {
  * one pool and cannot read a VRAM total — so it shows a single Unified RAM gauge
  * and NEVER an invented VRAM ceiling. Both share the GPU/CPU util and temperature
  * rows.
+ *
+ * The temperature rows are labelled in `ui.temperatureUnit` — the operator's
+ * browser region, resolved before it got here. It is a labelling choice only;
+ * nothing about which gauges exist, or where their bars sit, depends on it.
  */
-function selectGauges(snapshot: Snapshot): GaugeVm[] {
+function selectGauges(snapshot: Snapshot, ui: UiState): GaugeVm[] {
   const m = snapshot.metrics;
   const gauges: GaugeVm[] =
     snapshot.memoryTopology === "unified"
@@ -1065,7 +1076,7 @@ function selectGauges(snapshot: Snapshot): GaugeVm[] {
   // cannot supply them the design drops the row rather than plotting a zero,
   // and a reading that is not a number is no more of a reading than `null`.
   if (m.gpuTempC !== null && Number.isFinite(m.gpuTempC)) {
-    gauges.push(tempGauge("gpu-temp", "GPU temp", m.gpuTempC));
+    gauges.push(tempGauge("gpu-temp", "GPU temp", m.gpuTempC, ui.temperatureUnit));
   }
 
   // Discrete machines carry a separate RAM gauge after the temps; unified
@@ -1077,7 +1088,7 @@ function selectGauges(snapshot: Snapshot): GaugeVm[] {
   gauges.push(utilGauge("cpu", "CPU", m.cpuUtil, "var(--latte-peach)"));
 
   if (m.cpuTempC !== null && Number.isFinite(m.cpuTempC)) {
-    gauges.push(tempGauge("cpu-temp", "CPU temp", m.cpuTempC));
+    gauges.push(tempGauge("cpu-temp", "CPU temp", m.cpuTempC, ui.temperatureUnit));
   }
   return gauges;
 }
@@ -2533,7 +2544,7 @@ export function selectDashboard(snapshot: Snapshot, ui: UiState, now: number): D
 
   return {
     service: selectService(snapshot, ui),
-    gauges: selectGauges(snapshot),
+    gauges: selectGauges(snapshot, ui),
     models: selectModels(snapshot, ui),
     allLogsPill: {
       label: "all logs",

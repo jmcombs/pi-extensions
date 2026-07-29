@@ -19,6 +19,12 @@ import {
 } from "../core/select.js";
 import type { FamilyFilter, LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
 import { initialUiState, reduce } from "../core/state.js";
+import type { TemperaturePreference, TemperatureUnit } from "../core/temperature.js";
+import {
+  parseTemperaturePreference,
+  resolveTemperatureUnit,
+  temperatureUnitForLocales,
+} from "../core/temperature.js";
 import type {
   LogLine,
   LogStreamStatus,
@@ -56,12 +62,14 @@ const QUERY_ANNOUNCE_MS = 500;
 
 const THEME_KEY = "steward.theme";
 
+const TEMPERATURE_KEY = "steward.temperature";
+
 const rail = document.getElementById("steward-rail");
 const main = document.getElementById("steward-main");
 const status = document.getElementById("steward-status");
 if (rail === null || main === null) throw new Error("Steward: the page shell is missing.");
 
-let ui: UiState = initialUiState(readTheme());
+let ui: UiState = initialUiState(readTheme(), applyTemperature(readTemperaturePreference()));
 let snapshot: Snapshot | null = null;
 let snapshotAt = 0;
 let copyTimer = 0;
@@ -112,6 +120,78 @@ function applyTheme(theme: Theme): void {
   } catch {
     // Storage is optional; the choice simply will not survive a reload.
   }
+}
+
+// ---------------------------------------------------------------------------
+// Temperature unit
+// ---------------------------------------------------------------------------
+
+/**
+ * The locales this browser reports, most specific intent first.
+ *
+ * `Intl.DateTimeFormat` is asked first because it answers with the locale the
+ * runtime actually RESOLVED — the one it is already formatting dates and numbers
+ * with — while `navigator.language`/`languages` is the request list. In practice
+ * they agree; when they do not, the resolved one is what the rest of the page
+ * looks like. Every read is guarded: a browser that refuses any of them
+ * contributes nothing to the list rather than taking the page down.
+ */
+function browserLocales(): (string | null | undefined)[] {
+  const locales: (string | null | undefined)[] = [];
+  try {
+    locales.push(Intl.DateTimeFormat().resolvedOptions().locale);
+  } catch {
+    // No usable Intl data; the navigator list below may still name a region.
+  }
+  try {
+    const nav = globalThis.navigator as Navigator | undefined;
+    if (nav !== undefined) {
+      locales.push(nav.language);
+      for (const locale of nav.languages ?? []) locales.push(locale);
+    }
+  } catch {
+    // Same reasoning: an absent or hostile navigator is not an error here.
+  }
+  return locales;
+}
+
+/**
+ * The unit this browser's region implies. Celsius whenever nothing names a
+ * region — the honest answer for a browser that did not say where it is, and
+ * the right one for the overwhelming majority of regions that do.
+ */
+function detectTemperatureUnit(): TemperatureUnit {
+  return temperatureUnitForLocales(browserLocales());
+}
+
+/** The stored preference, defaulting to `auto` when unset or unrecognized. */
+function readTemperaturePreference(): TemperaturePreference {
+  try {
+    return parseTemperaturePreference(localStorage.getItem(TEMPERATURE_KEY));
+  } catch {
+    // Storage refused (private mode): fall through to the default.
+    return "auto";
+  }
+}
+
+/**
+ * Applies a preference and returns the unit to label with — `auto` resolved
+ * against the detected browser region, an explicit choice taken as given.
+ *
+ * The *preference* is what persists, not the resolved unit, so an operator on
+ * `auto` who travels or changes their OS region follows it rather than being
+ * pinned to whatever their first visit detected. That is the same split
+ * {@link applyTheme} makes between the `system` mode and the palette it resolves
+ * to. There is no control that calls this with anything but the stored value
+ * yet; when one lands, this is the function it calls.
+ */
+function applyTemperature(preference: TemperaturePreference): TemperatureUnit {
+  try {
+    localStorage.setItem(TEMPERATURE_KEY, preference);
+  } catch {
+    // Storage is optional; the choice simply will not survive a reload.
+  }
+  return resolveTemperatureUnit(preference, detectTemperatureUnit());
 }
 
 function announce(message: string): void {

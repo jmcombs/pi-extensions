@@ -103,8 +103,49 @@ describe("temperature gauges", () => {
   });
 
   it("labels whole degrees", () => {
-    expect(formatTemperature(64.4)).toBe("64°C");
-    expect(formatTemperature(64.6)).toBe("65°C");
+    expect(formatTemperature(64.4, "celsius")).toBe("64°C");
+    expect(formatTemperature(64.6, "celsius")).toBe("65°C");
+  });
+
+  it("labels whole degrees in Fahrenheit too", () => {
+    expect(formatTemperature(64, "fahrenheit")).toBe("147°F");
+    expect(formatTemperature(100, "fahrenheit")).toBe("212°F");
+  });
+
+  it("rounds after converting, not before", () => {
+    // 64.4 °C is 147.92 °F. Rounding the Celsius reading first would give 64 °C
+    // → 147 °F and quietly lose half a degree on every Fahrenheit label.
+    expect(formatTemperature(64.4, "fahrenheit")).toBe("148°F");
+  });
+
+  it("handles zero and negatives in both units", () => {
+    expect(formatTemperature(0, "celsius")).toBe("0°C");
+    expect(formatTemperature(0, "fahrenheit")).toBe("32°F");
+    expect(formatTemperature(-40, "celsius")).toBe("-40°C");
+    // The one reading that is the same number in both.
+    expect(formatTemperature(-40, "fahrenheit")).toBe("-40°F");
+    expect(formatTemperature(-17.8, "fahrenheit")).toBe("0°F");
+  });
+
+  /**
+   * The constraint the whole change turns on. A converted reading compared
+   * against a Celsius threshold reads 79 °C as 174 against 75 and paints every
+   * gauge critical, so the unit must reach the LABEL and nothing else.
+   */
+  it("judges the reading, not the label — a Fahrenheit number is never compared", () => {
+    // 79 °C is a warning. Its label in Fahrenheit is 174, which against the same
+    // thresholds would read as an error and paint a healthy box critical, so the
+    // color is asserted on the reading and the Fahrenheit figure is asserted to
+    // be exactly the number that must never reach the comparison.
+    expect(temperatureColor(79)).toBe("var(--warning)");
+    expect(formatTemperature(79, "fahrenheit")).toBe("174°F");
+    expect(temperatureColor(174)).toBe("var(--error)");
+
+    // Same shape at the other end: a cool 47 °C bar sits at 26%, and its 117 °F
+    // label would peg the same bar at 100%.
+    expect(temperatureBarPercent(47)).toBe(26);
+    expect(formatTemperature(47, "fahrenheit")).toBe("117°F");
+    expect(temperatureBarPercent(117)).toBe(100);
   });
 });
 

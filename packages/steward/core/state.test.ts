@@ -261,13 +261,30 @@ describe("pending lifecycle (models/observed)", () => {
   });
 });
 
-describe("theme and copy flag", () => {
+describe("theme, temperature and copy flag", () => {
   it("cycles the theme system → light → dark → system", () => {
     const light = reduce(initialUiState("system"), { type: "theme/toggle" });
     expect(light.theme).toBe("light");
     const dark = reduce(light, { type: "theme/toggle" });
     expect(dark.theme).toBe("dark");
     expect(reduce(dark, { type: "theme/toggle" }).theme).toBe("system");
+  });
+
+  it("starts in Celsius and takes the unit the browser resolved", () => {
+    // The default is what every non-browser caller sees; the browser bootstrap
+    // resolves `auto` against its region and hands the answer in.
+    expect(initialUiState("light").temperatureUnit).toBe("celsius");
+    expect(initialUiState("light", "fahrenheit").temperatureUnit).toBe("fahrenheit");
+  });
+
+  it("carries a resolved unit override, and no-ops when it is unchanged", () => {
+    const state = initialUiState("light");
+    const fahrenheit = reduce(state, { type: "temperature/unit", unit: "fahrenheit" });
+    expect(fahrenheit.temperatureUnit).toBe("fahrenheit");
+    expect(reduce(fahrenheit, { type: "temperature/unit", unit: "fahrenheit" })).toBe(fahrenheit);
+    expect(reduce(fahrenheit, { type: "temperature/unit", unit: "celsius" }).temperatureUnit).toBe(
+      "celsius",
+    );
   });
 
   it("raises and lowers the copied acknowledgement", () => {

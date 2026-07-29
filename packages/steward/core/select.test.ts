@@ -475,6 +475,57 @@ describe("host gauges", () => {
     expect(vm.gauges[2]?.color).toBe("var(--error)");
     expect(vm.gauges[5]?.color).toBe("var(--warning)");
   });
+
+  it("labels the temperature rows in the unit the state carries", () => {
+    const vm = selectDashboard(snapshot(), initialUiState("light", "fahrenheit"), NOW);
+    expect(vm.gauges[2]?.value).toBe("147°F");
+    expect(vm.gauges[5]?.value).toBe("117°F");
+    // Only the temperature rows are in play; nothing else grew a unit.
+    expect(vm.gauges[0]?.value).toBe("29.8 / 48 GB");
+    expect(vm.gauges[1]?.value).toBe("78%");
+  });
+
+  /**
+   * The constraint the whole feature turns on. Thresholds and the plotted band
+   * are Celsius, so a unit change may move the label and NOTHING else — a
+   * conversion that leaked into the comparison would read 79 °C as 174 against a
+   * 75 threshold and report a healthy box as critical.
+   */
+  it("changes only the label between units — same color, same bar", () => {
+    // 79 °C is a warning and 88 °C is an error: two readings whose verdicts
+    // differ, so an invariance that held only for one color would show up here.
+    const warm = snapshot({ metrics: { ...snapshot().metrics, gpuTempC: 88, cpuTempC: 79 } });
+    const celsius = selectDashboard(warm, initialUiState("light", "celsius"), NOW).gauges;
+    const fahrenheit = selectDashboard(warm, initialUiState("light", "fahrenheit"), NOW).gauges;
+
+    expect(celsius.map((g) => g.key)).toEqual(fahrenheit.map((g) => g.key));
+    for (const [index, c] of celsius.entries()) {
+      const f = fahrenheit[index];
+      expect(f?.percent).toBe(c.percent);
+      expect(f?.color).toBe(c.color);
+      expect(f?.track).toBe(c.track);
+      expect(f?.label).toBe(c.label);
+    }
+
+    // …and the labels genuinely did change, so the loop above is not comparing
+    // two identical view models.
+    expect(celsius[2]?.value).toBe("88°C");
+    expect(fahrenheit[2]?.value).toBe("190°F");
+    expect(celsius[5]?.value).toBe("79°C");
+    expect(fahrenheit[5]?.value).toBe("174°F");
+    expect(fahrenheit[5]?.color).toBe("var(--warning)");
+  });
+
+  it("still drops an absent temperature in Fahrenheit — it never becomes 32°F", () => {
+    const s = snapshot();
+    const vm = selectDashboard(
+      snapshot({ metrics: { ...s.metrics, gpuTempC: null, cpuTempC: Number.NaN } }),
+      initialUiState("light", "fahrenheit"),
+      NOW,
+    );
+    expect(vm.gauges.map((g) => g.key)).toEqual(["vram", "gpu", "ram", "cpu"]);
+    expect(vm.gauges.some((g) => g.value.includes("°F"))).toBe(false);
+  });
 });
 
 describe("model cards", () => {

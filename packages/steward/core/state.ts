@@ -7,6 +7,7 @@
  * and DOM APIs — see `./types.ts`.
  */
 
+import type { TemperatureUnit } from "./temperature.js";
 import type {
   LogFamily,
   LogLevel,
@@ -152,6 +153,20 @@ export interface UiState {
    */
   logSourceDetail: string | null;
   theme: Theme;
+  /**
+   * The unit temperatures are LABELLED in — already resolved, never `auto`.
+   *
+   * Resolved, because `core/` cannot detect it: the operator's region is a fact
+   * about their browser, and the server that builds the same snapshot has no
+   * view of it. So the browser bootstrap reads its stored preference, resolves
+   * `auto` against the detected locale, and hands the answer in — the same
+   * division as `theme`, whose stored mode is `system` and whose applied value
+   * is a palette.
+   *
+   * It reaches exactly one function — `formatTemperature` in `./format.ts`.
+   * Thresholds, bar scales and comparisons stay Celsius.
+   */
+  temperatureUnit: TemperatureUnit;
   /** Set for a beat after Copy, so the button can acknowledge. */
   copied: boolean;
   /** Service action awaiting its POST, or `null`. */
@@ -200,6 +215,11 @@ export type UiAction =
       detail: string | null;
     }
   | { type: "theme/toggle" }
+  // The seam a manual unit override needs, and the whole of it: a control would
+  // resolve its preference through `resolveTemperatureUnit` (which is where
+  // `auto` stops being `auto`) and dispatch the answer. No control exists yet —
+  // where one would live is undecided — so nothing dispatches this in the app.
+  | { type: "temperature/unit"; unit: TemperatureUnit }
   | { type: "copy/flag"; copied: boolean }
   | { type: "service/pending"; action: ServiceAction | null }
   | { type: "service/confirm"; action: ServiceAction | null }
@@ -208,7 +228,18 @@ export type UiAction =
   | { type: "model/pending"; modelId: string; action: ModelAction | null }
   | { type: "models/observed"; models: readonly { id: string; status: ModelStatus }[] };
 
-export function initialUiState(theme: Theme): UiState {
+/**
+ * The starting state.
+ *
+ * `temperatureUnit` defaults to Celsius rather than being required: it is what
+ * every non-browser caller (the tests, and anything that builds a view model
+ * outside a page) should see, and it is what the browser falls back to when it
+ * cannot read a region off its locale.
+ */
+export function initialUiState(
+  theme: Theme,
+  temperatureUnit: TemperatureUnit = "celsius",
+): UiState {
   return {
     log: [],
     frozen: null,
@@ -226,6 +257,7 @@ export function initialUiState(theme: Theme): UiState {
     logSourcePath: null,
     logSourceDetail: null,
     theme,
+    temperatureUnit,
     copied: false,
     pendingService: null,
     confirmService: null,
@@ -458,6 +490,10 @@ function apply(state: UiState, action: UiAction): UiState {
       const next: Theme =
         state.theme === "system" ? "light" : state.theme === "light" ? "dark" : "system";
       return { ...state, theme: next };
+    }
+    case "temperature/unit": {
+      if (state.temperatureUnit === action.unit) return state;
+      return { ...state, temperatureUnit: action.unit };
     }
     case "copy/flag": {
       if (state.copied === action.copied) return state;

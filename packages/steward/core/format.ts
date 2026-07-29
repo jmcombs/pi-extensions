@@ -6,6 +6,8 @@
  * of Node and DOM APIs — see `./types.ts`.
  */
 
+import type { TemperatureUnit } from "./temperature.js";
+import { celsiusToFahrenheit } from "./temperature.js";
 import type { ModelInfo } from "./types.js";
 
 /** Lowest temperature the gauges plot. Below this the bar reads empty. */
@@ -14,10 +16,17 @@ export const TEMP_SCALE_MIN_C = 30;
 /** Highest temperature the gauges plot. At or above this the bar reads full. */
 export const TEMP_SCALE_MAX_C = 95;
 
-/** Above this a temperature is amber. */
+/**
+ * Above this a temperature is amber.
+ *
+ * Every threshold in this module is Celsius, and every reading is compared
+ * against it in Celsius — the display unit is applied by
+ * {@link formatTemperature} alone. Converting before comparing would read a
+ * 79 °C warning as 174 against a 75 threshold and paint every gauge critical.
+ */
 export const TEMP_WARNING_C = 75;
 
-/** Above this a temperature is red. */
+/** Above this a temperature is red. Celsius, for the same reason. */
 export const TEMP_ERROR_C = 85;
 
 function clamp01(value: number): number {
@@ -95,12 +104,23 @@ export function formatMemory(usedGB: number, totalGB: number, decimals: number):
   return `${usedGB.toFixed(decimals)} / ${totalGB} GB`;
 }
 
-/** Temperature label, e.g. `64°C`. */
-export function formatTemperature(celsius: number): string {
-  return `${Math.round(celsius)}°C`;
+/**
+ * Temperature label, e.g. `64°C` or `148°F` — the ONE place a reading changes
+ * unit.
+ *
+ * The unit arrives as a parameter and is never sniffed for: this module has no
+ * business knowing what locale a browser is in, and the server that also imports
+ * it could not answer anyway. Both units round to a whole number, and Fahrenheit
+ * rounds after converting, so `64.4 °C` reads `148°F` (147.92) rather than the
+ * `147°F` a pre-rounded 64 would give.
+ */
+export function formatTemperature(celsius: number, unit: TemperatureUnit): string {
+  return unit === "fahrenheit"
+    ? `${Math.round(celsiusToFahrenheit(celsius))}°F`
+    : `${Math.round(celsius)}°C`;
 }
 
-/** Threshold color for a temperature gauge. */
+/** Threshold color for a temperature gauge. Compares in Celsius, always. */
 export function temperatureColor(celsius: number): string {
   if (celsius > TEMP_ERROR_C) return "var(--error)";
   if (celsius > TEMP_WARNING_C) return "var(--warning)";
@@ -110,6 +130,9 @@ export function temperatureColor(celsius: number): string {
 /**
  * Temperatures never sit near zero, so the bar plots the 30–95 °C band rather
  * than 0–100: at 0–100 every reading would hug the middle and say nothing.
+ *
+ * The band is Celsius whatever the label reads — the bar is a position in the
+ * thermal range, and that range does not move because the text beside it does.
  */
 export function temperatureBarPercent(celsius: number): number {
   return barPercent((celsius - TEMP_SCALE_MIN_C) / (TEMP_SCALE_MAX_C - TEMP_SCALE_MIN_C));
