@@ -34,7 +34,15 @@ import {
 import { modelColor } from "./model-color.js";
 import type { LevelFilter, UiState } from "./state.js";
 import { visibleBuffer } from "./state.js";
-import type { ConfigEntry, LogLevel, ModelAction, ModelInfo, SlotInfo, Snapshot } from "./types.js";
+import type {
+  ConfigEntry,
+  LogLevel,
+  ModelAction,
+  ModelInfo,
+  ServiceAction,
+  SlotInfo,
+  Snapshot,
+} from "./types.js";
 
 // A model's color is a stable hash of its id (embedders get a reserved hue);
 // re-exported here because it is part of this module's view-model surface.
@@ -81,6 +89,60 @@ function memoryLabel(usedGB: number, totalGB: number, decimals: number): string 
     : NO_READING;
 }
 
+/** One button in the SERVICE block's control row. */
+export interface ServiceControlVm {
+  action: ServiceAction;
+  /** `Restart`, or the optimistic verb (`Restarting…`) while it is in flight. */
+  label: string;
+  /** True while this is the action awaiting its POST. */
+  busy: boolean;
+  disabled: boolean;
+  /**
+   * Why the button is inert (`The service is already started.`), or `""` when
+   * it is not. Rendered as its title and folded into the accessible name, so
+   * the reason is never left to the greyed-out fill alone.
+   */
+  disabledReason: string;
+  /** True for the disruptive actions: the click opens the confirm strip. */
+  confirms: boolean;
+  /** Danger-toned (stop, restart). Never the only signal — the verb says it. */
+  danger: boolean;
+  /** `Restart the llama.cpp service` — the label alone is ambiguous out of context. */
+  ariaLabel: string;
+}
+
+/** The inline confirm strip for a disruptive action. */
+export interface ServiceConfirmVm {
+  action: ServiceAction;
+  /** `Restart unloads gpt-oss-20b and drops in-flight requests.` */
+  consequence: string;
+  /** The affirmative verb, e.g. `Restart`. */
+  confirmLabel: string;
+  confirmAriaLabel: string;
+  cancelLabel: string;
+}
+
+/** The affordance shown in place of controls when none are configured. */
+export interface ServiceSetupVm {
+  label: string;
+  /** Names the skill that configures control — the only way to get buttons. */
+  detail: string;
+  command: string;
+}
+
+export interface ServiceControlsVm {
+  /** One per consented action, in start/stop/restart order. Empty = unconfigured. */
+  buttons: ServiceControlVm[];
+  /** The single setup affordance, present only when {@link buttons} is empty. */
+  setup: ServiceSetupVm | null;
+  /** The open confirm strip, or `null`. */
+  confirm: ServiceConfirmVm | null;
+  /** `Restart failed — launchctl: permission denied`, or `null`. */
+  notice: string | null;
+  /** True while any action is in flight: the whole row disables and reads busy. */
+  pending: boolean;
+}
+
 export interface ServiceVm {
   running: boolean;
   /** `started` / `stopped` — the monitor-only status indicator's text. */
@@ -93,6 +155,8 @@ export interface ServiceVm {
   /** The theme control's current-state glyph: `◐` system, `☀` light, `☾` dark. */
   themeGlyph: string;
   themeLabel: string;
+  /** The start/stop/restart row, its confirm strip, and any failure notice. */
+  controls: ServiceControlsVm;
   /**
    * The router facts (role, binary, listen, …) folded in from what was the
    * separate CONFIG block. They render below the status as this block's third
@@ -264,6 +328,134 @@ export interface DashboardVm {
   slots: SlotsVm;
 }
 
+/** The button verb for each action, and its in-flight form. */
+const SERVICE_LABELS: Record<ServiceAction, string> = {
+  start: "Start",
+  stop: "Stop",
+  restart: "Restart",
+};
+const SERVICE_BUSY_LABELS: Record<ServiceAction, string> = {
+  start: "Starting…",
+  stop: "Stopping…",
+  restart: "Restarting…",
+};
+
+/** The order the control row renders, whatever order the source listed them in. */
+const SERVICE_ACTION_ORDER: readonly ServiceAction[] = ["start", "stop", "restart"];
+
+/** `a`, `a and b`, `a, b and c` — never a bare comma list. */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * What a disruptive action will actually cost, naming the real models that are
+ * loaded right now. Vague warnings get clicked through; "Restart unloads
+ * gpt-oss-20b and drops in-flight requests" does not. With nothing loaded there
+ * is no model to name and the strip says so rather than inventing a stake.
+ */
+function serviceConsequence(action: ServiceAction, snapshot: Snapshot): string {
+  const verb = SERVICE_LABELS[action];
+  const loaded = snapshot.models
+    .filter((model) => model.status === "active" || model.status === "resident")
+    .map((model) => model.short);
+
+  if (loaded.length === 0) {
+    return `${verb} drops any in-flight requests. No model is loaded right now.`;
+  }
+  // The comma before "and drops" keeps the two clauses apart once the model
+  // list itself contains an "and".
+  const separator = loaded.length > 1 ? "," : "";
+  return `${verb} unloads ${joinNames(loaded)}${separator} and drops in-flight requests.`;
+}
+
+/**
+ * The SERVICE control row.
+ *
+ * Which actions exist is config, not a guess: the snapshot carries exactly the
+ * actions `steward.json` declares a consented command for. None configured is
+ * its own state — one setup affordance naming `/initialize-steward`, never
+ * three dead buttons that would 400 if pressed. An action that cannot apply
+ * right now (starting a started service) disables WITH a reason, so the
+ * greyed-out fill is never the only thing carrying it.
+ */
+function selectServiceControls(snapshot: Snapshot, ui: UiState): ServiceControlsVm {
+  const running = snapshot.service.running;
+  const pending = ui.pendingService !== null;
+  const available = SERVICE_ACTION_ORDER.filter((action) =>
+    snapshot.service.controls.includes(action),
+  );
+
+  const buttons: ServiceControlVm[] = available.map((action) => {
+    const busy = ui.pendingService === action;
+    // Restart stays live while stopped — it is the one command a machine that
+    // only consented to `restart` has, and launchd/systemd both start from it.
+    const reason =
+      running && action === "start"
+        ? "The service is already started."
+        : !running && action === "stop"
+          ? "The service is already stopped."
+          : "";
+    const label = busy ? SERVICE_BUSY_LABELS[action] : SERVICE_LABELS[action];
+    return {
+      action,
+      label,
+      busy,
+      disabled: pending || reason !== "",
+      disabledReason: reason,
+      confirms: action !== "start",
+      danger: action !== "start",
+      ariaLabel:
+        reason === ""
+          ? `${label} the llama.cpp service`
+          : `${label} the llama.cpp service. ${reason}`,
+    };
+  });
+
+  // The strip stands only while its own button would still act. Anything that
+  // disables that button — a poll showing the service already stopped, an
+  // action going out, the config dropping the command — closes the strip too,
+  // so it can never sit there stating a consequence that has become false
+  // ("unloads gpt-oss-20b" after the service died on its own) over an Accept
+  // that would still POST.
+  const opener = buttons.find((button) => button.action === ui.confirmService);
+  const confirming = opener !== undefined && !opener.disabled ? opener.action : null;
+
+  const failure = ui.serviceFailure;
+  return {
+    buttons,
+    setup:
+      buttons.length > 0
+        ? null
+        : {
+            label: "Service control is not set up.",
+            detail:
+              "Steward runs only the start, stop and restart commands this machine has declared and you have approved.",
+            command: "/initialize-steward",
+          },
+    confirm:
+      confirming === null
+        ? null
+        : {
+            action: confirming,
+            consequence: serviceConsequence(confirming, snapshot),
+            confirmLabel: SERVICE_LABELS[confirming],
+            confirmAriaLabel: `Confirm: ${SERVICE_LABELS[confirming].toLowerCase()} the llama.cpp service`,
+            cancelLabel: "Cancel",
+          },
+    // The command's own words, not a paraphrase: "permission denied" tells the
+    // operator what to fix, where "something went wrong" tells them nothing.
+    notice:
+      failure === null
+        ? null
+        : failure.detail === null || failure.detail === ""
+          ? `${SERVICE_LABELS[failure.action]} failed.`
+          : `${SERVICE_LABELS[failure.action]} failed — ${failure.detail}`,
+    pending,
+  };
+}
+
 function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
   const { service } = snapshot;
   const running = service.running;
@@ -286,6 +478,7 @@ function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
     statusBorder: tint(color, 40),
     themeGlyph,
     themeLabel,
+    controls: selectServiceControls(snapshot, ui),
     config: snapshot.config,
   };
 }

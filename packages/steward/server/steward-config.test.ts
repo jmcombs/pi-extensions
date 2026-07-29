@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  consentedControls,
+  controlConsented,
   hashCommand,
   hostCollectorConsented,
   readStewardConfig,
@@ -20,12 +22,33 @@ import {
 
 const COMMAND = ["macmon", "pipe", "-s", "0", "-i", "1000"];
 
+/** The launchd control commands a macOS operator would hand-write. */
+const LABEL = "gui/501/com.llamacpp.router";
+const START = ["launchctl", "kickstart", LABEL];
+const STOP = ["launchctl", "kill", "SIGTERM", LABEL];
+const RESTART = ["launchctl", "kickstart", "-k", LABEL];
+const CONTROL = { start: START, stop: STOP, restart: RESTART };
+
 /** A well-formed config object with consent already granted for {@link COMMAND}. */
 function validConfig(): Record<string, unknown> {
   return {
     memoryTopology: "unified",
     hostCollector: { command: COMMAND, intervalMs: 1000 },
     consent: { [hashCommand(COMMAND)]: true },
+  };
+}
+
+/** The same, plus a control block and consent for all three of its commands. */
+function controlledConfig(): Record<string, unknown> {
+  return {
+    ...validConfig(),
+    control: CONTROL,
+    consent: {
+      [hashCommand(COMMAND)]: true,
+      [hashCommand(START)]: true,
+      [hashCommand(STOP)]: true,
+      [hashCommand(RESTART)]: true,
+    },
   };
 }
 
@@ -53,6 +76,8 @@ describe("readStewardConfig", () => {
     expect(config).toEqual<StewardConfig>({
       memoryTopology: "unified",
       hostCollector: { command: COMMAND, intervalMs: 1000 },
+      // Control is optional: a machine with metrics and no control is valid.
+      control: null,
       consent: { [hashCommand(COMMAND)]: true },
     });
   });
@@ -112,6 +137,109 @@ describe("readStewardConfig", () => {
     });
     const config = readStewardConfig({ path });
     expect(config?.consent).toEqual({ [hashCommand(COMMAND)]: true });
+  });
+});
+
+describe("the control block", () => {
+  it("reads all three commands when they are all declared", () => {
+    write(controlledConfig());
+    expect(readStewardConfig({ path })?.control).toEqual({
+      start: START,
+      stop: STOP,
+      restart: RESTART,
+    });
+  });
+
+  it("keeps the config but drops control when it is absent", () => {
+    write(validConfig());
+    const config = readStewardConfig({ path });
+    // Metrics configured, control not: a real machine state, not a bad config.
+    expect(config?.hostCollector.command).toEqual(COMMAND);
+    expect(config?.control).toBeNull();
+  });
+
+  it("drops a partial or ill-formed control block, with a warning, and keeps the rest", () => {
+    const partial = { ...controlledConfig(), control: { start: START, stop: STOP } };
+    const warnings: string[] = [];
+    write(partial);
+    const config = readStewardConfig({ path, warn: (m) => warnings.push(m) });
+    expect(config).not.toBeNull();
+    expect(config?.control).toBeNull();
+    expect(warnings.join(" ")).toContain("control");
+
+    // A command that is not an argv of strings, an empty argv, and a non-object
+    // block are all the same answer: control unconfigured.
+    for (const control of [
+      { start: START, stop: STOP, restart: "launchctl kickstart -k" },
+      { start: START, stop: STOP, restart: [] },
+      { start: START, stop: STOP, restart: [1, 2] },
+      "launchctl",
+      [],
+    ]) {
+      write({ ...controlledConfig(), control });
+      expect(readStewardConfig({ path })?.control).toBeNull();
+    }
+  });
+});
+
+describe("controlConsented", () => {
+  it("is true for each command whose exact hash the operator approved", () => {
+    write(controlledConfig());
+    const config = readStewardConfig({ path });
+    expect(config).not.toBeNull();
+    if (config === null) return;
+    expect(controlConsented(config, "start")).toBe(true);
+    expect(controlConsented(config, "stop")).toBe(true);
+    expect(controlConsented(config, "restart")).toBe(true);
+  });
+
+  it("is per action: consenting to restart does not consent to stop", () => {
+    write({
+      ...validConfig(),
+      control: CONTROL,
+      consent: { [hashCommand(COMMAND)]: true, [hashCommand(RESTART)]: true },
+    });
+    const config = readStewardConfig({ path });
+    expect(config).not.toBeNull();
+    if (config === null) return;
+    expect(controlConsented(config, "restart")).toBe(true);
+    expect(controlConsented(config, "start")).toBe(false);
+    expect(controlConsented(config, "stop")).toBe(false);
+    // Only the approved command is handed to the executor.
+    expect(consentedControls(config)).toEqual({ restart: RESTART });
+  });
+
+  it("is false once a declared command is rewritten under an old consent", () => {
+    write({
+      ...controlledConfig(),
+      // The restart command now carries an extra argument; its hash moved.
+      control: { ...CONTROL, restart: [...RESTART, "--force"] },
+    });
+    const config = readStewardConfig({ path });
+    expect(config).not.toBeNull();
+    if (config === null) return;
+    expect(controlConsented(config, "restart")).toBe(false);
+    expect(controlConsented(config, "start")).toBe(true);
+    expect(Object.keys(consentedControls(config)).sort()).toEqual(["start", "stop"]);
+  });
+
+  it("is false for every action when control is unconfigured", () => {
+    write(validConfig());
+    const config = readStewardConfig({ path });
+    expect(config).not.toBeNull();
+    if (config === null) return;
+    expect(controlConsented(config, "start")).toBe(false);
+    expect(consentedControls(config)).toEqual({});
+  });
+
+  it("hands the executor a copy, so the config cannot be mutated through it", () => {
+    write(controlledConfig());
+    const config = readStewardConfig({ path });
+    expect(config).not.toBeNull();
+    if (config === null) return;
+    const commands = consentedControls(config);
+    commands.start?.push("--rm-rf");
+    expect(config.control?.start).toEqual(START);
   });
 });
 

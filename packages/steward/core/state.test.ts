@@ -147,6 +147,23 @@ describe("pending actions", () => {
     expect(reduce(s, { type: "service/pending", action: null }).pendingService).toBeNull();
   });
 
+  it("holds one open confirm, and returns the same state for a no-op", () => {
+    const open = reduce(initialUiState("light"), { type: "service/confirm", action: "stop" });
+    expect(open.confirmService).toBe("stop");
+    expect(reduce(open, { type: "service/confirm", action: "stop" })).toBe(open);
+    expect(reduce(open, { type: "service/confirm", action: null }).confirmService).toBeNull();
+  });
+
+  it("remembers the last service failure until it is cleared", () => {
+    const failure = { action: "restart" as const, detail: "launchctl: permission denied" };
+    const failed = reduce(initialUiState("light"), { type: "service/failure", failure });
+    expect(failed.serviceFailure).toEqual(failure);
+    // Clearing an already-clear notice changes nothing, so no repaint follows.
+    const cleared = reduce(failed, { type: "service/failure", failure: null });
+    expect(cleared.serviceFailure).toBeNull();
+    expect(reduce(cleared, { type: "service/failure", failure: null })).toBe(cleared);
+  });
+
   it("tracks model actions per model and clears them independently", () => {
     let s = reduce(initialUiState("light"), {
       type: "model/pending",

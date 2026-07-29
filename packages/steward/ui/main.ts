@@ -10,7 +10,7 @@
 import { selectDashboard, selectLogText } from "../core/select.js";
 import type { LevelFilter, Theme, UiAction, UiState } from "../core/state.js";
 import { initialUiState, reduce } from "../core/state.js";
-import type { LogLine, ModelAction, Snapshot } from "../core/types.js";
+import type { LogLine, ModelAction, ServiceAction, Snapshot } from "../core/types.js";
 import { createLogConsole } from "./components/console.js";
 import { createHostBlock } from "./components/gauges.js";
 import { createMetricsBand } from "./components/metrics.js";
@@ -98,6 +98,17 @@ const serviceBlock = createServiceBlock({
     dispatch({ type: "theme/toggle" });
     applyTheme(ui.theme);
     announce(`Theme set to ${ui.theme}.`);
+  },
+  onService: (action) => {
+    void runService(action);
+  },
+  onConfirmService: (action) => {
+    dispatch({ type: "service/confirm", action });
+  },
+  onCancelService: () => {
+    if (ui.confirmService === null) return;
+    announce("Cancelled.");
+    dispatch({ type: "service/confirm", action: null });
   },
 });
 
@@ -239,13 +250,68 @@ function connectLogs(): void {
 // Actions
 // ---------------------------------------------------------------------------
 
-async function post(path: string): Promise<boolean> {
+/** What a POST did, plus the server's reason when it did not. */
+interface PostOutcome {
+  ok: boolean;
+  /** The command's own words, for the inline notice. `null` when unavailable. */
+  detail: string | null;
+}
+
+/**
+ * The server answers a refused action with a JSON `{ error }` naming what
+ * actually happened (`launchctl: permission denied`). That detail is the whole
+ * point of the notice, so it is read off the body rather than reduced to a
+ * status code.
+ */
+async function readError(response: Response): Promise<string | null> {
+  try {
+    const body: unknown = await response.json();
+    if (typeof body === "object" && body !== null && "error" in body) {
+      const error = (body as { error?: unknown }).error;
+      if (typeof error === "string" && error.trim() !== "") return error;
+    }
+  } catch {
+    // Not JSON, or no body at all: fall back to the status line.
+  }
+  return `the Steward server returned ${response.status}`;
+}
+
+async function post(path: string): Promise<PostOutcome> {
   try {
     const response = await fetch(path, { method: "POST", cache: "no-store" });
-    return response.ok;
+    if (response.ok) return { ok: true, detail: null };
+    return { ok: false, detail: await readError(response) };
   } catch {
-    return false;
+    return { ok: false, detail: "the Steward server could not be reached" };
   }
+}
+
+/**
+ * Runs a service action. The POST returning is not the outcome — a command can
+ * exit 0 and leave the service exactly as it was (a `KeepAlive` job relaunches
+ * itself after a stop) — so the refresh that follows is what tells the operator
+ * what happened, and the button stays pending until that snapshot lands. A
+ * refused command leaves an honest notice instead of a silent no-op.
+ */
+async function runService(action: ServiceAction): Promise<void> {
+  if (ui.pendingService !== null) return;
+  dispatch({ type: "service/confirm", action: null });
+  dispatch({ type: "service/failure", failure: null });
+  dispatch({ type: "service/pending", action });
+  announce(`Running ${action} on the llama.cpp service.`);
+
+  const outcome = await post(`/api/service/${action}`);
+  if (outcome.ok) {
+    announce(`${action} sent; confirming with the next poll.`);
+  } else {
+    dispatch({ type: "service/failure", failure: { action, detail: outcome.detail } });
+    announce(`Could not ${action} the service: ${outcome.detail ?? "no reason given"}.`);
+  }
+
+  // The poll is the source of truth either way — including after a failure,
+  // where the service may still have moved.
+  await refresh();
+  dispatch({ type: "service/pending", action: null });
 }
 
 /**
@@ -260,7 +326,7 @@ async function runModel(modelId: string, action: ModelAction): Promise<void> {
   if (ui.pendingModels[modelId] !== undefined) return;
   dispatch({ type: "model/pending", modelId, action });
   announce(`${action === "load" ? "Loading" : "Unloading"} ${modelId}.`);
-  const ok = await post(`/api/models/${encodeURIComponent(modelId)}/${action}`);
+  const { ok } = await post(`/api/models/${encodeURIComponent(modelId)}/${action}`);
   if (!ok) {
     announce(`Could not ${action} ${modelId}.`);
     dispatch({ type: "model/pending", modelId, action: null });

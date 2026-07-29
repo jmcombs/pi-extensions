@@ -330,6 +330,21 @@ describe("the Steward server", () => {
     expect((await fetch(`${url}/api/service/frobnicate`, { method: "POST" })).status).toBe(400);
   });
 
+  it("hands back the reason a control command was refused", async () => {
+    // A control command that fails is the operator's business, not a crash: the
+    // reason has to reach the page, or the dashboard can only say "something
+    // went wrong" about a permission problem it was told about.
+    const source = idleSource(0);
+    source.setService = () => Promise.reject(new Error("launchctl: permission denied"));
+    const server = createStewardServer({ port: 0, source });
+    started.push(server);
+    const url = await server.start();
+
+    const response = await fetch(`${url}/api/service/restart`, { method: "POST" });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "launchctl: permission denied" });
+  });
+
   it("applies model actions, and 404s for a model it does not know", async () => {
     const { url } = await boot(0);
     const id = "qwen3.6-moe-a3b-instruct-q4_k_m";

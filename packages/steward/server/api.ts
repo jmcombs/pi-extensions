@@ -123,7 +123,15 @@ export async function handleApiRequest(
         sendStatus(res, 400);
         return true;
       }
-      await source.setService(action);
+      try {
+        await source.setService(action);
+      } catch (error) {
+        // A control command that was refused is the operator's business, not a
+        // crash: the reason ("launchctl: permission denied") goes back as a
+        // body so the dashboard can show it inline instead of a bare 500.
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+        return true;
+      }
       sendStatus(res, 204);
       return true;
     }

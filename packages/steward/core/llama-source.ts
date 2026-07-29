@@ -62,6 +62,40 @@ export interface ServiceProcess {
 export type ServiceProbe = (host: string, port: number) => Promise<ServiceProcess | null>;
 
 /**
+ * The outcome of one control command. `ok` reports only that the command ran
+ * and reported success — NOT that the service reached the state the operator
+ * asked for. A launchd job with `KeepAlive`, for instance, exits 0 from a stop
+ * and is relaunched a moment later. The snapshot poll (`/props` reachability)
+ * is the source of truth; this is just the command's own verdict.
+ */
+export interface ServiceControlResult {
+  ok: boolean;
+  /** A readable reason when `ok` is false (permission denied, not found, …). */
+  detail: string | null;
+}
+
+/**
+ * Runs the operator's declared start/stop/restart commands. Node-side and
+ * platform-specific (it executes a program), so it is injected rather than
+ * imported here — this module stays free of Node APIs. See
+ * `server/service-control.ts` for the real one.
+ */
+export interface ServiceController {
+  /**
+   * The actions this machine has a declared, consented command for, in
+   * start/stop/restart order. Rides onto {@link ServiceInfo.controls} so the
+   * dashboard offers exactly what can actually run.
+   */
+  readonly actions: readonly ServiceAction[];
+  /**
+   * Runs one action. Never rejects: a non-zero exit, a timeout, a missing
+   * binary, or an action with no command all resolve as a failure carrying a
+   * readable detail.
+   */
+  run(action: ServiceAction): Promise<ServiceControlResult>;
+}
+
+/**
  * The minimal HTTP surface Steward uses. The global `fetch` satisfies it, and a
  * test can supply a stub without standing up a server — narrower than the DOM
  * `fetch` type on purpose. `text()` is here for the Prometheus `/metrics` body.
@@ -111,6 +145,13 @@ export interface LlamaSourceOptions {
    */
   probeService?: ServiceProbe;
   /**
+   * Runs the operator's declared start/stop/restart commands. Injected (it is
+   * Node-side) and present only when `steward.json` declares control commands
+   * the operator has consented to. Omitted, {@link LlamaSource.setService}
+   * keeps delegating to the fallback and the block offers no controls.
+   */
+  control?: ServiceController;
+  /**
    * The live host-metrics collector and its topology. Omitted, the HOST band
    * (memory topology and sensors) rides through from the fallback unchanged.
    */
@@ -136,6 +177,8 @@ export class LlamaSource implements StewardDataSource {
   readonly #fallback: StewardDataSource;
   readonly #fetch: FetchLike;
   readonly #probeService: ServiceProbe | null;
+  /** The declared control commands, or null when none are configured/consented. */
+  readonly #control: ServiceController | null;
   /** The live host-metrics overlay, or null when no collector is configured. */
   readonly #host: HostMetricsOverlay | null;
   /** In-flight reads and actions, aborted on {@link close}. */
@@ -150,6 +193,7 @@ export class LlamaSource implements StewardDataSource {
     this.#fallback = options.fallback;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#probeService = options.probeService ?? null;
+    this.#control = options.control ?? null;
     this.#host = options.host ?? null;
   }
 
@@ -245,8 +289,23 @@ export class LlamaSource implements StewardDataSource {
     return this.#fallback.subscribeLogs(listener);
   }
 
-  setService(action: ServiceAction): Promise<void> {
-    return this.#fallback.setService(action);
+  /**
+   * Runs the operator's declared command for `action`, or — with no controller
+   * configured — keeps delegating to the fallback exactly as before.
+   *
+   * Resolving means the command reported success, NOT that the service reached
+   * the requested state: the exit code is never treated as truth (a `KeepAlive`
+   * job relaunches itself after a clean stop, and a start returns long before
+   * the port is listening). The caller re-polls {@link snapshot}, whose
+   * `running` comes from `/props` reachability, to find out what actually
+   * happened. A failed command rejects with its readable detail so the operator
+   * sees "permission denied" rather than a silent no-op.
+   */
+  async setService(action: ServiceAction): Promise<void> {
+    const control = this.#control;
+    if (control === null) return this.#fallback.setService(action);
+    const result = await control.run(action);
+    if (!result.ok) throw new Error(result.detail ?? `${action} failed`);
   }
 
   /**
@@ -469,8 +528,12 @@ export class LlamaSource implements StewardDataSource {
   async #serviceFromProps(read: PropsRead): Promise<ServiceInfo> {
     const { host, port } = splitHostPort(this.#connection.baseUrl);
     const running = read.status >= 200 && read.status < 300;
+    // What the operator may do is config, not a reading: it is the same list
+    // whether the server answers or not, so a stopped service can still be
+    // started.
+    const controls = [...(this.#control?.actions ?? [])];
     if (!running) {
-      return { running: false, startedAt: null, pid: null, host, port, build: "" };
+      return { running: false, startedAt: null, pid: null, host, port, build: "", controls };
     }
     const build =
       isRecord(read.body) && typeof read.body.build_info === "string" ? read.body.build_info : "";
@@ -482,6 +545,7 @@ export class LlamaSource implements StewardDataSource {
       host,
       port,
       build,
+      controls,
     };
   }
 

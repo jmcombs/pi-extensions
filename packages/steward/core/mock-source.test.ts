@@ -50,6 +50,9 @@ describe("createMockSource", () => {
         host: "127.0.0.1",
         port: 8080,
         build: "b6122",
+        // The simulated machine has all three commands declared and consented,
+        // so the dev dashboard exercises the control row it stands in for.
+        controls: ["start", "stop", "restart"],
       });
       expect(snapshot.models.map((model) => model.id)).toEqual([
         "qwen3.6-moe-a3b-instruct-q4_k_m",

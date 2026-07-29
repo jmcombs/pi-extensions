@@ -433,6 +433,10 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
         host: HOST,
         port: PORT,
         build: BUILD,
+        // The simulated machine has all three commands declared and consented,
+        // so the dev-only dashboard exercises the control row it stands in for;
+        // {@link setService} performs them against the simulation.
+        controls: ["start", "stop", "restart"],
       },
       models: buildModels(),
       slots,

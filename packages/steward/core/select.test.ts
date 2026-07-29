@@ -3,7 +3,7 @@ import { modelColor } from "./model-color.js";
 import { LOG_RENDER_LIMIT, selectDashboard, selectLogText } from "./select.js";
 import type { UiState } from "./state.js";
 import { initialUiState, reduce } from "./state.js";
-import type { LogLine, ModelInfo, Snapshot } from "./types.js";
+import type { LogLine, ModelInfo, ServiceAction, Snapshot } from "./types.js";
 
 const NOW = new Date(2024, 0, 15, 9, 4, 7, 42).getTime();
 const STARTED = NOW - (3 * 3_600_000 + 34 * 60_000);
@@ -74,6 +74,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
       host: "127.0.0.1",
       port: 8080,
       build: "b6122",
+      controls: ["start", "stop", "restart"],
     },
     models: MODELS,
     slots: [
@@ -144,6 +145,7 @@ describe("service block", () => {
         host: "127.0.0.1",
         port: 8080,
         build: "b6122",
+        controls: ["start", "stop", "restart"],
       },
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);
@@ -160,6 +162,177 @@ describe("service block", () => {
 
     const vm = selectDashboard(snapshot(), initialUiState("system"), NOW);
     expect(vm.service.themeLabel).toContain("System");
+  });
+});
+
+describe("service controls", () => {
+  /** The snapshot's service block with `controls` (and optionally state) replaced. */
+  function withControls(controls: ServiceAction[], running = true): Snapshot {
+    return snapshot({
+      service: {
+        running,
+        startedAt: running ? STARTED : null,
+        pid: running ? 4821 : null,
+        host: "127.0.0.1",
+        port: 8080,
+        build: "b6122",
+        controls,
+      },
+    });
+  }
+
+  it("offers exactly the consented actions, in start/stop/restart order", () => {
+    const vm = selectDashboard(withControls(["restart", "start"]), initialUiState("light"), NOW);
+    expect(vm.service.controls.buttons.map((b) => b.action)).toEqual(["start", "restart"]);
+    expect(vm.service.controls.buttons.map((b) => b.label)).toEqual(["Start", "Restart"]);
+    expect(vm.service.controls.setup).toBeNull();
+  });
+
+  it("shows one setup affordance — not dead buttons — when control is not configured", () => {
+    const vm = selectDashboard(withControls([]), initialUiState("light"), NOW);
+    expect(vm.service.controls.buttons).toEqual([]);
+    expect(vm.service.controls.setup?.command).toBe("/initialize-steward");
+    expect(vm.service.controls.setup?.label).toContain("not set up");
+  });
+
+  it("disables the action that cannot apply, and says why", () => {
+    const up = selectDashboard(
+      withControls(["start", "stop", "restart"]),
+      initialUiState("light"),
+      NOW,
+    );
+    const started = up.service.controls.buttons;
+    expect(started[0]).toMatchObject({ action: "start", disabled: true });
+    expect(started[0]?.disabledReason).toBe("The service is already started.");
+    // The reason rides on the accessible name too: the grey fill is never the
+    // only thing carrying it.
+    expect(started[0]?.ariaLabel).toContain("already started");
+    expect(started[1]).toMatchObject({ action: "stop", disabled: false });
+    expect(started[2]).toMatchObject({ action: "restart", disabled: false });
+
+    const down = selectDashboard(
+      withControls(["start", "stop", "restart"], false),
+      initialUiState("light"),
+      NOW,
+    );
+    const stopped = down.service.controls.buttons;
+    expect(stopped[0]).toMatchObject({ action: "start", disabled: false });
+    expect(stopped[1]).toMatchObject({ action: "stop", disabled: true });
+    expect(stopped[1]?.disabledReason).toBe("The service is already stopped.");
+    // Restart stays live while stopped: it is the only command a machine that
+    // consented to `restart` alone has, and it starts the service.
+    expect(stopped[2]).toMatchObject({ action: "restart", disabled: false });
+  });
+
+  it("gates only the disruptive actions behind a confirm", () => {
+    const vm = selectDashboard(
+      withControls(["start", "stop", "restart"]),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.service.controls.buttons.map((b) => [b.action, b.confirms, b.danger])).toEqual([
+      ["start", false, false],
+      ["stop", true, true],
+      ["restart", true, true],
+    ]);
+  });
+
+  it("names every loaded model in the consequence, for one, several, or none", () => {
+    const confirming = reduce(initialUiState("light"), {
+      type: "service/confirm",
+      action: "restart",
+    });
+
+    // Two loaded (the embedder is unloaded): both are named, and the comma
+    // keeps the clauses apart.
+    const both = selectDashboard(snapshot(), confirming, NOW).service.controls.confirm;
+    expect(both?.consequence).toBe(
+      "Restart unloads qwen3.6-moe-a3b-instruct and qwen3.6-moe-30b-thinking, and drops in-flight requests.",
+    );
+
+    const one = selectDashboard(
+      snapshot({ models: MODELS.filter((m) => m.id === CHAT) }),
+      confirming,
+      NOW,
+    ).service.controls.confirm;
+    expect(one?.consequence).toBe(
+      "Restart unloads qwen3.6-moe-a3b-instruct and drops in-flight requests.",
+    );
+
+    // Nothing loaded: no model is invented to raise the stakes.
+    const none = selectDashboard(
+      snapshot({ models: MODELS.map((m) => ({ ...m, status: "unloaded" as const })) }),
+      confirming,
+      NOW,
+    ).service.controls.confirm;
+    expect(none?.consequence).toBe(
+      "Restart drops any in-flight requests. No model is loaded right now.",
+    );
+  });
+
+  it("words the stop consequence with the stop verb, and offers cancel first", () => {
+    const ui = reduce(initialUiState("light"), { type: "service/confirm", action: "stop" });
+    const confirm = selectDashboard(snapshot(), ui, NOW).service.controls.confirm;
+    expect(confirm?.action).toBe("stop");
+    expect(confirm?.consequence.startsWith("Stop unloads ")).toBe(true);
+    expect(confirm?.confirmLabel).toBe("Stop");
+    expect(confirm?.cancelLabel).toBe("Cancel");
+  });
+
+  it("does not confirm an action the machine no longer offers", () => {
+    const ui = reduce(initialUiState("light"), { type: "service/confirm", action: "stop" });
+    const vm = selectDashboard(withControls(["start"]), ui, NOW);
+    expect(vm.service.controls.confirm).toBeNull();
+  });
+
+  it("closes the strip when its own button goes inert", () => {
+    const ui = reduce(initialUiState("light"), { type: "service/confirm", action: "stop" });
+    const all: ServiceAction[] = ["start", "stop", "restart"];
+
+    // Open while running: the strip stands and names what stopping costs.
+    expect(selectDashboard(withControls(all), ui, NOW).service.controls.confirm?.action).toBe(
+      "stop",
+    );
+
+    // The service then dies on its own and the next poll lands. Stop is now
+    // disabled, so the strip must go with it — leaving it open would state a
+    // consequence that has become false over an Accept that would still POST.
+    const down = selectDashboard(withControls(all, false), ui, NOW).service.controls;
+    expect(down.buttons.find((b) => b.action === "stop")?.disabled).toBe(true);
+    expect(down.confirm).toBeNull();
+  });
+
+  it("marks the action in flight and disables the whole row", () => {
+    let ui = reduce(initialUiState("light"), { type: "service/confirm", action: "restart" });
+    ui = reduce(ui, { type: "service/pending", action: "restart" });
+    const controls = selectDashboard(snapshot(), ui, NOW).service.controls;
+
+    expect(controls.pending).toBe(true);
+    expect(controls.buttons.map((b) => b.label)).toEqual(["Start", "Stop", "Restarting…"]);
+    expect(controls.buttons.map((b) => b.busy)).toEqual([false, false, true]);
+    expect(controls.buttons.every((b) => b.disabled)).toBe(true);
+    // The strip closes while the command is out — there is nothing left to confirm.
+    expect(controls.confirm).toBeNull();
+  });
+
+  it("reports a refused command in its own words, and never silently", () => {
+    const ui = reduce(initialUiState("light"), {
+      type: "service/failure",
+      failure: { action: "restart", detail: "launchctl: permission denied" },
+    });
+    expect(selectDashboard(snapshot(), ui, NOW).service.controls.notice).toBe(
+      "Restart failed — launchctl: permission denied",
+    );
+
+    const bare = reduce(initialUiState("light"), {
+      type: "service/failure",
+      failure: { action: "stop", detail: null },
+    });
+    expect(selectDashboard(snapshot(), bare, NOW).service.controls.notice).toBe("Stop failed.");
+
+    expect(selectDashboard(snapshot(), initialUiState("light"), NOW).service.controls.notice).toBe(
+      null,
+    );
   });
 });
 
@@ -462,6 +635,7 @@ describe("KPI tiles", () => {
         host: "127.0.0.1",
         port: 8080,
         build: "b6122",
+        controls: ["start", "stop", "restart"],
       },
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);
@@ -723,6 +897,7 @@ describe("grouped slots", () => {
         host: "127.0.0.1",
         port: 8080,
         build: "b6122",
+        controls: ["start", "stop", "restart"],
       },
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);

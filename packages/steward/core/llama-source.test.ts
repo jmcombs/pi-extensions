@@ -10,10 +10,16 @@
 
 import { describe, expect, it } from "vitest";
 import type { HostMetricsProvider, HostReading, HostSample } from "./host-metrics.js";
-import { type FetchLike, type HostMetricsOverlay, LlamaSource } from "./llama-source.js";
+import {
+  type FetchLike,
+  type HostMetricsOverlay,
+  LlamaSource,
+  type ServiceController,
+  type ServiceControlResult,
+} from "./llama-source.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
 import type { StewardDataSource } from "./source.js";
-import type { MemoryTopology } from "./types.js";
+import type { MemoryTopology, ServiceAction } from "./types.js";
 
 const CONNECTION = { baseUrl: "http://127.0.0.1:8080", apiKey: "" };
 const KEYED = { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" };
@@ -180,6 +186,9 @@ describe("LlamaSource — snapshot overlay", () => {
         host: "127.0.0.1",
         port: 8080,
         build: "b9960-a935fbffe",
+        // No controller injected: the machine has declared no consented
+        // commands, so the block offers none.
+        controls: [],
       });
 
       // Throughput and requests are live: the idle default slots mean no model
@@ -507,6 +516,118 @@ describe("LlamaSource — setModel", () => {
     });
     try {
       await expect(source.setModel("M1", "load")).rejects.toThrow(/did not confirm/);
+    } finally {
+      source.close();
+    }
+  });
+});
+
+describe("LlamaSource — setService", () => {
+  /** A controller that records what it was asked to run and answers to script. */
+  function fakeController(
+    result: ServiceControlResult,
+    actions: ServiceAction[] = ["start", "stop", "restart"],
+  ): { control: ServiceController; ran: ServiceAction[] } {
+    const ran: ServiceAction[] = [];
+    return {
+      ran,
+      control: {
+        actions,
+        run: (action) => {
+          ran.push(action);
+          return Promise.resolve(result);
+        },
+      },
+    };
+  }
+
+  it("runs the declared command and reports the actions on the snapshot", async () => {
+    const { control, ran } = fakeController({ ok: true, detail: null }, ["restart"]);
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      control,
+    });
+    try {
+      await expect(source.setService("restart")).resolves.toBeUndefined();
+      expect(ran).toEqual(["restart"]);
+      // The dashboard offers exactly what the controller can run.
+      expect((await source.snapshot()).service.controls).toEqual(["restart"]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("offers the same actions while the server is unreachable", async () => {
+    const { control } = fakeController({ ok: true, detail: null }, ["start", "restart"]);
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: refused,
+      control,
+    });
+    try {
+      const snapshot = await source.snapshot();
+      // A stopped service is exactly when Start matters most: availability is
+      // config, not a reading.
+      expect(snapshot.service.running).toBe(false);
+      expect(snapshot.service.controls).toEqual(["start", "restart"]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("rejects with the command's readable detail when it fails", async () => {
+    const { control, ran } = fakeController({
+      ok: false,
+      detail: "launchctl: permission denied",
+    });
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      control,
+    });
+    try {
+      await expect(source.setService("stop")).rejects.toThrow("launchctl: permission denied");
+      expect(ran).toEqual(["stop"]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("rejects readably even when the failure carries no detail", async () => {
+    const { control } = fakeController({ ok: false, detail: null });
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      control,
+    });
+    try {
+      await expect(source.setService("start")).rejects.toThrow(/start/);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("delegates to the fallback, unchanged, when no controller is configured", async () => {
+    const fallback = createFallback();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback,
+      // The mock's own service state is what moves; the live /props read is
+      // scripted as unreachable so nothing else confuses the assertion.
+      fetch: refused,
+    });
+    try {
+      await source.setService("stop");
+      expect((await fallback.snapshot()).service.running).toBe(false);
+      await source.setService("start");
+      expect((await fallback.snapshot()).service.running).toBe(true);
+      // …and with no controller there is nothing to offer.
+      expect((await source.snapshot()).service.controls).toEqual([]);
     } finally {
       source.close();
     }

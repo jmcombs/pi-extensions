@@ -41,6 +41,14 @@ export interface ServiceInfo {
   port: number;
   /** llama.cpp build tag, e.g. `b6122`. */
   build: string;
+  /**
+   * The actions this machine can actually perform: one entry per action that
+   * `steward.json` declares a command for AND that the operator has consented
+   * to. Config, not a reading — a machine with no control configured reports an
+   * empty list, and the block shows a single setup affordance rather than
+   * buttons that could not work.
+   */
+  controls: ServiceAction[];
 }
 
 /** One model known to the router, resident or not. */

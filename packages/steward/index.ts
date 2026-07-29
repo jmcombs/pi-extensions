@@ -110,7 +110,9 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const { LlamaSource } = await import("./core/llama-source.js");
   const { createMockSource } = await import("./core/mock-source.js");
   const { createListenerProbe } = await import("./server/service-probe.js");
-  const { readStewardConfig, hostCollectorConsented } = await import("./server/steward-config.js");
+  const { readStewardConfig, hostCollectorConsented, consentedControls } = await import(
+    "./server/steward-config.js"
+  );
   const connection = await resolveLlamaConnection(ctx);
   const probeService = createListenerProbe();
 
@@ -134,6 +136,19 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
       ? await import("./server/host-collector.js")
       : { createHostCollector: null };
 
+  // Service control is per-action: only the declared commands whose exact argv
+  // the operator consented to are offered, so a machine with a consented
+  // `restart` and an unapproved `stop` gets one button, not two. With none, the
+  // block shows a setup affordance and `setService` never runs anything. The
+  // controller holds no resources, so one instance serves every source.
+  const controlCommands = config === null ? {} : consentedControls(config);
+  const { createServiceController } =
+    Object.keys(controlCommands).length > 0
+      ? await import("./server/service-control.js")
+      : { createServiceController: null };
+  const control =
+    createServiceController === null ? undefined : createServiceController(controlCommands);
+
   return () => {
     // A fresh collector per source: a start that fails to bind closes the source
     // it was handed (killing its collector), so a retry must not reuse a spent one.
@@ -147,7 +162,13 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
             staleMs: 3 * hostConfig.intervalMs,
           }
         : undefined;
-    return new LlamaSource({ connection, fallback: createMockSource(), probeService, host });
+    return new LlamaSource({
+      connection,
+      fallback: createMockSource(),
+      probeService,
+      control,
+      host,
+    });
   };
 }
 

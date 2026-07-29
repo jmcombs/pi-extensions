@@ -21,6 +21,13 @@ export type LevelFilter = LogLevel | "all";
  */
 export type Theme = "light" | "dark" | "system";
 
+/** A service action that did not take, with the reason the server reported. */
+export interface ServiceFailure {
+  action: ServiceAction;
+  /** The command's own words (`launchctl: permission denied`), or `null`. */
+  detail: string | null;
+}
+
 export interface UiState {
   /** Live buffer, oldest first, capped at {@link LOG_BUFFER_LIMIT}. */
   log: LogLine[];
@@ -37,6 +44,18 @@ export interface UiState {
   copied: boolean;
   /** Service action awaiting its POST, or `null`. */
   pendingService: ServiceAction | null;
+  /**
+   * The disruptive action whose confirm strip is open, or `null`. Stop and
+   * restart unload models and drop in-flight requests, so they are never one
+   * click away — the strip names the consequence first.
+   */
+  confirmService: ServiceAction | null;
+  /**
+   * The last service action that failed, or `null`. Kept structured (not a
+   * sentence) because `core/select.ts` is the one place a displayed string is
+   * derived. Cleared when the next action starts.
+   */
+  serviceFailure: ServiceFailure | null;
   /** Model actions awaiting their POST, keyed by model id. */
   pendingModels: Record<string, ModelAction>;
 }
@@ -51,6 +70,8 @@ export type UiAction =
   | { type: "theme/toggle" }
   | { type: "copy/flag"; copied: boolean }
   | { type: "service/pending"; action: ServiceAction | null }
+  | { type: "service/confirm"; action: ServiceAction | null }
+  | { type: "service/failure"; failure: ServiceFailure | null }
   | { type: "model/pending"; modelId: string; action: ModelAction | null }
   | { type: "models/observed"; models: readonly { id: string; status: ModelStatus }[] };
 
@@ -65,6 +86,8 @@ export function initialUiState(theme: Theme): UiState {
     theme,
     copied: false,
     pendingService: null,
+    confirmService: null,
+    serviceFailure: null,
     pendingModels: {},
   };
 }
@@ -160,6 +183,14 @@ export function reduce(state: UiState, action: UiAction): UiState {
     case "service/pending": {
       if (state.pendingService === action.action) return state;
       return { ...state, pendingService: action.action };
+    }
+    case "service/confirm": {
+      if (state.confirmService === action.action) return state;
+      return { ...state, confirmService: action.action };
+    }
+    case "service/failure": {
+      if (state.serviceFailure === null && action.failure === null) return state;
+      return { ...state, serviceFailure: action.failure };
     }
     case "model/pending": {
       const pendingModels = { ...state.pendingModels };
