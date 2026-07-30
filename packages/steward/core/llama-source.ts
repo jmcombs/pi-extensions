@@ -33,6 +33,7 @@ import type { LlamaConnection } from "./llama-connection.js";
 import { listenAddress } from "./llama-connection.js";
 import { parseModelPorts, parseModels } from "./llama-models.js";
 import { parseMetrics, parseSlots } from "./llama-slots.js";
+import { createSlotActivity, type SlotActivity, type SlotActivityState } from "./slot-activity.js";
 import type { LogAttachment, StewardDataSource, Unsubscribe } from "./source.js";
 import {
   type ConfigEntry,
@@ -229,6 +230,21 @@ const CALL_TIMEOUT_MS = 4000;
  */
 const THROUGHPUT_SAMPLE_MS = THROUGHPUT_SAMPLE_SECONDS * 1000;
 
+/**
+ * The span the sparkline claims to show — its sample count times its cadence,
+ * so the two can never drift apart. A history whose newest sample is older than
+ * this no longer describes that window and is discarded rather than displayed.
+ */
+const THROUGHPUT_WINDOW_MS = THROUGHPUT_HISTORY_SIZE * THROUGHPUT_SAMPLE_MS;
+
+/**
+ * How much of the tailer's buffer is folded into slot state when the source
+ * starts. The tailer holds 500 lines, so this takes all of it: a Steward that
+ * starts mid-flight then knows what every slot was doing as of the newest line
+ * in the file, instead of waiting for the next request to tell it.
+ */
+const ACTIVITY_BACKLOG = 500;
+
 export class LlamaSource implements StewardDataSource {
   readonly name = "llama.cpp";
 
@@ -246,12 +262,29 @@ export class LlamaSource implements StewardDataSource {
   readonly #consentDrift: ConsentDrift;
   /** The live log tail, or null when no log source was discovered. */
   readonly #logTail: LogTailer | null;
+  /**
+   * Slot occupancy folded from the log, or null when there is no log to fold.
+   *
+   * Its presence is the either/or: with it, SLOTS and the request/throughput
+   * figures come from events and the per-model `/slots` and `/metrics` polls do
+   * not run at all; without it they are the only way to know anything and run
+   * exactly as they always did. Never both — running the timers alongside the
+   * event stream would keep every line of the noise this exists to remove.
+   */
+  readonly #activity: SlotActivity | null;
+  /** Detaches {@link #activity} from the tailer; null when there is no tail. */
+  readonly #detachActivity: Unsubscribe | null;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
   /** Rolling real throughput samples, oldest first — the band's sparkline. */
   readonly #throughputHistory: number[] = [];
   /** Snapshot clock at the last history sample, so sampling stays time-paced. */
   #lastSampleAt = 0;
+  /**
+   * The log source's health at the previous snapshot, so a change of state can
+   * be treated as a break in the event stream. Null before the first snapshot.
+   */
+  #lastLogSource: string | null = null;
 
   constructor(options: LlamaSourceOptions) {
     this.#connection = options.connection;
@@ -263,6 +296,24 @@ export class LlamaSource implements StewardDataSource {
     this.#probeDrift = options.probeDrift ?? null;
     this.#consentDrift = options.consentDrift ?? NO_CONSENT_DRIFT;
     this.#logTail = options.logTail ?? null;
+
+    // The tail is attached here, not on the first snapshot, so occupancy is
+    // being tracked from the moment the source exists — a request that starts
+    // and finishes before the browser has even connected is still accounted for.
+    if (this.#logTail === null) {
+      this.#activity = null;
+      this.#detachActivity = null;
+    } else {
+      const activity = createSlotActivity();
+      // `attach` hands back the backlog and registers the listener with no
+      // suspension point between them, and folding the backlog immediately
+      // after — synchronously, before the tailer's next poll can run — means
+      // every line is folded exactly once and in order.
+      const attachment = this.#logTail.attach((line) => activity.observe(line), ACTIVITY_BACKLOG);
+      for (const line of attachment.backlog) activity.observe(line);
+      this.#activity = activity;
+      this.#detachActivity = attachment.unsubscribe;
+    }
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -282,13 +333,20 @@ export class LlamaSource implements StewardDataSource {
     // The log console attributes a child line by the `[port]` the router
     // prefixed it with, and this body is where the ports are: one refresh per
     // snapshot keeps the map right across load/unload cycles without the tailer
-    // needing an HTTP client of its own.
-    this.#logTail?.setPorts(parseModelPorts(modelsRaw));
+    // needing an HTTP client of its own. The same map is what joins a tracked
+    // port back to the model whose slots it is, so it is parsed once and used
+    // for both.
+    const ports = parseModelPorts(modelsRaw);
+    // `setPorts` is deliberately given the empty map from a failed read: the
+    // tailer MERGES, so an empty map is a no-op there and cannot blank out
+    // attribution. The tracker replaces, so it is told the difference instead.
+    this.#logTail?.setPorts(ports);
+    this.#syncActivity(modelsRaw === undefined ? null : ports);
 
     const config = this.#configFromProps(props);
     const service = await this.#serviceFromProps(props);
     const { models, slots, throughputTps, requestsInFlight, requestsQueued } =
-      await this.#readModelsAndSlots(modelsRaw);
+      await this.#readModelsAndSlots(modelsRaw, ports, base.now);
     const throughputHistory = this.#sampleThroughput(base.now, throughputTps);
     // When a collector is configured, the HOST band is live: its topology comes
     // from `steward.json` and its readings from the collector's latest sample.
@@ -381,9 +439,29 @@ export class LlamaSource implements StewardDataSource {
    * {@link THROUGHPUT_SAMPLE_MS} of snapshot time, so the window spans a fixed
    * ~2 minutes no matter how often (or from how many clients) snapshots are
    * taken. Returns a copy so a consumer cannot mutate the live buffer.
+   *
+   * A tick whose throughput could not be measured contributes no sample at all.
+   * Pushing a `0` for it would draw a trough the server never had, and holding
+   * the previous bar would draw a plateau it never had either — so the series
+   * stays a series of measurements, and the clock is not advanced, so the very
+   * next snapshot that CAN measure takes the sample instead.
+   *
+   * Skipping alone is not enough, though, and the gap is subtle: a long
+   * unmeasurable stretch would leave the last bars sitting there indefinitely
+   * under an axis that claims to show the last two minutes. That is the same
+   * "gauge holds its last value" dishonesty this change set out to remove,
+   * relocated from a number into a chart. So a history whose newest sample has
+   * fallen out of the window it claims to span is dropped, and the strip renders
+   * empty — which is what "nothing was measured recently" looks like.
    */
-  #sampleThroughput(now: number, throughputTps: number): number[] {
-    if (now - this.#lastSampleAt >= THROUGHPUT_SAMPLE_MS) {
+  #sampleThroughput(now: number, throughputTps: number | null): number[] {
+    // Checked before the append so it applies to a resumed poll loop as well as
+    // to an unmeasurable stretch: in both cases the retained bars are older than
+    // the window and describe a period the strip is no longer showing.
+    if (this.#throughputHistory.length > 0 && now - this.#lastSampleAt > THROUGHPUT_WINDOW_MS) {
+      this.#throughputHistory.length = 0;
+    }
+    if (throughputTps !== null && now - this.#lastSampleAt >= THROUGHPUT_SAMPLE_MS) {
       this.#lastSampleAt = now;
       this.#throughputHistory.push(throughputTps);
       while (this.#throughputHistory.length > THROUGHPUT_HISTORY_SIZE) {
@@ -499,6 +577,7 @@ export class LlamaSource implements StewardDataSource {
   close(): void {
     for (const controller of this.#inFlight) controller.abort();
     this.#inFlight.clear();
+    this.#detachActivity?.();
     this.#host?.provider.close();
     this.#logTail?.close();
     this.#fallback.close();
@@ -554,21 +633,222 @@ export class LlamaSource implements StewardDataSource {
   }
 
   /**
-   * The live `models` and flat `slots` for one snapshot. Each loaded model gets
-   * its `/slots` and `/metrics` read concurrently; a model with a busy slot is
-   * upgraded to `active` and given its rate. A failure to read `/models` yields
-   * empty lists (an honest "nothing to show", not the mock's invented models),
-   * and a per-model read that fails drops only that model's slots and rate.
+   * Keeps the tracker attached to reality: children that have exited are
+   * forgotten, and a change in the log source's own health is treated as a break
+   * in the event stream.
+   *
+   * The health transition is the honest half of re-sync. When the file is
+   * deleted (macOS unlinks a stale `/tmp` log daily) and later recreated, lines
+   * were lost in between and there is no way to know which — so nothing is
+   * carried across it. What that does NOT catch is the tailer re-anchoring on a
+   * file that stayed readable throughout (a truncate, a same-second replace),
+   * which is invisible from out here; the staleness bound inside the tracker is
+   * what covers that case, and it resolves to `unknown` rather than guessing.
+   *
+   * `ports` is `null` when the `/models` read itself failed, and that case must
+   * not be confused with "no models are loaded". Both parse to an empty map, but
+   * one is news and the other is the absence of news: retaining against a failed
+   * read would drop every port record on a single 4 s timeout against a busy
+   * router, discarding all slot state and forcing a fresh `/slots` read for every
+   * model — turning a flapping `/models` into exactly the per-snapshot polling
+   * this replaced.
    */
-  async #readModelsAndSlots(modelsRaw: unknown): Promise<{
-    models: ModelInfo[];
-    slots: SlotInfo[];
-    throughputTps: number;
-    requestsInFlight: number;
-    requestsQueued: number;
-  }> {
-    const parsed = parseModels(modelsRaw);
+  #syncActivity(ports: ReadonlyMap<number, string> | null): void {
+    const activity = this.#activity;
+    if (activity === null) return;
+    const source = this.#logTail?.status().source ?? null;
+    if (this.#lastLogSource !== null && source !== this.#lastLogSource) activity.resync();
+    this.#lastLogSource = source;
+    if (ports === null) return;
+    // A model that was unloaded takes its port's slot and task numbering with
+    // it; a model reloaded on a fresh port must not inherit either.
+    activity.retain(ports.keys());
+  }
 
+  /**
+   * The live `models` and flat `slots` for one snapshot — from the log when
+   * there is one, and from the per-model endpoints when there is not.
+   *
+   * The branch is the whole point of this seam, and it is exclusive. With a log
+   * source, occupancy is folded from events that the server writes anyway, and
+   * the only HTTP a loaded model costs is a single `/slots` read when its child
+   * first appears. With no log source there is no other way to know anything, so
+   * the original per-snapshot `/slots` + `/metrics` polls run unchanged — a
+   * Steward with no logging is a degraded Steward, and polling is what it has.
+   */
+  async #readModelsAndSlots(
+    modelsRaw: unknown,
+    ports: ReadonlyMap<number, string>,
+    now: number,
+  ): Promise<ModelsAndSlots> {
+    const parsed = parseModels(modelsRaw);
+    const activity = this.#activity;
+    if (activity !== null) return this.#modelsFromEvents(parsed, ports, activity, now);
+    return this.#modelsFromPolling(parsed);
+  }
+
+  /**
+   * SLOTS from the log.
+   *
+   * Structure and state come from different places on purpose. How many slots a
+   * model has and how big each one's context is are fixed by its launch
+   * arguments — `--parallel` and `--ctx-size`, both of which `/v1/models` states
+   * for loaded and unloaded models alike, and which the router answers from its
+   * own memory without proxying anything or writing a line. Occupancy is the
+   * only part that changes request to request, and that is what the events
+   * carry.
+   *
+   * A slot the events have said nothing about is `unknown`, not idle, and a
+   * model whose child has no port we can join to (so no events can be
+   * attributed) is every slot `unknown`. That is the state the seed exists to
+   * clear, and the state a lost `release` decays back into rather than sticking
+   * on `busy`.
+   */
+  async #modelsFromEvents(
+    parsed: ModelInfo[],
+    ports: ReadonlyMap<number, string>,
+    activity: SlotActivity,
+    now: number,
+  ): Promise<ModelsAndSlots> {
+    const portByModel = new Map<string, number>();
+    for (const [port, id] of ports) portByModel.set(id, port);
+
+    // The one-shot seed: ONE `/slots` read per child process, taken when its
+    // occupancy has never been established (it just loaded, or Steward just
+    // started, or we lost track of it). `needsSeed` goes false the moment the
+    // port is settled and stays false, and it is budget-capped, so a caller
+    // asking on every snapshot still cannot turn this back into a poll.
+    await Promise.all(
+      parsed.map(async (model) => {
+        if (model.status !== "resident") return;
+        const port = portByModel.get(model.id);
+        // `--parallel` is passed through so the tracker can tell "every lane I
+        // know about is settled" from "three of this model's four lanes have
+        // never been mentioned", which from inside it look identical.
+        if (port === undefined || !activity.needsSeed(port, now, model.parallel)) return;
+        const stamp = activity.beginSeed(port, now);
+        const raw = await this.#getJson(`/slots?model=${encodeURIComponent(model.id)}`);
+        // A read that failed spent one of the budget and nothing more: the slots
+        // stay `unknown` and the next event establishes them.
+        if (raw === undefined) return;
+        activity.applySeed(
+          port,
+          stamp,
+          parseSlots(raw, model.id).map((slot) => ({
+            slot: slot.id,
+            state: slot.state,
+            promptTokens: slot.promptTokens,
+            decoded: slot.decoded,
+          })),
+          now,
+        );
+      }),
+    );
+
+    const models: ModelInfo[] = [];
+    const slots: SlotInfo[] = [];
+    let busyTotal = 0;
+    let measuredTotal = 0;
+    /** Any slot, on any model, that could be generating without our knowing how fast. */
+    let unmeasured = false;
+    /** Any slot, on any model, whose occupancy we cannot state at all. */
+    let uncertain = false;
+
+    for (const model of parsed) {
+      if (model.status !== "resident") {
+        models.push(model);
+        continue;
+      }
+      const port = portByModel.get(model.id);
+      const tracked = port === undefined ? EMPTY_ACTIVITY : activity.resolve(port, now);
+      // `--parallel` is the authority on how many lanes exist. Without it, the
+      // lanes the log has actually mentioned are all we can honestly draw.
+      const count = model.parallel ?? highestSlot(tracked);
+
+      // Every flag below is scoped to THIS model and rolled up afterwards. They
+      // were once declared outside the loop, which quietly made them
+      // dashboard-global: one model with one unresolvable lane then dashed the
+      // rate and the request count for every other model on the box, including
+      // ones that were perfectly well understood.
+      let busy = 0;
+      let rate = 0;
+      let measured = false;
+      let modelUnmeasured = false;
+      let modelUncertain = false;
+      for (let id = 0; id < count; id += 1) {
+        const state = tracked.get(id);
+        slots.push({
+          id,
+          modelId: model.id,
+          promptTokens: state?.promptTokens ?? null,
+          // Structural, from the launch args — the same per-slot figure the
+          // model card shows, so the two can never disagree.
+          ctxTotal: model.ctx,
+          decoded: state?.decoded ?? null,
+          state: state?.state ?? "unknown",
+        });
+        if (state === undefined || state.state === "unknown") {
+          modelUncertain = true;
+          modelUnmeasured = true;
+          continue;
+        }
+        if (state.state !== "processing") continue;
+        busy += 1;
+        if (state.rateTps === null) modelUnmeasured = true;
+        else {
+          rate += state.rateTps;
+          measured = true;
+        }
+      }
+
+      busyTotal += busy;
+      measuredTotal += rate;
+      unmeasured = unmeasured || modelUnmeasured;
+      uncertain = uncertain || modelUncertain;
+      models.push({
+        ...model,
+        // `active` is only ever claimed for a slot we watched take a task.
+        status: busy > 0 ? "active" : "resident",
+        // Structure comes from `--parallel` and nowhere else. `count` can fall
+        // back to the highest lane the log happened to mention, which is a lower
+        // bound inferred from traffic — fine for deciding how many rows to draw,
+        // not something to state as the model's lane count.
+        parallel: model.parallel,
+        // A model's own rate is unaffected by what any other model is doing.
+        tokensPerSecond: busy > 0 && measured ? rate : null,
+      });
+    }
+
+    return {
+      models,
+      slots,
+      // Every slot idle IS a measurement, and it reads 0. `null` is reserved for
+      // the case where something might be generating and no rate reading covers
+      // it — llama.cpp only prints a running rate once a generation crosses its
+      // ~3 s interval, so a short request is genuinely unmeasured while it runs.
+      // The alternative is llama.cpp's own `/metrics` gauge, which holds its last
+      // value after generation ends: a number that is no longer true.
+      throughputTps: unmeasured ? null : measuredTotal,
+      // A lower bound is not a count. With any slot unknown the honest answer is
+      // that we do not know how many requests are in flight.
+      requestsInFlight: uncertain ? null : busyTotal,
+      // `requests_deferred` — requests accepted and waiting for a free slot —
+      // has no log line at all. The events say when a slot is taken and given
+      // back, never what is queued behind it, so there is nothing to derive and
+      // nothing is invented: the tile reads n/a and says why.
+      requestsQueued: null,
+    };
+  }
+
+  /**
+   * SLOTS from the per-model endpoints — the path taken only when no log source
+   * was discovered. Each loaded model gets its `/slots` and `/metrics` read
+   * concurrently; a model with a busy slot is upgraded to `active` and given its
+   * rate. A failure to read `/models` yields empty lists (an honest "nothing to
+   * show", not the mock's invented models), and a per-model read that fails
+   * drops only that model's slots and rate.
+   */
+  async #modelsFromPolling(parsed: ModelInfo[]): Promise<ModelsAndSlots> {
     const enriched = await Promise.all(
       parsed.map(async (model): Promise<EnrichedModel> => {
         // Only a resident model has slots to read; loading/downloading/unloaded
@@ -721,6 +1001,29 @@ export class LlamaSource implements StewardDataSource {
 interface PropsRead {
   status: number;
   body: unknown | null;
+}
+
+/** The MODELS, SLOTS and band figures one snapshot resolved to. */
+interface ModelsAndSlots {
+  models: ModelInfo[];
+  slots: SlotInfo[];
+  throughputTps: number | null;
+  requestsInFlight: number | null;
+  requestsQueued: number | null;
+}
+
+/** Shared empty result for a model whose child port we could not resolve. */
+const EMPTY_ACTIVITY: ReadonlyMap<number, SlotActivityState> = new Map();
+
+/**
+ * How many lanes to draw for a model whose `--parallel` is not stated: as many
+ * as the log has actually mentioned. Drawing none would hide a model that is
+ * visibly working; drawing a guess would invent lanes that may not exist.
+ */
+function highestSlot(tracked: ReadonlyMap<number, SlotActivityState>): number {
+  let highest = -1;
+  for (const id of tracked.keys()) highest = Math.max(highest, id);
+  return highest + 1;
 }
 
 /** One model after its live `/slots` and `/metrics` reads, before aggregation. */

@@ -20,17 +20,26 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** Tokens generated so far, from `next_token[0].n_decoded`; 0 when idle/absent. */
-function readDecoded(value: unknown): number {
-  if (!Array.isArray(value)) return 0;
+/**
+ * Tokens generated so far, from `next_token[0].n_decoded`, or `null` when the
+ * body carries no such reading. An absent figure is not a zero: a slot the
+ * server said nothing about has generated an unknown number of tokens, and
+ * printing `0 decoded` for it would state a measurement nobody made.
+ */
+function readDecoded(value: unknown): number | null {
+  if (!Array.isArray(value)) return null;
   const first = value[0];
-  if (!isRecord(first)) return 0;
-  return readNumber(first.n_decoded) ?? 0;
+  if (!isRecord(first)) return null;
+  return readNumber(first.n_decoded);
 }
 
 /**
  * The slots for `modelId`. `raw` that is not an array (a 400 on a bare `/slots`,
  * a stray object) yields `[]`; a slot missing its id falls back to its position.
+ *
+ * Every reading degrades to `null` rather than to a default, and a slot whose
+ * `is_processing` is missing entirely reads `unknown` rather than `idle` — an
+ * absent flag is a body we do not understand, not a server at rest.
  */
 export function parseSlots(raw: unknown, modelId: string): SlotInfo[] {
   if (!Array.isArray(raw)) return [];
@@ -40,10 +49,15 @@ export function parseSlots(raw: unknown, modelId: string): SlotInfo[] {
     slots.push({
       id: readNumber(entry.id) ?? index,
       modelId,
-      promptTokens: readNumber(entry.n_prompt_tokens) ?? 0,
-      ctxTotal: readNumber(entry.n_ctx) ?? 0,
+      promptTokens: readNumber(entry.n_prompt_tokens),
+      ctxTotal: readNumber(entry.n_ctx),
       decoded: readDecoded(entry.next_token),
-      state: entry.is_processing === true ? "processing" : "idle",
+      state:
+        entry.is_processing === true
+          ? "processing"
+          : entry.is_processing === false
+            ? "idle"
+            : "unknown",
     });
   });
   return slots;

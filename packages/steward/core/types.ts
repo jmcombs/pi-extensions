@@ -24,8 +24,18 @@ export type LogLevel = "DEBUG" | "INFO" | "WARN" | "ERROR";
  */
 export type ModelStatus = "active" | "resident" | "loading" | "downloading" | "unloaded";
 
-/** Whether a parallel slot is currently generating. */
-export type SlotState = "processing" | "idle";
+/**
+ * Whether a parallel slot is currently generating.
+ *
+ * `unknown` is a real answer, not a placeholder: occupancy is established from
+ * the server's own log events, and a slot Steward has not yet seen an event for
+ * — a child that spawned a moment ago, a stream that was interrupted, a
+ * `release` that fell out of the buffer — is a slot whose state was never
+ * measured. Reporting it as `idle` would be a guess, and a slot silently stuck
+ * on `processing` because its `release` was missed is the exact failure this
+ * value exists to prevent.
+ */
+export type SlotState = "processing" | "idle" | "unknown";
 
 /** Actions the operator can take on the service as a whole. */
 export type ServiceAction = "start" | "stop" | "restart";
@@ -120,12 +130,27 @@ export interface SlotInfo {
   id: number;
   /** The model this slot belongs to; always known (slots are fetched per model). */
   modelId: string;
-  /** Prompt tokens held in the slot's context (`n_prompt_tokens`); 0 when idle. */
-  promptTokens: number;
-  /** The slot's context length in tokens (`n_ctx`). */
-  ctxTotal: number;
-  /** Tokens generated so far this turn (`next_token[0].n_decoded`); 0 when idle. */
-  decoded: number;
+  /**
+   * Tokens the slot's context currently holds, or `null` when nothing has
+   * reported it. The log states this at the end of a request (`release`'s
+   * `n_tokens`) and, for a long prefill, while it runs — so a slot that has not
+   * served a request since Steward started watching genuinely has no figure, and
+   * `0` would claim an empty context we never measured.
+   */
+  promptTokens: number | null;
+  /**
+   * The slot's context length in tokens, or `null` when the model's launch
+   * configuration does not state it. Structural, not a reading: it comes from
+   * the model's `--ctx-size`/`meta.n_ctx`, which is fixed for the life of the
+   * child process.
+   */
+  ctxTotal: number | null;
+  /**
+   * Tokens generated so far this turn, or `null` while unmeasured. llama.cpp
+   * only prints a running `n_decoded` for a generation long enough to cross its
+   * ~3 s reporting interval, so a short request has no count until it finishes.
+   */
+  decoded: number | null;
   state: SlotState;
 }
 
@@ -313,18 +338,43 @@ export interface Snapshot {
    * check could not run.
    */
   drift: DriftState;
-  /** Aggregate generation rate across all slots, tokens/second. */
-  throughputTps: number;
   /**
-   * Requests being processed across all slots right now. llama.cpp exposes no
-   * request-rate metric, so the requests tile reports this live gauge (and
-   * {@link requestsQueued}) rather than a per-minute rate it cannot measure.
+   * Aggregate generation rate across all slots, tokens/second, or `null` when
+   * it could not be measured.
+   *
+   * Every slot idle is a measurement, and its value is `0`. `null` means the
+   * opposite: at least one slot IS generating and no rate reading has arrived
+   * for any of them — llama.cpp only prints a running rate once a generation
+   * crosses its ~3 s reporting interval, so a short request is genuinely
+   * unmeasured while it runs. Holding the previous request's figure over that
+   * gap would show a number that stopped being true.
    */
-  requestsInFlight: number;
-  /** Rolling tok/s samples, oldest first. 42 samples ≈ 2 minutes. */
+  throughputTps: number | null;
+  /**
+   * Requests being processed across all slots right now, or `null` when any
+   * slot's occupancy is {@link SlotState} `unknown` and the true count can only
+   * be bounded below. llama.cpp exposes no request-rate metric, so the requests
+   * tile reports this live count (and {@link requestsQueued}) rather than a
+   * per-minute rate it cannot measure.
+   */
+  requestsInFlight: number | null;
+  /**
+   * Rolling tok/s samples, oldest first. 42 samples ≈ 2 minutes.
+   *
+   * Only measured values are appended: a tick whose {@link throughputTps} was
+   * `null` contributes no sample rather than a fabricated `0`, so the window can
+   * span slightly more than its nominal two minutes after a burst of short
+   * requests.
+   */
   throughputHistory: number[];
-  /** Requests accepted but waiting for a free slot. */
-  requestsQueued: number;
+  /**
+   * Requests accepted but waiting for a free slot, or `null` when nothing can
+   * report it. The server's log says when a slot is taken and released but never
+   * mentions the queue behind it, so a Steward reading occupancy from the log —
+   * which is every Steward with a log source — has no honest figure here. It is
+   * `null` there, and a number only when the `/metrics` scrape supplied one.
+   */
+  requestsQueued: number | null;
   config: ConfigEntry[];
 }
 

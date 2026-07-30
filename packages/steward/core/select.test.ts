@@ -728,6 +728,32 @@ describe("KPI tiles", () => {
     expect(vm.kpis[2]?.value).toBe("0");
   });
 
+  it("dashes the tiles a log-derived source cannot measure, and never prints 0 for them", () => {
+    // Three different unknowns, three dashes. `requests_deferred` has no log
+    // line at all; in flight cannot be counted while a lane is unknown; and a
+    // rate is unmeasured until llama.cpp reports one. Printing `0` for any of
+    // them would claim a quiet server that is in fact working.
+    const unmeasured = snapshot({
+      requestsInFlight: null,
+      requestsQueued: null,
+      throughputTps: null,
+    });
+    const vm = selectDashboard(unmeasured, initialUiState("light"), NOW);
+    expect(vm.kpis[1]).toMatchObject({ value: "—", sub: "queued n/a", percent: 0 });
+    expect(vm.kpis[2]).toMatchObject({ value: "—", percent: 0 });
+  });
+
+  it("still reads 0 throughput when every lane is measured and idle", () => {
+    // The other half of the same rule: idle IS a measurement, and it is 0.
+    const vm = selectDashboard(
+      snapshot({ throughputTps: 0, requestsInFlight: 0, requestsQueued: null }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.kpis[1]?.value).toBe("0");
+    expect(vm.kpis[2]?.value).toBe("0");
+  });
+
   it("rounds the throughput a live source reports to the whole number a tile shows", () => {
     const vm = selectDashboard(snapshot({ throughputTps: 61.837 }), initialUiState("light"), NOW);
     expect(vm.kpis[2]?.value).toBe("62");
@@ -958,6 +984,70 @@ describe("grouped slots", () => {
     const reason = vm.slots.groups[1];
     expect(reason).toMatchObject({ busy: 0, total: 1, summary: "0/1 busy", rateLabel: "" });
     expect(reason?.slots[0]?.detail).toBe("32k ctx · idle");
+  });
+
+  it("says a lane is unknown rather than folding it into the idle remainder", () => {
+    // A lane whose occupancy was never established — a child that just spawned,
+    // or a stream we lost track of. Counting it as idle would turn `1/3 busy`
+    // into a measurement of three lanes when only two were ever measured.
+    const partial = snapshot({
+      slots: [
+        {
+          id: 0,
+          modelId: CHAT,
+          promptTokens: 12408,
+          ctxTotal: 65536,
+          decoded: 268,
+          state: "processing",
+        },
+        {
+          id: 1,
+          modelId: CHAT,
+          promptTokens: null,
+          ctxTotal: 65536,
+          decoded: null,
+          state: "unknown",
+        },
+        {
+          id: 0,
+          modelId: REASON,
+          promptTokens: null,
+          ctxTotal: 32768,
+          decoded: null,
+          state: "idle",
+        },
+      ],
+    });
+    const vm = selectDashboard(partial, initialUiState("light"), NOW);
+    expect(vm.slots.groups[0]).toMatchObject({
+      busy: 1,
+      unknown: 1,
+      summary: "1/2 busy · 1 unknown",
+    });
+    expect(vm.slots.groups[0]?.slots[1]?.detail).toBe("64k ctx · state unknown");
+    expect(vm.slots.totalSummary).toBe("1 of 3 busy · peak 19% ctx · 1 unknown");
+  });
+
+  it("leaves out the context peak when no lane reported a fill", () => {
+    // A busy lane whose held-context figure nobody has stated yet. A 0% peak
+    // would read as an empty context, so the segment is simply absent.
+    const unmeasured = snapshot({
+      slots: [
+        {
+          id: 0,
+          modelId: CHAT,
+          promptTokens: null,
+          ctxTotal: 65536,
+          decoded: null,
+          state: "processing",
+        },
+      ],
+      models: MODELS,
+    });
+    const vm = selectDashboard(unmeasured, initialUiState("light"), NOW);
+    expect(vm.slots.groups[0]).toMatchObject({ busy: 1, peakPct: null, peakLabel: "" });
+    expect(vm.slots.groups[0]?.slots[0]?.detail).toBe("— / 64k ctx · — decoded");
+    expect(vm.slots.totalSummary).toBe("1 of 1 busy");
   });
 
   it("escalates the peak color and aggregate as a lane fills toward overflow", () => {

@@ -21,9 +21,12 @@ describe("parseSlots", () => {
     expect(slots[0]).toEqual({
       id: 0,
       modelId: MODEL,
-      promptTokens: 0,
+      // A real idle slot body carries neither `n_prompt_tokens` nor
+      // `next_token`, so both are unknown. The old parser printed `0 / 40k ctx ·
+      // 0 decoded` for exactly this body — two figures the server never stated.
+      promptTokens: null,
       ctxTotal: 40960,
-      decoded: 0,
+      decoded: null,
       state: "idle",
     });
     expect(slots.every((slot) => slot.modelId === MODEL)).toBe(true);
@@ -42,12 +45,19 @@ describe("parseSlots", () => {
     });
   });
 
-  it("treats an absent next_token as zero decoded", () => {
+  it("reports an absent next_token as an unknown decoded count, never zero", () => {
     const slots = parseSlots(
       [{ id: 0, n_ctx: 4096, n_prompt_tokens: 12, is_processing: true }],
       MODEL,
     );
-    expect(slots[0]?.decoded).toBe(0);
+    expect(slots[0]?.decoded).toBeNull();
+  });
+
+  it("reports a slot with no is_processing flag as unknown, not idle", () => {
+    // A body we do not recognise is not a server at rest. Defaulting to `idle`
+    // here would put a confident, wrong reading on the panel.
+    const slots = parseSlots([{ id: 0, n_ctx: 4096 }], MODEL);
+    expect(slots[0]?.state).toBe("unknown");
   });
 
   it("falls back to the array index when a slot has no id", () => {

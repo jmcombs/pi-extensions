@@ -85,10 +85,13 @@ export function createSlotsStrip(): View<SlotsVm> {
         setAttr(chip.rate, "hidden", group.rateLabel === "");
         // The busiest lane's context fill rides beside the fraction on a busy
         // chip — the ambient overflow signal — colored by threshold but never
-        // color-only, since the percentage is printed. Idle chips carry none.
+        // color-only, since the percentage is printed. Idle chips carry none,
+        // and neither does a busy chip whose lanes have not reported a fill: an
+        // absent reading leaves the segment out rather than printing `0%`.
+        const showPeak = busy && group.peakLabel !== "";
         setText(chip.peak, `· ${group.peakLabel}`);
         setVar(chip.peak, "fg", group.peakColor);
-        setAttr(chip.peak, "hidden", !busy);
+        setAttr(chip.peak, "hidden", !showPeak);
         // A busy chip is called out so activity is legible without reading the
         // fraction; the color alone never carries it.
         setAttr(chip.root, "data-busy", busy ? "true" : "false");
@@ -96,11 +99,12 @@ export function createSlotsStrip(): View<SlotsVm> {
         // (with the peak when busy) as a unit; the detail is on the title for a
         // pointer user.
         const ratePhrase = group.rateLabel === "" ? "" : `, ${group.rateLabel}`;
+        const peakPhrase = showPeak ? `, peak ${group.peakLabel} context` : "";
         setAttr(
           chip.root,
           "aria-label",
           busy
-            ? `${group.modelLabel}, ${group.summary}${ratePhrase}, peak ${group.peakLabel} context`
+            ? `${group.modelLabel}, ${group.summary}${ratePhrase}${peakPhrase}`
             : `${group.modelLabel}, ${group.summary}`,
         );
         setAttr(chip.root, "title", chipTitle(group));

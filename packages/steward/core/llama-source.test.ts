@@ -18,9 +18,18 @@ import {
   type ServiceController,
   type ServiceControlResult,
 } from "./llama-source.js";
+import { parseLogLine } from "./log-parse.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
+import { SLOT_STALE_MS } from "./slot-activity.js";
 import type { StewardDataSource } from "./source.js";
-import type { LogLine, LogStreamStatus, MemoryTopology, ServiceAction } from "./types.js";
+import {
+  type LogLine,
+  type LogStreamStatus,
+  type MemoryTopology,
+  type ServiceAction,
+  THROUGHPUT_HISTORY_SIZE,
+  THROUGHPUT_SAMPLE_SECONDS,
+} from "./types.js";
 
 const CONNECTION = { baseUrl: "http://127.0.0.1:8080", apiKey: "" };
 const KEYED = { baseUrl: "http://127.0.0.1:8080", apiKey: "sk-abc" };
@@ -1021,10 +1030,13 @@ describe("LlamaSource — log console", () => {
           origin: "router",
         },
       ]);
-      const unsubscribe = source.subscribeLogs(() => undefined);
+      // The source holds one subscription of its own — the slot-activity fold
+      // that replaced the per-model polls — so the console's is the second.
       expect(logTail.listeners).toBe(1);
+      const unsubscribe = source.subscribeLogs(() => undefined);
+      expect(logTail.listeners).toBe(2);
       unsubscribe();
-      expect(logTail.listeners).toBe(0);
+      expect(logTail.listeners).toBe(1);
       // And the source reports the log's own health, which "no lines" cannot.
       expect(source.logStatus()).toEqual({
         source: "missing",
@@ -1048,12 +1060,14 @@ describe("LlamaSource — log console", () => {
     try {
       const { backlog, unsubscribe } = source.attachLogs(() => undefined, 3);
       // The tailer's own atomic path — not a `recent` followed by a `subscribe`,
-      // which a poll landing in between would empty out of both.
-      expect(logTail.attached).toBe(1);
+      // which a poll landing in between would empty out of both. The source's
+      // own slot-activity fold attaches the same way in the constructor, so this
+      // is the second attach and the second listener.
+      expect(logTail.attached).toBe(2);
       expect(backlog).toHaveLength(1);
-      expect(logTail.listeners).toBe(1);
+      expect(logTail.listeners).toBe(2);
       unsubscribe();
-      expect(logTail.listeners).toBe(0);
+      expect(logTail.listeners).toBe(1);
     } finally {
       source.close();
     }
@@ -1151,6 +1165,498 @@ describe("LlamaSource — log console", () => {
     try {
       await source.snapshot();
       expect([...(logTail.ports[0] ?? [])]).toEqual([]);
+    } finally {
+      source.close();
+    }
+  });
+});
+
+/**
+ * SLOTS from the log rather than from a timer.
+ *
+ * The old path asked `/slots?model=X` and `/metrics?model=X` for every loaded
+ * model on the dashboard's 1.6 s repaint clock. Both are per-model, so the
+ * router proxied each one to the child and wrote a `proxy_reques:` line for it —
+ * 86.9% of a real corpus, and most of it Steward watching itself. It was also
+ * sampled, so a request shorter than the interval was missed outright.
+ *
+ * These tests hold both halves of the fix: the counts are right, AND the polls
+ * are gone. The second one is the part that silently regresses, so it is
+ * asserted directly rather than inferred.
+ */
+describe("LlamaSource — slots from the log", () => {
+  /** A loaded model whose launch args state its port, lanes and context. */
+  const PORTED_MODEL = {
+    id: "M1",
+    status: {
+      value: "loaded",
+      args: ["--port", "53093", "--parallel", "2", "--ctx-size", "8192"],
+    },
+    architecture: { output_modalities: ["text"] },
+    meta: { ftype: "Q4_0", size: 423_018_496, n_ctx: 4096 },
+  };
+  const PORTED_BODY = { object: "list", data: [PORTED_MODEL, UNLOADED_MODEL] };
+
+  const SELECT =
+    "[53093] 736.46.933.316 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, sim_best = 0.865 (> 0.100 thold), f_keep = 0.388";
+  const LAUNCH =
+    "[53093] 736.46.935.806 I slot launch_slot_: id  0 | task 836989 | processing task, is_child = 0";
+  const EVAL =
+    "[53093] 736.47.702.201 I slot print_timing: id  0 | task 836989 |        eval time =     697.41 ms /    90 tokens (    7.75 ms per token,   129.05 tokens per second)";
+  const RELEASE =
+    "[53093] 736.47.702.218 I slot      release: id  0 | task 836989 | stop processing: n_tokens = 163, truncated = 0";
+
+  /** A tailer the test drives by hand, one real log line at a time. */
+  function liveTailer(): LogTailer & {
+    emit(raw: string, at?: number): void;
+    setSource(source: LogStreamStatus["source"]): void;
+  } {
+    const listeners = new Set<(line: LogLine) => void>();
+    let source: LogStreamStatus["source"] = "ok";
+    let seq = 0;
+    return {
+      emit(raw: string, at: number = FIXED_NOW): void {
+        seq += 1;
+        const parsed = parseLogLine(raw);
+        const emitted: LogLine = {
+          seq,
+          ts: at,
+          level: parsed.level,
+          modelId: parsed.modelName,
+          message: parsed.message,
+          kind: parsed.kind,
+          origin: parsed.origin,
+          family: parsed.family,
+          ...(parsed.port === null ? {} : { port: parsed.port }),
+          ...(parsed.frame === null ? {} : { frame: parsed.frame }),
+        };
+        for (const listener of listeners) listener(emitted);
+      },
+      setSource(next: LogStreamStatus["source"]): void {
+        source = next;
+      },
+      recent: () => [],
+      subscribe(listener: (line: LogLine) => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+      attach(listener: (line: LogLine) => void) {
+        listeners.add(listener);
+        return {
+          backlog: [],
+          unsubscribe: () => {
+            listeners.delete(listener);
+          },
+        };
+      },
+      setPorts: () => undefined,
+      status: (): LogStreamStatus => ({ source, path: "/tmp/llama-router.log", detail: null }),
+      close: () => listeners.clear(),
+    };
+  }
+
+  /** A fetch that records every URL it is asked for. */
+  function recordingFetch(handlers: Handlers = {}): FetchLike & { urls: string[] } {
+    const inner = routerFetch(handlers);
+    const urls: string[] = [];
+    const recorded = ((url, init) => {
+      urls.push(url);
+      return inner(url, init);
+    }) as FetchLike & { urls: string[] };
+    recorded.urls = urls;
+    return recorded;
+  }
+
+  // Deliberately counts EVERY hit on the path, not just `?model=` ones: a
+  // reintroduced bare `/slots` poll is the same noise by another spelling, and a
+  // guard that only matched the per-model form would not have caught it.
+  const hits = (urls: string[], path: string) =>
+    urls.filter((url) => new URL(url).pathname === path).length;
+
+  it("never polls /slots or /metrics on the snapshot clock", async () => {
+    // THE REGRESSION GUARD. Five snapshots on the old path meant ten proxied
+    // requests and ten log lines; here it is one `/slots` read for the child's
+    // whole life and no `/metrics` at all.
+    const fetch = recordingFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) });
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch,
+      logTail: liveTailer(),
+    });
+    try {
+      for (let round = 0; round < 5; round += 1) await source.snapshot();
+      expect(hits(fetch.urls, "/slots")).toBe(1);
+      expect(hits(fetch.urls, "/metrics")).toBe(0);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("keeps polling when there is no log source, and only then", async () => {
+    // The either/or, from the other side. A Steward with no log has no other way
+    // to know anything, so the per-model reads are still the right answer there
+    // — but they must never run alongside the event stream.
+    const fetch = recordingFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) });
+    const source = new LlamaSource({ connection: CONNECTION, fallback: createFallback(), fetch });
+    try {
+      for (let round = 0; round < 3; round += 1) await source.snapshot();
+      expect(hits(fetch.urls, "/slots")).toBe(3);
+      expect(hits(fetch.urls, "/metrics")).toBe(3);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("catches a request that begins and ends inside one poll interval", async () => {
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      // Seeded idle from the one-shot read.
+      const before = await source.snapshot();
+      expect(before.slots.map((slot) => slot.state)).toEqual(["idle", "idle"]);
+      expect(before.requestsInFlight).toBe(0);
+      expect(before.throughputTps).toBe(0);
+
+      logTail.emit(SELECT);
+      logTail.emit(LAUNCH);
+      const during = await source.snapshot();
+      // The lane the request landed in is busy, and the model is `active` —
+      // the state a 1.6 s sample of a 0.77 s request would have missed.
+      expect(during.slots[0]?.state).toBe("processing");
+      expect(during.slots[1]?.state).toBe("idle");
+      expect(during.requestsInFlight).toBe(1);
+      expect(during.models[0]?.status).toBe("active");
+
+      logTail.emit(EVAL);
+      logTail.emit(RELEASE);
+      const after = await source.snapshot();
+      expect(after.slots.map((slot) => slot.state)).toEqual(["idle", "idle"]);
+      expect(after.requestsInFlight).toBe(0);
+      expect(after.models[0]?.status).toBe("resident");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reports throughput live while busy and exactly 0 between requests", async () => {
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      await source.snapshot();
+
+      // Launched, but nothing has reported a rate yet. Unmeasured is not zero,
+      // and it is not last time's number either.
+      logTail.emit(LAUNCH);
+      const opening = await source.snapshot();
+      expect(opening.throughputTps).toBeNull();
+      expect(opening.models[0]?.tokensPerSecond).toBeNull();
+
+      logTail.emit(EVAL);
+      const measured = await source.snapshot();
+      expect(measured.throughputTps).toBeCloseTo(129.05, 2);
+      expect(measured.models[0]?.tokensPerSecond).toBeCloseTo(129.05, 2);
+
+      // Idle is a measurement, and its value is 0 — never the rate that request
+      // finished at.
+      logTail.emit(RELEASE);
+      const idle = await source.snapshot();
+      expect(idle.throughputTps).toBe(0);
+      expect(idle.models[0]?.tokensPerSecond).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("appends no sparkline sample for a tick it could not measure", async () => {
+    // Asserted by LENGTH, on a clock that really is advancing past the sample
+    // cadence. The obvious assertion — that every sample is a finite number —
+    // is vacuous: it passes just as happily for the fabricated `0` this is
+    // supposed to prove was never appended.
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      const idle = await source.snapshot();
+      expect(idle.throughputHistory).toHaveLength(1);
+
+      // A measurable tick, a full sample interval later, appends.
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      const second = await source.snapshot();
+      expect(second.throughputHistory).toHaveLength(2);
+
+      // An unmeasurable one, the same interval later again, does not.
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      logTail.emit(LAUNCH);
+      const unmeasured = await source.snapshot();
+      expect(unmeasured.throughputTps).toBeNull();
+      expect(unmeasured.throughputHistory).toHaveLength(2);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("drops a sparkline history that has aged out of the window it claims to show", async () => {
+    // Skipping unmeasurable ticks is not enough on its own: left alone, the last
+    // bars sit there indefinitely under an axis that says "the last two
+    // minutes". That is the held-stale-value dishonesty this change removed from
+    // the throughput number, relocated into the chart.
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      expect((await source.snapshot()).throughputHistory).toHaveLength(1);
+
+      // More than a full window passes, and then a request opens that never
+      // reports a rate, so this tick is unmeasurable. (The launch is stamped at
+      // the current clock on purpose: an event older than the staleness bound
+      // would resolve to `unknown` and be re-established by the seed, which is a
+      // different mechanism and not what this test is about.)
+      clock += THROUGHPUT_HISTORY_SIZE * THROUGHPUT_SAMPLE_SECONDS * 1000 + 1;
+      logTail.emit(LAUNCH, clock);
+      const stale = await source.snapshot();
+      expect(stale.throughputTps).toBeNull();
+      // Empty is what "nothing was measured recently" looks like.
+      expect(stale.throughputHistory).toEqual([]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reports the queue as unavailable rather than inventing a zero", async () => {
+    // `requests_deferred` has no log line at all. Honesty beats completeness:
+    // the tile says n/a and the operator knows the difference between an empty
+    // queue and a queue nobody can see.
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      expect((await source.snapshot()).requestsQueued).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("decays a missed release to unknown and stops claiming a count", async () => {
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      // The seed read fails throughout, so nothing but the log establishes
+      // state — which is also what makes the lost release unrecoverable.
+      fetch: routerFetch({
+        models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)),
+        slots: () => Promise.resolve(jsonResponse(503, {})),
+      }),
+      logTail,
+    });
+    try {
+      logTail.emit(LAUNCH);
+      const busy = await source.snapshot();
+      expect(busy.slots[0]?.state).toBe("processing");
+
+      // Its release fell out of the buffer and never arrived.
+      clock = FIXED_NOW + SLOT_STALE_MS + 1;
+      const lost = await source.snapshot();
+      expect(lost.slots[0]?.state).toBe("unknown");
+      // A lower bound is not a count, and a maybe-generating lane is not 0 t/s.
+      expect(lost.requestsInFlight).toBeNull();
+      expect(lost.throughputTps).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("re-establishes occupancy after the log source drops and comes back", async () => {
+    const fetch = recordingFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) });
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch,
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      expect(hits(fetch.urls, "/slots")).toBe(1);
+
+      // macOS unlinks a stale /tmp log daily; the tailer reports it and heals.
+      // Lines were lost across the gap and there is no way to know which, so
+      // nothing is carried over it.
+      logTail.setSource("missing");
+      await source.snapshot();
+      expect(hits(fetch.urls, "/slots")).toBe(2);
+
+      logTail.setSource("ok");
+      await source.snapshot();
+      expect(hits(fetch.urls, "/slots")).toBe(3);
+
+      // And once settled again it goes quiet: a re-sync is an event, not a mode.
+      await source.snapshot();
+      await source.snapshot();
+      expect(hits(fetch.urls, "/slots")).toBe(3);
+      expect(hits(fetch.urls, "/metrics")).toBe(0);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("keeps one model's unresolvable lane out of another model's rate", async () => {
+    // The flags that decide "unmeasured" and "uncertain" are per model. Declared
+    // once for the whole loop they were dashboard-global, so a single model with
+    // one lane nobody could establish dashed the rate and the request count for
+    // every other model on the box — including ones fully understood.
+    const SECOND = {
+      id: "M3",
+      // No `--port`, so no event can ever be attributed to it: permanently
+      // unresolvable, which is the worst case for poisoning a neighbour.
+      status: { value: "loaded", args: ["--parallel", "1", "--ctx-size", "4096"] },
+      architecture: { output_modalities: ["text"] },
+      meta: { ftype: "Q4_0", size: 1, n_ctx: 4096 },
+    };
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        models: () =>
+          Promise.resolve(jsonResponse(200, { object: "list", data: [PORTED_MODEL, SECOND] })),
+      }),
+      logTail,
+    });
+    try {
+      // Seed M1 from its one-shot read first, then let the log move it.
+      await source.snapshot();
+      logTail.emit(LAUNCH);
+      logTail.emit(EVAL);
+      const snapshot = await source.snapshot();
+
+      const measured = snapshot.models.find((model) => model.id === "M1");
+      const opaque = snapshot.models.find((model) => model.id === "M3");
+      // M1 is fully established and generating at a measured rate; M3's opacity
+      // says nothing whatsoever about it.
+      expect(measured?.status).toBe("active");
+      expect(measured?.tokensPerSecond).toBeCloseTo(129.05, 2);
+      // And M3 claims nothing it cannot support.
+      expect(opaque?.status).toBe("resident");
+      expect(opaque?.tokensPerSecond).toBeNull();
+      // The dashboard-wide totals stay null, which is correct — an unknown lane
+      // really might be generating — but that is now the only thing M3 costs.
+      expect(snapshot.throughputTps).toBeNull();
+      expect(snapshot.requestsInFlight).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("keeps slot state across a failed /models read instead of discarding it", async () => {
+    // `/models` failing yields an empty port map, which is byte-identical to
+    // "nothing is loaded" — but one is news and the other is the absence of it.
+    // Retaining against the failure would drop every port record, so a single
+    // 4 s timeout against a busy router would wipe all slot state and force a
+    // fresh `/slots` read for every model on the next tick.
+    let modelsOk = true;
+    const fetch = recordingFetch({
+      models: () =>
+        modelsOk
+          ? Promise.resolve(jsonResponse(200, PORTED_BODY))
+          : Promise.reject(new Error("ETIMEDOUT")),
+    });
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch,
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      logTail.emit(LAUNCH);
+      expect((await source.snapshot()).slots[0]?.state).toBe("processing");
+      expect(hits(fetch.urls, "/slots")).toBe(1);
+
+      // The router goes unreachable for a tick and comes back.
+      modelsOk = false;
+      await source.snapshot();
+      modelsOk = true;
+      const recovered = await source.snapshot();
+
+      // The lane is still busy, remembered rather than re-read, and no extra
+      // `/slots` was spent — a flapping `/models` must not reconstruct the poll.
+      expect(recovered.slots[0]?.state).toBe("processing");
+      expect(hits(fetch.urls, "/slots")).toBe(1);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("draws lanes from --parallel and their context from the launch args", async () => {
+    // Structure is not occupancy: how many lanes a model has and how big each
+    // one's context is come from `/v1/models`, which the router answers itself
+    // and writes no line for.
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail: liveTailer(),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.slots).toHaveLength(2);
+      expect(snapshot.slots.map((slot) => slot.ctxTotal)).toEqual([4096, 4096]);
+      expect(snapshot.models[0]?.parallel).toBe(2);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reports every lane unknown when no port can be joined to the model", async () => {
+    // A loaded model whose args state no port cannot have a line attributed to
+    // it, so nothing about its lanes is known — and nothing is guessed.
+    const NO_PORT = {
+      ...PORTED_MODEL,
+      status: { value: "loaded", args: ["--parallel", "2", "--ctx-size", "8192"] },
+    };
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({
+        models: () => Promise.resolve(jsonResponse(200, { object: "list", data: [NO_PORT] })),
+      }),
+      logTail: liveTailer(),
+    });
+    try {
+      const snapshot = await source.snapshot();
+      expect(snapshot.slots.map((slot) => slot.state)).toEqual(["unknown", "unknown"]);
+      expect(snapshot.requestsInFlight).toBeNull();
+      expect(snapshot.throughputTps).toBeNull();
     } finally {
       source.close();
     }

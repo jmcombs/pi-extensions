@@ -49,6 +49,7 @@ import type {
   ModelInfo,
   ServiceAction,
   SlotInfo,
+  SlotState,
   Snapshot,
 } from "./types.js";
 
@@ -635,10 +636,19 @@ export interface ConsoleVm {
 
 export interface SlotDotVm {
   id: number;
-  state: "processing" | "idle";
-  /** Context fill, 0–100, for a mini bar: `promptTokens / ctxTotal`. */
-  headroomPct: number;
-  /** `27 / 40k ctx · 5 decoded`, or `40k ctx · idle`. */
+  /**
+   * `unknown` where the lane's occupancy was never established — a child that
+   * has only just spawned, or a stream Steward lost track of. It is not a
+   * synonym for idle and must never be rendered as one.
+   */
+  state: SlotState;
+  /**
+   * Context fill, 0–100, for a mini bar: `promptTokens / ctxTotal`. `null` when
+   * either half is unmeasured, so nothing draws an empty bar for a lane whose
+   * fill nobody reported.
+   */
+  headroomPct: number | null;
+  /** `27 / 40k ctx · 5 decoded`, `40k ctx · idle`, or `40k ctx · state unknown`. */
   detail: string;
 }
 
@@ -649,15 +659,23 @@ export interface SlotGroupVm {
   modelColor: string;
   /** Slots in this group that are processing. */
   busy: number;
+  /** Slots in this group whose occupancy could not be established. */
+  unknown: number;
   /** Slots in this group. */
   total: number;
-  /** `2/4 busy` */
+  /** `2/4 busy`, plus ` · 1 unknown` when a lane could not be spoken for. */
   summary: string;
   /** `63 t/s` while the model is generating; `""` when idle or the rate is unknown. */
   rateLabel: string;
-  /** The busiest lane's context fill, 0–100 — the group's overflow signal. */
-  peakPct: number;
-  /** `61%`, the peak as a label. Shown only on a busy chip; the number is never color-only. */
+  /**
+   * The busiest lane's context fill, 0–100 — the group's overflow signal — or
+   * `null` when no lane reported one.
+   */
+  peakPct: number | null;
+  /**
+   * `61%`, the peak as a label, or `""` when there is no peak to show. Shown
+   * only on a busy chip; the number is never color-only.
+   */
   peakLabel: string;
   /** Threshold color for {@link peakLabel}: tertiary, then warning, then error. */
   peakColor: string;
@@ -1163,12 +1181,22 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
   // uptime and pid, so it does not repeat the port.
   const pid = service.pid === null ? "no process" : `pid ${service.pid}`;
 
-  // The requests tile reports live gauges (in flight, queued) — llama.cpp has
+  // The requests tile reports live counts (in flight, queued) — llama.cpp has
   // no request-rate metric. The bar fills as the slots fill.
+  //
+  // Either figure can be genuinely unavailable, and each for its own reason. In
+  // flight is `null` when a slot's occupancy is unknown, so the true count can
+  // only be bounded below. Queued has no log line behind it at all, so a Steward
+  // reading occupancy from the log — which is every Steward with a log source —
+  // simply cannot know it. Both print a dash and neither prints a `0`, because
+  // "none" and "we cannot tell" are the two answers an operator most needs to
+  // tell apart on this tile.
   const inFlight = running ? snapshot.requestsInFlight : 0;
   const queued = running ? snapshot.requestsQueued : 0;
   const slotTotal = snapshot.slots.length;
-  const requestsFill = slotTotal > 0 ? inFlight / slotTotal : inFlight > 0 ? 1 : 0;
+  const requestsFill =
+    inFlight === null ? 0 : slotTotal > 0 ? inFlight / slotTotal : inFlight > 0 ? 1 : 0;
+  const throughput = running ? snapshot.throughputTps : 0;
 
   return [
     {
@@ -1183,20 +1211,23 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
     {
       key: "requests",
       label: "requests",
-      value: String(inFlight),
+      value: inFlight === null ? NO_READING : String(inFlight),
       unit: "in flight",
-      sub: `${queued} queued`,
+      sub: queued === null ? "queued n/a" : `${queued} queued`,
       color: "var(--accent)",
       percent: barPercent(requestsFill),
     },
     {
       key: "throughput",
       label: "throughput",
-      value: running ? countLabel(snapshot.throughputTps) : "0",
+      // A dash here means a slot is working and no rate reading covers it yet,
+      // which is a different thing from `0` — and `0` is what an idle server
+      // honestly reads, so the two must not share a glyph.
+      value: throughput === null ? NO_READING : countLabel(throughput),
       unit: "tok/s",
       sub: "generation, all slots",
       color: "var(--latte-mauve)",
-      percent: barPercent((running ? snapshot.throughputTps : 0) / THROUGHPUT_FULL_SCALE),
+      percent: barPercent((throughput ?? 0) / THROUGHPUT_FULL_SCALE),
     },
   ];
 }
@@ -2462,16 +2493,30 @@ function selectToolbar(
 
 /** One slot's dot view-model, honouring the service being down. */
 function selectSlotDot(slot: SlotInfo, running: boolean): SlotDotVm {
-  // A slot cannot be working if the service is stopped, whatever the poll said.
-  const processing = running && slot.state === "processing";
-  const ctx = formatTokenCount(slot.ctxTotal);
+  // A slot cannot be working if the service is stopped, whatever the last event
+  // said — a stopped server has nothing running in any lane, so a stopped
+  // service reads idle across the board.
+  const state: SlotState = running ? slot.state : "idle";
+  const ctx =
+    slot.ctxTotal === null ? `${NO_READING} ctx` : `${formatTokenCount(slot.ctxTotal)} ctx`;
+  // The context fill needs both halves measured. Missing either one leaves no
+  // percentage rather than a 0% bar, which would read as an empty lane.
+  const headroomPct =
+    slot.promptTokens === null || slot.ctxTotal === null || slot.ctxTotal <= 0
+      ? null
+      : barPercent(slot.promptTokens / slot.ctxTotal);
+  const held = slot.promptTokens === null ? NO_READING : String(slot.promptTokens);
+  const decoded = slot.decoded === null ? NO_READING : String(slot.decoded);
   return {
     id: slot.id,
-    state: processing ? "processing" : "idle",
-    headroomPct: barPercent(slot.ctxTotal === 0 ? 0 : slot.promptTokens / slot.ctxTotal),
-    detail: processing
-      ? `${slot.promptTokens} / ${ctx} ctx · ${slot.decoded} decoded`
-      : `${ctx} ctx · idle`,
+    state,
+    headroomPct,
+    detail:
+      state === "processing"
+        ? `${held} / ${ctx} · ${decoded} decoded`
+        : state === "idle"
+          ? `${ctx} · idle`
+          : `${ctx} · state unknown`,
   };
 }
 
@@ -2496,9 +2541,17 @@ function selectSlots(snapshot: Snapshot): SlotsVm {
 
     const dots = modelSlots.map((slot) => selectSlotDot(slot, running));
     const busy = dots.filter((dot) => dot.state === "processing").length;
+    // Lanes we cannot speak for are counted and said out loud. Folding them into
+    // the idle remainder would make `1/4 busy` look like a measurement when
+    // three of those four lanes were never established.
+    const unknown = dots.filter((dot) => dot.state === "unknown").length;
     // The busiest lane is the overflow signal — one full lane matters even when
     // the others are empty — so the group reduces to its max fill, not a mean.
-    const peakPct = dots.reduce((hi, dot) => Math.max(hi, dot.headroomPct), 0);
+    // A group where no lane reported a fill has no peak, rather than a peak of 0.
+    const peakPct = dots.reduce<number | null>(
+      (hi, dot) => (dot.headroomPct === null ? hi : Math.max(hi ?? 0, dot.headroomPct)),
+      null,
+    );
     // The rate belongs to a model that is actually generating; an idle model, or
     // one whose child was launched without `--metrics`, has none to show.
     const rateLabel =
@@ -2510,27 +2563,35 @@ function selectSlots(snapshot: Snapshot): SlotsVm {
       modelLabel: model.short,
       modelColor: modelColor(model.id, model.embedding),
       busy,
+      unknown,
       total: dots.length,
-      summary: `${busy}/${dots.length} busy`,
+      summary: `${busy}/${dots.length} busy${unknown > 0 ? ` · ${unknown} unknown` : ""}`,
       rateLabel,
       peakPct,
-      peakLabel: `${peakPct}%`,
-      peakColor: contextHeadroomColor(peakPct),
+      peakLabel: peakPct === null ? "" : `${peakPct}%`,
+      peakColor: contextHeadroomColor(peakPct ?? 0),
       slots: dots,
     });
   }
 
   const busyTotal = groups.reduce((sum, group) => sum + group.busy, 0);
   const slotTotal = groups.reduce((sum, group) => sum + group.total, 0);
+  const unknownTotal = groups.reduce((sum, group) => sum + group.unknown, 0);
   // Worst-case fill across the lanes that are actually working; an idle group
-  // holds no context, so it never sets the peak.
-  const peak = groups.reduce((hi, group) => (group.busy > 0 ? Math.max(hi, group.peakPct) : hi), 0);
-  const peakClause = busyTotal > 0 ? ` · peak ${peak}% ctx` : "";
+  // holds no context, so it never sets the peak, and a working group that never
+  // reported a fill contributes none rather than dragging the peak down to 0.
+  const peak = groups.reduce<number | null>(
+    (hi, group) =>
+      group.busy > 0 && group.peakPct !== null ? Math.max(hi ?? 0, group.peakPct) : hi,
+    null,
+  );
+  const peakClause = busyTotal > 0 && peak !== null ? ` · peak ${peak}% ctx` : "";
+  const unknownClause = unknownTotal > 0 ? ` · ${unknownTotal} unknown` : "";
   return {
     groups,
     empty: groups.length === 0,
     emptyLabel: "no models loaded",
-    totalSummary: `${busyTotal} of ${slotTotal} busy${peakClause}`,
+    totalSummary: `${busyTotal} of ${slotTotal} busy${peakClause}${unknownClause}`,
   };
 }
 
