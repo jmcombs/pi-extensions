@@ -276,9 +276,24 @@ export class LlamaSource implements StewardDataSource {
   readonly #detachActivity: Unsubscribe | null;
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
-  /** Rolling real throughput samples, oldest first — the band's sparkline. */
-  readonly #throughputHistory: number[] = [];
-  /** Snapshot clock at the last history sample, so sampling stays time-paced. */
+  /**
+   * Closed throughput samples, oldest first — the band's sparkline, measured
+   * from generated tokens. Used on the event path only.
+   */
+  readonly #samples: ThroughputSample[] = [];
+  /**
+   * Tokens drained from the tracker that the open sample has not closed over
+   * yet. Snapshots arrive faster than samples close (and from every connected
+   * browser), so the ledger is drained every snapshot and banked here.
+   */
+  #pendingTokens = 0;
+  /**
+   * Rolling `/metrics` gauge readings, oldest first — the same sparkline on the
+   * POLLING path, where tokens cannot be counted and a sampled gauge is all
+   * there is.
+   */
+  readonly #gaugeHistory: number[] = [];
+  /** Snapshot clock at the last closed sample, so sampling stays time-paced. */
   #lastSampleAt = 0;
   /**
    * The log source's health at the previous snapshot, so a change of state can
@@ -347,7 +362,14 @@ export class LlamaSource implements StewardDataSource {
     const service = await this.#serviceFromProps(props);
     const { models, slots, throughputTps, requestsInFlight, requestsQueued } =
       await this.#readModelsAndSlots(modelsRaw, ports, base.now);
-    const throughputHistory = this.#sampleThroughput(base.now, throughputTps);
+    // The two paths measure different things and say so. With a log there are
+    // token counts to divide by wall clock, which is throughput; without one
+    // there is only llama.cpp's own rate gauge, sampled.
+    const activity = this.#activity;
+    const throughput =
+      activity === null
+        ? this.#sampleGauge(base.now, throughputTps)
+        : this.#sampleGenerated(base.now, activity);
     // When a collector is configured, the HOST band is live: its topology comes
     // from `steward.json` and its readings from the collector's latest sample.
     // With no collector, the band — including `memoryTopology` — rides through
@@ -361,8 +383,9 @@ export class LlamaSource implements StewardDataSource {
       drift,
       models,
       slots,
-      throughputTps,
-      throughputHistory,
+      throughputTps: throughput.tps,
+      throughputHistory: throughput.history,
+      throughputWindowSeconds: throughput.windowSeconds,
       requestsInFlight,
       requestsQueued,
       ...host,
@@ -435,40 +458,96 @@ export class LlamaSource implements StewardDataSource {
   }
 
   /**
-   * Appends the current throughput to the rolling history, but only once per
-   * {@link THROUGHPUT_SAMPLE_MS} of snapshot time, so the window spans a fixed
-   * ~2 minutes no matter how often (or from how many clients) snapshots are
-   * taken. Returns a copy so a consumer cannot mutate the live buffer.
+   * THROUGHPUT from the log: tokens the server generated, over the wall clock it
+   * had to generate them in.
    *
-   * A tick whose throughput could not be measured contributes no sample at all.
+   * This is what the word means, and it is the only reading of it the log can
+   * support honestly. The alternative — the rate a request prints when it
+   * finishes — is a real measurement of that request, but it exists in the log
+   * for the 17 microseconds between `eval time` and `release`, and a dashboard
+   * sampling every 1.6 s never lands inside it. Reading it that way is what this
+   * replaced, and against a real 10-minute stretch of log at one request every
+   * 5 s it produced 372 readings: 0 tok/s when idle, a dash when busy, not one
+   * non-zero number, and 42 sparkline bars of 0 while the box generated 10,881
+   * tokens. Tokens do not have that problem. They are counted once, by the
+   * tracker, and they wait in its ledger until a sample closes over them.
+   *
+   * A sample closes no more than once per {@link THROUGHPUT_SAMPLE_MS} of
+   * snapshot time, so the span the strip covers is set by the clock rather than
+   * by how often — or from how many browsers — snapshots are taken (which is why
+   * the axis reports the span it measured rather than the nominal one).
+   *
+   * Every sample is a measurement, including the ones that read 0: a span in
+   * which the server generated nothing
+   * really did have a throughput of nothing. That is not the fabricated zero the
+   * dash exists to avoid — the dash is for a window we cannot vouch for, and it
+   * is what this returns until one has closed.
+   */
+  #sampleGenerated(now: number, activity: SlotActivity): ThroughputReading {
+    // Drained every snapshot, banked here: reading the ledger more often than
+    // samples close cannot lose tokens, because it is a count and not a rate.
+    this.#pendingTokens += activity.takeGeneratedTokens();
+    const elapsed = now - this.#lastSampleAt;
+    // Nothing here can be attributed to a span the strip is showing: either this
+    // is the first snapshot (the tail's backlog can hold hours of completed
+    // requests) or nobody has asked for one in longer than the window itself, so
+    // the banked tokens cover an unknown stretch. Piling them into the next bar
+    // would draw a spike that never happened, and keeping the old bars under an
+    // axis that says "the last two minutes" is the held-stale-value dishonesty
+    // this whole change set out to remove, relocated into a chart. Both are
+    // dropped and the accounting starts here.
+    if (this.#lastSampleAt === 0 || elapsed > THROUGHPUT_WINDOW_MS) {
+      this.#samples.length = 0;
+      this.#pendingTokens = 0;
+      this.#lastSampleAt = now;
+      return noThroughput();
+    }
+    if (elapsed >= THROUGHPUT_SAMPLE_MS) {
+      // The sample records the span it actually covered, not the nominal one, so
+      // its rate is true even when a snapshot arrived late.
+      this.#samples.push({ tokens: this.#pendingTokens, spanMs: elapsed });
+      this.#pendingTokens = 0;
+      this.#lastSampleAt = now;
+      while (this.#samples.length > THROUGHPUT_HISTORY_SIZE) this.#samples.shift();
+    }
+    return readThroughput(this.#samples);
+  }
+
+  /**
+   * THROUGHPUT with no log: llama.cpp's own rate gauge, sampled.
+   *
+   * The polling path cannot count tokens. `/metrics` does carry a token counter,
+   * but it is printed to five significant figures (`1.2757e+06` on a live
+   * server), so a difference across one sample is quantised to steps of a
+   * hundred tokens and a 90-token request is as likely to read 0 as 100. So this
+   * path samples the gauge exactly as it always did, and reports no window,
+   * which is how the tile knows not to claim one.
+   *
+   * A tick whose rate could not be measured contributes no sample at all.
    * Pushing a `0` for it would draw a trough the server never had, and holding
    * the previous bar would draw a plateau it never had either — so the series
    * stays a series of measurements, and the clock is not advanced, so the very
-   * next snapshot that CAN measure takes the sample instead.
-   *
-   * Skipping alone is not enough, though, and the gap is subtle: a long
-   * unmeasurable stretch would leave the last bars sitting there indefinitely
-   * under an axis that claims to show the last two minutes. That is the same
-   * "gauge holds its last value" dishonesty this change set out to remove,
-   * relocated from a number into a chart. So a history whose newest sample has
-   * fallen out of the window it claims to span is dropped, and the strip renders
-   * empty — which is what "nothing was measured recently" looks like.
+   * next snapshot that CAN measure takes the sample instead. A history whose
+   * newest sample has fallen out of the window it claims to span is dropped, and
+   * the strip renders empty — which is what "nothing was measured recently"
+   * looks like.
    */
-  #sampleThroughput(now: number, throughputTps: number | null): number[] {
+  #sampleGauge(now: number, throughputTps: number | null): ThroughputReading {
     // Checked before the append so it applies to a resumed poll loop as well as
     // to an unmeasurable stretch: in both cases the retained bars are older than
     // the window and describe a period the strip is no longer showing.
-    if (this.#throughputHistory.length > 0 && now - this.#lastSampleAt > THROUGHPUT_WINDOW_MS) {
-      this.#throughputHistory.length = 0;
+    if (this.#gaugeHistory.length > 0 && now - this.#lastSampleAt > THROUGHPUT_WINDOW_MS) {
+      this.#gaugeHistory.length = 0;
     }
     if (throughputTps !== null && now - this.#lastSampleAt >= THROUGHPUT_SAMPLE_MS) {
       this.#lastSampleAt = now;
-      this.#throughputHistory.push(throughputTps);
-      while (this.#throughputHistory.length > THROUGHPUT_HISTORY_SIZE) {
-        this.#throughputHistory.shift();
+      this.#gaugeHistory.push(throughputTps);
+      while (this.#gaugeHistory.length > THROUGHPUT_HISTORY_SIZE) {
+        this.#gaugeHistory.shift();
       }
     }
-    return [...this.#throughputHistory];
+    // A copy, so a consumer cannot mutate the live buffer.
+    return { tps: throughputTps, history: [...this.#gaugeHistory], windowSeconds: null };
   }
 
   /**
@@ -657,7 +736,17 @@ export class LlamaSource implements StewardDataSource {
     const activity = this.#activity;
     if (activity === null) return;
     const source = this.#logTail?.status().source ?? null;
-    if (this.#lastLogSource !== null && source !== this.#lastLogSource) activity.resync();
+    if (this.#lastLogSource !== null && source !== this.#lastLogSource) {
+      activity.resync();
+      // The throughput window goes with the tracker's state. Lines were lost, so
+      // the tokens generated across the break were not counted and the samples
+      // that straddle it understate a span they claim to measure. Resetting the
+      // clock to 0 makes the next snapshot start the accounting over: the strip
+      // empties and refills, which is what "we lost the stream" looks like.
+      this.#samples.length = 0;
+      this.#pendingTokens = 0;
+      this.#lastSampleAt = 0;
+    }
     this.#lastLogSource = source;
     if (ports === null) return;
     // A model that was unloaded takes its port's slot and task numbering with
@@ -748,9 +837,6 @@ export class LlamaSource implements StewardDataSource {
     const models: ModelInfo[] = [];
     const slots: SlotInfo[] = [];
     let busyTotal = 0;
-    let measuredTotal = 0;
-    /** Any slot, on any model, that could be generating without our knowing how fast. */
-    let unmeasured = false;
     /** Any slot, on any model, whose occupancy we cannot state at all. */
     let uncertain = false;
 
@@ -765,15 +851,14 @@ export class LlamaSource implements StewardDataSource {
       // lanes the log has actually mentioned are all we can honestly draw.
       const count = model.parallel ?? highestSlot(tracked);
 
-      // Every flag below is scoped to THIS model and rolled up afterwards. They
-      // were once declared outside the loop, which quietly made them
+      // Every figure below is scoped to THIS model and rolled up afterwards.
+      // They were once declared outside the loop, which quietly made them
       // dashboard-global: one model with one unresolvable lane then dashed the
       // rate and the request count for every other model on the box, including
       // ones that were perfectly well understood.
       let busy = 0;
       let rate = 0;
       let measured = false;
-      let modelUnmeasured = false;
       let modelUncertain = false;
       for (let id = 0; id < count; id += 1) {
         const state = tracked.get(id);
@@ -789,21 +874,22 @@ export class LlamaSource implements StewardDataSource {
         });
         if (state === undefined || state.state === "unknown") {
           modelUncertain = true;
-          modelUnmeasured = true;
           continue;
         }
         if (state.state !== "processing") continue;
         busy += 1;
-        if (state.rateTps === null) modelUnmeasured = true;
-        else {
+        // A lane generating with no rate reading yet leaves this model's card
+        // dashed — llama.cpp prints no live rate until a generation crosses 100
+        // tokens AND ~3 s, so most requests never have one while they run. It
+        // does not touch the band's throughput, which is measured from completed
+        // tokens rather than from whatever is legible mid-request.
+        if (state.rateTps !== null) {
           rate += state.rateTps;
           measured = true;
         }
       }
 
       busyTotal += busy;
-      measuredTotal += rate;
-      unmeasured = unmeasured || modelUnmeasured;
       uncertain = uncertain || modelUncertain;
       models.push({
         ...model,
@@ -822,13 +908,11 @@ export class LlamaSource implements StewardDataSource {
     return {
       models,
       slots,
-      // Every slot idle IS a measurement, and it reads 0. `null` is reserved for
-      // the case where something might be generating and no rate reading covers
-      // it — llama.cpp only prints a running rate once a generation crosses its
-      // ~3 s interval, so a short request is genuinely unmeasured while it runs.
-      // The alternative is llama.cpp's own `/metrics` gauge, which holds its last
-      // value after generation ends: a number that is no longer true.
-      throughputTps: unmeasured ? null : measuredTotal,
+      // Throughput is not a per-snapshot figure on this path. It is measured
+      // from the tokens the log reports generated, over the wall clock they took
+      // — accounting that spans snapshots and belongs to the source, not to one
+      // read of the slot table.
+      throughputTps: null,
       // A lower bound is not a count. With any slot unknown the honest answer is
       // that we do not know how many requests are in flight.
       requestsInFlight: uncertain ? null : busyTotal,
@@ -1007,9 +1091,57 @@ interface PropsRead {
 interface ModelsAndSlots {
   models: ModelInfo[];
   slots: SlotInfo[];
+  /**
+   * The aggregate rate llama.cpp's `/metrics` gauges reported — the POLLING path
+   * only. The event path answers `null` here: it measures throughput from the
+   * tokens the log says were generated, over the wall clock they took, and that
+   * accounting spans snapshots rather than living inside one (see
+   * {@link LlamaSource.snapshot}).
+   */
   throughputTps: number | null;
   requestsInFlight: number | null;
   requestsQueued: number | null;
+}
+
+/** One closed throughput sample: what was generated in it, and how long it ran. */
+interface ThroughputSample {
+  tokens: number;
+  spanMs: number;
+}
+
+/** The throughput figures one snapshot reports: the tile, the strip, the span. */
+interface ThroughputReading {
+  tps: number | null;
+  history: number[];
+  windowSeconds: number | null;
+}
+
+/** No window has been measured — the tile dashes and the strip is empty. */
+function noThroughput(): ThroughputReading {
+  return { tps: null, history: [], windowSeconds: null };
+}
+
+/**
+ * The tile and the strip for a run of closed samples.
+ *
+ * The tile is the whole window's tokens over the whole window's wall clock —
+ * literally the throughput of the span the strip is showing — and each bar is
+ * its own sample's tokens over its own sample's span. A sample is never assumed
+ * to be nominal length: the snapshot clock is the browser's, so a sample closes
+ * on the first snapshot past the cadence and is a little longer than it, and
+ * dividing by the nominal figure would report a rate the server never reached.
+ */
+function readThroughput(samples: readonly ThroughputSample[]): ThroughputReading {
+  if (samples.length === 0) return noThroughput();
+  let tokens = 0;
+  let spanMs = 0;
+  const history: number[] = [];
+  for (const sample of samples) {
+    tokens += sample.tokens;
+    spanMs += sample.spanMs;
+    history.push(sample.tokens / (sample.spanMs / 1000));
+  }
+  return { tps: tokens / (spanMs / 1000), history, windowSeconds: spanMs / 1000 };
 }
 
 /** Shared empty result for a model whose child port we could not resolve. */

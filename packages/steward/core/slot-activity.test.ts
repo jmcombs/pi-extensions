@@ -62,6 +62,17 @@ const LAUNCH_NEXT =
   "[53093] 736.51.731.799 I slot launch_slot_: id  0 | task 837088 | processing task, is_child = 0";
 const LAUNCH_SLOT1 =
   "[53093] 736.51.731.799 I slot launch_slot_: id  1 | task 837099 | processing task, is_child = 0";
+/* One real long request, whole: the only shape that reports while it runs. */
+const LONG_LAUNCH =
+  "[53093] 713.55.050.803 I slot launch_slot_: id  0 | task 806583 | processing task, is_child = 0";
+const LONG_TG_1 =
+  "[53093] 713.58.130.031 I slot print_timing: id  0 | task 806583 | n_decoded =    370, tg = 123.32 t/s, tg_3s = 123.32 t/s";
+const LONG_TG_2 =
+  "[53093] 714.01.132.691 I slot print_timing: id  0 | task 806583 | n_decoded =    725, tg = 120.77 t/s, tg_3s = 118.23 t/s";
+const LONG_EVAL =
+  "[53093] 714.02.634.554 I slot print_timing: id  0 | task 806583 |        eval time =    7504.81 ms /   900 tokens (    8.34 ms per token,   119.92 tokens per second)";
+const LONG_RELEASE =
+  "[53093] 714.02.634.572 I slot      release: id  0 | task 806583 | stop processing: n_tokens = 977, truncated = 0";
 const PROXY =
   "736.46.930.000 I srv  proxy_reques: proxying request to model gpt-oss-20b on port 53093";
 const BANNER =
@@ -149,6 +160,125 @@ describe("createSlotActivity — occupancy from events", () => {
     // A checkpoint line carries `n_tokens = 61` and must not be read as one.
     activity.observe(line(CHECKPOINT));
     expect(activity.resolve(PORT, T0).get(0)?.promptTokens ?? null).toBeNull();
+  });
+});
+
+describe("createSlotActivity — the generated-token ledger", () => {
+  it("keeps a short request's tokens, which is the only measurement it ever makes", () => {
+    // THE REGRESSION, at its source. This request prints its rate 17 µs before
+    // its release, and it generated 90 tokens — under the 100 llama.cpp needs
+    // before it will print a live rate, which is 99.4% of a real corpus. Sampled
+    // on any clock a dashboard can run, the RATE is unobservable; the COUNT is
+    // still here when the reader arrives.
+    const activity = createSlotActivity();
+    activity.observe(line(LAUNCH));
+    activity.observe(line(PROMPT_EVAL));
+    activity.observe(line(EVAL));
+    activity.observe(line(RELEASE));
+
+    // The rate is gone with the request, exactly as before…
+    expect(activity.resolve(PORT, T0).get(0)?.rateTps).toBeNull();
+    // …and the tokens it generated are not.
+    expect(activity.takeGeneratedTokens()).toBe(90);
+  });
+
+  it("hands each token to exactly one reader", () => {
+    const activity = createSlotActivity();
+    activity.observe(line(LAUNCH));
+    activity.observe(line(EVAL));
+    expect(activity.takeGeneratedTokens()).toBe(90);
+    // Drained. A second reader gets nothing, so no token can be counted into two
+    // windows and no window can be padded by reading twice.
+    expect(activity.takeGeneratedTokens()).toBe(0);
+  });
+
+  it("credits a long request as it decodes, and only the remainder when it ends", () => {
+    // The other half of the corpus: a request long enough for llama.cpp to
+    // report on. Its readouts are cumulative, so they are ledgered by
+    // difference — 370, then 355, then the 175 the last readout never covered.
+    const activity = createSlotActivity();
+    activity.observe(line(LONG_LAUNCH));
+
+    activity.observe(line(LONG_TG_1));
+    expect(activity.takeGeneratedTokens()).toBe(370);
+
+    activity.observe(line(LONG_TG_2));
+    expect(activity.takeGeneratedTokens()).toBe(355);
+
+    activity.observe(line(LONG_EVAL));
+    activity.observe(line(LONG_RELEASE));
+    expect(activity.takeGeneratedTokens()).toBe(175);
+  });
+
+  it("counts a long request exactly once end to end", () => {
+    // The same sequence read in one go: 900 tokens generated, 900 ledgered. A
+    // total that took the `eval time` figure on top of the readouts would say
+    // 1,995 and a sparkline drawn from it would be pure fiction.
+    const activity = createSlotActivity();
+    for (const raw of [LONG_LAUNCH, LONG_TG_1, LONG_TG_2, LONG_EVAL, LONG_RELEASE]) {
+      activity.observe(line(raw));
+    }
+    expect(activity.takeGeneratedTokens()).toBe(900);
+  });
+
+  it("never counts prefill as generation", () => {
+    // `prompt eval time` is the prompt being read, not tokens produced. Counting
+    // it would inflate throughput by the whole prompt on every request.
+    const activity = createSlotActivity();
+    activity.observe(line(LAUNCH));
+    activity.observe(line(PROMPT_EVAL));
+    expect(activity.takeGeneratedTokens()).toBe(0);
+  });
+
+  it("starts a fresh count when the slot changes hands", () => {
+    // Two requests in one lane with the launch between them lost. The second
+    // one's total is its own; subtracting the first's would report a negative
+    // count, and carrying it would report the same tokens twice.
+    const activity = createSlotActivity();
+    activity.observe(line(EVAL));
+    activity.observe(line(LONG_EVAL));
+    expect(activity.takeGeneratedTokens()).toBe(990);
+  });
+
+  it("does not credit the part of a request that ran before Steward attached", () => {
+    // The seed catches a request already in flight and says how far along it is.
+    // Those 725 tokens were generated before anyone here was watching, so only
+    // the 175 that follow belong to a window this Steward is measuring.
+    const activity = createSlotActivity();
+    const stamp = activity.beginSeed(PORT, T0);
+    activity.applySeed(
+      PORT,
+      stamp,
+      [{ slot: 0, state: "processing", promptTokens: 977, decoded: 725 }],
+      T0,
+    );
+    activity.observe(line(LONG_EVAL));
+    expect(activity.takeGeneratedTokens()).toBe(175);
+  });
+
+  it("keeps tokens a model has since unloaded", () => {
+    // The child exited, which makes its slot and task numbering meaningless —
+    // but it does not make the tokens it generated any less generated.
+    const activity = createSlotActivity();
+    activity.observe(line(LAUNCH));
+    activity.observe(line(EVAL));
+    activity.retain([]);
+    expect(activity.takeGeneratedTokens()).toBe(90);
+  });
+
+  it("drops the ledger when the stream is declared discontinuous", () => {
+    // A re-sync takes the per-slot running totals with it, so a request in
+    // flight across the break would have its `eval time` total counted a second
+    // time. Dropping both halves is what stops that.
+    const activity = createSlotActivity();
+    activity.observe(line(LONG_LAUNCH));
+    activity.observe(line(LONG_TG_1));
+    activity.resync();
+    activity.observe(line(LONG_EVAL));
+    activity.observe(line(LONG_RELEASE));
+    // 900 tokens from a request whose first 370 were already counted — the
+    // ledger reports the post-break request whole, and nothing twice.
+    expect(activity.takeGeneratedTokens()).toBe(900);
   });
 });
 

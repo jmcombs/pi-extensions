@@ -52,6 +52,7 @@ import type {
   SlotState,
   Snapshot,
 } from "./types.js";
+import { THROUGHPUT_HISTORY_SIZE, THROUGHPUT_SAMPLE_SECONDS } from "./types.js";
 
 // A model's color is a stable hash of its id (embedders get a reserved hue);
 // re-exported here because it is part of this module's view-model surface.
@@ -400,6 +401,17 @@ export interface SparkVm {
   summary: string;
   /** Height of the dashed average rule, in percent of the plot area. */
   averageLine: number;
+  /**
+   * The left end of the axis — how far back the oldest bar reaches, e.g.
+   * `−134 s`.
+   *
+   * Measured, not nominal. Samples close on the browser's snapshot clock, so a
+   * ~3 s cadence sampled every 1.6 s closes at ~3.2 s and a full 42-bar strip
+   * spans about 134 seconds. A fixed `−2 min` printed under it would be off by
+   * a measured 12%, on the one label whose whole job is to say which slice of
+   * time the operator is looking at.
+   */
+  axisStart: string;
 }
 
 export interface LevelChipVm extends PillVm {
@@ -1312,6 +1324,11 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
   const requestsFill =
     inFlight === null ? 0 : slotTotal > 0 ? inFlight / slotTotal : inFlight > 0 ? 1 : 0;
   const throughput = running ? snapshot.throughputTps : 0;
+  // The window is what the tile is allowed to CLAIM. A source that measured one
+  // says how long it was, and the tile names it; a source that only sampled a
+  // rate gauge reports none, and the tile says nothing about a span it does not
+  // have. A stopped server is not measuring anything either way.
+  const throughputWindow = running ? snapshot.throughputWindowSeconds : null;
 
   return [
     {
@@ -1335,12 +1352,19 @@ function selectKpis(snapshot: Snapshot, now: number): KpiVm[] {
     {
       key: "throughput",
       label: "throughput",
-      // A dash here means a slot is working and no rate reading covers it yet,
-      // which is a different thing from `0` — and `0` is what an idle server
-      // honestly reads, so the two must not share a glyph.
+      // A dash here means no window has been measured — nothing has closed yet,
+      // or the log stream broke and the span cannot be vouched for. That is a
+      // different thing from `0`, which is a window that elapsed with nothing
+      // generated in it, so the two must not share a glyph.
       value: throughput === null ? NO_READING : countLabel(throughput),
       unit: "tok/s",
-      sub: "generation, all slots",
+      // Generation, never prefill — and over the span the figure actually
+      // covers, because "tok/s" beside a live tile reads as "right now" unless
+      // the tile says otherwise. It is the same span the strip below plots.
+      sub:
+        throughputWindow === null
+          ? "generation, all slots"
+          : `generation, last ${Math.round(throughputWindow)} s`,
       color: "var(--latte-mauve)",
       percent: barPercent((throughput ?? 0) / THROUGHPUT_FULL_SCALE),
     },
@@ -1356,6 +1380,12 @@ function selectSpark(snapshot: Snapshot): SparkVm {
     samples.length === 0 ? 0 : samples.reduce((total, v) => total + v, 0) / samples.length;
   const newest = samples.length - 1;
 
+  // A source that measured its window says how far back the bars reach. One that
+  // only sampled a rate gauge measured none, so the axis falls back to the span
+  // the strip is built to hold — the only claim available there.
+  const window = snapshot.throughputWindowSeconds;
+  const nominal = THROUGHPUT_HISTORY_SIZE * THROUGHPUT_SAMPLE_SECONDS;
+
   return {
     bars: samples.map((value, index) => ({
       height: barPercent(value / peak),
@@ -1363,6 +1393,7 @@ function selectSpark(snapshot: Snapshot): SparkVm {
     })),
     summary: `avg ${Math.round(average)} · peak ${Math.round(peak)} tok/s`,
     averageLine: barPercent(average / peak),
+    axisStart: `−${Math.round(window ?? nominal)} s`,
   };
 }
 

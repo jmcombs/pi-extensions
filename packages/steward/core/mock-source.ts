@@ -914,6 +914,10 @@ export function createMockSource(options: MockSourceOptions = {}): MockStewardDa
       throughputTps: running ? throughputTps : 0,
       requestsInFlight,
       throughputHistory: [...throughputHistory],
+      // The simulated series is a shape, not a measurement of any wall clock, so
+      // the mock claims no window and the tile prints none. Inventing one would
+      // put a span on a tile that nothing was ever timed over.
+      throughputWindowSeconds: null,
       requestsQueued: running ? requestsQueued : 0,
       config: [...CONFIG],
     };

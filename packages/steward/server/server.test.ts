@@ -258,6 +258,7 @@ describe("the Steward server", () => {
       "slots",
       "throughputHistory",
       "throughputTps",
+      "throughputWindowSeconds",
     ]);
     expect(snapshot.service.running).toBe(true);
     expect(snapshot.models).toHaveLength(4);

@@ -123,6 +123,9 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     throughputTps: 72,
     requestsInFlight: 2,
     throughputHistory: [40, 60, 80],
+    // A source that measured its window says how long it was; the tile is only
+    // allowed to name a span when one is here.
+    throughputWindowSeconds: 126,
     requestsQueued: 1,
     config: [{ key: "engine", value: "llama-server b6122" }],
     ...overrides,
@@ -834,21 +837,23 @@ describe("KPI tiles", () => {
 
   it("dashes the tiles a log-derived source cannot measure, and never prints 0 for them", () => {
     // Three different unknowns, three dashes. `requests_deferred` has no log
-    // line at all; in flight cannot be counted while a lane is unknown; and a
-    // rate is unmeasured until llama.cpp reports one. Printing `0` for any of
-    // them would claim a quiet server that is in fact working.
+    // line at all; in flight cannot be counted while a lane is unknown; and no
+    // span of wall clock has been measured yet. Printing `0` for any of them
+    // would claim a quiet server that is in fact working.
     const unmeasured = snapshot({
       requestsInFlight: null,
       requestsQueued: null,
       throughputTps: null,
+      throughputWindowSeconds: null,
     });
     const vm = selectDashboard(unmeasured, initialUiState("light"), NOW);
     expect(vm.kpis[1]).toMatchObject({ value: "—", sub: "queued n/a", percent: 0 });
     expect(vm.kpis[2]).toMatchObject({ value: "—", percent: 0 });
   });
 
-  it("still reads 0 throughput when every lane is measured and idle", () => {
-    // The other half of the same rule: idle IS a measurement, and it is 0.
+  it("still reads 0 throughput for a window in which nothing was generated", () => {
+    // The other half of the same rule: a window that elapsed with no tokens in
+    // it IS a measurement, and it is 0.
     const vm = selectDashboard(
       snapshot({ throughputTps: 0, requestsInFlight: 0, requestsQueued: null }),
       initialUiState("light"),
@@ -856,6 +861,50 @@ describe("KPI tiles", () => {
     );
     expect(vm.kpis[1]?.value).toBe("0");
     expect(vm.kpis[2]?.value).toBe("0");
+  });
+
+  it("names the span the throughput figure covers, and claims none when there is none", () => {
+    // "tok/s" beside a live tile reads as "right now" unless the tile says
+    // otherwise, and this figure is an average over a window. So the tile prints
+    // the window — the same one the strip below it plots.
+    const measured = selectDashboard(
+      snapshot({ throughputTps: 18, throughputWindowSeconds: 125.6 }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(measured.kpis[2]).toMatchObject({
+      value: "18",
+      unit: "tok/s",
+      sub: "generation, last 126 s",
+    });
+
+    // A source that only sampled a rate gauge measured no window and must not
+    // have one printed for it.
+    const gauge = selectDashboard(
+      snapshot({ throughputTps: 63.4, throughputWindowSeconds: null }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(gauge.kpis[2]?.sub).toBe("generation, all slots");
+
+    // Neither does a server that is not running.
+    const down = selectDashboard(
+      snapshot({
+        service: {
+          running: false,
+          startedAt: null,
+          pid: null,
+          host: "127.0.0.1",
+          port: 8080,
+          build: "b6122",
+          controls: ["start", "stop", "restart"],
+        },
+        throughputWindowSeconds: 125.6,
+      }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(down.kpis[2]?.sub).toBe("generation, all slots");
   });
 
   it("rounds the throughput a live source reports to the whole number a tile shows", () => {
@@ -895,6 +944,26 @@ describe("throughput history", () => {
     );
     expect(vm.spark.summary).toBe("avg 60 · peak 80 tok/s");
     expect(vm.spark.averageLine).toBe(75);
+  });
+
+  it("labels the axis with the span the bars actually cover", () => {
+    // Samples close on the browser's snapshot clock, so a strip built for two
+    // minutes really spans a little more. The axis says which it is.
+    const measured = selectDashboard(
+      snapshot({ throughputWindowSeconds: 134.4 }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(measured.spark.axisStart).toBe("−134 s");
+
+    // With no measured window there is nothing to report but the span the strip
+    // is built to hold: 42 samples at 3 s.
+    const gauge = selectDashboard(
+      snapshot({ throughputWindowSeconds: null }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(gauge.spark.axisStart).toBe("−126 s");
   });
 
   it("survives an all-zero window without dividing by zero", () => {

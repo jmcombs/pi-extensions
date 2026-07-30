@@ -1,6 +1,10 @@
 /**
- * The throughput-history cell: the last two minutes of tokens/second as bars,
- * with a dashed rule at the window's average.
+ * The throughput-history cell: the window's tokens/second as bars, with a dashed
+ * rule at its average.
+ *
+ * The axis's left end is measured rather than assumed — see {@link SparkVm} —
+ * because samples close on the browser's snapshot clock and a strip built for
+ * two minutes really spans a little more.
  */
 
 import type { SparkVm } from "../../core/select.js";
@@ -20,6 +24,7 @@ export function createSparkline(): View<SparkVm> {
   const summary = el("span", { class: "spark__summary" });
   const average = el("div", { class: "spark__avg" });
   const plot = el("div", { class: "spark__bars" });
+  const axisStart = el("span", { text: "" });
 
   const root = el("div", {
     class: "metric",
@@ -31,7 +36,7 @@ export function createSparkline(): View<SparkVm> {
       el("div", { class: "spark__plot", children: [average, plot] }),
       el("div", {
         class: "spark__axis",
-        children: [el("span", { text: "−2 min" }), el("span", { text: "now" })],
+        children: [axisStart, el("span", { text: "now" })],
       }),
     ],
   });
@@ -40,6 +45,7 @@ export function createSparkline(): View<SparkVm> {
     el: root,
     update(vm) {
       setText(summary, vm.summary);
+      setText(axisStart, vm.axisStart);
       setStyle(average, "bottom", `${vm.averageLine}%`);
       syncRows(plot, bars, vm.bars.length, createBar);
       vm.bars.forEach((bar, index) => {

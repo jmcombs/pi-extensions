@@ -38,6 +38,16 @@
  * generation rate, so the generation rule is anchored to the start of the
  * message where the word `prompt` cannot precede it.
  *
+ * The same lines also say how much the server GENERATED, and that is a different
+ * reading from occupancy. `n_decoded` on a live readout and the `N tokens` an
+ * `eval time` line prints are both counts of tokens produced, so they are
+ * ledgered here as TOKENS rather than kept as a rate. A rate cannot be kept: on
+ * the corpus above, `eval time` is printed 17 microseconds before the `release`
+ * that ends the request, and a reader sampling every 1.6 s can only see a
+ * reading that exists for 17 µs by landing inside it. Tokens survive the gap —
+ * {@link SlotActivity.takeGeneratedTokens} hands each one to exactly one reader,
+ * exactly once — and tokens over wall clock is what throughput means anyway.
+ *
  * What this module deliberately does NOT do is invent the parts the log does not
  * carry. `requests_deferred` — the queue behind the slots — has no log line at
  * all, so nothing here reports it. How many slots a model has and how large each
@@ -163,16 +173,45 @@ export interface SlotActivity {
    */
   resolve(port: number, now: number): ReadonlyMap<number, SlotActivityState>;
   /**
+   * Tokens the log has reported generated since the last call, across every
+   * port, and 0 afterwards — reading the ledger clears it.
+   *
+   * This is a COUNT, not a rate, and it is drained rather than read for a
+   * reason. The rate a completed request prints exists for the 17 microseconds
+   * between its `eval time` line and its `release`; a sampler on any realistic
+   * clock will miss it, and a sampler that held it instead would be showing a
+   * finished request's speed as if it were the server's current one. A count
+   * cannot go stale and cannot be double-counted: whichever reader asks next
+   * gets the tokens, and no later reader gets them again.
+   *
+   * Both readings feed it, so nothing is counted twice and nothing is missed. A
+   * long request's live `n_decoded` readouts are ledgered as they arrive, by
+   * difference, and its `eval time` total contributes only the tail that no
+   * readout covered. A short request — 99.4% of one measured 16,517-request
+   * corpus generated under 100 tokens, below llama.cpp's live-readout threshold
+   * — has no readouts at all, so its `eval time` total is the whole of it.
+   */
+  takeGeneratedTokens(): number;
+  /**
    * Forgets every port not in `ports` — a child that exited. Its slot ids and
    * task ids belong to a process that no longer exists, and a model reloaded on
    * a fresh port must not inherit them.
+   *
+   * The token ledger is NOT touched: those tokens were generated, and the model
+   * having since unloaded does not make that less true.
    */
   retain(ports: Iterable<number>): void;
   /**
-   * Declares the event stream discontinuous: every slot goes `unknown` and every
-   * port becomes eligible to be seeded again. For a tailer that reconnected, a
-   * log file that came back, or any other break across which state cannot be
-   * carried.
+   * Declares the event stream discontinuous: every slot goes `unknown`, every
+   * port becomes eligible to be seeded again, and the token ledger is dropped.
+   * For a tailer that reconnected, a log file that came back, or any other break
+   * across which state cannot be carried.
+   *
+   * The ledger goes with it because the per-slot running totals go with it. A
+   * request in flight across the break would otherwise report its `eval time`
+   * total against a slot that no longer remembers how much of it was already
+   * counted, and the tokens counted before the break would be counted a second
+   * time after it. Dropping both halves is the only answer that invents nothing.
    */
   resync(): void;
 }
@@ -226,6 +265,13 @@ interface SlotRecord {
   promptTokens: number | null;
   decoded: number | null;
   rateTps: number | null;
+  /**
+   * Tokens of the request CURRENTLY in this slot that the ledger has already
+   * been given, so a second reading of the same request contributes only what is
+   * new. Reset every time the slot changes hands, which is what stops one
+   * request's total being subtracted from the next one's.
+   */
+  counted: number;
   /** `seq` of the last log line that spoke for this slot; 0 when only seeded. */
   lastSeq: number;
   /** When this record was last established, for the staleness bound. */
@@ -249,6 +295,7 @@ function blankRecord(now: number): SlotRecord {
     promptTokens: null,
     decoded: null,
     rateTps: null,
+    counted: 0,
     lastSeq: 0,
     updatedAt: now,
   };
@@ -277,6 +324,9 @@ export function createSlotActivity(): SlotActivity {
   /** The highest `seq` folded in, so a seed read can be stamped against it. */
   let watermark = 0;
 
+  /** Tokens reported since the ledger was last drained. See {@link SlotActivity.takeGeneratedTokens}. */
+  let generated = 0;
+
   function port(number: number): PortRecord {
     const existing = ports.get(number);
     if (existing !== undefined) return existing;
@@ -297,6 +347,32 @@ export function createSlotActivity(): SlotActivity {
     const created = blankRecord(now);
     record.slots.set(id, created);
     return created;
+  }
+
+  /**
+   * Ledgers the part of `total` this slot has not been credited with yet.
+   *
+   * Every reading llama.cpp prints is cumulative FOR ITS REQUEST — `n_decoded`
+   * counts up while the request runs and `eval time`'s token count is where it
+   * finished — so the ledger takes differences, never the figure itself. A
+   * reading for a task other than the one the slot was following starts a fresh
+   * count rather than a negative one: that happens when a `launch` was lost, and
+   * the new request's tokens are its own, not this slot's previous request's.
+   *
+   * A slot holding NO task is left alone, because that is the seed's state: a
+   * `/slots` read says how far along a request is without naming it, and its
+   * figure is exactly the part of the request that must not be counted. Treating
+   * "no task named" as "a different task" would throw that credit away and hand
+   * the whole of a request Steward watched only the end of to one window.
+   *
+   * `total` moving backwards or not moving contributes nothing, so a repeated or
+   * out-of-order line can only ever add zero.
+   */
+  function count(entry: SlotRecord, task: number, total: number | null): void {
+    if (entry.task !== null && entry.task !== task) entry.counted = 0;
+    if (total === null || total <= entry.counted) return;
+    generated += total - entry.counted;
+    entry.counted = total;
   }
 
   /**
@@ -361,6 +437,7 @@ export function createSlotActivity(): SlotActivity {
         entry.task = null;
         entry.decoded = null;
         entry.rateTps = null;
+        entry.counted = 0;
         entry.lastSeq = line.seq;
         entry.updatedAt = line.ts;
         return;
@@ -375,6 +452,7 @@ export function createSlotActivity(): SlotActivity {
         entry.task = frame.task;
         entry.decoded = null;
         entry.rateTps = null;
+        entry.counted = 0;
         entry.lastSeq = line.seq;
         entry.updatedAt = line.ts;
         return;
@@ -390,6 +468,11 @@ export function createSlotActivity(): SlotActivity {
         entry.promptTokens = toNumber(RELEASE_TOKENS.exec(message)?.[1]) ?? entry.promptTokens;
         entry.decoded = null;
         entry.rateTps = null;
+        // The request is over and its tokens are already in the ledger — the
+        // `eval time` line that precedes this one by microseconds put them
+        // there. What resets is only the running total, so the next request in
+        // this slot is counted from zero.
+        entry.counted = 0;
         entry.lastSeq = line.seq;
         entry.updatedAt = line.ts;
         return;
@@ -404,9 +487,13 @@ export function createSlotActivity(): SlotActivity {
         // A running readout is also proof of occupancy: whatever we thought, this
         // slot is generating right now, on this task.
         const entry = slot(record, frame.slot, line.ts);
+        const total = toNumber(decoded[1]);
+        // Ledgered before the task is stamped on: `count` needs to know whether
+        // this reading continues the request the slot was already following.
+        count(entry, frame.task, total);
         entry.state = "processing";
         entry.task = frame.task;
-        entry.decoded = toNumber(decoded[1]);
+        entry.decoded = total;
         entry.rateTps = toNumber(tg[1]);
         entry.lastSeq = line.seq;
         entry.updatedAt = line.ts;
@@ -418,11 +505,16 @@ export function createSlotActivity(): SlotActivity {
         // The completed request's own rate, printed microseconds before its
         // release. It counts while the slot is still holding the task and is
         // cleared by the release that follows — it is never carried into the
-        // next request, or into the idle gap after this one.
+        // next request, or into the idle gap after this one. The TOKENS on the
+        // same line outlive it: they go to the ledger, where the throughput the
+        // dashboard reports is measured from tokens over wall clock rather than
+        // from a rate that only exists for the microseconds before the release.
         const entry = slot(record, frame.slot, line.ts);
+        const total = toNumber(timing[1]);
+        count(entry, frame.task, total);
         entry.state = "processing";
         entry.task = frame.task;
-        entry.decoded = toNumber(timing[1]);
+        entry.decoded = total;
         entry.rateTps = toNumber(timing[2]);
         entry.lastSeq = line.seq;
         entry.updatedAt = line.ts;
@@ -504,6 +596,12 @@ export function createSlotActivity(): SlotActivity {
         entry.task = null;
         entry.promptTokens = seeded.promptTokens;
         entry.decoded = seeded.decoded;
+        // A request already in flight when Steward attached has generated tokens
+        // nobody here watched it generate. Crediting the seed's `n_decoded` as
+        // already counted is what stops its eventual `eval time` total landing
+        // in the ledger as if every one of those tokens had been produced in the
+        // window that happened to catch the end of it.
+        entry.counted = seeded.decoded ?? 0;
         // A rate is never seeded: `/slots` does not carry one, and the
         // `/metrics` gauge that does holds its last value after generation ends,
         // which is exactly the stale number this change exists to stop showing.
@@ -533,6 +631,12 @@ export function createSlotActivity(): SlotActivity {
       return resolved;
     },
 
+    takeGeneratedTokens(): number {
+      const total = generated;
+      generated = 0;
+      return total;
+    },
+
     retain(keep: Iterable<number>): void {
       const live = new Set(keep);
       for (const number of [...ports.keys()]) {
@@ -541,6 +645,7 @@ export function createSlotActivity(): SlotActivity {
     },
 
     resync(): void {
+      generated = 0;
       for (const record of ports.values()) {
         record.seeded = false;
         record.seedAttempts = 0;

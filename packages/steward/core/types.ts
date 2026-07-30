@@ -339,17 +339,42 @@ export interface Snapshot {
    */
   drift: DriftState;
   /**
-   * Aggregate generation rate across all slots, tokens/second, or `null` when
-   * it could not be measured.
+   * Tokens generated per second of wall clock over {@link
+   * throughputWindowSeconds}, across all slots — or `null` when no window has
+   * been measured.
    *
-   * Every slot idle is a measurement, and its value is `0`. `null` means the
-   * opposite: at least one slot IS generating and no rate reading has arrived
-   * for any of them — llama.cpp only prints a running rate once a generation
-   * crosses its ~3 s reporting interval, so a short request is genuinely
-   * unmeasured while it runs. Holding the previous request's figure over that
-   * gap would show a number that stopped being true.
+   * This is throughput in the ordinary sense: what the server produced, divided
+   * by the time it had to produce it. It is NOT the speed of whatever request is
+   * running at this instant, and on a real box the two are nowhere near each
+   * other, because most of the wall clock has no request in it at all. A model's
+   * own live speed is still reported per model, on the model that is generating
+   * — see {@link ModelInfo.tokensPerSecond} — because "how fast is this request
+   * going" is a real question; it is just not one a box-wide tile can answer for
+   * a box that is idle nine seconds in ten.
+   *
+   * Reporting the instant instead was tried and is what this replaced. llama.cpp
+   * prints a live rate only once a generation passes 100 tokens AND ~3 s, and on
+   * a measured 16,517-request corpus 99.4% of requests never reached that, so
+   * the only rate they ever produced was the one on the `eval time` line their
+   * `release` follows 17 microseconds later. Sampled every 1.6 s, that tile read
+   * `0` while idle and `—` while busy and never once read the truth.
+   *
+   * `0` is a measurement — the window elapsed and nothing was generated in it.
+   * `null` is the absence of one: no window has closed yet, or the event stream
+   * broke and the span that window would cover cannot be vouched for.
    */
   throughputTps: number | null;
+  /**
+   * The wall clock {@link throughputTps} and {@link throughputHistory} cover, in
+   * seconds — the span the strip is showing, which grows to ~2 minutes and then
+   * rolls.
+   *
+   * `null` when the figure is not a window measurement at all: a Steward with no
+   * log source cannot count tokens and samples llama.cpp's own rate gauge
+   * instead, and the mock invents a series outright. The tile reads this to know
+   * which claim it is allowed to print beside the number.
+   */
+  throughputWindowSeconds: number | null;
   /**
    * Requests being processed across all slots right now, or `null` when any
    * slot's occupancy is {@link SlotState} `unknown` and the true count can only
@@ -361,10 +386,16 @@ export interface Snapshot {
   /**
    * Rolling tok/s samples, oldest first. 42 samples ≈ 2 minutes.
    *
-   * Only measured values are appended: a tick whose {@link throughputTps} was
-   * `null` contributes no sample rather than a fabricated `0`, so the window can
-   * span slightly more than its nominal two minutes after a burst of short
-   * requests.
+   * Each sample is its own span's tokens over its own span's wall clock, so a
+   * sample of `0` says the server generated nothing in those ~3 seconds — a
+   * measurement, and the shape of intermittent traffic is exactly what makes the
+   * strip worth drawing. An empty array means no span can be vouched for yet,
+   * which is what the strip shows after a restart or a break in the log.
+   *
+   * On a Steward with no log source the samples are gauge readings instead, and
+   * only measured ones are appended: a tick that could not be read contributes
+   * no sample rather than a fabricated `0`. {@link throughputWindowSeconds} is
+   * `null` there, and the axis is the only thing claiming a span.
    */
   throughputHistory: number[];
   /**

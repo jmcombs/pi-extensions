@@ -1205,6 +1205,24 @@ describe("LlamaSource — slots from the log", () => {
     "[53093] 736.47.702.201 I slot print_timing: id  0 | task 836989 |        eval time =     697.41 ms /    90 tokens (    7.75 ms per token,   129.05 tokens per second)";
   const RELEASE =
     "[53093] 736.47.702.218 I slot      release: id  0 | task 836989 | stop processing: n_tokens = 163, truncated = 0";
+  /* A second short request, verbatim, so two of them can be told apart. */
+  const LAUNCH_NEXT =
+    "[53093] 0.10.212.424 I slot launch_slot_: id  0 | task 93 | processing task, is_child = 0";
+  const EVAL_NEXT =
+    "[53093] 0.11.163.297 I slot print_timing: id  0 | task 93 |        eval time =     877.77 ms /    90 tokens (    9.75 ms per token,   102.53 tokens per second)";
+  const RELEASE_NEXT =
+    "[53093] 0.11.163.334 I slot      release: id  0 | task 93 | stop processing: n_tokens = 165, truncated = 0";
+  /* One request long enough for llama.cpp to report on while it runs. */
+  const LONG_LAUNCH =
+    "[53093] 713.55.050.803 I slot launch_slot_: id  0 | task 806583 | processing task, is_child = 0";
+  const LONG_TG_1 =
+    "[53093] 713.58.130.031 I slot print_timing: id  0 | task 806583 | n_decoded =    370, tg = 123.32 t/s, tg_3s = 123.32 t/s";
+  const LONG_TG_2 =
+    "[53093] 714.01.132.691 I slot print_timing: id  0 | task 806583 | n_decoded =    725, tg = 120.77 t/s, tg_3s = 118.23 t/s";
+  const LONG_EVAL =
+    "[53093] 714.02.634.554 I slot print_timing: id  0 | task 806583 |        eval time =    7504.81 ms /   900 tokens (    8.34 ms per token,   119.92 tokens per second)";
+  const LONG_RELEASE =
+    "[53093] 714.02.634.572 I slot      release: id  0 | task 806583 | stop processing: n_tokens = 977, truncated = 0";
 
   /** A tailer the test drives by hand, one real log line at a time. */
   function liveTailer(): LogTailer & {
@@ -1323,7 +1341,9 @@ describe("LlamaSource — slots from the log", () => {
       const before = await source.snapshot();
       expect(before.slots.map((slot) => slot.state)).toEqual(["idle", "idle"]);
       expect(before.requestsInFlight).toBe(0);
-      expect(before.throughputTps).toBe(0);
+      // Occupancy is known from the first snapshot; throughput is not, because
+      // no span of wall clock has been measured yet. A dash, never a 0.
+      expect(before.throughputTps).toBeNull();
 
       logTail.emit(SELECT);
       logTail.emit(LAUNCH);
@@ -1346,45 +1366,164 @@ describe("LlamaSource — slots from the log", () => {
     }
   });
 
-  it("reports throughput live while busy and exactly 0 between requests", async () => {
+  it("counts a completed short request into the window it landed in", async () => {
+    // THE REGRESSION. This request generates 90 tokens in 0.77 s and prints its
+    // rate 17 microseconds before its release, so on the 1.6 s snapshot clock
+    // the rate is never observable — and 90 tokens is under the 100 llama.cpp
+    // needs before it prints a live one, which is 99.4% of a real corpus. Read
+    // as a rate, this request is invisible and the tile reads 0 → dash → 0
+    // forever. Read as tokens over wall clock, it is 90 tokens in a 3 s window.
+    let clock = FIXED_NOW;
     const logTail = liveTailer();
     const source = new LlamaSource({
       connection: CONNECTION,
-      fallback: createFallback(),
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      // The first snapshot starts the accounting: nothing has been timed yet, so
+      // the tile dashes rather than claiming a quiet server.
+      const opening = await source.snapshot();
+      expect(opening.throughputTps).toBeNull();
+      expect(opening.throughputHistory).toEqual([]);
+      expect(opening.throughputWindowSeconds).toBeNull();
+
+      // The whole request — both edges — lands between two snapshots.
+      logTail.emit(LAUNCH);
+      logTail.emit(EVAL);
+      logTail.emit(RELEASE);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+
+      const measured = await source.snapshot();
+      expect(measured.throughputHistory).toEqual([30]);
+      expect(measured.throughputTps).toBeCloseTo(30, 6);
+      expect(measured.throughputWindowSeconds).toBeCloseTo(3, 6);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("still reports a long request while it is running", async () => {
+    // The 1.4% of requests llama.cpp does report on: past 100 tokens and ~3 s it
+    // prints a running readout, and those tokens are counted as they are
+    // decoded rather than waiting for the request to end. The model's own card
+    // still shows the live RATE, which is the question a single model can
+    // answer — it is the box-wide tile that cannot.
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      logTail.emit(LONG_LAUNCH);
+
+      // 370 tokens decoded and reported, while the request is still going.
+      logTail.emit(LONG_TG_1);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      const running = await source.snapshot();
+      expect(running.throughputHistory).toEqual([370 / 3]);
+      expect(running.models[0]?.status).toBe("active");
+      expect(running.models[0]?.tokensPerSecond).toBeCloseTo(123.32, 2);
+
+      // The next readout is cumulative; only the 355 it added are new.
+      logTail.emit(LONG_TG_2);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      expect((await source.snapshot()).throughputHistory).toEqual([370 / 3, 355 / 3]);
+
+      // And the end of the request contributes only the 175 no readout covered.
+      logTail.emit(LONG_EVAL);
+      logTail.emit(LONG_RELEASE);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      const done = await source.snapshot();
+      expect(done.throughputHistory).toEqual([370 / 3, 355 / 3, 175 / 3]);
+      // 900 tokens over the 9 s they took, and not one of them counted twice.
+      expect(done.throughputTps).toBeCloseTo(100, 6);
+      expect(done.throughputWindowSeconds).toBeCloseTo(9, 6);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("reads a genuinely idle window as 0, and advances the strip while it does", async () => {
+    // Idle IS a measurement here: the window elapsed and the server generated
+    // nothing in it. That is what makes the strip a picture of intermittent
+    // traffic rather than a row of gaps — and the sample count is what proves it
+    // is still advancing rather than frozen at whatever it last managed to read.
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      for (let tick = 0; tick < 3; tick += 1) {
+        clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+        await source.snapshot();
+      }
+      const quiet = await source.snapshot();
+      expect(quiet.throughputHistory).toEqual([0, 0, 0]);
+      expect(quiet.throughputTps).toBe(0);
+      expect(quiet.throughputWindowSeconds).toBeCloseTo(9, 6);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("never carries one request's tokens into a later window", async () => {
+    // The instinct behind the regression was right: a finished request's figure
+    // must not sit on the tile through the idle gap after it. It does not — the
+    // tokens go into the window they were reported in and the next window starts
+    // empty. A held value would draw [30, 30, 30] here.
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
       fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
       logTail,
     });
     try {
       await source.snapshot();
 
-      // Launched, but nothing has reported a rate yet. Unmeasured is not zero,
-      // and it is not last time's number either.
       logTail.emit(LAUNCH);
-      const opening = await source.snapshot();
-      expect(opening.throughputTps).toBeNull();
-      expect(opening.models[0]?.tokensPerSecond).toBeNull();
-
       logTail.emit(EVAL);
-      const measured = await source.snapshot();
-      expect(measured.throughputTps).toBeCloseTo(129.05, 2);
-      expect(measured.models[0]?.tokensPerSecond).toBeCloseTo(129.05, 2);
-
-      // Idle is a measurement, and its value is 0 — never the rate that request
-      // finished at.
       logTail.emit(RELEASE);
-      const idle = await source.snapshot();
-      expect(idle.throughputTps).toBe(0);
-      expect(idle.models[0]?.tokensPerSecond).toBeNull();
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      await source.snapshot();
+
+      // A silent window, then another request: 90 tokens, once, in the window
+      // they were generated in.
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      await source.snapshot();
+      logTail.emit(LAUNCH_NEXT);
+      logTail.emit(EVAL_NEXT);
+      logTail.emit(RELEASE_NEXT);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      const third = await source.snapshot();
+
+      expect(third.throughputHistory).toEqual([30, 0, 30]);
+      // 180 tokens over the 9 s the strip covers — the box's real duty cycle,
+      // and nowhere near the 129 t/s either request generated at.
+      expect(third.throughputTps).toBeCloseTo(20, 6);
     } finally {
       source.close();
     }
   });
 
-  it("appends no sparkline sample for a tick it could not measure", async () => {
-    // Asserted by LENGTH, on a clock that really is advancing past the sample
-    // cadence. The obvious assertion — that every sample is a finite number —
-    // is vacuous: it passes just as happily for the fabricated `0` this is
-    // supposed to prove was never appended.
+  it("drops a window that has aged out of the span the strip claims to show", async () => {
+    // Left alone, the last bars would sit there indefinitely under an axis that
+    // says "the last two minutes" — the held-stale-value dishonesty this change
+    // removed from the number, relocated into the chart. The tokens banked
+    // across the gap go with them: they cover an unknown stretch of wall clock,
+    // and piling them into the next bar would draw a spike that never happened.
     let clock = FIXED_NOW;
     const logTail = liveTailer();
     const source = new LlamaSource({
@@ -1394,52 +1533,90 @@ describe("LlamaSource — slots from the log", () => {
       logTail,
     });
     try {
-      const idle = await source.snapshot();
-      expect(idle.throughputHistory).toHaveLength(1);
-
-      // A measurable tick, a full sample interval later, appends.
+      await source.snapshot();
       clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
-      const second = await source.snapshot();
-      expect(second.throughputHistory).toHaveLength(2);
-
-      // An unmeasurable one, the same interval later again, does not.
-      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
-      logTail.emit(LAUNCH);
-      const unmeasured = await source.snapshot();
-      expect(unmeasured.throughputTps).toBeNull();
-      expect(unmeasured.throughputHistory).toHaveLength(2);
-    } finally {
-      source.close();
-    }
-  });
-
-  it("drops a sparkline history that has aged out of the window it claims to show", async () => {
-    // Skipping unmeasurable ticks is not enough on its own: left alone, the last
-    // bars sit there indefinitely under an axis that says "the last two
-    // minutes". That is the held-stale-value dishonesty this change removed from
-    // the throughput number, relocated into the chart.
-    let clock = FIXED_NOW;
-    const logTail = liveTailer();
-    const source = new LlamaSource({
-      connection: CONNECTION,
-      fallback: createFallback({ now: () => clock }),
-      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
-      logTail,
-    });
-    try {
       expect((await source.snapshot()).throughputHistory).toHaveLength(1);
 
-      // More than a full window passes, and then a request opens that never
-      // reports a rate, so this tick is unmeasurable. (The launch is stamped at
-      // the current clock on purpose: an event older than the staleness bound
-      // would resolve to `unknown` and be re-established by the seed, which is a
-      // different mechanism and not what this test is about.)
+      // Nobody asked for a snapshot for longer than the window itself — a closed
+      // tab, a laptop asleep — and a request completed in the meantime.
       clock += THROUGHPUT_HISTORY_SIZE * THROUGHPUT_SAMPLE_SECONDS * 1000 + 1;
       logTail.emit(LAUNCH, clock);
+      logTail.emit(EVAL, clock);
+      logTail.emit(RELEASE, clock);
       const stale = await source.snapshot();
-      expect(stale.throughputTps).toBeNull();
-      // Empty is what "nothing was measured recently" looks like.
+      // Empty is what "no span we can vouch for" looks like.
       expect(stale.throughputHistory).toEqual([]);
+      expect(stale.throughputTps).toBeNull();
+      expect(stale.throughputWindowSeconds).toBeNull();
+
+      // And the strip refills from now, rather than resuming an old window.
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      expect((await source.snapshot()).throughputHistory).toEqual([0]);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("empties the strip when the log stream breaks under it", async () => {
+    // A break means lines were lost, so the tokens generated across it were
+    // never counted and any sample straddling it understates a span it claims to
+    // measure. The window is not carried across; it starts again.
+    let clock = FIXED_NOW;
+    const logTail = liveTailer();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({ models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)) }),
+      logTail,
+    });
+    try {
+      await source.snapshot();
+      logTail.emit(LAUNCH);
+      logTail.emit(EVAL);
+      logTail.emit(RELEASE);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      expect((await source.snapshot()).throughputHistory).toEqual([30]);
+
+      logTail.setSource("missing");
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      const broken = await source.snapshot();
+      expect(broken.throughputHistory).toEqual([]);
+      expect(broken.throughputTps).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("samples the rate gauge instead when there is no log to count tokens", async () => {
+    // The polling path, which cannot count tokens: `/metrics` prints its token
+    // counter to five significant figures, so a 90-token request is as likely to
+    // read 0 as 100. It samples llama.cpp's rate gauge exactly as it always did,
+    // and reports NO window — which is how the tile knows not to claim one.
+    let clock = FIXED_NOW;
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback({ now: () => clock }),
+      fetch: routerFetch({
+        models: () => Promise.resolve(jsonResponse(200, PORTED_BODY)),
+        slots: () => Promise.resolve(jsonResponse(200, BUSY_SLOTS)),
+      }),
+    });
+    try {
+      const first = await source.snapshot();
+      expect(first.throughputTps).toBeCloseTo(63.42, 2);
+      expect(first.throughputHistory).toEqual([63.42]);
+      expect(first.throughputWindowSeconds).toBeNull();
+
+      // Sampling is paced by the clock, not by the call count, so a second
+      // browser polling does not fill the strip twice as fast.
+      expect((await source.snapshot()).throughputHistory).toHaveLength(1);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      expect((await source.snapshot()).throughputHistory).toHaveLength(2);
+
+      // And a history older than the window it claims is dropped rather than
+      // shown, here exactly as on the event path.
+      clock += THROUGHPUT_HISTORY_SIZE * THROUGHPUT_SAMPLE_SECONDS * 1000 + 1;
+      expect((await source.snapshot()).throughputHistory).toEqual([63.42]);
     } finally {
       source.close();
     }
@@ -1486,9 +1663,15 @@ describe("LlamaSource — slots from the log", () => {
       clock = FIXED_NOW + SLOT_STALE_MS + 1;
       const lost = await source.snapshot();
       expect(lost.slots[0]?.state).toBe("unknown");
-      // A lower bound is not a count, and a maybe-generating lane is not 0 t/s.
+      // A lower bound is not a count: with a lane unspoken for, the number of
+      // requests in flight can only be guessed at, so it dashes.
       expect(lost.requestsInFlight).toBeNull();
-      expect(lost.throughputTps).toBeNull();
+      // Throughput is not a claim about lanes, so it does not dash with them. It
+      // is the tokens the log reported over the wall clock it reported them in,
+      // and a lane nobody has heard from has reported none — which is what this
+      // window honestly measured. (It does dash when the STREAM breaks, because
+      // then the window itself cannot be vouched for.)
+      expect(lost.throughputTps).toBe(0);
     } finally {
       source.close();
     }
@@ -1541,10 +1724,11 @@ describe("LlamaSource — slots from the log", () => {
       architecture: { output_modalities: ["text"] },
       meta: { ftype: "Q4_0", size: 1, n_ctx: 4096 },
     };
+    let clock = FIXED_NOW;
     const logTail = liveTailer();
     const source = new LlamaSource({
       connection: CONNECTION,
-      fallback: createFallback(),
+      fallback: createFallback({ now: () => clock }),
       fetch: routerFetch({
         models: () =>
           Promise.resolve(jsonResponse(200, { object: "list", data: [PORTED_MODEL, SECOND] })),
@@ -1567,10 +1751,19 @@ describe("LlamaSource — slots from the log", () => {
       // And M3 claims nothing it cannot support.
       expect(opaque?.status).toBe("resident");
       expect(opaque?.tokensPerSecond).toBeNull();
-      // The dashboard-wide totals stay null, which is correct — an unknown lane
-      // really might be generating — but that is now the only thing M3 costs.
-      expect(snapshot.throughputTps).toBeNull();
+      // In-flight requests still dash, which is correct — an unknown lane really
+      // might be holding one — and that is now the ONLY thing M3 costs.
       expect(snapshot.requestsInFlight).toBeNull();
+
+      // Throughput is not a claim about lanes: it is the tokens the log reported
+      // over the wall clock it reported them in, and M1's 90 are just as
+      // measured with an opaque model sitting beside it.
+      logTail.emit(RELEASE);
+      clock += THROUGHPUT_SAMPLE_SECONDS * 1000;
+      const windowed = await source.snapshot();
+      expect(windowed.throughputHistory).toEqual([30]);
+      expect(windowed.throughputTps).toBeCloseTo(30, 6);
+      expect(windowed.requestsInFlight).toBeNull();
     } finally {
       source.close();
     }
