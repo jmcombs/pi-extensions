@@ -12,6 +12,7 @@ import {
   driftAnnouncement,
   foldAnnouncement,
   LOG_RENDER_LIMIT,
+  SERVICE_STATE_PRESENTATION,
   selectDashboard,
   selectLogExportSummary,
   selectLogText,
@@ -159,9 +160,9 @@ function stoppedService(): ServiceInfo {
 describe("service block", () => {
   it("reads as started and folds the router facts onto the VM", () => {
     const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
-    expect(vm.service.running).toBe(true);
+    expect(vm.service.state).toBe("up");
     expect(vm.service.statusLabel).toBe("started");
-    expect(vm.service.statusColor).toBe("var(--success)");
+    expect(vm.service.statusDotColor).toBe("var(--success)");
     // Uptime and pid are the metrics band's tile now, not the rail — the block
     // carries only state and the folded-in CONFIG rows.
     expect(vm.service).not.toHaveProperty("runtimeLine");
@@ -181,8 +182,21 @@ describe("service block", () => {
       },
     });
     const vm = selectDashboard(down, initialUiState("light"), NOW);
+    expect(vm.service.state).toBe("down");
     expect(vm.service.statusLabel).toBe("stopped");
-    expect(vm.service.statusColor).toBe("var(--error)");
+    expect(vm.service.statusDotColor).toBe("var(--error)");
+  });
+
+  it("gives all three states their own word, so the chip never rests on hue", () => {
+    // The dot's SHAPE is the stylesheet's job (one rule per `data-state`); the
+    // WORD is this module's, and it is the signal that survives a screen reader,
+    // a monochrome display and a printout.
+    const words = Object.values(SERVICE_STATE_PRESENTATION).map((state) => state.label);
+    expect(words).toEqual(["started", "stopped", "not connected"]);
+    expect(new Set(words).size).toBe(words.length);
+    // A machine that was never set up is the expected first state, not a
+    // failure, so it is neutral rather than red.
+    expect(SERVICE_STATE_PRESENTATION.unknown.dotColor).toBe("var(--text-muted)");
   });
 
   it("reports the current theme mode in the toggle glyph and label", () => {
@@ -525,6 +539,96 @@ describe("host gauges", () => {
     );
     expect(vm.gauges.map((g) => g.key)).toEqual(["vram", "gpu", "ram", "cpu"]);
     expect(vm.gauges.some((g) => g.value.includes("°F"))).toBe(false);
+  });
+
+  it("marks exactly the temperature rows, and nothing else", () => {
+    const vm = selectDashboard(snapshot(), initialUiState("light"), NOW);
+    expect(vm.gauges.filter((g) => g.temperature).map((g) => g.key)).toEqual([
+      "gpu-temp",
+      "cpu-temp",
+    ]);
+  });
+});
+
+describe("the temperature-unit control", () => {
+  it("is absent when this machine reports no temperature at all", () => {
+    // Absent, never disabled: with no temperature row on screen the control
+    // would provably change nothing, and a label that promises an effect it
+    // cannot have is the same offence as a wrong count.
+    const s = snapshot();
+    const vm = selectDashboard(
+      snapshot({ metrics: { ...s.metrics, gpuTempC: null, cpuTempC: null } }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.gauges.some((g) => g.temperature)).toBe(false);
+    expect(vm.temperature).toBeNull();
+  });
+
+  it("renders as soon as ONE temperature row survives", () => {
+    const s = snapshot();
+    const vm = selectDashboard(
+      snapshot({ metrics: { ...s.metrics, gpuTempC: Number.NaN } }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(vm.gauges.map((g) => g.key)).toContain("cpu-temp");
+    expect(vm.temperature).not.toBeNull();
+  });
+
+  it("labels the mode, not the resolved unit, and cycles auto → °C → °F → auto", () => {
+    const control = (
+      preference: "auto" | "celsius" | "fahrenheit",
+      unit: "celsius" | "fahrenheit",
+    ) => selectDashboard(snapshot(), initialUiState("light", unit, preference), NOW).temperature;
+
+    const auto = control("auto", "celsius");
+    expect(auto?.label).toBe("auto");
+    expect(auto?.next).toBe("celsius");
+
+    const celsius = control("celsius", "celsius");
+    expect(celsius?.label).toBe("°C");
+    expect(celsius?.next).toBe("fahrenheit");
+
+    const fahrenheit = control("fahrenheit", "fahrenheit");
+    expect(fahrenheit?.label).toBe("°F");
+    expect(fahrenheit?.next).toBe("auto");
+  });
+
+  it("names the unit `auto` actually resolved to, since the label cannot", () => {
+    // `auto` spends its four characters on the mode; the accessible name is
+    // where the operator finds out which unit that mode picked for them.
+    const metric = selectDashboard(snapshot(), initialUiState("light", "celsius"), NOW).temperature;
+    expect(metric?.ariaLabel).toBe(
+      "Temperature unit: automatic — °C from your browser region. Switch to always °C.",
+    );
+    const imperial = selectDashboard(
+      snapshot(),
+      initialUiState("light", "fahrenheit"),
+      NOW,
+    ).temperature;
+    expect(imperial?.ariaLabel).toContain("°F from your browser region");
+    // The hover text says the same thing the accessible name does.
+    expect(imperial?.title).toBe(imperial?.ariaLabel);
+  });
+
+  it("relabels the gauges when a press is reduced, and moves nothing else", () => {
+    let ui = initialUiState("light");
+    const before = selectDashboard(snapshot(), ui, NOW);
+    expect(before.temperature?.label).toBe("auto");
+    expect(before.gauges[2]?.value).toBe("64°C");
+
+    // Two presses: auto → °C → °F, exactly what the button dispatches.
+    ui = reduce(ui, { type: "temperature/unit", preference: "celsius", unit: "celsius" });
+    ui = reduce(ui, { type: "temperature/unit", preference: "fahrenheit", unit: "fahrenheit" });
+
+    const after = selectDashboard(snapshot(), ui, NOW);
+    expect(after.temperature?.label).toBe("°F");
+    expect(after.temperature?.next).toBe("auto");
+    expect(after.gauges[2]?.value).toBe("147°F");
+    // The bar and its verdict are computed from Celsius and must not have moved.
+    expect(after.gauges[2]?.percent).toBe(before.gauges[2]?.percent);
+    expect(after.gauges[2]?.color).toBe(before.gauges[2]?.color);
   });
 });
 

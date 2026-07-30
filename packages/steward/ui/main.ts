@@ -69,7 +69,12 @@ const main = document.getElementById("steward-main");
 const status = document.getElementById("steward-status");
 if (rail === null || main === null) throw new Error("Steward: the page shell is missing.");
 
-let ui: UiState = initialUiState(readTheme(), applyTemperature(readTemperaturePreference()));
+const storedTemperature = readTemperaturePreference();
+let ui: UiState = initialUiState(
+  readTheme(),
+  applyTemperature(storedTemperature),
+  storedTemperature,
+);
 let snapshot: Snapshot | null = null;
 let snapshotAt = 0;
 let copyTimer = 0;
@@ -182,8 +187,8 @@ function readTemperaturePreference(): TemperaturePreference {
  * `auto` who travels or changes their OS region follows it rather than being
  * pinned to whatever their first visit detected. That is the same split
  * {@link applyTheme} makes between the `system` mode and the palette it resolves
- * to. There is no control that calls this with anything but the stored value
- * yet; when one lands, this is the function it calls.
+ * to. The HOST block's unit control calls this with the preference it cycled
+ * to; the bootstrap calls it once with the stored one.
  */
 function applyTemperature(preference: TemperaturePreference): TemperatureUnit {
   try {
@@ -225,7 +230,22 @@ const serviceBlock = createServiceBlock({
   },
 });
 
-const hostBlock = createHostBlock();
+const hostBlock = createHostBlock({
+  onCycleTemperature: (next) => {
+    // `applyTemperature` persists the PREFERENCE and hands back the unit it
+    // resolves to; both halves ride one action so no repaint can land with the
+    // control's label and the gauges' unit disagreeing.
+    const unit = applyTemperature(next);
+    dispatch({ type: "temperature/unit", preference: next, unit });
+    // Said once, on the press. The control's own value cannot change without
+    // one, so the poll has nothing to repeat.
+    announce(
+      next === "auto"
+        ? `Temperature unit: automatic — ${unit === "celsius" ? "°C" : "°F"} from your region.`
+        : `Temperature unit: always ${next === "celsius" ? "°C" : "°F"}.`,
+    );
+  },
+});
 
 /**
  * `88 of 340 lines` for the polite region — the result of a filter change, not
@@ -418,7 +438,7 @@ function render(): void {
   }
 
   serviceBlock.update(vm.service);
-  hostBlock.update(vm.gauges);
+  hostBlock.update({ gauges: vm.gauges, temperature: vm.temperature });
   modelsBlock.update({ models: vm.models, allLogsPill: vm.allLogsPill });
   metricsBand.update(vm.kpis);
   sparkline.update(vm.spark);

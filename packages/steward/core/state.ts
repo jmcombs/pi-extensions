@@ -7,7 +7,7 @@
  * and DOM APIs — see `./types.ts`.
  */
 
-import type { TemperatureUnit } from "./temperature.js";
+import type { TemperaturePreference, TemperatureUnit } from "./temperature.js";
 import type {
   LogFamily,
   LogLevel,
@@ -167,6 +167,16 @@ export interface UiState {
    * Thresholds, bar scales and comparisons stay Celsius.
    */
   temperatureUnit: TemperatureUnit;
+  /**
+   * The operator's stored MODE — `auto` included — which is the thing the HOST
+   * block's control cycles and labels.
+   *
+   * It rides alongside {@link temperatureUnit} rather than replacing it, for
+   * the same reason {@link theme} rides alongside the palette it resolves to:
+   * `auto` is not a unit, and the formatter needs a unit. The control labels
+   * itself from this; `formatTemperature` reads the other.
+   */
+  temperaturePreference: TemperaturePreference;
   /** Set for a beat after Copy, so the button can acknowledge. */
   copied: boolean;
   /** Service action awaiting its POST, or `null`. */
@@ -215,11 +225,12 @@ export type UiAction =
       detail: string | null;
     }
   | { type: "theme/toggle" }
-  // The seam a manual unit override needs, and the whole of it: a control would
-  // resolve its preference through `resolveTemperatureUnit` (which is where
-  // `auto` stops being `auto`) and dispatch the answer. No control exists yet —
-  // where one would live is undecided — so nothing dispatches this in the app.
-  | { type: "temperature/unit"; unit: TemperatureUnit }
+  // Both halves of one press, dispatched together: the HOST block's control
+  // hands its new PREFERENCE to `resolveTemperatureUnit` (which is where `auto`
+  // stops being `auto`) and dispatches the preference it stores alongside the
+  // unit it resolved to. Splitting them across two actions would leave a repaint
+  // in between where the label and the gauges disagree.
+  | { type: "temperature/unit"; preference: TemperaturePreference; unit: TemperatureUnit }
   | { type: "copy/flag"; copied: boolean }
   | { type: "service/pending"; action: ServiceAction | null }
   | { type: "service/confirm"; action: ServiceAction | null }
@@ -234,11 +245,14 @@ export type UiAction =
  * `temperatureUnit` defaults to Celsius rather than being required: it is what
  * every non-browser caller (the tests, and anything that builds a view model
  * outside a page) should see, and it is what the browser falls back to when it
- * cannot read a region off its locale.
+ * cannot read a region off its locale. `temperaturePreference` defaults to
+ * `auto` for the same reason — that is what an operator who has never pressed
+ * the control has chosen.
  */
 export function initialUiState(
   theme: Theme,
   temperatureUnit: TemperatureUnit = "celsius",
+  temperaturePreference: TemperaturePreference = "auto",
 ): UiState {
   return {
     log: [],
@@ -258,6 +272,7 @@ export function initialUiState(
     logSourceDetail: null,
     theme,
     temperatureUnit,
+    temperaturePreference,
     copied: false,
     pendingService: null,
     confirmService: null,
@@ -492,8 +507,17 @@ function apply(state: UiState, action: UiAction): UiState {
       return { ...state, theme: next };
     }
     case "temperature/unit": {
-      if (state.temperatureUnit === action.unit) return state;
-      return { ...state, temperatureUnit: action.unit };
+      // Both halves have to match for this to be a no-op: `auto` and `celsius`
+      // resolve to the same unit in most of the world, and treating that press
+      // as nothing would leave the control labelled with the mode the operator
+      // just left.
+      if (
+        state.temperatureUnit === action.unit &&
+        state.temperaturePreference === action.preference
+      ) {
+        return state;
+      }
+      return { ...state, temperatureUnit: action.unit, temperaturePreference: action.preference };
     }
     case "copy/flag": {
       if (state.copied === action.copied) return state;

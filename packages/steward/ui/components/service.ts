@@ -1,11 +1,16 @@
 /**
  * The rail's SERVICE block — the "Steward" box.
  *
- * Four stacked zones: the brand lockup, a status indicator (the service is
- * `started` / `stopped`), the control row, and the router facts folded in from
- * what used to be a separate CONFIG block. The status indicator is deliberately
- * not a button: it reports state and nothing more, so it is a `role="status"`
- * region that a screen reader announces when the state changes.
+ * Three stacked zones: the brand lockup, the control row, and the router facts
+ * folded in from what used to be a separate CONFIG block. The status readout —
+ * `started` / `stopped` / `not connected` — is a chip riding in the lockup row
+ * beside the wordmark, not a zone of its own: it is the one thing in the block
+ * that cannot be acted on, so it does not get the block's heaviest element.
+ *
+ * The chip is deliberately not a button: it reports state and nothing more, so
+ * it is a `role="status"` region that a screen reader announces when the state
+ * changes. Its state rides a SHAPE (`data-state` → filled disc, ring, dotted
+ * ring) as well as a hue, so it survives a monochrome screen.
  *
  * The control row holds only actions this machine actually has a consented
  * command for; with none, one setup affordance takes its place. Stop and
@@ -225,11 +230,12 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
     // rather than this region's heading.
     attrs: { "aria-label": "Service" },
     children: [
+      // The chip and the theme control ride the lockup's dead space rather than
+      // taking a 36px row of their own beneath it.
       el("div", {
         class: "lockup",
-        children: [mark(), el("h1", { class: "lockup__name", text: "Steward" })],
+        children: [mark(), el("h1", { class: "lockup__name", text: "Steward" }), status, theme],
       }),
-      el("div", { class: "service__status-row", children: [status, theme] }),
       drift,
       controls,
       setup,
@@ -269,11 +275,11 @@ export function createServiceBlock(handlers: ServiceHandlers): View<ServiceVm> {
   return {
     el: root,
     update(vm) {
-      setAttr(status, "data-state", vm.running ? "up" : "down");
-      setVar(status, "bg", vm.statusTint);
-      setVar(status, "bd", vm.statusBorder);
-      setVar(status, "fg", vm.statusColor);
-      setVar(statusDot, "fill", vm.statusColor);
+      // The state carries in the dot's SHAPE (the stylesheet keys three forms
+      // off this attribute) and in the word. The hue only tints the dot: the
+      // word is painted with a text token so it clears AA in both themes.
+      setAttr(status, "data-state", vm.state);
+      setVar(statusDot, "fill", vm.statusDotColor);
       setText(statusLabel, vm.statusLabel);
       setAttr(status, "aria-label", `Service ${vm.statusLabel}`);
 

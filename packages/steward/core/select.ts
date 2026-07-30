@@ -38,7 +38,7 @@ import {
 import { modelColor } from "./model-color.js";
 import type { FamilyFilter, LevelFilter, TraceRef, UiState } from "./state.js";
 import { LOG_BUFFER_LIMIT, visibleBuffer } from "./state.js";
-import type { TemperatureUnit } from "./temperature.js";
+import type { TemperaturePreference, TemperatureUnit } from "./temperature.js";
 import type {
   ConfigEntry,
   LogFamily,
@@ -233,15 +233,44 @@ export interface ServiceControlsVm {
   pending: boolean;
 }
 
+/**
+ * What the status chip reports.
+ *
+ * Three values, and each one gets its own SHAPE in the stylesheet — filled disc,
+ * ring, dotted ring — so the state survives a monochrome screen, a colour-blind
+ * reader and a printout. Hue is the third signal here, never the only one.
+ *
+ * `unknown` is deliberately neutral rather than red: a machine Steward has not
+ * been pointed at yet is the expected first state, not a failure.
+ */
+export type ServiceState = "up" | "down" | "unknown";
+
+/**
+ * The chip's word and dot colour per state, stated once.
+ *
+ * The colour reaches the DOT and stops there. The word is painted by the
+ * stylesheet with a text token, because `--success` (2.75:1) and `--error`
+ * (4.47:1) on the rail's panel ground both miss AA at the chip's 11.5px — and a
+ * state word that cannot be read is not a readout.
+ */
+export const SERVICE_STATE_PRESENTATION: Record<ServiceState, { label: string; dotColor: string }> =
+  {
+    up: { label: "started", dotColor: "var(--success)" },
+    down: { label: "stopped", dotColor: "var(--error)" },
+    unknown: { label: "not connected", dotColor: "var(--text-muted)" },
+  };
+
 export interface ServiceVm {
-  running: boolean;
-  /** `started` / `stopped` — the monitor-only status indicator's text. */
+  /** Drives both the chip's word and its dot SHAPE. See {@link ServiceState}. */
+  state: ServiceState;
+  /** `started` / `stopped` / `not connected` — the chip's word, and the signal. */
   statusLabel: string;
-  /** The dot and label color: success when up, error when down. */
-  statusColor: string;
-  /** The indicator's tinted fill and border, matching the state color. */
-  statusTint: string;
-  statusBorder: string;
+  /**
+   * The dot's colour, and only the dot's. The word's colour is fixed in the
+   * stylesheet so it clears AA in both themes; see
+   * {@link SERVICE_STATE_PRESENTATION}.
+   */
+  statusDotColor: string;
   /** The theme control's current-state glyph: `◐` system, `☀` light, `☾` dark. */
   themeGlyph: string;
   themeLabel: string;
@@ -277,6 +306,36 @@ export interface GaugeVm {
    * reinforces it, and is never color-only.
    */
   track: "solid" | "hatched" | "dashed";
+  /**
+   * True for the rows built from a temperature reading — the only rows a unit
+   * choice relabels.
+   *
+   * It is a flag rather than a naming convention on {@link key} because the
+   * unit control renders only when at least one of these rows exists, and a
+   * control that provably changes nothing on screen is a label that is not
+   * true. Set by `tempGauge` and by nothing else, so the question "is there
+   * anything here to relabel?" cannot drift from the row set that answers it.
+   */
+  temperature: boolean;
+}
+
+/**
+ * The temperature-unit control in the HOST block's head.
+ *
+ * A text button rather than the theme control's cycling glyph: this control's
+ * resolved value IS a two-character string, so the label can simply be it. It
+ * carries no `aria-live` — it is a control, not a status, and its own value
+ * cannot change without a press.
+ */
+export interface TemperatureControlVm {
+  /** `auto` · `°C` · `°F` — the PREFERENCE, not the resolved unit. */
+  label: string;
+  /** States the mode, what it resolves to, and what pressing it does. */
+  ariaLabel: string;
+  /** Same sentence as {@link ariaLabel}: a pointer operator gets it on hover. */
+  title: string;
+  /** The preference a press moves to. */
+  next: TemperaturePreference;
 }
 
 /**
@@ -695,6 +754,11 @@ export interface SlotsVm {
 export interface DashboardVm {
   service: ServiceVm;
   gauges: GaugeVm[];
+  /**
+   * The HOST block's unit control, or `null` when no gauge in {@link gauges} is
+   * a temperature row. See {@link TemperatureControlVm}.
+   */
+  temperature: TemperatureControlVm | null;
   models: ModelCardVm[];
   allLogsPill: PillVm;
   kpis: KpiVm[];
@@ -976,8 +1040,12 @@ export function driftAnnouncement(
 
 function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
   const { service } = snapshot;
-  const running = service.running;
-  const color = running ? "var(--success)" : "var(--error)";
+  // Two of the three states are reachable from a reachability probe. `unknown`
+  // belongs to a machine that was never pointed at a server at all, which is a
+  // fact the snapshot does not carry yet; the chip renders it correctly the day
+  // it does.
+  const state: ServiceState = service.running ? "up" : "down";
+  const presentation = SERVICE_STATE_PRESENTATION[state];
   // The glyph reports the current mode, not the destination — with three states
   // "next" is ambiguous — and the label names both so the change is announced.
   const themeGlyph = ui.theme === "system" ? "◐" : ui.theme === "light" ? "☀" : "☾";
@@ -989,11 +1057,9 @@ function selectService(snapshot: Snapshot, ui: UiState): ServiceVm {
         : "Theme: Dark. Switch to system.";
 
   return {
-    running,
-    statusLabel: running ? "started" : "stopped",
-    statusColor: color,
-    statusTint: tint(color, 14),
-    statusBorder: tint(color, 40),
+    state,
+    statusLabel: presentation.label,
+    statusDotColor: presentation.dotColor,
     themeGlyph,
     themeLabel,
     controls: selectServiceControls(snapshot, ui),
@@ -1023,6 +1089,7 @@ function memoryGauge(
     percent: barPercent(totalGB === 0 ? 0 : usedGB / totalGB),
     color,
     track: read ? "solid" : "hatched",
+    temperature: false,
   };
 }
 
@@ -1038,6 +1105,7 @@ function utilGauge(key: string, label: string, util: number, color: string): Gau
     percent: barPercent(util),
     color,
     track: Number.isFinite(util) ? "solid" : "hatched",
+    temperature: false,
   };
 }
 
@@ -1056,6 +1124,7 @@ function tempGauge(key: string, label: string, celsius: number, unit: Temperatur
     percent: temperatureBarPercent(celsius),
     color: temperatureColor(celsius),
     track: "solid",
+    temperature: true,
   };
 }
 
@@ -1109,6 +1178,52 @@ function selectGauges(snapshot: Snapshot, ui: UiState): GaugeVm[] {
     gauges.push(tempGauge("cpu-temp", "CPU temp", m.cpuTempC, ui.temperatureUnit));
   }
   return gauges;
+}
+
+/** The unit each preference resolves a press to, in a fixed three-stop cycle. */
+const TEMPERATURE_NEXT: Record<TemperaturePreference, TemperaturePreference> = {
+  auto: "celsius",
+  celsius: "fahrenheit",
+  fahrenheit: "auto",
+};
+
+/** The two-character token an operator reads a temperature in. */
+function unitSymbol(unit: TemperatureUnit): string {
+  return unit === "celsius" ? "°C" : "°F";
+}
+
+/**
+ * The HOST block's temperature-unit control, or `null` when this machine
+ * reports no temperature at all.
+ *
+ * Absent rather than disabled: `selectGauges` drops a temperature row when the
+ * sensor is missing, so on such a machine the control would provably change
+ * nothing on screen — and a row of dead controls reads as broken while an
+ * absent one reads as "there is nothing here", which is the truth.
+ *
+ * The label is the PREFERENCE (`auto`, not `°C auto`): the resolved unit is
+ * literally visible on the gauge one line below, so the four characters are
+ * spent saying the thing the gauges cannot.
+ */
+function selectTemperatureControl(
+  gauges: readonly GaugeVm[],
+  ui: UiState,
+): TemperatureControlVm | null {
+  if (!gauges.some((gauge) => gauge.temperature)) return null;
+  const preference = ui.temperaturePreference;
+  const next = TEMPERATURE_NEXT[preference];
+  const sentence =
+    preference === "auto"
+      ? `Temperature unit: automatic — ${unitSymbol(ui.temperatureUnit)} from your browser region. Switch to always °C.`
+      : preference === "celsius"
+        ? "Temperature unit: always °C. Switch to always °F."
+        : "Temperature unit: always °F. Switch to automatic.";
+  return {
+    label: preference === "auto" ? "auto" : unitSymbol(preference),
+    ariaLabel: sentence,
+    title: sentence,
+    next,
+  };
 }
 
 function selectModels(snapshot: Snapshot, ui: UiState): ModelCardVm[] {
@@ -2602,10 +2717,14 @@ export function selectDashboard(snapshot: Snapshot, ui: UiState, now: number): D
   const selection = selectLog(snapshot, ui);
   const shorts = new Map(snapshot.models.map((m) => [m.id, m]));
   const allSelected = ui.filterModel === null;
+  // Built once: whether the unit control renders is a question about this exact
+  // gauge set, so the two must not be derived from two separate passes.
+  const gauges = selectGauges(snapshot, ui);
 
   return {
     service: selectService(snapshot, ui),
-    gauges: selectGauges(snapshot, ui),
+    gauges,
+    temperature: selectTemperatureControl(gauges, ui),
     models: selectModels(snapshot, ui),
     allLogsPill: {
       label: "all logs",

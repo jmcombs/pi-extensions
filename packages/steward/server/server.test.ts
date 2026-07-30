@@ -617,22 +617,45 @@ describe("the shipped stylesheet", () => {
   });
 });
 
+/** WCAG relative luminance of an `#rrggbb` colour. */
+function luminance(hex: string): number {
+  const channel = (value: number): number => {
+    const c = value / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+  return 0.2126 * channel(r ?? 0) + 0.7152 * channel(g ?? 0) + 0.0722 * channel(b ?? 0);
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
+}
+
+/** The stylesheet with its comments stripped, so a rule regex cannot match one. */
+function stylesheet(): string {
+  return readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+}
+
+/**
+ * The body of the rule whose selector is exactly `selector`.
+ *
+ * Anchored on the start of a selector list so that asking for
+ * `.service__status-dot` cannot return the `[data-state="down"] …` rule that
+ * merely ends with it — which is precisely the confusion these guards exist to
+ * rule out.
+ */
+function ruleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(css);
+  if (match?.[1] === undefined) throw new Error(`no rule for ${selector}`);
+  return match[1];
+}
+
 describe("the console's own text contrast", () => {
-  /** WCAG relative luminance of an `#rrggbb` colour. */
-  function luminance(hex: string): number {
-    const channel = (value: number): number => {
-      const c = value / 255;
-      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    };
-    const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
-    return 0.2126 * channel(r ?? 0) + 0.7152 * channel(g ?? 0) + 0.0722 * channel(b ?? 0);
-  }
-
-  function contrast(a: string, b: string): number {
-    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-    return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
-  }
-
   it("clears AA for every token the console paints text with, in BOTH themes", () => {
     // Latte is the trap: the same alias resolves to a light value there and a
     // pastel in Mocha, so a token that reads beautifully in the dark theme can
@@ -720,5 +743,54 @@ describe("the console's own text contrast", () => {
     // The affordances live on the BUTTON, which is the only thing that acts.
     expect(/button\.log-row__task[^{]*\{[^}]*cursor:\s*pointer/.test(css)).toBe(true);
     expect(/button\.log-row__task:hover/.test(css)).toBe(true);
+  });
+});
+
+describe("the service status chip", () => {
+  it("gives its three states three FORMS, not three hues", () => {
+    // The house rule: severity in form, never hue alone. Stripping every colour
+    // reference out of the three dot rules must still leave three different
+    // shapes — a filled disc, an open ring and a dotted one.
+    const css = stylesheet();
+    const shape = (selector: string): string =>
+      ruleBody(css, selector)
+        .replace(/var\(--[^)]*\)/g, "COLOUR")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const disc = shape(".service__status-dot");
+    const ring = shape('.service__status[data-state="down"] .service__status-dot');
+    const dotted = shape('.service__status[data-state="unknown"] .service__status-dot');
+
+    expect(disc).toContain("background: COLOUR");
+    expect(disc).not.toContain("border:");
+    expect(ring).toContain("background: transparent");
+    expect(ring).toContain("border: 2px solid");
+    expect(dotted).toContain("background: transparent");
+    expect(dotted).toContain("border: 2px dotted");
+    expect(new Set([disc, ring, dotted]).size).toBe(3);
+  });
+
+  it("paints the state WORD with a token that clears AA on the rail, in both themes", () => {
+    // The chip is 11.5px — small text, no large-text exemption — and it sits on
+    // `--surface-panel`. Latte's `--success` is 2.75:1 there and `--error`
+    // 4.47:1, so the state's hue rides the dot and the word takes a text token.
+    const body = ruleBody(stylesheet(), ".service__status");
+    const colour = /(?:^|[;\s])color:\s*([^;]+)/.exec(body)?.[1]?.trim();
+    expect(colour).toBe("var(--text-secondary)");
+    for (const forbidden of ["--success", "--error", "--text-muted", "--text-subtle"]) {
+      expect(body, `the chip must not paint its word with ${forbidden}`).not.toMatch(
+        new RegExp(`color:\\s*var\\(${forbidden}`),
+      );
+    }
+    // `--text-secondary` on `--surface-panel`: Latte, then Mocha.
+    expect(contrast("#5c5f77", "#e6e9ef")).toBeGreaterThanOrEqual(4.5);
+    expect(contrast("#bac2de", "#181825")).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keeps the 36px status row out of the stylesheet as well as the markup", () => {
+    // The row and its 13px margin are the 49px this change reclaims; a rule left
+    // behind is how a deleted element quietly comes back.
+    expect(stylesheet()).not.toContain(".service__status-row");
   });
 });

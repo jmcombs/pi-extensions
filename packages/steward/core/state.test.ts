@@ -270,21 +270,53 @@ describe("theme, temperature and copy flag", () => {
     expect(reduce(dark, { type: "theme/toggle" }).theme).toBe("system");
   });
 
-  it("starts in Celsius and takes the unit the browser resolved", () => {
+  it("starts in Celsius on `auto`, and takes the unit the browser resolved", () => {
     // The default is what every non-browser caller sees; the browser bootstrap
     // resolves `auto` against its region and hands the answer in.
     expect(initialUiState("light").temperatureUnit).toBe("celsius");
+    expect(initialUiState("light").temperaturePreference).toBe("auto");
     expect(initialUiState("light", "fahrenheit").temperatureUnit).toBe("fahrenheit");
+    expect(initialUiState("light", "fahrenheit", "fahrenheit").temperaturePreference).toBe(
+      "fahrenheit",
+    );
   });
 
-  it("carries a resolved unit override, and no-ops when it is unchanged", () => {
+  it("carries the preference and the unit it resolved to, and no-ops on neither moving", () => {
     const state = initialUiState("light");
-    const fahrenheit = reduce(state, { type: "temperature/unit", unit: "fahrenheit" });
+    const fahrenheit = reduce(state, {
+      type: "temperature/unit",
+      preference: "fahrenheit",
+      unit: "fahrenheit",
+    });
     expect(fahrenheit.temperatureUnit).toBe("fahrenheit");
-    expect(reduce(fahrenheit, { type: "temperature/unit", unit: "fahrenheit" })).toBe(fahrenheit);
-    expect(reduce(fahrenheit, { type: "temperature/unit", unit: "celsius" }).temperatureUnit).toBe(
-      "celsius",
-    );
+    expect(fahrenheit.temperaturePreference).toBe("fahrenheit");
+    expect(
+      reduce(fahrenheit, {
+        type: "temperature/unit",
+        preference: "fahrenheit",
+        unit: "fahrenheit",
+      }),
+    ).toBe(fahrenheit);
+    expect(
+      reduce(fahrenheit, { type: "temperature/unit", preference: "celsius", unit: "celsius" })
+        .temperatureUnit,
+    ).toBe("celsius");
+  });
+
+  it("moves on a press that changes the MODE without changing the unit", () => {
+    // `auto` in a Celsius region resolves to exactly what `celsius` pins. If
+    // that press were treated as a no-op the control would keep the label of
+    // the mode the operator just left.
+    const pinned = reduce(initialUiState("light"), {
+      type: "temperature/unit",
+      preference: "celsius",
+      unit: "celsius",
+    });
+    expect(pinned.temperaturePreference).toBe("celsius");
+    expect(pinned.temperatureUnit).toBe("celsius");
+    const auto = reduce(pinned, { type: "temperature/unit", preference: "auto", unit: "celsius" });
+    expect(auto).not.toBe(pinned);
+    expect(auto.temperaturePreference).toBe("auto");
   });
 
   it("raises and lowers the copied acknowledgement", () => {
