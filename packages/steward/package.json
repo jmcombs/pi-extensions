@@ -22,6 +22,7 @@
     "server/",
     "ui/",
     "skills/",
+    "prompts/",
     "README.md",
     "LICENSE",
     "!**/*.test.ts",
@@ -43,7 +44,10 @@
     "skills": [
       "./skills"
     ],
-    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/preview.png"
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/preview.png",
+    "prompts": [
+      "./prompts"
+    ]
   },
   "engines": {
     "node": ">=22.13.0"

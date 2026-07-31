@@ -1,7 +1,6 @@
 ---
 name: initialize-steward
 description: Connect this machine to Steward, the llama.cpp dashboard. Detects how llama-server is launched, proposes the flag and log-redirect fixes it needs, stands up a host-metrics collector, records service-control commands, and writes ~/.config/steward/steward.json. It edits service configuration, so it asks before every change and only runs when a human asks for it.
-disable-model-invocation: true
 ---
 
 # Connect this machine to Steward
