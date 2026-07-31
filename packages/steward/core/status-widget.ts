@@ -18,11 +18,12 @@ const ESC = "\x1b";
 /** Powerline solid right-pointing separator (Nerd Font). */
 const ARROW_RIGHT = "\u{E0B0}";
 /**
- * Brand mark: `nf-md-room-service-outline` — the stroked cloche that matches the
- * logo's thin arc over rounded bars. `STEWARD_GLYPH` replaces it for an operator
- * who has patched their own mark in; an empty value drops it.
+ * Brand mark: `nf-md-room-service` — the service bell, a dome over a base with
+ * the tap-button on top, echoing the logo's arc over rounded bars.
+ * `STEWARD_GLYPH` replaces it for an operator who has patched their own mark in;
+ * an empty value drops it.
  */
-export const STEWARD_GLYPH = "\u{F1056}";
+export const STEWARD_GLYPH = "\u{F088D}";
 
 const WIDGET_COLORS = {
   fg: "#eff1f5",
