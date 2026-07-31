@@ -21,6 +21,7 @@
     "core/",
     "server/",
     "ui/",
+    "skills/",
     "README.md",
     "LICENSE",
     "!**/*.test.ts",
@@ -38,6 +39,9 @@
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "./skills"
     ],
     "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/preview.png"
   },

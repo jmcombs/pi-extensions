@@ -57,6 +57,12 @@ project-scoped install, and filtering options.
   browser. Running it again reuses the server already listening.
 - **Command**: `/steward-stop` — shuts the dashboard server down. It also stops on its own when
   the session ends.
+- **Skill**: `/skill:initialize-steward` — connects this machine. It works out how `llama-server`
+  is launched here, proposes the flags and the log redirect Steward needs, helps you stand up a
+  host-metrics collector, records your start/stop/restart commands, and writes
+  `~/.config/steward/steward.json`. It edits service configuration, so it shows a diff and asks
+  before every change, backs up anything it touches, and tells you the exact command to undo it.
+  It never runs on its own — only when you ask for it by name.
 
 The dashboard is served on loopback only, and nothing it shows leaves the machine.
 
@@ -68,6 +74,7 @@ The dashboard is served on loopback only, and nothing it shows leaves the machin
 | `STEWARD_SOURCE` | `mock` | `llama` drives the live panels (config, service, models, slots, throughput) from a real `llama-server`; anything else keeps the fully simulated dashboard. |
 | `LLAMA_BASE_URL` | `http://127.0.0.1:8080` | Where to read `llama-server` when running outside Pi (e.g. the dev server). Inside Pi the provider auth is used instead. |
 | `LLAMA_API_KEY` | _(none)_ | Bearer key for a key-gated `llama-server`, outside Pi. |
+| `STEWARD_CONFIG` | `~/.config/steward/steward.json` | The per-machine artifact `/skill:initialize-steward` writes: memory topology, the host-metrics collector command and cadence, the log path, the service-control commands, the recorded launch argv, and the consent hash for each command Steward may run. It must be owned by you and not world-writable, or Steward ignores it. |
 | `STEWARD_LOG_FILE` | _(discovered)_ | The `llama-server` log to follow — its combined stdout/stderr redirect, not `--log-file`, which llama.cpp copies into every child server. Unset, Steward uses the path recorded for this machine, then `/tmp/llama-router.log` if it exists, and otherwise says it has no log source. |
 
 If the preferred port is already taken — a second Pi session, say — Steward falls back to an
