@@ -26,8 +26,8 @@ the universal fallback but joins the argv on spaces, so a quoted value containin
 `--alias "Fast Model"`) comes back indistinguishable from two arguments.
 
 ```
-node scripts/steward-setup.mjs check-argv --argv-json '["…","…"]'
-node scripts/steward-setup.mjs check-argv --pid 65363
+node <skill-dir>/scripts/steward-setup.mjs check-argv --argv-json '["…","…"]'
+node <skill-dir>/scripts/steward-setup.mjs check-argv --pid 65363
 ```
 
 ## The log redirect — the part that is easy to get wrong
@@ -95,6 +95,43 @@ Read both — a hand-edited plist that has not been reloaded is exactly the drif
 Both keys, one path. launchd appends across restarts, so a restart is not a rotation and the
 console simply gets a fresh banner.
 
+**Creating one from scratch**, when the machine has no launch record at all, the fragment above
+needs a surrounding document and three more keys:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>          <string>com.llama.router</string>
+  <key>ProgramArguments</key>
+  <array>…as above…</array>
+  <key>StandardOutPath</key>   <string>/Users/…/Library/Logs/llama/router.log</string>
+  <key>StandardErrorPath</key> <string>/Users/…/Library/Logs/llama/router.log</string>
+  <key>RunAtLoad</key>      <false/>
+  <key>KeepAlive</key>      <false/>
+</dict>
+</plist>
+```
+
+Write it to `~/Library/LaunchAgents/<label>.plist`. The file name must match `Label`. Create the log
+directory first — launchd will not, and the job fails to spawn with no obvious reason if the parent
+is missing.
+
+`RunAtLoad` and `KeepAlive` both `false` is deliberate: it makes registering the job distinct from
+starting it, so Steward's Stop stays meaningful. With `KeepAlive` true, launchd restarts the process
+immediately and Stop appears to do nothing.
+
+Register it, then start it — two separate operator decisions:
+
+```
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.plist   # register only
+launchctl kickstart gui/$(id -u)/<label>                               # start
+```
+
+Write the real numeric uid into anything you record in `steward.json` — `$(id -u)` is shell
+substitution, and control commands run without a shell. See `service-control.md`.
+
 **Apply**
 
 1. Resolve the symlink: `readlink -f ~/Library/LaunchAgents/<label>.plist`. If it points into a
@@ -113,8 +150,8 @@ unregistered. Prefer `kickstart -k`.
 **Verify**
 
 ```
-node scripts/steward-setup.mjs check-argv --pid $(lsof -nP -iTCP:8080 -sTCP:LISTEN -t)
-node scripts/steward-setup.mjs verify --plist ~/Library/LaunchAgents/<label>.plist
+node <skill-dir>/scripts/steward-setup.mjs check-argv --pid $(lsof -nP -iTCP:8080 -sTCP:LISTEN -t)
+node <skill-dir>/scripts/steward-setup.mjs check-plist --plist ~/Library/LaunchAgents/<label>.plist --expect-log <log path>
 ```
 
 If the agent has `KeepAlive` enabled, a stop can be followed by an automatic relaunch, so a

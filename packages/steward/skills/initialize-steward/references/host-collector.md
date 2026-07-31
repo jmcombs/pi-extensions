@@ -49,7 +49,7 @@ collector that emits every 5s makes the dashboard flap.
 ## Prove it before you record it
 
 ```
-node scripts/steward-setup.mjs probe-collector \
+node <skill-dir>/scripts/steward-setup.mjs probe-collector \
   --command-json ./collector.json --seconds 6 --topology unified --interval-ms 1000
 ```
 

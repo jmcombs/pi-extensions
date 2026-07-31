@@ -1,21 +1,30 @@
 ---
 name: initialize-steward
-description: Connect this machine to Steward, the llama.cpp dashboard. Detects how llama-server is launched, proposes the flag and log-redirect fixes it needs, stands up a host-metrics collector, records service-control commands, and writes ~/.config/steward/steward.json. It edits service configuration, so it asks before every change and only runs when a human asks for it.
+description: Connect this machine to Steward, the llama.cpp dashboard. Detects how llama-server is launched, proposes the flag and log-redirect fixes it needs, stands up a host-metrics collector, records service-control commands, and writes Steward's steward.json config. It edits service configuration, so it asks before every change and only runs when a human asks for it.
 ---
 
 # Connect this machine to Steward
 
-Steward reads one artifact — `~/.config/steward/steward.json` — and trusts nothing else about
-this machine. Your job is to establish the facts that go in it, fix what needs fixing, and prove
-the result works.
+Steward reads one artifact — `$STEWARD_CONFIG` when that variable is set and non-empty, otherwise
+`~/.config/steward/steward.json` — and trusts nothing else about this machine. Your job is to
+establish the facts that go in it, fix what needs fixing, and prove the result works.
 
-Work in five passes: **detect → propose → consent → apply → verify**. Detection is read-only.
-Nothing is applied without the operator saying yes to that specific change.
+Work in six passes: **detect → propose → consent → apply → record and verify → report**. Detection
+is read-only. Nothing is applied without the operator saying yes to that specific change.
 
-References in this skill are relative to the directory holding this file. The helper script is
-`scripts/steward-setup.mjs`; run it with `node`. It owns everything that must not be improvised —
-the consent hashes, the file mode, the atomic write, and the measurements that prove a collector
-really streams. Run `node scripts/steward-setup.mjs help` once before you start.
+References and scripts in this skill are relative to the directory holding this file, **not to your
+working directory** — you are almost certainly running somewhere else. Every command below is
+written as `<skill-dir>/…`: substitute the real absolute path literally, every time. Each command
+runs in a fresh shell, so a variable you set in one does not exist in the next, and neither does a
+`cd`.
+
+```bash
+node <skill-dir>/scripts/steward-setup.mjs help
+```
+
+The helper script owns everything that must not be improvised — the consent hashes, the file mode,
+the atomic write, and the measurements that prove a collector really streams. Run its `help` once
+before you start.
 
 ## Rules you must not break
 
@@ -42,6 +51,19 @@ really streams. Run `node scripts/steward-setup.mjs help` once before you start.
    exercised end to end. systemd, Windows (NSSM/`sc`) and Docker are researched but unproven:
    detect and propose there, explain that you are proposing from documentation, and let the
    operator apply the change themselves if they prefer.
+7. **Never override `$STEWARD_CONFIG`.** If it is set and non-empty, that is the file the operator
+   means, and it is the file you write. Do not second-guess it because the path looks temporary,
+   scratch-like, sandboxed, or "left over from another session" — Steward itself reads that exact
+   variable, so writing anywhere else produces a config Steward will never load. A path that does
+   not exist yet is normal: `apply` creates the parent directory. If you believe the variable is
+   wrong, say so and ask; never silently retarget. State the resolved path in your proposal so the
+   operator can see which file they are approving.
+8. **Never restore or revert as a remediation.** `git checkout`, `git restore`, `git stash pop`,
+   `git reset` and their kin undo work the operator may have done deliberately — a deleted or
+   modified config is a decision, not damage, and you cannot tell the difference from here. If a
+   file you need is missing, propose **creating** it. This is not a ban on the operator's own
+   tooling: writing a *new* file into a dotfiles package and `stow`ing it is the right move on a
+   machine managed that way. The prohibition is on resurrecting prior state.
 
 ## Pass 1 — Detect (read-only)
 
@@ -59,8 +81,15 @@ Establish these facts. Say which ones you could not establish rather than guessi
   AppParameters`. `ps -ww -o args= -p <pid>` is the universal fallback.
 - **The launch mechanism and its label.** See `references/llama-compliance.md` for the
   per-mechanism detection commands, all read-only.
+- **The launch environment**, from the same record — launchd's `EnvironmentVariables` dict,
+  systemd's `Environment=`/`EnvironmentFile=`, NSSM's `AppEnvironmentExtra`. Several contract flags
+  have environment spellings (`--metrics` is `LLAMA_ARG_ENDPOINT_METRICS=1`), so a machine
+  configured entirely this way is compliant with an argv that looks like it is missing everything.
+  Read the environment before you call a flag absent.
 - **Where the log goes**, from the same record — `StandardOutPath`/`StandardErrorPath`,
   `StandardOutput=`/`StandardError=`, `AppStdout`/`AppStderr`, or the `>` in a wrapper script.
+  Also check whether `STEWARD_LOG_FILE` is set in the environment Steward will run in: it outranks
+  the `log.path` you record, so the console would follow it instead.
 - **What can measure this host.** macOS: `command -v macmon`. Linux: `nvidia-smi`, `rocm-smi`,
   `sensors`, `/proc/meminfo`. Windows: `nvidia-smi`, performance counters. Also check for `jq`, or
   whatever else your transform will need. See `references/host-collector.md`.
@@ -68,12 +97,33 @@ Establish these facts. Say which ones you could not establish rather than guessi
 Then run the compliance check on what you found:
 
 ```
-node scripts/steward-setup.mjs check-argv --argv-json '["/opt/homebrew/bin/llama-server", "--models-dir", "…"]'
+node <skill-dir>/scripts/steward-setup.mjs check-argv --argv-json '["/opt/homebrew/bin/llama-server", "--models-dir", "…"]'
 ```
 
 Report the result as a short table: what is already compliant, what is missing, what you could
 not determine. **A fully compliant machine is a real and common outcome** — say so plainly and
 skip straight to the collector rather than inventing work.
+
+**What counts as evidence.** This machine's current state is the listening process, the launch
+mechanism's own record, and the tools `command -v` finds. Resolving a plist symlink into a dotfiles
+repository is part of reading that record and is expected — see Pass 2. What is *not* current
+state: git history, `.bak` and `.patch` files, scratch directories, and shell history. You may read
+them, but whatever they tell you is **inferred** — say so, never present it as what the machine is
+doing now, and never let it become the argv you record. If the record is not where the mechanism
+keeps it, "not established" is the honest answer and a supported outcome. Stop looking once you
+have the facts above; a wider search does not make a missing record appear.
+
+**If nothing is listening and no mechanism describes one, that is the create path, not a failed
+detection.** A machine with llama.cpp installed and no service is a normal starting point — say so
+rather than hunting for a configuration that was never there or was deliberately removed. Propose
+writing a launch record from the template in `references/llama-compliance.md`; ask the operator for
+the model directory and the port rather than guessing them. Two things differ on this path:
+
+- `llama.launchArgv` records what you **wrote**, not what you observed. Say that when you propose
+  it, and confirm it against the live process once the service is up — that field is what every
+  later drift notice is measured against.
+- Registering the job (`launchctl bootstrap`) and starting it are service actions, each needing its
+  own consent under Rule 4 — separately from consent to create the file.
 
 ## Pass 2 — Propose
 
@@ -122,8 +172,8 @@ anything. The recipes and the two traps that silently produce zero readings are 
 `references/host-collector.md`. Prove it before you record it:
 
 ```
-node scripts/steward-setup.mjs probe-collector \
-  --command-json '["sh","-c","…"]' --seconds 6 --topology unified --interval-ms 1000
+node <skill-dir>/scripts/steward-setup.mjs probe-collector \
+  --command-json ./collector.json --seconds 6 --topology unified --interval-ms 1000
 ```
 
 **Control.** Record `start`/`stop`/`restart` as argv arrays — no shell string, no `&&`. See
@@ -134,8 +184,8 @@ and not `bootout`.
 operator the diff, and only then write it:
 
 ```
-node scripts/steward-setup.mjs plan  --input /tmp/steward-proposal.json   # writes nothing
-node scripts/steward-setup.mjs apply --input /tmp/steward-proposal.json
+node <skill-dir>/scripts/steward-setup.mjs plan  --input /tmp/steward-proposal.json   # writes nothing
+node <skill-dir>/scripts/steward-setup.mjs apply --input /tmp/steward-proposal.json
 ```
 
 `plan` derives the consent hashes and prints the diff against whatever is there today. `apply`
@@ -146,7 +196,7 @@ Steward as a command nobody approved, and it fails silently — dark gauges, mis
 **Verify.** Finish by measuring, not asserting:
 
 ```
-node scripts/steward-setup.mjs verify --pid <listening-pid> --plist ~/Library/LaunchAgents/<label>.plist
+node <skill-dir>/scripts/steward-setup.mjs verify --pid <listening-pid> --plist ~/Library/LaunchAgents/<label>.plist
 ```
 
 This re-reads the artifact exactly as Steward does (ownership, mode, schema, consent), re-checks

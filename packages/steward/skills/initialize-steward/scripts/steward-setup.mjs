@@ -14,6 +14,8 @@
  * prints the exact revert command.
  *
  *   check-argv     --argv-json <json> | --pid <n>     compliance of a launch argv
+ *   check-plist    --plist <path> --expect-log <path>  redirect, before applying
+ *   check-log      --log <path>                        both streams in one file
  *   probe-collector --command-json <json> [...]       run a collector, prove it streams
  *   plan           --input <file|->                   validated config + hashes + diff
  *   apply          --input <file|->                   backup + atomic 0600 write
@@ -227,8 +229,20 @@ export function checkLaunchArgv(argv) {
           "--models-dir / --models-preset and no -m / --model / -hf.",
       ),
     );
+  } else if (names.has("--models-dir") || names.has("--models-preset")) {
+    findings.push(ok("router mode — serves a model directory or preset file"));
   } else {
-    findings.push(ok("router mode — no single-model flag in the argv"));
+    // Absence of -m is not presence of a router. A bare `llama-server` has
+    // neither, and used to pass this check as "router mode" on the strength of
+    // what it did NOT contain — which reads as compliant to the operator and
+    // leaves Steward with an empty model catalogue.
+    findings.push(
+      warn(
+        "no model source in the argv — this may not be a router",
+        "Router mode needs --models-dir and/or --models-preset. Neither is present,\n" +
+          "and neither is a single-model flag, so what this server serves is unclear.",
+      ),
+    );
   }
 
   if (names.has("--metrics")) {
@@ -284,6 +298,101 @@ function processArgv(pid) {
   if (result.status !== 0) return null;
   const line = (result.stdout ?? "").split("\n")[0]?.trim() ?? "";
   return line === "" ? null : line;
+}
+
+/** A `ps` line that is a placeholder rather than a command (`(python3)`, `[kthread]`). */
+const PLACEHOLDER_COMMAND = /^\(.*\)$|^\[.*\]$/u;
+
+function tokenizeArgv(line) {
+  return line.split(/\s+/u).filter((token) => token !== "");
+}
+
+/**
+ * Splits an argv into flag groups so `--port 8080` is one unit. Mirrors
+ * `groupArgv` in `core/drift.ts` — see the parity test in
+ * `steward-setup.test.ts`, which is what keeps the two from diverging again.
+ */
+function groupArgv(tokens) {
+  const groups = [];
+  const leading = [];
+  let current = null;
+
+  const flush = () => {
+    if (current !== null) groups.push(current.join(" "));
+    current = null;
+  };
+
+  for (const token of tokens) {
+    if (token.startsWith("-") && token !== "-" && token !== "--") {
+      flush();
+      const equals = token.indexOf("=");
+      current = equals > 0 ? [token.slice(0, equals), token.slice(equals + 1)] : [token];
+      continue;
+    }
+    if (current === null) leading.push(token);
+    else current.push(token);
+  }
+  flush();
+
+  return { program: leading.join(" "), groups };
+}
+
+function missingFrom(a, b) {
+  const remaining = new Map();
+  for (const group of b) remaining.set(group, (remaining.get(group) ?? 0) + 1);
+
+  const missing = [];
+  for (const group of a) {
+    const count = remaining.get(group) ?? 0;
+    if (count > 0) remaining.set(group, count - 1);
+    else missing.push(group);
+  }
+  return missing;
+}
+
+/**
+ * Compares a recorded argv against a live `ps` line the way Steward's dashboard
+ * does, returning `clean` | `drifted` | `unknown`.
+ *
+ * This exists because the obvious implementation — `recorded.join(" ") === live`
+ * — fabricates drift on two machines that are configured correctly: one whose
+ * argv carries a quoted value with a space in it (`--alias "Fast Model"`, which
+ * `ps` hands back with the quoting gone), and one where a flag was re-ordered
+ * without changing what the server does. Reporting FAIL there contradicts the
+ * dashboard in the same session, and `core/drift.ts` is explicit that a false
+ * alarm costs exactly as much trust as a missed one.
+ */
+export function diffRecordedArgv(recorded, observed) {
+  const expectedTokens = recorded.filter((token) => token !== "");
+  if (expectedTokens.length === 0) {
+    return { status: "unknown", reason: "no launch command was recorded for this machine" };
+  }
+
+  const line = observed.trim();
+  if (line === "" || PLACEHOLDER_COMMAND.test(line)) {
+    return { status: "unknown", reason: "the process list reported no command line" };
+  }
+
+  const expected = expectedTokens.join(" ");
+  if (line === expected) return { status: "clean", added: [], removed: [], program: null };
+
+  // Cut mid-token: `ps` gave us less than the process holds, so there is no
+  // verdict to reach. A line that stops exactly at a token boundary is NOT
+  // truncation — that is the most likely real edit (dropping the last flag).
+  if (expected.startsWith(line) && expected.charAt(line.length) !== " ") {
+    return { status: "unknown", reason: "the process list truncated the command line" };
+  }
+
+  const before = groupArgv(expectedTokens);
+  const after = groupArgv(tokenizeArgv(line));
+  const added = missingFrom(after.groups, before.groups);
+  const removed = missingFrom(before.groups, after.groups);
+  const program = before.program === after.program ? null : after.program;
+
+  if (added.length === 0 && removed.length === 0 && program === null) {
+    return { status: "clean", added: [], removed: [], program: null };
+  }
+  return { status: "drifted", added, removed, program };
 }
 
 /* ------------------------------------------------------------------ *
@@ -1121,17 +1230,33 @@ async function commandVerify(flags) {
       const pid = numberFlag(flags, "pid", 0);
       const live = processArgv(pid);
       const recorded = config.llama.launchArgv.join(" ");
-      const drift =
-        live === null
-          ? warn(`the command line of pid ${pid} could not be read — no verdict`)
-          : live === recorded
-            ? ok(`the live process matches the recorded launch argv (pid ${pid})`)
-            : fail(
-                `the live process does not match the recorded launch argv (pid ${pid})`,
-                `recorded: ${recorded}\nobserved: ${live}\n` +
-                  "Steward's drift notice will say the same thing. Re-run the skill so the\n" +
-                  "record matches the machine, or put the flag back.",
-              );
+      let drift;
+      if (live === null) {
+        drift = warn(`the command line of pid ${pid} could not be read — no verdict`);
+      } else {
+        const result = diffRecordedArgv(config.llama.launchArgv, live);
+        if (result.status === "unknown") {
+          drift = warn(`no verdict on pid ${pid} — ${result.reason}`);
+        } else if (result.status === "clean") {
+          drift = ok(`the live process matches the recorded launch argv (pid ${pid})`);
+        } else {
+          const detail = [
+            result.program !== null
+              ? `program: recorded ${config.llama.launchArgv[0]}, observed ${result.program}`
+              : null,
+            result.removed.length > 0
+              ? `recorded but not running: ${result.removed.join(", ")}`
+              : null,
+            result.added.length > 0 ? `running but not recorded: ${result.added.join(", ")}` : null,
+          ].filter((line) => line !== null);
+          drift = fail(
+            `the live process does not match the recorded launch argv (pid ${pid})`,
+            `${detail.join("\n")}\n\nrecorded: ${recorded}\nobserved: ${live}\n` +
+              "Steward's drift notice will say the same thing. Re-run the skill so the\n" +
+              "record matches the machine, or put the flag back.",
+          );
+        }
+      }
       failed = report("Contract 1 — live process vs record", [drift]) || failed;
     }
   }
@@ -1140,11 +1265,23 @@ async function commandVerify(flags) {
   if (logPath !== null) {
     failed =
       report(`Contract 1 — log capture (${logPath})`, inspectLog(logPath).findings) || failed;
-    const plist = flags.get("plist");
-    if (plist !== undefined) {
-      failed =
-        report(`Contract 1 — launchd redirect (${plist})`, inspectPlist(plist, logPath)) || failed;
-    }
+  }
+
+  // Outside the `logPath` guard on purpose. An operator who declined the log
+  // redirect still gets a plist verdict — the old nesting silently produced no
+  // finding and exit 0, which reads as "checked, fine" for a check never run.
+  const plist = flags.get("plist");
+  if (plist !== undefined) {
+    failed =
+      logPath === null
+        ? report(`Contract 1 — launchd redirect (${plist})`, [
+            warn(
+              "no verdict — the config records no log.path to compare the plist against",
+              "Record a log.path, or re-run with the redirect target you expect.",
+            ),
+          ]) || failed
+        : report(`Contract 1 — launchd redirect (${plist})`, inspectPlist(plist, logPath)) ||
+          failed;
   }
 
   if (!flags.has("skip-collector") && Array.isArray(config.hostCollector?.command)) {
@@ -1195,6 +1332,30 @@ derived here, from the exact commands, so a hash can never disagree with the
 command it approves.
 `;
 
+/**
+ * Checks a launchd plist's redirect BEFORE anything is applied.
+ *
+ * `verify` can only reach this once a `steward.json` exists, which is after the
+ * plist has been edited and the service restarted — so the contract line with
+ * the worst failure mode (capturing stdout alone looks alive and throws every
+ * error away) was the one that could not be checked while it was still cheap to
+ * fix. `--expect-log` is the path both streams should point at.
+ */
+function commandCheckPlist(flags) {
+  const plist = flags.get("plist");
+  if (plist === undefined) throw new UsageError("check-plist needs --plist <path>");
+  const expected = flags.get("expect-log");
+  if (expected === undefined) throw new UsageError("check-plist needs --expect-log <path>");
+  return report(`launchd redirect (${plist})`, inspectPlist(plist, expected)) ? 1 : 0;
+}
+
+/** Checks a log file for evidence of both streams, before or after an edit. */
+function commandCheckLog(flags) {
+  const path = flags.get("log");
+  if (path === undefined) throw new UsageError("check-log needs --log <path>");
+  return report(`log capture (${path})`, inspectLog(path).findings) ? 1 : 0;
+}
+
 async function main(argv) {
   const command = argv[0];
   if (command === undefined || command === "help" || command === "--help") {
@@ -1213,6 +1374,10 @@ async function main(argv) {
       return commandApply(flags);
     case "verify":
       return await commandVerify(flags);
+    case "check-plist":
+      return commandCheckPlist(flags);
+    case "check-log":
+      return commandCheckLog(flags);
     default:
       throw new UsageError(`unknown subcommand: ${command}`);
   }

@@ -7,8 +7,8 @@ Steward reads `$STEWARD_CONFIG` if it is set and non-empty, otherwise
 ## Write it with the helper, not by hand
 
 ```
-node scripts/steward-setup.mjs plan  --input ./proposal.json    # validates, shows the diff, writes nothing
-node scripts/steward-setup.mjs apply --input ./proposal.json    # backs up, writes atomically at 0600
+node <skill-dir>/scripts/steward-setup.mjs plan  --input ./proposal.json    # validates, shows the diff, writes nothing
+node <skill-dir>/scripts/steward-setup.mjs apply --input ./proposal.json    # backs up, writes atomically at 0600
 ```
 
 The **proposal** is a `steward.json` without its `consent` map. `plan` and `apply` derive consent
@@ -51,12 +51,14 @@ overwrite a file owned by another user. It prints the exact revert command.
 | `hostCollector.command` | **yes** | Argv of the long-lived NDJSON producer. `command[0]` is the program. |
 | `hostCollector.intervalMs` | **yes** | The cadence the collector actually keeps. This is the staleness clock. |
 | `baseUrl` | no | Where `llama-server` listens, as observed. Recorded for reference and for drift; inside Pi, the provider's own connection still wins at resolution time, and a mismatch is worth surfacing. |
-| `log.path` | no | Absolute path of the combined stdout+stderr redirect. Omitting it is honest when there is no log; Steward falls back to `STEWARD_LOG_FILE` and then to the platform convention. |
+| `log.path` | no | Absolute path of the combined stdout+stderr redirect. Omitting it is honest when there is no log; Steward then falls back to the platform convention. **`STEWARD_LOG_FILE` outranks this field** — if that variable is set, the console follows it and ignores what you record here. Check for it during detection and say which file the console will actually follow. |
 | `control` | no | All three of `start`, `stop`, `restart`, or nothing. |
 | `llama.launchArgv` | no | The argv observed at setup. Steward diffs the live process against it on every poll and raises a drift notice on a mismatch. Omitting it means no drift checking. |
 | `llama.mechanism`, `llama.label` | no | Descriptive only (`"launchd"`, `"gui/501/com.llama.router"`), so a notice can point at the right file. |
 
-Unknown keys are ignored, so an artifact may carry fields other tools own.
+Steward's reader ignores keys it does not own, but `apply` rebuilds the file from your proposal —
+so any field another tool put there is **dropped on the next run**. If the existing artifact carries
+keys you did not write, read them first and carry them into your proposal.
 
 `hostCollector` is the only block whose absence or malformation rejects the entire file. A
 half-written `control`, `log` or `llama` block is dropped with a warning and the rest of the
@@ -87,7 +89,7 @@ printf '%s' 'launchctl kickstart -k gui/501/com.llama.router' | shasum -a 256
 ## After writing
 
 ```
-node scripts/steward-setup.mjs verify --pid <listening-pid> --plist <plist>
+node <skill-dir>/scripts/steward-setup.mjs verify --pid <listening-pid> --plist <plist>
 ```
 
 `verify` re-reads the artifact with the same ownership, mode, schema and consent rules Steward

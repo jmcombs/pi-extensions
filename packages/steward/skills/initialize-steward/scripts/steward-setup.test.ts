@@ -18,7 +18,9 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { diffLaunchArgv } from "../../../core/drift.js";
 import { hashCommand } from "../../../server/steward-config.js";
+import { diffRecordedArgv } from "./steward-setup.mjs";
 
 const SCRIPT = join(import.meta.dirname, "steward-setup.mjs");
 /** The controllable fake producer the host collector's own tests use. */
@@ -550,5 +552,179 @@ describe("consent hashing", () => {
       expect(written.consent[hashCommand(control[action])]).toBe(true);
     }
     expect(Object.keys(written.consent)).toHaveLength(4);
+  });
+});
+
+/**
+ * The skill's `verify` must reach the same verdict as the dashboard's drift
+ * notice. It used to compare `recorded.join(" ") === live`, which hard-FAILED
+ * two correctly configured machines the dashboard called clean: one whose argv
+ * carried a quoted value with a space (`ps` returns it unquoted) and one whose
+ * flags had merely been re-ordered. `core/drift.ts` is explicit that a
+ * fabricated verdict costs as much trust as a missed one.
+ *
+ * The two implementations are separate on purpose — the shipped script imports
+ * only `node:` builtins so it runs on the oldest Node the package supports,
+ * which predates default TypeScript stripping. This test is what keeps them
+ * from drifting apart, exactly as the `hashCommand` invariant above does.
+ */
+describe("diffRecordedArgv parity with core/drift.ts", () => {
+  const ROUTER = [
+    "/opt/homebrew/bin/llama-server",
+    "--models-dir",
+    "/Users/x/.local/share/llama/models",
+    "--metrics",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "8080",
+  ];
+
+  const cases: Array<{ name: string; recorded: string[]; observed: string }> = [
+    { name: "exact match", recorded: ROUTER, observed: ROUTER.join(" ") },
+    {
+      name: "flags re-ordered — same server, must be clean",
+      recorded: ROUTER,
+      observed:
+        "/opt/homebrew/bin/llama-server --host 127.0.0.1 --port 8080 --metrics " +
+        "--models-dir /Users/x/.local/share/llama/models",
+    },
+    {
+      name: "quoted value with a space, unquoted by ps",
+      recorded: ["/opt/homebrew/bin/llama-server", "--alias", "Fast Model", "--metrics"],
+      observed: "/opt/homebrew/bin/llama-server --alias Fast Model --metrics",
+    },
+    {
+      name: "--flag=value spelling vs --flag value",
+      recorded: ROUTER,
+      observed:
+        "/opt/homebrew/bin/llama-server --models-dir=/Users/x/.local/share/llama/models " +
+        "--metrics --host=127.0.0.1 --port=8080",
+    },
+    {
+      name: "a flag genuinely removed",
+      recorded: ROUTER,
+      observed:
+        "/opt/homebrew/bin/llama-server --models-dir /Users/x/.local/share/llama/models " +
+        "--host 127.0.0.1 --port 8080",
+    },
+    {
+      name: "a flag genuinely added",
+      recorded: ROUTER,
+      observed: `${ROUTER.join(" ")} --no-slots`,
+    },
+    {
+      name: "truncated mid-token — no verdict",
+      recorded: ROUTER,
+      observed: "/opt/homebrew/bin/llama-server --models-dir /Users/x/.local/share/llama/mod",
+    },
+    {
+      name: "truncated at a token boundary — that is a real edit, not truncation",
+      recorded: ROUTER,
+      observed: "/opt/homebrew/bin/llama-server --models-dir /Users/x/.local/share/llama/models",
+    },
+    { name: "ps placeholder", recorded: ROUTER, observed: "(llama-server)" },
+    { name: "empty recorded argv", recorded: [], observed: ROUTER.join(" ") },
+    {
+      name: "the binary itself changed",
+      recorded: ROUTER,
+      observed: ROUTER.join(" ").replace("/opt/homebrew/bin", "/usr/local/bin"),
+    },
+  ];
+
+  for (const { name, recorded, observed } of cases) {
+    it(`agrees with the dashboard: ${name}`, () => {
+      const mine = diffRecordedArgv(recorded, observed);
+      const theirs = diffLaunchArgv(recorded, observed);
+      expect(mine.status).toBe(theirs.status);
+      // Narrow on `mine`; `theirs.status` narrows only the dashboard's type.
+      // The assertion above has already proven the two agree on status.
+      if (mine.status === "drifted" && theirs.status === "drifted") {
+        expect(mine.added).toEqual(theirs.added);
+        expect(mine.removed).toEqual(theirs.removed);
+      }
+    });
+  }
+
+  it("never fabricates drift on a re-ordered argv", () => {
+    const reordered = "/opt/homebrew/bin/llama-server --port 8080 --host 127.0.0.1 --metrics";
+    const recorded = [
+      "/opt/homebrew/bin/llama-server",
+      "--metrics",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8080",
+    ];
+    expect(diffRecordedArgv(recorded, reordered).status).toBe("clean");
+    // The old implementation returned a hard FAIL here.
+    expect(recorded.join(" ") === reordered).toBe(false);
+  });
+});
+
+/**
+ * `check-plist` and `check-log` exist because `verify` cannot reach either until
+ * a `steward.json` has been written — which is after the plist was edited and the
+ * service restarted. That left Rule 2, the contract line whose breach is silent
+ * and total, uncheckable while it was still cheap to fix.
+ */
+describe("check-plist / check-log before anything is applied", () => {
+  function plist(body: string): string {
+    const path = join(dir, "agent.plist");
+    writeFileSync(path, `<plist version="1.0"><dict>${body}</dict></plist>`);
+    return path;
+  }
+
+  it("passes a plist that sends both streams to one file", () => {
+    const path = plist(
+      "<key>StandardOutPath</key><string>/tmp/r.log</string>" +
+        "<key>StandardErrorPath</key><string>/tmp/r.log</string>",
+    );
+    const result = run(["check-plist", "--plist", path, "--expect-log", "/tmp/r.log"]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("both streams redirect to");
+  });
+
+  it("fails a stdout-only plist — the silent-loss trap", () => {
+    const path = plist("<key>StandardOutPath</key><string>/tmp/r.log</string>");
+    const result = run(["check-plist", "--plist", path, "--expect-log", "/tmp/r.log"]);
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("does not set both");
+  });
+
+  it("fails when the redirect names a different file than expected", () => {
+    const path = plist(
+      "<key>StandardOutPath</key><string>/tmp/other.log</string>" +
+        "<key>StandardErrorPath</key><string>/tmp/other.log</string>",
+    );
+    const result = run(["check-plist", "--plist", path, "--expect-log", "/tmp/r.log"]);
+    expect(result.status).toBe(1);
+  });
+
+  it("needs both flags, and says which is missing", () => {
+    expect(run(["check-plist", "--plist", "/x.plist"]).status).toBe(2);
+    expect(run(["check-log"]).stderr).toContain("--log");
+  });
+
+  it("check-log reads a real combined log", () => {
+    const path = join(dir, "router.log");
+    writeFileSync(path, "0.08.955.549 I srv load: loading\n[54241] child line\n");
+    const result = run(["check-log", "--log", path]);
+    expect(result.status).toBe(0);
+  });
+});
+
+describe("router mode is asserted, not merely inferred from absence", () => {
+  it("warns when neither --models-dir nor --models-preset is present", () => {
+    // Previously this passed as "router mode" purely because no -m was found,
+    // which reads as compliant while leaving Steward an empty catalogue.
+    const argv = ["/opt/homebrew/bin/llama-server", "--metrics", "--port", "8080"];
+    const result = run(["check-argv", "--argv-json", fixture("argv.json", argv)]);
+    expect(result.stdout).toContain("no model source in the argv");
+  });
+
+  it("confirms router mode when a model source is present", () => {
+    const result = run(["check-argv", "--argv-json", fixture("argv.json", COMPLIANT_ARGV)]);
+    expect(result.stdout).toContain("serves a model directory or preset");
   });
 });
