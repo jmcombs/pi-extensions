@@ -377,6 +377,15 @@ function sameLine(a: LogLine, b: LogLine): boolean {
  * an overlap that disagrees is a new source and its batch is adopted whole,
  * while an overlap that agrees is a replay and only the genuinely new lines are
  * kept.
+ *
+ * A source that is REPLACED — the server picked up a log file it was not
+ * reading before, or lost the one it was — needs none of that guesswork and
+ * must not be left to it: two logs' numbers do not overlap in any dependable
+ * way, and the likely case (a fresh tailer whose backlog window has already
+ * carried its counter past ours) reads as ordinary progress and would append,
+ * concatenating two different logs under one buffer with nothing on screen to
+ * say so. {@link LogLine.gen} states the boundary instead of leaving it to be
+ * inferred, and it is checked first.
  */
 function appendLines(log: LogLine[], incoming: readonly LogLine[]): CappedBuffer {
   const newest = incoming.at(-1);
@@ -384,6 +393,15 @@ function appendLines(log: LogLine[], incoming: readonly LogLine[]): CappedBuffer
   const last = log.at(-1);
   const oldest = log[0];
   if (last === undefined || oldest === undefined) return adopt(incoming.slice());
+
+  if (newest.gen !== last.gen) {
+    // A frame's worth of lines can straddle the swap, so only the part that
+    // came from the new source is adopted — the few older lines in front of it
+    // belong to a buffer that is being replaced anyway.
+    let start = incoming.length - 1;
+    while (start > 0 && incoming[start - 1]?.gen === newest.gen) start -= 1;
+    return adopt(incoming.slice(start));
+  }
 
   if (incoming.some((line) => line.seq <= last.seq)) {
     // A batch that ends below everything held cannot be a replay: the source

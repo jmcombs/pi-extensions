@@ -110,96 +110,30 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const { LlamaSource } = await import("./core/llama-source.js");
   const { createMockSource } = await import("./core/mock-source.js");
   const { createListenerProbe } = await import("./server/service-probe.js");
-  const { readStewardConfig, hostCollectorConsented, consentedControls, consentDrift } =
-    await import("./server/steward-config.js");
+  const { createConfigWiring } = await import("./server/config-wiring.js");
   const connection = await resolveLlamaConnection(ctx);
   const probeService = createListenerProbe();
 
-  // A collector runs only when `steward.json` declares one AND the operator has
-  // consented to its exact command (the security gate). The command, cadence, and
-  // topology are captured together here — all three belong to that single
-  // consented path, so there is no unconfigured fallback for any of them — and the
-  // collector itself is built per source below, since each source owns and closes
-  // its own.
-  const config = readStewardConfig();
-  const hostConfig =
-    config !== null && hostCollectorConsented(config)
-      ? {
-          command: config.hostCollector.command,
-          intervalMs: config.hostCollector.intervalMs,
-          topology: config.memoryTopology,
-        }
-      : null;
-  const { createHostCollector } =
-    hostConfig !== null
-      ? await import("./server/host-collector.js")
-      : { createHostCollector: null };
-
-  // Service control is per-action: only the declared commands whose exact argv
-  // the operator consented to are offered, so a machine with a consented
-  // `restart` and an unapproved `stop` gets one button, not two. With none, the
-  // block shows a setup affordance and `setService` never runs anything. The
-  // controller holds no resources, so one instance serves every source.
-  const controlCommands = config === null ? {} : consentedControls(config);
-  const { createServiceController } =
-    Object.keys(controlCommands).length > 0
-      ? await import("./server/service-control.js")
-      : { createServiceController: null };
-  const control =
-    createServiceController === null ? undefined : createServiceController(controlCommands);
-
-  // Drift re-validation. `steward.json` is written once and then trusted, so a
-  // plist edited afterwards would leave the dashboard asserting facts that
-  // stopped being true — and, because a compliant machine renders nothing, doing
-  // it silently. The probe re-reads the running process's argv each snapshot and
-  // diffs it against what was recorded; with no `llama.launchArgv` recorded there
-  // is nothing to compare against and the check simply reports itself unavailable.
-  // The second producer needs no probe: a declared-but-unapproved command is
-  // already knowable from the config alone.
-  // The log console. The path comes from `STEWARD_LOG_FILE`, else the recorded
-  // `log.path`, else the platform convention — and the convention only if the
-  // file is really there.
-  //
-  // With no path discovered there is no tailer, and the log console keeps
-  // delegating to the fallback: `recentLogs`/`subscribeLogs` DO serve the
-  // simulation's lines, exactly as they did before this seam existed, while
-  // `logStatus()` reports `unavailable`. So the console can be handed lines and
-  // an `unavailable` source AT THE SAME TIME, and it has to say so — those lines
-  // are not the server's. The tailer itself is built per source below, since
-  // each source owns and closes its own.
-  const { createFileTailer, resolveLogPath } = await import("./server/log-tailer.js");
-  const logPath = resolveLogPath({ config: config?.log ?? null });
-
-  const launchArgv = config?.llama?.launchArgv ?? null;
-  const { createDriftProbe } =
-    launchArgv === null ? { createDriftProbe: null } : await import("./server/drift-probe.js");
-  // The probe holds only a per-pid cache, so one instance serves every source.
-  const probeDrift =
-    createDriftProbe === null || launchArgv === null ? undefined : createDriftProbe({ launchArgv });
-  const consentGaps = config === null ? undefined : consentDrift(config);
-
   return () => {
-    // A fresh collector per source: a start that fails to bind closes the source
-    // it was handed (killing its collector), so a retry must not reuse a spent one.
-    const host =
-      hostConfig !== null && createHostCollector !== null
-        ? {
-            provider: createHostCollector(hostConfig.command, hostConfig.intervalMs),
-            topology: hostConfig.topology,
-            // Stale past 3× the collector's declared cadence — the readings drop
-            // to n/a rather than being held (maintainer decision, plan H3).
-            staleMs: 3 * hostConfig.intervalMs,
-          }
-        : undefined;
+    // Everything `steward.json` decides — the host collector, the service
+    // control commands, the drift baseline, the log tail — comes from the
+    // wiring, which reads the artifact now and keeps reading it as it changes.
+    // That is what lets an operator run `/initialize-steward` with the dashboard
+    // already open: the panels wire themselves up on the next repaint instead of
+    // waiting for a new Pi session, and a config that is deleted takes its
+    // collector and its buttons with it.
+    //
+    // A fresh wiring per source, for the same reason the collector was always
+    // built per source: a start that fails to bind closes the source it was
+    // handed (killing its collector and stopping its watcher), so a retry must
+    // not reuse a spent one.
+    const wiring = createConfigWiring();
     return new LlamaSource({
       connection,
       fallback: createMockSource(),
       probeService,
-      control,
-      host,
-      probeDrift,
-      consentDrift: consentGaps,
-      logTail: logPath === null ? undefined : createFileTailer({ path: logPath }),
+      ...wiring.parts,
+      rewire: wiring.rewire,
     });
   };
 }

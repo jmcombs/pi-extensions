@@ -167,20 +167,25 @@ export interface HostMetricsOverlay {
   staleMs: number;
 }
 
-export interface LlamaSourceOptions {
-  /** Where to read the server. */
-  connection: LlamaConnection;
-  /** The source every non-live fact comes from; owned and closed by this one. */
-  fallback: StewardDataSource;
-  /** HTTP transport. Defaults to the global `fetch`; injected in tests. */
-  fetch?: FetchLike;
-  /**
-   * Resolves the OS process behind the connection, for the SERVICE panel's real
-   * pid and uptime — facts llama-server does not report over HTTP. Injected
-   * (it is Node-side and platform-specific); omitted, pid and uptime read n/a
-   * while the live/stopped state still comes through.
-   */
-  probeService?: ServiceProbe;
+/**
+ * The parts of the live source that `steward.json` decides — and that it can
+ * therefore gain, change, or lose while the dashboard is open.
+ *
+ * They are grouped because they are swapped together, by
+ * {@link LlamaSource.reconfigure}. An ABSENT key means "this machine has none",
+ * never "keep what you had": a source still serving a collector the config
+ * stopped declaring is serving a config that is gone, which is the same
+ * dishonesty as a held-stale reading.
+ *
+ * IDENTITY is the swap protocol for the two parts that own an OS resource. Hand
+ * back the same {@link HostMetricsOverlay.provider} — or the same
+ * {@link LogTailer} — and the source leaves the running one completely alone;
+ * hand back a different one, or none, and the source closes what it held. That
+ * is what keeps a `steward.json` rewrite whose collector is unchanged from
+ * dropping the metrics stream and re-running the collector's warmup, while a
+ * rewrite that really does change the command still stops the old child.
+ */
+export interface LlamaLiveParts {
   /**
    * Runs the operator's declared start/stop/restart commands. Injected (it is
    * Node-side) and present only when `steward.json` declares control commands
@@ -204,9 +209,9 @@ export interface LlamaSourceOptions {
    */
   probeDrift?: DriftProbe;
   /**
-   * Commands `steward.json` declares but has not approved, computed once from
-   * the config (it cannot change while the process runs). Omitted, nothing is
-   * reported as unapproved.
+   * Commands `steward.json` declares but has not approved, computed from the
+   * config each time it is read. Omitted, nothing is reported as unapproved —
+   * which is also the honest answer once there is no config to declare anything.
    */
   consentDrift?: ConsentDrift;
   /**
@@ -216,6 +221,34 @@ export interface LlamaSourceOptions {
    * showing an empty panel with no explanation.
    */
   logTail?: LogTailer;
+}
+
+export interface LlamaSourceOptions extends LlamaLiveParts {
+  /** Where to read the server. */
+  connection: LlamaConnection;
+  /** The source every non-live fact comes from; owned and closed by this one. */
+  fallback: StewardDataSource;
+  /** HTTP transport. Defaults to the global `fetch`; injected in tests. */
+  fetch?: FetchLike;
+  /**
+   * Resolves the OS process behind the connection, for the SERVICE panel's real
+   * pid and uptime — facts llama-server does not report over HTTP. Injected
+   * (it is Node-side and platform-specific); omitted, pid and uptime read n/a
+   * while the live/stopped state still comes through.
+   */
+  probeService?: ServiceProbe;
+  /**
+   * Subscribes this source to later versions of its {@link LlamaLiveParts} —
+   * the `steward.json` watcher (`server/config-wiring.ts`), injected because
+   * watching a file is Node-side. It is handed this source's own
+   * {@link LlamaSource.reconfigure} and returns the unsubscribe, which
+   * {@link LlamaSource.close} calls FIRST: nothing may hand a freshly spawned
+   * collector to a source that has stopped being able to close one.
+   *
+   * Omitted, the parts this source was constructed with are the ones it keeps —
+   * which is what every test that does not care about re-wiring gets.
+   */
+  rewire?: (apply: (parts: LlamaLiveParts) => void) => Unsubscribe;
 }
 
 /** How long to wait on any one call before treating the server as unreachable. */
@@ -245,6 +278,13 @@ const THROUGHPUT_WINDOW_MS = THROUGHPUT_HISTORY_SIZE * THROUGHPUT_SAMPLE_MS;
  */
 const ACTIVITY_BACKLOG = 500;
 
+/**
+ * How much history an open console is handed when the log source underneath it
+ * changes. The same window the API route replays to a console that connects
+ * fresh, for the same reason: it is what the client's buffer holds.
+ */
+const CONSOLE_REPLAY_LINES = 200;
+
 export class LlamaSource implements StewardDataSource {
   readonly name = "llama.cpp";
 
@@ -252,16 +292,20 @@ export class LlamaSource implements StewardDataSource {
   readonly #fallback: StewardDataSource;
   readonly #fetch: FetchLike;
   readonly #probeService: ServiceProbe | null;
+  // Every part `steward.json` decides is mutable, because the artifact is: the
+  // operator can run `/initialize-steward` — or delete the file — with the
+  // dashboard open, and `reconfigure` swaps these in place rather than making
+  // them wait for a new Pi session.
   /** The declared control commands, or null when none are configured/consented. */
-  readonly #control: ServiceController | null;
+  #control: ServiceController | null;
   /** The live host-metrics overlay, or null when no collector is configured. */
-  readonly #host: HostMetricsOverlay | null;
+  #host: HostMetricsOverlay | null;
   /** The launch-argv re-check, or null when nothing was recorded to check. */
-  readonly #probeDrift: DriftProbe | null;
-  /** Declared-but-unapproved commands; static for the life of the process. */
-  readonly #consentDrift: ConsentDrift;
+  #probeDrift: DriftProbe | null;
+  /** Declared-but-unapproved commands, as of the config we last read. */
+  #consentDrift: ConsentDrift;
   /** The live log tail, or null when no log source was discovered. */
-  readonly #logTail: LogTailer | null;
+  #logTail: LogTailer | null;
   /**
    * Slot occupancy folded from the log, or null when there is no log to fold.
    *
@@ -271,9 +315,51 @@ export class LlamaSource implements StewardDataSource {
    * exactly as they always did. Never both — running the timers alongside the
    * event stream would keep every line of the noise this exists to remove.
    */
-  readonly #activity: SlotActivity | null;
+  #activity: SlotActivity | null;
   /** Detaches {@link #activity} from the tailer; null when there is no tail. */
-  readonly #detachActivity: Unsubscribe | null;
+  #detachActivity: Unsubscribe | null;
+  /**
+   * The consoles listening to this source, held HERE rather than on whatever is
+   * feeding them.
+   *
+   * A browser's log stream is opened once and lives for as long as the tab does,
+   * so subscribing it straight to the tailer would end the moment the tailer was
+   * replaced: the console would go quiet while `logStatus()` cheerfully reported
+   * a healthy new source. The subscribers belong to the source, which keeps one
+   * upstream subscription and re-points it at each swap — so a console opened
+   * before `/initialize-steward` ran is reading the real log a moment after it
+   * did, without being reopened.
+   */
+  readonly #logListeners = new Set<(line: LogLine) => void>();
+  /** Detaches the fan-out from whatever currently feeds it (a tail, or the fallback). */
+  #detachLogFeed: Unsubscribe | null = null;
+  /**
+   * Which log source the console is being fed from, bumped on every swap and
+   * stamped onto every line that leaves here.
+   *
+   * `LogLine.seq` is monotonic per SOURCE, and a swap changes the source: the
+   * file tailer anchors on a 256 KB backlog window as it opens, so a
+   * replacement's counter is already in the thousands before it delivers a
+   * line, and the fallback's starts from its own base. Without this the client
+   * would read those numbers as ordinary progress and append — quietly showing
+   * one buffer of two different logs, with nothing on screen to say so.
+   */
+  #logGeneration = 0;
+  /** Stops the `steward.json` watcher; null when nothing is watching. */
+  #stopRewire: Unsubscribe | null = null;
+  /** Set by {@link close}, so nothing can be handed to a spent source. */
+  #closed = false;
+  /**
+   * Every collector and tailer this source has closed.
+   *
+   * The swap protocol is identity-based, so "have I already released this one?"
+   * is a question with an exact answer, and this is it. It matters because the
+   * resources on the other side of it are a detached PROCESS GROUP and an open
+   * file handle: closing one twice is not obviously harmless (the collector's
+   * own `close` happens to guard, but a source must not depend on its callee to
+   * make its accounting true), and closing one never leaks a process.
+   */
+  readonly #released = new WeakSet<object>();
   /** In-flight reads and actions, aborted on {@link close}. */
   readonly #inFlight = new Set<AbortController>();
   /**
@@ -306,29 +392,153 @@ export class LlamaSource implements StewardDataSource {
     this.#fallback = options.fallback;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#probeService = options.probeService ?? null;
-    this.#control = options.control ?? null;
-    this.#host = options.host ?? null;
-    this.#probeDrift = options.probeDrift ?? null;
-    this.#consentDrift = options.consentDrift ?? NO_CONSENT_DRIFT;
-    this.#logTail = options.logTail ?? null;
 
-    // The tail is attached here, not on the first snapshot, so occupancy is
-    // being tracked from the moment the source exists — a request that starts
-    // and finishes before the browser has even connected is still accounted for.
-    if (this.#logTail === null) {
-      this.#activity = null;
-      this.#detachActivity = null;
-    } else {
+    // The config-driven parts start empty and are installed through the same
+    // path every later change takes, so a source that is built with a collector
+    // and one that gains a collector an hour later are wired identically —
+    // there is no construction-only branch to fall out of step.
+    this.#control = null;
+    this.#host = null;
+    this.#probeDrift = null;
+    this.#consentDrift = NO_CONSENT_DRIFT;
+    this.#logTail = null;
+    this.#activity = null;
+    this.#detachActivity = null;
+    this.reconfigure(options);
+    // `reconfigure` pointed the console's fan-out at a tail if the config named
+    // one. With no tail it is the fallback's simulated lines the console shows,
+    // and the fan-out has to be pointed at those from here.
+    if (this.#detachLogFeed === null) this.#feedConsole();
+
+    // Subscribed last, so the first parts this source ever sees are the ones it
+    // was constructed with, and a watcher that fires synchronously on subscribe
+    // cannot reach a half-built source.
+    this.#stopRewire = options.rewire?.((parts) => this.reconfigure(parts)) ?? null;
+  }
+
+  /**
+   * Installs a new set of config-driven parts — what `steward.json` says about
+   * this machine, as of now.
+   *
+   * This is the whole of Steward's answer to an artifact that changes under it.
+   * `/initialize-steward` can be run, re-run, or its output deleted while the
+   * dashboard is open, and each of those has to take effect on the next repaint
+   * rather than on the next Pi session: a collector appears, a log path moves,
+   * a control command loses its consent hash, the file is removed entirely.
+   *
+   * Two rules make that safe. Every part is REPLACED, never merged — an absent
+   * part means this machine has none, so a config that is gone takes its
+   * collector, its buttons and its drift baseline with it instead of leaving
+   * them running on an approval that no longer exists. And a part that owns an
+   * OS resource is closed when it is replaced by a different one, which is why
+   * the caller must hand back the SAME provider/tailer instance for anything it
+   * decided not to rebuild (see {@link LlamaLiveParts}) — the collector is a
+   * detached process group, and dropping a reference to one leaks a process.
+   */
+  reconfigure(parts: LlamaLiveParts): void {
+    if (this.#closed) {
+      // A source that can no longer serve anything must still not leak what it
+      // is handed. The watcher is stopped before this can happen, so it is
+      // insurance and not a path — but the thing it would leak is a process
+      // group. {@link #release} makes it exact in both directions: a resource
+      // this source already closed is not closed again, and one it has never
+      // seen is closed once however many times it arrives.
+      this.#release(parts.host?.provider);
+      this.#release(parts.logTail);
+      return;
+    }
+    // Neither of these owns a resource: control is argv the executor re-reads
+    // per action, drift is a probe holding a per-pid cache and a plain record.
+    this.#control = parts.control ?? null;
+    this.#probeDrift = parts.probeDrift ?? null;
+    this.#consentDrift = parts.consentDrift ?? NO_CONSENT_DRIFT;
+    this.#swapHost(parts.host ?? null);
+    this.#swapTail(parts.logTail ?? null);
+  }
+
+  /**
+   * Swaps the host-metrics overlay, closing the collector only when the
+   * PROVIDER itself changed.
+   *
+   * The overlay object and the collector inside it have separate lifetimes on
+   * purpose: an operator who edits `memoryTopology` (or whose collector cadence
+   * is unchanged but whose file was rewritten) gets a new overlay around the
+   * same running child, and the metrics stream never breaks. Killing and
+   * respawning it would blank the HOST band for the length of the collector's
+   * warmup — n/a readings that describe nothing but Steward's own churn.
+   */
+  #swapHost(next: HostMetricsOverlay | null): void {
+    const previous = this.#host;
+    this.#host = next;
+    if (previous !== null && previous.provider !== next?.provider) {
+      this.#release(previous.provider);
+    }
+  }
+
+  /** Closes a collector or a tailer, once, ever. */
+  #release(resource: { close(): void } | null | undefined): void {
+    if (resource === null || resource === undefined) return;
+    if (this.#released.has(resource)) return;
+    this.#released.add(resource);
+    resource.close();
+  }
+
+  /**
+   * Swaps the log tail, and with it everything that was derived from the old
+   * one.
+   *
+   * A tail that is replaced (the path moved) or removed (the config that named
+   * it is gone) is a break in the event stream, not a continuation of it: the
+   * slot tracker's occupancy came from lines of a file we have stopped reading,
+   * and the throughput ledger's banked tokens were counted from it. Both are
+   * dropped, exactly as {@link #syncActivity} drops them when the file itself
+   * goes missing — the strip empties and refills rather than straddling the gap
+   * with samples that understate a window they claim to measure.
+   */
+  #swapTail(next: LogTailer | null): void {
+    const previous = this.#logTail;
+    if (previous === next) return;
+
+    this.#detachActivity?.();
+    this.#detachActivity = null;
+    this.#activity = null;
+    this.#logTail = next;
+    // The console is about to start hearing a different source, whose sequence
+    // numbers have nothing to do with the ones it holds. Saying so is the only
+    // thing that stops the client merging two logs into one buffer.
+    this.#logGeneration += 1;
+    // Re-pointed before the old tailer is closed, so no console is ever
+    // subscribed to something that has stopped reading.
+    this.#feedConsole();
+    this.#release(previous);
+    // And handed the new source's own recent history in the same breath, so a
+    // console that was open across the swap shows the new log rather than
+    // refilling one line at a time from whatever happens next.
+    this.#replayToConsoles();
+
+    if (next !== null) {
       const activity = createSlotActivity();
       // `attach` hands back the backlog and registers the listener with no
       // suspension point between them, and folding the backlog immediately
       // after — synchronously, before the tailer's next poll can run — means
-      // every line is folded exactly once and in order.
-      const attachment = this.#logTail.attach((line) => activity.observe(line), ACTIVITY_BACKLOG);
+      // every line is folded exactly once and in order. Attaching here rather
+      // than on the first snapshot means occupancy is tracked from the moment
+      // the tail exists: a request that starts and finishes before the browser
+      // has even connected is still accounted for.
+      const attachment = next.attach((line) => activity.observe(line), ACTIVITY_BACKLOG);
       for (const line of attachment.backlog) activity.observe(line);
       this.#activity = activity;
       this.#detachActivity = attachment.unsubscribe;
     }
+
+    // Both throughput paths reset: the swap also decides WHICH of them runs, and
+    // carrying either series across it would plot one measurement under the
+    // other's axis.
+    this.#samples.length = 0;
+    this.#gaugeHistory.length = 0;
+    this.#pendingTokens = 0;
+    this.#lastSampleAt = 0;
+    this.#lastLogSource = null;
   }
 
   async snapshot(): Promise<Snapshot> {
@@ -557,28 +767,79 @@ export class LlamaSource implements StewardDataSource {
    * nothing.
    */
   recentLogs(limit: number): LogLine[] {
-    if (this.#logTail !== null) return this.#logTail.recent(limit);
-    return this.#fallback.recentLogs(limit);
+    const lines =
+      this.#logTail !== null ? this.#logTail.recent(limit) : this.#fallback.recentLogs(limit);
+    return lines.map((line) => this.#stamp(line));
   }
 
   subscribeLogs(listener: (line: LogLine) => void): Unsubscribe {
-    if (this.#logTail !== null) return this.#logTail.subscribe(listener);
-    return this.#fallback.subscribeLogs(listener);
+    this.#logListeners.add(listener);
+    return () => {
+      this.#logListeners.delete(listener);
+    };
   }
 
   /**
-   * Opens a console against whichever source is live, atomically. The tailer
-   * does it in one step; the fallback's own two calls are synchronous and
-   * adjacent here, which is the same guarantee by construction.
+   * Opens a console against whichever source is live, atomically — and keeps it
+   * open across a change of source.
+   *
+   * The backlog is taken and the listener registered with no suspension point
+   * between them, which is the guarantee that costs nothing to keep and a
+   * dropped line to lose: the tailer and the mock both emit from a timer, so
+   * neither can land between these two statements. What the listener is
+   * registered ON is this source, not the thing currently feeding it — see
+   * {@link #logListeners} — so a tail that appears or moves later reaches this
+   * console without it being reopened.
    */
   attachLogs(listener: (line: LogLine) => void, limit: number): LogAttachment {
-    if (this.#logTail !== null) return this.#logTail.attach(listener, limit);
-    const attach = this.#fallback.attachLogs;
-    if (attach !== undefined) return attach.call(this.#fallback, listener, limit);
+    const backlog = this.recentLogs(limit);
+    this.#logListeners.add(listener);
     return {
-      backlog: this.#fallback.recentLogs(limit),
-      unsubscribe: this.#fallback.subscribeLogs(listener),
+      backlog,
+      unsubscribe: () => {
+        this.#logListeners.delete(listener);
+      },
     };
+  }
+
+  /**
+   * Points the console fan-out at whatever is live now: the tail when there is
+   * one, the fallback's simulation when there is not. Exactly one upstream
+   * subscription is held, and the consoles never see the seam.
+   */
+  #feedConsole(): void {
+    this.#detachLogFeed?.();
+    const emit = (line: LogLine): void => {
+      const stamped = this.#stamp(line);
+      for (const listener of this.#logListeners) listener(stamped);
+    };
+    this.#detachLogFeed =
+      this.#logTail === null ? this.#fallback.subscribeLogs(emit) : this.#logTail.subscribe(emit);
+  }
+
+  /**
+   * Marks a line with the source it came from. The stamp is applied here, on
+   * the way out, rather than by the tailer: the tailer has no idea it is one of
+   * several, and the fallback's lines need the same mark for the swap in the
+   * other direction — a tail that goes away — to be legible too.
+   */
+  #stamp(line: LogLine): LogLine {
+    return { ...line, gen: this.#logGeneration };
+  }
+
+  /**
+   * Hands every open console the current source's recent history, so a swap
+   * re-populates them instead of leaving them empty.
+   *
+   * These lines carry the new generation, so the client replaces its buffer
+   * with them rather than appending — which is what makes this safe to send to
+   * a console that is already showing hundreds of lines from the old source.
+   */
+  #replayToConsoles(): void {
+    if (this.#logListeners.size === 0) return;
+    for (const line of this.recentLogs(CONSOLE_REPLAY_LINES)) {
+      for (const listener of this.#logListeners) listener(line);
+    }
   }
 
   /**
@@ -654,11 +915,27 @@ export class LlamaSource implements StewardDataSource {
   }
 
   close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    // Stopped first: a watcher that fired after this point would spawn a
+    // collector for a source that has already released everything it owns.
+    this.#stopRewire?.();
+    this.#stopRewire = null;
     for (const controller of this.#inFlight) controller.abort();
     this.#inFlight.clear();
+    this.#detachLogFeed?.();
+    this.#detachLogFeed = null;
+    this.#logListeners.clear();
     this.#detachActivity?.();
-    this.#host?.provider.close();
-    this.#logTail?.close();
+    this.#detachActivity = null;
+    this.#activity = null;
+    this.#release(this.#host?.provider);
+    this.#release(this.#logTail);
+    // Dropped as well as closed: a spent source holds nothing, and the parts it
+    // is handed afterwards are judged against what it has released rather than
+    // against what it happens to still be pointing at.
+    this.#host = null;
+    this.#logTail = null;
     this.#fallback.close();
   }
 

@@ -13,6 +13,7 @@ import type { HostMetricsProvider, HostReading, HostSample } from "./host-metric
 import {
   type FetchLike,
   type HostMetricsOverlay,
+  type LlamaLiveParts,
   LlamaSource,
   type LogTailer,
   type ServiceController,
@@ -22,6 +23,7 @@ import { parseLogLine } from "./log-parse.js";
 import { createMockSource, type MockSourceOptions } from "./mock-source.js";
 import { SLOT_STALE_MS } from "./slot-activity.js";
 import type { StewardDataSource } from "./source.js";
+import { initialUiState, reduce } from "./state.js";
 import {
   type LogLine,
   type LogStreamStatus,
@@ -1022,6 +1024,10 @@ describe("LlamaSource — log console", () => {
       expect(source.recentLogs(7)).toEqual([
         {
           seq: 7,
+          // Marked with the source it came from: this one is the tail the source
+          // was built with, and the mark is what tells a console that the lines
+          // before a swap and the lines after it are not one series.
+          gen: 1,
           ts: FIXED_NOW,
           level: "INFO",
           modelId: null,
@@ -1030,13 +1036,15 @@ describe("LlamaSource — log console", () => {
           origin: "router",
         },
       ]);
-      // The source holds one subscription of its own — the slot-activity fold
-      // that replaced the per-model polls — so the console's is the second.
-      expect(logTail.listeners).toBe(1);
+      // The source holds exactly two subscriptions of its own, whatever the
+      // consoles are doing: the slot-activity fold that replaced the per-model
+      // polls, and the fan-out that lets a console outlive a change of tail.
+      // Consoles subscribe to the SOURCE, so they never move this count.
+      expect(logTail.listeners).toBe(2);
       const unsubscribe = source.subscribeLogs(() => undefined);
       expect(logTail.listeners).toBe(2);
       unsubscribe();
-      expect(logTail.listeners).toBe(1);
+      expect(logTail.listeners).toBe(2);
       // And the source reports the log's own health, which "no lines" cannot.
       expect(source.logStatus()).toEqual({
         source: "missing",
@@ -1059,15 +1067,17 @@ describe("LlamaSource — log console", () => {
     });
     try {
       const { backlog, unsubscribe } = source.attachLogs(() => undefined, 3);
-      // The tailer's own atomic path — not a `recent` followed by a `subscribe`,
-      // which a poll landing in between would empty out of both. The source's
-      // own slot-activity fold attaches the same way in the constructor, so this
-      // is the second attach and the second listener.
-      expect(logTail.attached).toBe(2);
+      // The backlog is the tailer's, and it is taken in the same breath as the
+      // registration — no `recent` awaited apart from a `subscribe`, which a
+      // poll landing in between would empty out of both.
       expect(backlog).toHaveLength(1);
+      // The tailer sees only the source's own two: the slot-activity fold (which
+      // uses its atomic `attach`) and the console fan-out. The console itself is
+      // registered on the source, which is what carries it across a tail swap.
+      expect(logTail.attached).toBe(1);
       expect(logTail.listeners).toBe(2);
       unsubscribe();
-      expect(logTail.listeners).toBe(1);
+      expect(logTail.listeners).toBe(2);
     } finally {
       source.close();
     }
@@ -1086,7 +1096,9 @@ describe("LlamaSource — log console", () => {
     try {
       const seen: number[] = [];
       const { backlog, unsubscribe } = source.attachLogs((line) => seen.push(line.seq), 4);
-      expect(backlog).toEqual(fallback.recentLogs(4));
+      // The mock's own lines, marked with the source serving them — the source
+      // has never swapped, so that is generation 0.
+      expect(backlog).toEqual(fallback.recentLogs(4).map((line) => ({ ...line, gen: 0 })));
 
       fallback.tickLogs();
       expect(seen.length).toBeGreaterThan(0);
@@ -1108,7 +1120,9 @@ describe("LlamaSource — log console", () => {
     const fallback = createFallback();
     const source = new LlamaSource({ connection: CONNECTION, fallback, fetch: routerFetch({}) });
     try {
-      expect(source.recentLogs(5)).toEqual(fallback.recentLogs(5));
+      expect(source.recentLogs(5)).toEqual(
+        fallback.recentLogs(5).map((line) => ({ ...line, gen: 0 })),
+      );
       const seen: number[] = [];
       const unsubscribe = source.subscribeLogs((line) => seen.push(line.seq));
       // Delivered by the fallback, exactly as before.
@@ -1853,5 +1867,445 @@ describe("LlamaSource — slots from the log", () => {
     } finally {
       source.close();
     }
+  });
+});
+
+/**
+ * `steward.json` is written while the dashboard is open, so every part it
+ * decides has to be swappable in place: gained, changed, and lost. What these
+ * pin down is the ownership half of that — a part that is replaced is CLOSED,
+ * and a part that is handed back unchanged is left completely alone, because the
+ * collector behind it is a detached process group with a warmup.
+ */
+describe("LlamaSource — reconfigure", () => {
+  const DRIFTED_LAUNCH = {
+    status: "drifted" as const,
+    added: [],
+    removed: ["--metrics"],
+    program: null,
+    reason: null,
+  };
+
+  /** A collector stub that counts its closes, so a needless respawn is visible. */
+  function countedProvider(): HostMetricsProvider & { closes: number } {
+    return {
+      closes: 0,
+      latest: (): HostSample | null => null,
+      close(): void {
+        this.closes += 1;
+      },
+    };
+  }
+
+  /**
+   * A tailer stub that counts its closes and its live listeners, holds a
+   * backlog, and can emit. The backlog matters: a real `createFileTailer` polls
+   * once as it is constructed and anchors on a 256 KB window, so a tailer handed
+   * over mid-session is never empty and its counter is never near zero.
+   */
+  function countedTailer(path: string): LogTailer & {
+    closes: number;
+    listeners: number;
+    emit(message: string): void;
+    seed(messages: string[], from?: number): void;
+  } {
+    const listeners = new Set<(line: LogLine) => void>();
+    const held: LogLine[] = [];
+    let seq = 0;
+    const make = (message: string): LogLine => {
+      seq += 1;
+      return {
+        seq,
+        ts: FIXED_NOW,
+        level: "INFO",
+        modelId: null,
+        message,
+        kind: "event",
+        origin: "router",
+      };
+    };
+    const state = {
+      closes: 0,
+      get listeners(): number {
+        return listeners.size;
+      },
+      seed(messages: string[], from = 1): void {
+        seq = from - 1;
+        for (const message of messages) held.push(make(message));
+      },
+      emit(message: string): void {
+        const line = make(message);
+        held.push(line);
+        for (const listener of listeners) listener(line);
+      },
+      recent: (limit: number): LogLine[] => (limit <= 0 ? [] : held.slice(-limit)),
+      subscribe(listener: (line: LogLine) => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+      attach(listener: (line: LogLine) => void) {
+        return { backlog: [], unsubscribe: state.subscribe(listener) };
+      },
+      setPorts: () => undefined,
+      status: (): LogStreamStatus => ({ source: "ok", path, detail: null }),
+      close(): void {
+        state.closes += 1;
+        listeners.clear();
+      },
+    };
+    return state;
+  }
+
+  function controller(...actions: ServiceAction[]): ServiceController {
+    return {
+      actions,
+      run: (): Promise<ServiceControlResult> => Promise.resolve({ ok: true, detail: null }),
+    };
+  }
+
+  it("keeps a collector it is handed back, and takes the new topology around it", async () => {
+    const provider = countedProvider();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: { provider, topology: "unified", staleMs: 3000 },
+    });
+    try {
+      // The same child, a new overlay: an operator who corrects `memoryTopology`
+      // must not pay for it with a break in the metrics stream and a warmup.
+      source.reconfigure({ host: { provider, topology: "discrete", staleMs: 6000 } });
+      expect(provider.closes).toBe(0);
+      expect((await source.snapshot()).memoryTopology).toBe("discrete");
+    } finally {
+      source.close();
+    }
+    expect(provider.closes).toBe(1);
+  });
+
+  it("closes the collector it is replacing, and the one it is asked to drop", async () => {
+    const first = countedProvider();
+    const second = countedProvider();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      host: { provider: first, topology: "unified", staleMs: 3000 },
+    });
+    try {
+      source.reconfigure({ host: { provider: second, topology: "unified", staleMs: 3000 } });
+      expect(first.closes).toBe(1);
+      expect(second.closes).toBe(0);
+
+      // An absent part means this machine has none — the band goes back to the
+      // fallback rather than holding the readings of a collector that is gone.
+      source.reconfigure({});
+      expect(second.closes).toBe(1);
+      const snapshot = await source.snapshot();
+      expect(snapshot.memoryTopology).toBe("discrete");
+    } finally {
+      source.close();
+    }
+    // Closing a source that is already holding nothing closes nothing twice.
+    expect(first.closes).toBe(1);
+    expect(second.closes).toBe(1);
+  });
+
+  it("moves the console onto a tail that appears, and off one that goes away", () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      expect(source.logStatus().source).toBe("unavailable");
+
+      const tailer = countedTailer("/tmp/llama-router.log");
+      source.reconfigure({ logTail: tailer });
+      expect(source.logStatus()).toEqual({
+        source: "ok",
+        path: "/tmp/llama-router.log",
+        detail: null,
+      });
+      // Both of the source's own subscriptions move with the tail — the
+      // slot-activity fold and the console fan-out — and they attach with it
+      // rather than on the first snapshot.
+      expect(tailer.listeners).toBe(2);
+
+      source.reconfigure({});
+      expect(tailer.closes).toBe(1);
+      expect(tailer.listeners).toBe(0);
+      expect(source.logStatus().source).toBe("unavailable");
+    } finally {
+      source.close();
+    }
+  });
+
+  it("detaches the slot fold from a tail it replaces", () => {
+    const first = countedTailer("/tmp/old.log");
+    const second = countedTailer("/tmp/new.log");
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      logTail: first,
+    });
+    try {
+      expect(first.listeners).toBe(2);
+      source.reconfigure({ logTail: second });
+      // The occupancy tracker follows the file it is reading, and nothing is
+      // left subscribed to a tailer that has been closed.
+      expect(first.closes).toBe(1);
+      expect(first.listeners).toBe(0);
+      expect(second.listeners).toBe(2);
+      expect(source.logStatus().path).toBe("/tmp/new.log");
+    } finally {
+      source.close();
+    }
+    expect(second.closes).toBe(1);
+  });
+
+  it("marks every line with the source it came from, and re-marks on a swap", () => {
+    const seen: LogLine[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      source.attachLogs((line) => seen.push(line), 5);
+      const simulated = source.recentLogs(3);
+      expect(simulated.every((line) => line.gen === 0)).toBe(true);
+
+      const tailer = countedTailer("/tmp/llama-router.log");
+      source.reconfigure({ logTail: tailer });
+      tailer.emit("srv  llama_server: model loaded");
+      // A different log, so a different generation — whatever the two sources'
+      // sequence numbers happen to be. This is the only thing standing between
+      // an open console and a buffer holding two logs at once.
+      expect(seen.at(-1)?.gen).toBe(1);
+      expect(seen.at(-1)?.gen).not.toBe(simulated[0]?.gen);
+
+      // And the teardown direction marks too: the mock's timers never stopped,
+      // so its lines would otherwise land on top of real production ones.
+      source.reconfigure({});
+      expect(source.recentLogs(3).every((line) => line.gen === 2)).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("hands an open console the new source's history, not a single live line", () => {
+    const seen: LogLine[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      source.attachLogs((line) => seen.push(line), 5);
+      const tailer = countedTailer("/tmp/llama-router.log");
+      // The tailer already holds a backlog when it is handed over: the file one
+      // opens on has been written to for weeks. A console that had to refill from
+      // the next live line would sit near-empty in front of a full log.
+      tailer.seed(["boot 1", "boot 2", "boot 3"]);
+
+      source.reconfigure({ logTail: tailer });
+      expect(seen.map((line) => line.message)).toEqual(["boot 1", "boot 2", "boot 3"]);
+      expect(seen.every((line) => line.gen === 1)).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("never lets a console hold two logs at once, through the real reducer", () => {
+    // End to end: the source's own lines, fed to the client's own buffer, across
+    // a swap in each direction.
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      let ui = initialUiState("light");
+      const consume = (lines: LogLine[]): void => {
+        if (lines.length > 0) ui = reduce(ui, { type: "logs/append", lines });
+      };
+      let batch: LogLine[] = [];
+      source.attachLogs((line) => batch.push(line), 5);
+
+      // A console showing the simulation, as a cold dashboard does.
+      consume(source.recentLogs(5));
+      expect(ui.log).toHaveLength(5);
+      const simulatedSeqs = ui.log.map((line) => line.seq);
+
+      // `/initialize-steward` runs: a real tailer appears, numbering from its
+      // own backlog window — well ahead of the mock's, which is exactly the case
+      // that used to append.
+      const real = countedTailer("/tmp/llama-router.log");
+      // A message the simulation cannot produce, so "which log am I looking at"
+      // is answerable from the buffer alone.
+      real.seed(["srv  load_model: loaded /Volumes/models/real-only.gguf"], 2601);
+      batch = [];
+      source.reconfigure({ logTail: real });
+      consume(batch);
+
+      expect(ui.log.map((line) => line.message)).toEqual([
+        "srv  load_model: loaded /Volumes/models/real-only.gguf",
+      ]);
+      expect(ui.log.some((line) => simulatedSeqs.includes(line.seq))).toBe(false);
+
+      // And the config is deleted again: the simulation must not be appended
+      // onto the real lines either. Checked by generation, because the two
+      // sources' messages genuinely overlap — the mock writes real llama.cpp
+      // lines, which is the whole reason `seq` alone could never separate them.
+      batch = [];
+      source.reconfigure({});
+      consume(batch);
+      expect(ui.log.every((line) => line.gen === 2)).toBe(true);
+      expect(ui.log.every((line) => !line.message.includes("real-only.gguf"))).toBe(true);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("keeps an open console alive across a tail that appears under it", () => {
+    const seen: string[] = [];
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+    });
+    try {
+      // A browser opens its log stream once and holds it for the life of the
+      // tab. If that subscription lived on whatever was feeding the console, it
+      // would end the moment `/initialize-steward` gave Steward a real log — and
+      // the console would go quiet while reporting a healthy source.
+      const { unsubscribe } = source.attachLogs((line) => seen.push(line.message), 5);
+
+      const first = countedTailer("/tmp/llama-router.log");
+      source.reconfigure({ logTail: first });
+      first.emit("srv  llama_server: model loaded");
+
+      const second = countedTailer("/tmp/moved.log");
+      source.reconfigure({ logTail: second });
+      second.emit("srv  update_slots: all slots are idle");
+
+      // Both tails reached the console that was opened before either existed.
+      expect(seen).toEqual([
+        "srv  llama_server: model loaded",
+        "srv  update_slots: all slots are idle",
+      ]);
+
+      // And an unsubscribed console stops hearing anything, whatever is live.
+      unsubscribe();
+      second.emit("srv  cancel_tasks: cancel task");
+      expect(seen).toHaveLength(2);
+    } finally {
+      source.close();
+    }
+  });
+
+  it("switches between the event and polling throughput paths when the tail moves", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({ slots: () => Promise.resolve(jsonResponse(200, BUSY_SLOTS)) }),
+      logTail: countedTailer("/tmp/llama-router.log"),
+    });
+    try {
+      // With a tail, throughput is measured from generated tokens and no window
+      // has closed yet, so it dashes rather than reporting llama.cpp's gauge.
+      expect((await source.snapshot()).throughputTps).toBeNull();
+
+      source.reconfigure({});
+      // Without one, llama.cpp's own rate gauge is all there is — sampled from
+      // this snapshot on, under an axis that claims no window, rather than
+      // continuing a strip whose bars were measured the other way.
+      const snapshot = await source.snapshot();
+      expect(snapshot.throughputTps).toBeCloseTo(63.42, 2);
+      expect(snapshot.throughputHistory).toHaveLength(1);
+      expect(snapshot.throughputWindowSeconds).toBeNull();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("offers exactly the controls it currently has, and stops running dropped ones", async () => {
+    const fallback = createFallback();
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback,
+      fetch: routerFetch({}),
+    });
+    try {
+      expect((await source.snapshot()).service.controls).toEqual([]);
+
+      source.reconfigure({ control: controller("restart") });
+      expect((await source.snapshot()).service.controls).toEqual(["restart"]);
+
+      // Control removed — a command whose consent hash went missing, or a config
+      // that was deleted. `setService` goes back to the fallback, which is the
+      // only honest thing left to do with it.
+      source.reconfigure({});
+      expect((await source.snapshot()).service.controls).toEqual([]);
+      await expect(source.setService("restart")).resolves.toBeUndefined();
+    } finally {
+      source.close();
+    }
+  });
+
+  it("swaps the drift baseline and reports no verdict once it is gone", async () => {
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      probeService: () => Promise.resolve({ pid: 4242, startedAt: FIXED_NOW - 1000 }),
+      probeDrift: async () => DRIFTED_LAUNCH,
+      consentDrift: { hostCollector: true, controls: ["stop"] },
+    });
+    try {
+      const before = await source.snapshot();
+      expect(before.drift.launch.status).toBe("drifted");
+      expect(before.drift.consent).toEqual({ hostCollector: true, controls: ["stop"] });
+
+      source.reconfigure({});
+      const after = await source.snapshot();
+      // No recorded argv is a check that cannot be made, which renders the same
+      // as clean but claims nothing — and nothing is declared-but-unapproved
+      // once there is no config declaring anything.
+      expect(after.drift.launch.status).toBe("unknown");
+      expect(after.drift.launch.reason).toBe("no launch command was recorded for this machine");
+      expect(after.drift.consent).toEqual({ hostCollector: false, controls: [] });
+    } finally {
+      source.close();
+    }
+  });
+
+  it("subscribes to re-wiring on construction and unsubscribes on close", () => {
+    const provider = countedProvider();
+    const sinks: ((parts: LlamaLiveParts) => void)[] = [];
+    let stopped = 0;
+    const source = new LlamaSource({
+      connection: CONNECTION,
+      fallback: createFallback(),
+      fetch: routerFetch({}),
+      rewire: (sink) => {
+        sinks.push(sink);
+        return () => {
+          stopped += 1;
+        };
+      },
+    });
+    expect(sinks).toHaveLength(1);
+    sinks[0]?.({ host: { provider, topology: "unified", staleMs: 3000 } });
+
+    source.close();
+    // The watcher is stopped by the close that also released the collector, so
+    // nothing can hand a spent source a freshly spawned one.
+    expect(stopped).toBe(1);
+    expect(provider.closes).toBe(1);
   });
 });

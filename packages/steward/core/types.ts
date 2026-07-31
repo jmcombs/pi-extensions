@@ -250,6 +250,21 @@ export interface LogFrame {
 export interface LogLine {
   /** Monotonic per-source sequence number; also the render key. */
   seq: number;
+  /**
+   * Which log SOURCE produced this line — bumped whenever the server starts
+   * reading a different one, and absent from a source that can never change.
+   *
+   * {@link seq} is monotonic per source and NOTHING else: two sources number
+   * their lines independently, and the file tailer reads a backlog window the
+   * moment it opens, so a replacement's counter is already in the thousands
+   * before it delivers anything. Comparing numbers across that boundary is
+   * meaningless in both directions — a higher one reads as "newer" and gets
+   * appended, so a console would silently concatenate two different logs under
+   * one buffer; a lower one reads as a restart. This field is what makes the
+   * boundary legible: a batch that carries a different generation than the
+   * buffer replaces it, whatever the sequence numbers say.
+   */
+  gen?: number;
   /** Epoch ms. Formatted as `HH:MM:SS.mmm` at render time. */
   ts: number;
   level: LogLevel;

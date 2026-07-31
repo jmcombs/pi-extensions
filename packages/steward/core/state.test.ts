@@ -97,6 +97,107 @@ describe("logs/append", () => {
   });
 });
 
+/**
+ * The server can start reading a DIFFERENT log while a console is open — a
+ * config that names one appears, its path moves, or it goes away. Sequence
+ * numbers are monotonic per source and say nothing across that boundary, so the
+ * source states it and these prove the buffer never straddles it.
+ */
+describe("logs/append across a change of source", () => {
+  /** A line from generation `gen`, numbered as that source numbers things. */
+  function from(gen: number, seq: number): LogLine {
+    return { ...line(seq, `gen ${gen} line ${seq}`), gen };
+  }
+
+  function buffer(gen: number, seqs: number[]): UiState {
+    return reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: seqs.map((seq) => from(gen, seq)),
+    });
+  }
+
+  it("replaces the buffer when the numbers would have read as ordinary progress", () => {
+    // The likely case, and the one that has no other tell: a file tailer anchors
+    // on a backlog window as it opens, so a replacement's counter is already far
+    // ahead of ours and every line looks like the next one. Appending here would
+    // put two different logs in one buffer with nothing on screen to say so.
+    const state = buffer(0, [615, 616, 617]);
+    const next = reduce(state, { type: "logs/append", lines: [from(1, 2601), from(1, 2602)] });
+
+    expect(next.log.map((l) => l.gen)).toEqual([1, 1]);
+    expect(next.log.map((l) => l.seq)).toEqual([2601, 2602]);
+  });
+
+  it("replaces the buffer when the new source numbers below it", () => {
+    // The other branch: a fresh, short file. Content-disagreement would catch
+    // this one, but only by accident of the lines differing.
+    const state = buffer(0, [2601, 2602, 2603]);
+    const next = reduce(state, { type: "logs/append", lines: [from(1, 1), from(1, 2)] });
+
+    expect(next.log.map((l) => l.seq)).toEqual([1, 2]);
+    expect(next.log.every((l) => l.gen === 1)).toBe(true);
+  });
+
+  it("replaces the buffer when a real log gives way to the simulation", () => {
+    // The teardown direction — the config that named the log was deleted, and
+    // the console falls back to the mock, whose timers never stopped. Simulated
+    // lines appended onto real production ones is the same lie in reverse.
+    const state = buffer(1, [2601, 2602]);
+    const next = reduce(state, { type: "logs/append", lines: [from(2, 617), from(2, 618)] });
+
+    expect(next.log.map((l) => l.gen)).toEqual([2, 2]);
+  });
+
+  it("keeps only the new source's lines from a batch that straddles the swap", () => {
+    // The browser coalesces a frame's worth of lines into one dispatch, so a
+    // batch can contain both. The buffer is being replaced either way; what it
+    // must not end up holding is a mixture.
+    const state = buffer(0, [10, 11]);
+    const straddle = [from(0, 12), from(1, 900), from(1, 901)];
+    const next = reduce(state, { type: "logs/append", lines: straddle });
+
+    expect(next.log.map((l) => l.seq)).toEqual([900, 901]);
+  });
+
+  it("clears the drop notice, which described the buffer that was just discarded", () => {
+    // Filling past the cap sets `bufferDropped`; the replacement buffer has
+    // dropped nothing, and saying it has would be a claim about a log the
+    // console is no longer showing.
+    const overflowed = reduce(initialUiState("light"), {
+      type: "logs/append",
+      lines: Array.from({ length: LOG_BUFFER_LIMIT + 10 }, (_, i) => from(0, i)),
+    });
+    expect(overflowed.bufferDropped).toBe(true);
+
+    const next = reduce(overflowed, { type: "logs/append", lines: [from(1, 900)] });
+    expect(next.bufferDropped).toBe(false);
+    expect(next.log.map((l) => l.seq)).toEqual([900]);
+  });
+
+  it("leaves a source that never changes exactly as it was", () => {
+    // The whole mechanism is inert for one source: same generation, so replay
+    // de-duplication and restart detection decide, exactly as before.
+    const state = buffer(3, [1, 2, 3]);
+    const replayed = reduce(state, {
+      type: "logs/append",
+      lines: [from(3, 2), from(3, 3), from(3, 4)],
+    });
+    expect(replayed.log.map((l) => l.seq)).toEqual([1, 2, 3, 4]);
+
+    const restartedSame = reduce(replayed, {
+      type: "logs/append",
+      lines: [{ ...from(3, 1), message: "a different line 1", ts: 1 }],
+    });
+    expect(restartedSame.log.map((l) => l.seq)).toEqual([1]);
+  });
+
+  it("treats an unmarked source as one source, so a plain mock is unaffected", () => {
+    const state = withLog(3);
+    const next = reduce(state, { type: "logs/append", lines: [line(3), line(4)] });
+    expect(next.log.map((l) => l.seq)).toEqual([0, 1, 2, 3, 4]);
+  });
+});
+
 describe("pause", () => {
   it("freezes the visible buffer while the live one keeps filling", () => {
     const live = withLog(3);
