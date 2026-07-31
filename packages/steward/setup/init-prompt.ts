@@ -112,8 +112,11 @@ Proposal shape: \`memoryTopology\`, \`baseUrl\`, \`hostCollector{command,interva
 
 - **Ask per change, not once for the set.** A restart is its own question, separate from the edit
   that motivates it — it drops every resident model and any in-flight request.
-- **Back up before editing, and tell me the exact revert command.** If a path is a symlink into a
-  dotfiles repo, say so: the edit lands in version control.
+- **Back up before editing, and tell me the exact revert command.** An exact command is one you
+  have checked will run on this machine in its current state — not a choice between two forms you
+  are unsure about. If you do not know which applies, find out before you offer it: a revert that
+  errors when I reach for it is worse than saying you don't know.
+  If a path is a symlink into a dotfiles repo, say so: the edit lands in version control.
 - **A missing setup is not damage.** If nothing is running and no service is defined, that is the
   create path — build one and ask me for the directory and port. Never restore a deleted or
   modified configuration from git, a backup, or shell history; that was someone's decision.
