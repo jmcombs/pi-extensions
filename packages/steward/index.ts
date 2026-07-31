@@ -286,7 +286,12 @@ export default function (pi: ExtensionAPI): void {
   // ships a subset shim, so the commands must keep working with no chip.
   let chipInFlight = false;
   const refreshChip = async (ctx: ExtensionContext): Promise<void> => {
-    if (!ctx.hasUI || typeof ctx.ui?.setStatus !== "function") return;
+    // Feature-detected, not gated on `hasUI`. `session_start` is emitted from
+    // `bindExtensions` during startup, when the TUI may not have come up yet and
+    // `hasUI` is still false — gating on it meant the chip did not appear until
+    // the first turn ended. Setting a status headless is harmless: nothing
+    // renders it.
+    if (typeof ctx.ui?.setStatus !== "function") return;
     if (chipInFlight) return;
     chipInFlight = true;
     try {
@@ -314,6 +319,12 @@ export default function (pi: ExtensionAPI): void {
   // server simply outlives the session until the process exits.
   if (typeof pi.on === "function") {
     pi.on("session_start", async (_event, ctx) => {
+      await refreshChip(ctx);
+    });
+    // Also on turn START: if the chip missed its first chance at session_start
+    // — a TUI that was not up yet, a probe that lost a race — this is the next
+    // moment the operator looks at the footer, and it costs one loopback read.
+    pi.on("turn_start", async (_event, ctx) => {
       await refreshChip(ctx);
     });
     pi.on("turn_end", async (_event, ctx) => {

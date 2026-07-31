@@ -198,7 +198,7 @@ describe("@jmcombs/pi-steward", () => {
   it("hooks session shutdown so the dashboard server does not outlive the session", () => {
     const { log } = load();
 
-    expect(log.events).toEqual(["session_start", "turn_end", "session_shutdown"]);
+    expect(log.events).toEqual(["session_start", "turn_start", "turn_end", "session_shutdown"]);
   });
 
   it("loads on a host whose API omits the optional event hook", () => {
