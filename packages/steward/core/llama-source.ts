@@ -1338,21 +1338,39 @@ export class LlamaSource implements StewardDataSource {
   }
 
   /**
-   * The real SERVICE panel. `running` is a live reachability check — a 2xx to
-   * `/props`, not the mock's standing "true" — so a stopped server reads
-   * stopped. pid and uptime have no HTTP source, so they come from the injected
-   * process probe while the server is up, and read n/a when it is absent or
-   * finds nothing.
+   * The real SERVICE panel. The service is started or it is stopped, and the
+   * honest test for that is whether a process holds the port — not whether it
+   * answered an HTTP request just now.
+   *
+   * A 2xx to `/props` proves it is started. A failure does not prove the
+   * opposite: a server still loading a model, or briefly wedged, refuses
+   * connections while very much running. So a failed read falls through to the
+   * process probe, and only a port with nothing on it reads stopped. Reporting
+   * "stopped" for a server that is up would put a Start button in front of an
+   * operator whose service is already running.
+   *
+   * pid and uptime have no HTTP source and come from the same probe.
    */
   async #serviceFromProps(read: PropsRead): Promise<ServiceInfo> {
     const { host, port } = splitHostPort(this.#connection.baseUrl);
-    const running = read.status >= 200 && read.status < 300;
+    const answered = read.status >= 200 && read.status < 300;
     // What the operator may do is config, not a reading: it is the same list
     // whether the server answers or not, so a stopped service can still be
     // started.
     const controls = [...(this.#control?.actions ?? [])];
-    if (!running) {
-      return { running: false, startedAt: null, pid: null, host, port, build: "", controls };
+    if (!answered) {
+      // Nothing answered — ask the OS whether anything is listening before
+      // calling it stopped.
+      const holding = this.#probeService === null ? null : await this.#safeProbe(host, port);
+      return {
+        running: holding !== null,
+        startedAt: holding?.startedAt ?? null,
+        pid: holding?.pid ?? null,
+        host,
+        port,
+        build: "",
+        controls,
+      };
     }
     const build =
       isRecord(read.body) && typeof read.body.build_info === "string" ? read.body.build_info : "";

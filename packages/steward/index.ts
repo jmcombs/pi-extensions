@@ -20,7 +20,7 @@
  */
 
 import { spawn } from "node:child_process";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ConnectionContext } from "./core/llama-connection.js";
 import type { StewardDataSource } from "./core/source.js";
 import type { StewardServer } from "./server/index.js";
@@ -277,10 +277,48 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
+  // The footer chip. Refreshed at the two moments the operator's eyes are on it
+  // — session start, and the end of each turn — rather than on a timer: a timer
+  // probes a machine nobody is looking at and can repaint mid-stream. A reading
+  // that is a turn old is fine; one that costs a permanent poll is not.
+  //
+  // Guarded on `hasUI` and on the method itself: Pi runs headless, and oh-my-pi
+  // ships a subset shim, so the commands must keep working with no chip.
+  let chipInFlight = false;
+  const refreshChip = async (ctx: ExtensionContext): Promise<void> => {
+    if (!ctx.hasUI || typeof ctx.ui?.setStatus !== "function") return;
+    if (chipInFlight) return;
+    chipInFlight = true;
+    try {
+      const { statusChip, resolveGlyph } = await import("./core/status-chip.js");
+      const glyph = resolveGlyph(process.env);
+      // Read the machine directly rather than standing up a dashboard for it.
+      const make = await sourceFactory(ctx as unknown as ConnectionContext);
+      const source = make?.();
+      try {
+        const snapshot = source === undefined ? null : await source.snapshot();
+        ctx.ui.setStatus("steward", statusChip(snapshot, glyph));
+      } finally {
+        source?.close();
+      }
+    } catch {
+      // A chip that cannot be computed says nothing rather than guessing.
+      ctx.ui.setStatus("steward", undefined);
+    } finally {
+      chipInFlight = false;
+    }
+  };
+
   // `on` is not part of every host's extension API — oh-my-pi ships a subset
   // shim — so it is feature-detected rather than assumed. Without it the
   // server simply outlives the session until the process exits.
   if (typeof pi.on === "function") {
+    pi.on("session_start", async (_event, ctx) => {
+      await refreshChip(ctx);
+    });
+    pi.on("turn_end", async (_event, ctx) => {
+      await refreshChip(ctx);
+    });
     pi.on("session_shutdown", async () => {
       await stopServer();
     });
