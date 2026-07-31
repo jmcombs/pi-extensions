@@ -12,7 +12,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createMockSource } from "../core/mock-source.js";
+import { createDisconnectedSource } from "../core/disconnected-source.js";
 import type { StewardDataSource } from "../core/source.js";
 import { handleApiRequest } from "./api.js";
 import { assertTypeStripping, readAsset } from "./assets.js";
@@ -151,7 +151,7 @@ export function createStewardServer(options: StewardServerOptions = {}): Steward
       // cannot strip serves the shell and nothing that makes it work. Fail
       // here, where whoever asked for the dashboard is still listening.
       assertTypeStripping();
-      source = source ?? createMockSource();
+      source = source ?? createDisconnectedSource();
 
       const onError = (error: Error) => {
         server.removeListener("listening", onListening);

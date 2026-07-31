@@ -22,18 +22,26 @@
 import type { StewardDataSource } from "../core/source.js";
 import { createStewardServer, DEFAULT_PORT } from "../server/index.js";
 
+/**
+ * The same live source the extension builds, including the `steward.json`
+ * wiring. This used to skip that wiring, so the dev dashboard showed live models
+ * beside a simulated host band and no service controls — a half-real view that
+ * looked entirely real.
+ */
 async function buildSource(): Promise<StewardDataSource | undefined> {
-  if ((process.env.STEWARD_SOURCE ?? "").trim().toLowerCase() !== "llama") return undefined;
   const { resolveLlamaConnection } = await import("../core/llama-connection.js");
   const { LlamaSource } = await import("../core/llama-source.js");
-  const { createMockSource } = await import("../core/mock-source.js");
-  const { createFileTailer, resolveLogPath } = await import("../server/log-tailer.js");
+  const { createDisconnectedSource } = await import("../core/disconnected-source.js");
+  const { createListenerProbe } = await import("../server/service-probe.js");
+  const { createConfigWiring } = await import("../server/config-wiring.js");
   const connection = await resolveLlamaConnection();
-  const logPath = resolveLogPath();
+  const wiring = createConfigWiring();
   return new LlamaSource({
     connection,
-    fallback: createMockSource(),
-    logTail: logPath === null ? undefined : createFileTailer({ path: logPath }),
+    fallback: createDisconnectedSource(),
+    probeService: createListenerProbe(),
+    ...wiring.parts,
+    rewire: wiring.rewire,
   });
 }
 

@@ -17,6 +17,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createStubSource } from "../core/__fixtures__/stub-source.js";
 import type { DriftProbe } from "../core/drift.js";
 import type { HostMetricsProvider, HostSample } from "../core/host-metrics.js";
 import {
@@ -25,7 +26,6 @@ import {
   type LogTailer,
   type ServiceController,
 } from "../core/llama-source.js";
-import { createMockSource } from "../core/mock-source.js";
 import type { LogAttachment } from "../core/source.js";
 import type { LogLine, LogStreamStatus, ServiceAction } from "../core/types.js";
 import { type ConfigWiringOptions, createConfigWiring } from "./config-wiring.js";
@@ -234,11 +234,7 @@ describe("createConfigWiring", () => {
   function sourceFor(wiring: ReturnType<typeof harness>["wiring"]): LlamaSource {
     return new LlamaSource({
       connection: CONNECTION,
-      fallback: createMockSource({
-        logIntervalMs: 0,
-        metricsIntervalMs: 0,
-        throughputIntervalMs: 0,
-      }),
+      fallback: createStubSource({}),
       // No server is stood up: the live reads degrade, which is not what these
       // are about.
       fetch: () => Promise.reject(new Error("ECONNREFUSED")),
@@ -310,9 +306,6 @@ describe("createConfigWiring", () => {
       expect(after.drift.launch.reason).toBe("no launch command was recorded for this machine");
       expect(after.drift.consent).toEqual({ hostCollector: false, controls: [] });
       expect(source.logStatus().source).toBe("unavailable");
-      // The HOST band falls back to the simulation rather than freezing on the
-      // topology of a config that is gone.
-      expect(after.memoryTopology).toBe("discrete");
       // And nothing was rebuilt on the way down.
       expect(h.built.collectors).toHaveLength(1);
     } finally {
@@ -398,7 +391,6 @@ describe("createConfigWiring", () => {
       expect(tailer?.closes).toBe(0);
       // The parts around the child still moved: this is a swap, not a skip.
       const after = await source.snapshot();
-      expect(after.memoryTopology).toBe("discrete");
       expect(after.service.controls).toEqual(["start", "stop"]);
       expect(after.drift.consent).toEqual({ hostCollector: false, controls: ["restart"] });
     } finally {
@@ -455,7 +447,6 @@ describe("createConfigWiring", () => {
       expect(after.drift.consent).toEqual({ hostCollector: true, controls: ["restart"] });
       // With no collector left there is no live band to overlay: the HOST panel
       // goes back to the simulation rather than holding the last real reading.
-      expect(after.memoryTopology).toBe("discrete");
     } finally {
       source.close();
     }
@@ -478,7 +469,6 @@ describe("createConfigWiring", () => {
       expect(h.built.warnings.some((message) => message.includes("world-writable"))).toBe(true);
       const after = await source.snapshot();
       expect(after.service.controls).toEqual([]);
-      expect(after.memoryTopology).toBe("discrete");
     } finally {
       source.close();
     }

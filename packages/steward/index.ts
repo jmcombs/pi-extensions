@@ -32,15 +32,6 @@ import { buildInitPrompt, setupScriptPath } from "./setup/init-prompt.js";
  */
 const PORT_VARIABLE = "STEWARD_PORT";
 
-/**
- * Selects the data source. Unset or `mock` keeps the simulated dashboard (the
- * default, so everyone gets a deterministic view). `llama` overlays the live
- * CONFIG, SERVICE, MODELS and SLOTS panels read from the real `llama-server`,
- * while the rest stay simulated for now. Live is opt-in until the whole
- * snapshot is migrated.
- */
-const SOURCE_VARIABLE = "STEWARD_SOURCE";
-
 /** The dashboard is per-session: one server, started on first use. */
 let server: StewardServer | null = null;
 /**
@@ -98,18 +89,25 @@ interface Launched extends Dashboard {
 type SourceFactory = () => StewardDataSource;
 
 /**
- * A factory for the live source when `STEWARD_SOURCE=llama`, else `undefined`
- * (the mock default). Building it needs the connection, which we resolve once
- * from the command's context — inside Pi that reads the operator's configured
- * provider auth; the factory then pairs a live CONFIG/MODELS/SLOTS reader with a
- * fresh mock for every other panel. Everything is imported lazily so the
- * extension costs nothing until the dashboard is actually asked for.
+ * A factory for the live source. Building it needs the connection, which we
+ * resolve once from the command's context — inside Pi that reads the operator's
+ * configured provider auth. Everything is imported lazily so the extension costs
+ * nothing until the dashboard is actually asked for.
+ *
+ * Unconditional on purpose. This used to be gated behind `STEWARD_SOURCE=llama`,
+ * which made the config wiring below unreachable unless the operator had opted
+ * in *before* the machine was configured — so `/initialize-steward` followed by
+ * `/steward` in the same session showed a simulated dashboard, and only a fresh
+ * Pi session ever showed the machine. The gate defeated the exact feature the
+ * wiring exists to provide.
+ *
+ * A machine with nothing to read is not a reason to invent one: panels that
+ * cannot be filled report themselves disconnected.
  */
 async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | undefined> {
-  if ((process.env[SOURCE_VARIABLE] ?? "").trim().toLowerCase() !== "llama") return undefined;
   const { resolveLlamaConnection } = await import("./core/llama-connection.js");
   const { LlamaSource } = await import("./core/llama-source.js");
-  const { createMockSource } = await import("./core/mock-source.js");
+  const { createDisconnectedSource } = await import("./core/disconnected-source.js");
   const { createListenerProbe } = await import("./server/service-probe.js");
   const { createConfigWiring } = await import("./server/config-wiring.js");
   const connection = await resolveLlamaConnection(ctx);
@@ -131,7 +129,7 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
     const wiring = createConfigWiring();
     return new LlamaSource({
       connection,
-      fallback: createMockSource(),
+      fallback: createDisconnectedSource(),
       probeService,
       ...wiring.parts,
       rewire: wiring.rewire,

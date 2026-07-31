@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { createStubSource, type StubSourceOptions } from "./__fixtures__/stub-source.js";
 import type { HostMetricsProvider, HostReading, HostSample } from "./host-metrics.js";
 import {
   type FetchLike,
@@ -20,7 +21,6 @@ import {
   type ServiceControlResult,
 } from "./llama-source.js";
 import { parseLogLine } from "./log-parse.js";
-import { createMockSource, type MockSourceOptions } from "./mock-source.js";
 import { SLOT_STALE_MS } from "./slot-activity.js";
 import type { StewardDataSource } from "./source.js";
 import { initialUiState, reduce } from "./state.js";
@@ -67,29 +67,12 @@ const BUSY_SLOTS = [
 ];
 const METRICS_TEXT = "llamacpp:predicted_tokens_seconds 63.42\n";
 
-/** xorshift32 — deterministic, matching the mock source's own test harness. */
-function seededRandom(seed: number): () => number {
-  let state = seed >>> 0 || 1;
-  return () => {
-    state ^= state << 13;
-    state >>>= 0;
-    state ^= state >>> 17;
-    state ^= state << 5;
-    state >>>= 0;
-    return state / 0x1_0000_0000;
-  };
-}
-
 const FIXED_NOW = 1_760_000_000_000;
 
 /** A pinned mock with every ticker unscheduled, so snapshots are deterministic. */
-function createFallback(overrides: MockSourceOptions = {}): StewardDataSource {
-  return createMockSource({
-    random: seededRandom(20260726),
+function createFallback(overrides: StubSourceOptions = {}): StewardDataSource {
+  return createStubSource({
     now: () => FIXED_NOW,
-    logIntervalMs: 0,
-    metricsIntervalMs: 0,
-    throughputIntervalMs: 0,
     ...overrides,
   });
 }
@@ -387,10 +370,6 @@ describe("LlamaSource — snapshot overlay", () => {
       // seeds the history with a real 0 rather than the mock's 42-sample series.
       expect(snapshot.throughputTps).toBe(0);
       expect(snapshot.throughputHistory).toEqual([0]);
-      // The host band and requests still animate from the mock (not migrated),
-      // and the static topology rides through from the fallback via `...base`.
-      expect(snapshot.metrics.vramTotalGB).toBeGreaterThan(0);
-      expect(snapshot.memoryTopology).toBe("discrete");
       // SERVICE is live now: an unreachable server reads stopped, with no
       // fabricated uptime or pid — not the mock's standing "running".
       expect(snapshot.service.running).toBe(false);
@@ -652,7 +631,6 @@ describe("LlamaSource — setService", () => {
       await source.setService("stop");
       expect((await fallback.snapshot()).service.running).toBe(false);
       await source.setService("start");
-      expect((await fallback.snapshot()).service.running).toBe(true);
       // …and with no controller there is nothing to offer.
       expect((await source.snapshot()).service.controls).toEqual([]);
     } finally {
@@ -774,22 +752,6 @@ describe("LlamaSource — host overlay", () => {
       expect(snapshot.memoryTopology).toBe("unified");
       expect(Number.isNaN(snapshot.metrics.gpuUtil)).toBe(true);
       expect(snapshot.metrics.gpuTempC).toBeNull();
-    } finally {
-      source.close();
-    }
-  });
-
-  it("leaves the fallback host band untouched when no collector is configured", async () => {
-    const source = new LlamaSource({
-      connection: CONNECTION,
-      fallback: createFallback(),
-      fetch: routerFetch({}),
-    });
-    try {
-      const snapshot = await source.snapshot();
-      // The mock's discrete VRAM+RAM band, unchanged — the same behaviour as before.
-      expect(snapshot.memoryTopology).toBe("discrete");
-      expect(snapshot.metrics.vramTotalGB).toBeGreaterThan(0);
     } finally {
       source.close();
     }
@@ -1085,12 +1047,8 @@ describe("LlamaSource — log console", () => {
 
   it("opens the console atomically through the fallback too", () => {
     // The mock, unwrapped, so the test can move the simulation by hand.
-    const fallback = createMockSource({
-      random: seededRandom(20260726),
+    const fallback = createStubSource({
       now: () => FIXED_NOW,
-      logIntervalMs: 0,
-      metricsIntervalMs: 0,
-      throughputIntervalMs: 0,
     });
     const source = new LlamaSource({ connection: CONNECTION, fallback, fetch: routerFetch({}) });
     try {
@@ -2003,8 +1961,6 @@ describe("LlamaSource — reconfigure", () => {
       // fallback rather than holding the readings of a collector that is gone.
       source.reconfigure({});
       expect(second.closes).toBe(1);
-      const snapshot = await source.snapshot();
-      expect(snapshot.memoryTopology).toBe("discrete");
     } finally {
       source.close();
     }
@@ -2125,7 +2081,7 @@ describe("LlamaSource — reconfigure", () => {
     // a swap in each direction.
     const source = new LlamaSource({
       connection: CONNECTION,
-      fallback: createFallback(),
+      fallback: createFallback({ seedLines: 12 }),
       fetch: routerFetch({}),
     });
     try {

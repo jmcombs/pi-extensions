@@ -293,6 +293,13 @@ export function createConfigWiring(options: ConfigWiringOptions = {}): ConfigWir
   function build(config: StewardConfig | null): LlamaLiveParts {
     const parts: LlamaLiveParts = {};
 
+    // Topology is declared, not measured, so it is known as soon as the config
+    // is read — independent of whether the collector below was ever consented.
+    // It used to ride along with `host`, which meant a config declaring
+    // `discrete` was ignored until its collector was approved, and the dashboard
+    // drew the wrong gauge set in the meantime.
+    if (config !== null) parts.topology = config.memoryTopology;
+
     // The collector: keyed on its exact argv and its declared cadence, the two
     // things the running child was started with. Consent is re-checked here
     // rather than trusted from last time, so a command whose hash disappeared

@@ -215,6 +215,17 @@ export interface LlamaLiveParts {
    */
   consentDrift?: ConsentDrift;
   /**
+   * The machine's memory layout as `steward.json` declares it, independent of
+   * whether a collector was consented.
+   *
+   * This used to ride along with {@link LlamaLiveParts.host}, so a config
+   * declaring `discrete` was ignored unless its collector had also been
+   * approved — and the dashboard then drew whatever topology the fallback
+   * happened to carry. Topology is a static fact about the hardware, not a
+   * reading, so it is known the moment the config is read.
+   */
+  topology?: MemoryTopology;
+  /**
    * The live log tail, owned and closed by this source. Present only when a log
    * source was discovered (see `server/log-tailer.ts`); omitted, the console
    * keeps delegating to the fallback exactly as it does today rather than
@@ -304,6 +315,8 @@ export class LlamaSource implements StewardDataSource {
   #probeDrift: DriftProbe | null;
   /** Declared-but-unapproved commands, as of the config we last read. */
   #consentDrift: ConsentDrift;
+  /** Declared memory layout from `steward.json`, or null when none is declared. */
+  #topology: MemoryTopology | null = null;
   /** The live log tail, or null when no log source was discovered. */
   #logTail: LogTailer | null;
   /**
@@ -401,6 +414,7 @@ export class LlamaSource implements StewardDataSource {
     this.#host = null;
     this.#probeDrift = null;
     this.#consentDrift = NO_CONSENT_DRIFT;
+    this.#topology = null;
     this.#logTail = null;
     this.#activity = null;
     this.#detachActivity = null;
@@ -452,6 +466,7 @@ export class LlamaSource implements StewardDataSource {
     this.#control = parts.control ?? null;
     this.#probeDrift = parts.probeDrift ?? null;
     this.#consentDrift = parts.consentDrift ?? NO_CONSENT_DRIFT;
+    this.#topology = parts.topology ?? null;
     this.#swapHost(parts.host ?? null);
     this.#swapTail(parts.logTail ?? null);
   }
@@ -613,7 +628,13 @@ export class LlamaSource implements StewardDataSource {
    * honestly — a held-stale number is never shown.
    */
   #overlayHost(base: Snapshot): Partial<Snapshot> {
-    if (this.#host === null) return {};
+    // Topology first, and on its own: a config that declares `discrete` is
+    // telling us about the hardware, which is true whether or not its collector
+    // was ever approved. Without this the fallback's topology won and the
+    // dashboard drew the wrong gauges on a correctly configured machine.
+    const declared: Partial<Snapshot> =
+      this.#topology === null ? {} : { memoryTopology: this.#topology };
+    if (this.#host === null) return declared;
     const sample = this.#host.provider.latest();
     const fresh = sample !== null && base.now - sample.receivedAt <= this.#host.staleMs;
     const metrics: HostMetrics = fresh
