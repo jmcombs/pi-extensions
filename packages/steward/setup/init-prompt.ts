@@ -79,6 +79,11 @@ that looks healthy. Everything else here you can verify yourself; these you cann
 - **A hand-written consent hash fails silently.** Steward runs only commands whose sha256 it has
   recorded; a mismatch produces no error, just dark gauges and missing buttons. Always derive it
   with the helper below — never write that map yourself.
+- **Consent covers the argv, not the contents of whatever it points at.** Record the collector as a
+  self-contained command — \`["sh","-c","…pipeline…"]\` — never as a path to a script you wrote. A
+  recorded script path hashes only the path, so its contents can then change without invalidating
+  the consent, which is the entire point of the gate. A script file looks tidier and is a valid
+  argv array, which is exactly why this one is easy to get wrong.
 - **\`launchctl bootout\` unregisters the job**, so Steward's Start stops working afterwards. Stop
   must leave the job registered — \`launchctl kill SIGTERM gui/<uid>/<label>\`.
 - **On unified memory (Apple Silicon) there is no VRAM figure to report.** Record
