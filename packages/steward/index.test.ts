@@ -191,7 +191,7 @@ describe("@jmcombs/pi-steward", () => {
   it("registers its expected commands", () => {
     const { log } = load();
 
-    expect(log.commands).toEqual(["steward", "steward-stop"]);
+    expect(log.commands).toEqual(["steward", "steward-stop", "initialize-steward"]);
     expect(log.tools).toEqual([]);
   });
 
@@ -208,7 +208,7 @@ describe("@jmcombs/pi-steward", () => {
     const withoutOn = { ...api, on: undefined } as unknown as ExtensionAPI;
 
     expect(() => factory(withoutOn)).not.toThrow();
-    expect(log.commands).toEqual(["steward", "steward-stop"]);
+    expect(log.commands).toEqual(["steward", "steward-stop", "initialize-steward"]);
   });
 });
 

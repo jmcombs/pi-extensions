@@ -18,16 +18,14 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { diffLaunchArgv } from "../../../core/drift.js";
-import { hashCommand } from "../../../server/steward-config.js";
+import { diffLaunchArgv } from "../core/drift.js";
+import { hashCommand } from "../server/steward-config.js";
 import { diffRecordedArgv } from "./steward-setup.mjs";
 
 const SCRIPT = join(import.meta.dirname, "steward-setup.mjs");
 /** The controllable fake producer the host collector's own tests use. */
 const PRODUCER = join(
   import.meta.dirname,
-  "..",
-  "..",
   "..",
   "server",
   "__fixtures__",

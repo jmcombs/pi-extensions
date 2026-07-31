@@ -24,6 +24,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ConnectionContext } from "./core/llama-connection.js";
 import type { StewardDataSource } from "./core/source.js";
 import type { StewardServer } from "./server/index.js";
+import { buildInitPrompt, setupScriptPath } from "./setup/init-prompt.js";
 
 /**
  * The environment variable that moves the dashboard off its default port,
@@ -248,6 +249,33 @@ export default function (pi: ExtensionAPI): void {
       } catch (error) {
         ctx.ui.notify(`Steward could not stop cleanly: ${describe(error)}`, "warning");
       }
+    },
+  });
+
+  pi.registerCommand("initialize-steward", {
+    description:
+      "Connect this machine to Steward — review the local llama.cpp setup and propose the configuration it needs.",
+    handler: async (_args, ctx) => {
+      // Delivered as a message rather than a prompt template because the
+      // helper's absolute path is only knowable at runtime: the package can be
+      // installed anywhere, and templates substitute positional arguments only.
+      // `display: false` keeps the instructions out of the transcript — they are
+      // a brief for the model, not something the operator needs to read back.
+      if (typeof pi.sendMessage !== "function") {
+        ctx.ui.notify(
+          "This Pi host cannot deliver the setup brief (sendMessage is unavailable).",
+          "error",
+        );
+        return;
+      }
+      pi.sendMessage(
+        {
+          customType: "steward-initialize",
+          content: buildInitPrompt(setupScriptPath()),
+          display: false,
+        },
+        { triggerTurn: true },
+      );
     },
   });
 
