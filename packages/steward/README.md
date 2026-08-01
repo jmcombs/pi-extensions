@@ -74,51 +74,40 @@ That is the whole path. Step 1 is once per machine; steps 2 and 3 are once per s
 ## The status bar
 
 Steward draws a line above the editor whenever it has something to say. It reports **Steward's own
-state** first, with llama.cpp as detail:
+state** first, with `llama.cpp` as detail.
 
-```
-󰢍 Steward   :8788   llama :8080 · 1/10     dashboard up, server up, 1 of 10 models resident
-󰢍 Steward   :8788   llama: stopped         dashboard up, server down
-󰢍 Steward   :8788   llama —                dashboard up, server not read yet
-󰢍 Steward   stopped                        dashboard not running
-󰢍 Steward   chat still on :8080 · restart pi to use :8091
-```
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/status-states.svg" width="620" alt="Steward status bar states">
+</div>
+
+- **Everything up** — the dashboard is on `:8788`, `llama.cpp` answers on `:8080`, and 1 of its 10
+  models is resident. The count is models holding weights in memory, not models on disk.
+- **llama.cpp down** — Steward is fine and says so in green; the server gets its own red block. The
+  dashboard still opens, and Start is there if you recorded one.
+- **Not read yet** — Steward is up but has not completed a read. Deliberately its own colour: an
+  absent reading is not a healthy one.
+- **Dashboard not running** — no `/steward_start` yet, or you stopped it. Nothing is said about
+  `llama.cpp`, because Steward is not watching it.
+- **Pointed elsewhere** — Pi is dialling a different address than the server Steward watches, so
+  chat fails while everything else looks healthy. The bar names the fix.
 
 Three colours, and only three: **green** started, **red** stopped, **orange** running but something
-needs a person. That last line is the orange case — Pi is dialling a different address than the
-server Steward is watching, so chat fails while the dashboard looks perfectly healthy. The bar names
-which fix applies.
+needs a person.
 
-It refreshes while the dashboard is up and reads the same data the dashboard does, so it costs no
-extra connection to your server.
+It refreshes while the dashboard is up, and reads the same data the dashboard does — no extra
+connection to your server.
 
-## What `/steward_initialize` does
-
-It establishes how this machine supervises services, what it can measure, and where Pi already
-expects `llama.cpp` — then proposes the smallest set of changes that makes Steward work, and asks
-once whether to apply them all or one at a time.
-
-In practice that usually means enabling `--metrics`, capturing **both** stdout and stderr to one
-durable file, nominating a host-metrics collector, and recording start/stop/restart commands.
-
-Two things it will not do. It never guesses a command at runtime — everything Steward may run is
-recorded with a hash you approved. And it never edits Pi's own configuration: if the server is on the
-wrong port, it moves the **server**, so nothing about Pi has to be reloaded.
-
-It shows a diff and a revert command before touching anything.
 
 ## Configuration
 
-`/steward_initialize` writes `~/.config/steward/steward.json` at mode `0600`. Steward refuses to read
+Run `/steward_initialize` and let your clanker set me up. It reviews the local environment, captures
+how `llama.cpp` is currently configured, works out what is needed for Pi, Steward and `llama.cpp` to
+run together, then hands you a plan to approve. Nothing is applied before you say so.
+
+It writes `~/.config/steward/steward.json` at mode `0600` — the collector, the log path, the base
+URL, the service commands, and a consent hash for every command Steward may run. Steward ignores
 that file if it is not owned by you or is world-writable, because it is a code-execution surface.
 
-It records the memory topology, the host-metrics collector and its cadence, the log path, the base
-URL to watch, the start/stop/restart commands, the launch argv to check drift against, and a consent
-hash for every command Steward may run.
-
-Editing a recorded command by hand invalidates its hash, and Steward then declines to run it — which
-shows up as a missing button rather than an error. Re-run `/steward_initialize` instead of writing
-hashes yourself.
 
 ### Environment variables
 
@@ -129,14 +118,6 @@ hashes yourself.
 | `STEWARD_LOG_FILE` | — | Overrides the recorded `log.path` for the log console. |
 | `STEWARD_GLYPH` | `󰢍` | The status bar's mark. `""` drops it; any other value replaces it. |
 
-## Honesty
-
-Steward never invents a reading. A gauge with no data renders as **no reading**, never as zero — a
-real 0% and an unmeasurable value are different facts and must not be confused. A machine it cannot
-see reports itself disconnected rather than showing a plausible dashboard made of nothing. Where it
-cannot tell two states apart, it says so instead of picking the likelier one.
-
-That is the whole design. A dashboard you cannot trust at a glance is worse than no dashboard.
 
 ## Development
 
