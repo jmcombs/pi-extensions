@@ -46,7 +46,10 @@ const WIDGET_COLORS = {
   /** Neither green, blue nor orange: llama has not been read yet. */
   unknown: "#9ca0b0",
   brand: "#3465a4", // Path Blue — the logo tile, always the first block
-  started: "#40a02b", // green
+  // Darkened from Catppuccin Latte's #40a02b so light ink clears 4.5:1 (2.96 →
+  // 4.56). White on green reads as "running" the way the palette intends; the
+  // fix is the swatch, not the ink.
+  started: "#2f7d20", // green
   stopped: "#d20f39", // red
   error: "#fe640b", // orange — up, but something needs a person
   detail: "#1e66f5", // blue — llama.cpp detail, never a state
@@ -77,7 +80,7 @@ interface WidgetSegment {
 }
 
 /** Backgrounds too light to carry near-white text. */
-const DARK_INK_ON = new Set<string>([WIDGET_COLORS.error, WIDGET_COLORS.started]);
+const DARK_INK_ON = new Set<string>([WIDGET_COLORS.error]);
 
 /** Join segments into a left-aligned Powerline string. */
 function buildPowerline(segments: readonly WidgetSegment[]): string {

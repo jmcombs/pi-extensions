@@ -36,6 +36,18 @@ const PORT_VARIABLE = "STEWARD_PORT";
 /** The dashboard is per-session: one server, started on first use. */
 let server: StewardServer | null = null;
 /**
+ * The source that server is polling.
+ *
+ * The widget reads this rather than building its own. It used to construct a
+ * whole `LlamaSource` — including a `createConfigWiring()` file watcher — on
+ * every refresh and close it again, which is expensive enough that it could not
+ * be put on a timer, and which is why the widget only updated at turn
+ * boundaries: unload a model in the dashboard and the bar kept its old count
+ * until you typed something. Sharing the running source costs nothing and is
+ * exactly as fresh as the dashboard itself.
+ */
+let liveSource: StewardDataSource | null = null;
+/**
  * Starts and stops run one at a time on this chain. Two quick `/steward_start`
  * invocations then share one server rather than binding twice, and a
  * `/steward_stop` or a session shutdown that lands mid-start stops the server
@@ -89,6 +101,8 @@ interface Dashboard {
 
 interface Launched extends Dashboard {
   instance: StewardServer;
+  /** The source the server is polling, so the widget can read the same one. */
+  source: StewardDataSource | undefined;
 }
 
 /** Builds one fresh source, or `undefined` to let the server use its mock. */
@@ -189,9 +203,10 @@ async function launch(makeSource?: SourceFactory): Promise<Launched> {
 
   // A fresh source per attempt: a start that fails to bind closes the source it
   // was given, so the fallback attempt must not be handed a spent one.
-  const first = createStewardServer({ port: preferred, source: makeSource?.() });
+  const firstSource = makeSource?.();
+  const first = createStewardServer({ port: preferred, source: firstSource });
   try {
-    return { instance: first, url: await first.start(), displaced: null };
+    return { instance: first, url: await first.start(), displaced: null, source: firstSource };
   } catch (error) {
     if (!isAddressInUse(error)) throw error;
   }
@@ -199,9 +214,15 @@ async function launch(makeSource?: SourceFactory): Promise<Launched> {
   // A particular port is a convenience, not a requirement: a second Pi session
   // or a dev server left running holds it far more often than anything is
   // actually wrong, and the operator gets a URL either way.
-  const fallback = createStewardServer({ port: 0, source: makeSource?.() });
+  const fallbackSource = makeSource?.();
+  const fallback = createStewardServer({ port: 0, source: fallbackSource });
   try {
-    return { instance: fallback, url: await fallback.start(), displaced: preferred };
+    return {
+      instance: fallback,
+      url: await fallback.start(),
+      displaced: preferred,
+      source: fallbackSource,
+    };
   } catch (error) {
     throw new Error(
       `port ${preferred} is in use and no other port could be bound (${describe(error)})`,
@@ -219,6 +240,7 @@ function ensureServer(ctx: ConnectionContext): Promise<Dashboard> {
     // rather than racing ahead of it.
     const launched = await launch(await sourceFactory(ctx));
     server = launched.instance;
+    liveSource = launched.source ?? null;
     return { url: launched.url, displaced: launched.displaced };
   });
 }
@@ -228,6 +250,7 @@ function stopServer(): Promise<boolean> {
   return enqueue(async () => {
     const instance = server;
     server = null;
+    liveSource = null;
     if (instance === null) return false;
     await instance.stop();
     return true;
@@ -273,6 +296,7 @@ export default function (pi: ExtensionAPI): void {
           : `Steward is serving at ${dashboard.url} — port ${dashboard.displaced} was already in use`;
       ctx.ui.notify(`${where}. Open it with /steward_dashboard.`, "info");
       void refreshWidget(ctx);
+      trackDashboard(ctx);
     },
   });
 
@@ -297,6 +321,7 @@ export default function (pi: ExtensionAPI): void {
       try {
         await openInBrowser(dashboard.url);
         void refreshWidget(ctx);
+        trackDashboard(ctx);
       } catch (error) {
         ctx.ui.notify(`Steward could not open a browser (${describe(error)})`, "warning");
       }
@@ -312,6 +337,7 @@ export default function (pi: ExtensionAPI): void {
         // once that start has settled.
         const stopped = await stopServer();
         ctx.ui.notify(stopped ? "Steward stopped." : "Steward is not running.", "info");
+        stopTracking();
         void refreshWidget(ctx);
       } catch (error) {
         ctx.ui.notify(`Steward could not stop cleanly: ${describe(error)}`, "warning");
@@ -346,6 +372,31 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
+  /**
+   * Polls while the dashboard is up, and only while it is up. A timer that runs
+   * with no dashboard would probe a machine nobody is watching; one that never
+   * runs leaves the bar frozen at whatever was true when you last typed — unload
+   * a model and it kept saying 1/10 until the next turn.
+   */
+  const trackDashboard = (ctx: ExtensionContext): void => {
+    if (widgetTimer !== null) return;
+    widgetTimer = setInterval(() => {
+      if (server === null) {
+        stopTracking();
+        void refreshWidget(ctx);
+        return;
+      }
+      void refreshWidget(ctx);
+    }, WIDGET_POLL_MS);
+    widgetTimer.unref?.();
+  };
+
+  const stopTracking = (): void => {
+    if (widgetTimer === null) return;
+    clearInterval(widgetTimer);
+    widgetTimer = null;
+  };
+
   // The footer chip. Refreshed at the two moments the operator's eyes are on it
   // — session start, and the end of each turn — rather than on a timer: a timer
   // probes a machine nobody is looking at and can repaint mid-stream. A reading
@@ -354,7 +405,16 @@ export default function (pi: ExtensionAPI): void {
   // Guarded on `hasUI` and on the method itself: Pi runs headless, and oh-my-pi
   // ships a subset shim, so the commands must keep working with no chip.
   const STATUS_WIDGET_KEY = "steward-status";
+  /**
+   * How often the bar re-reads while the dashboard is up. Slower than the
+   * dashboard's own poll — a status bar does not need per-second resolution —
+   * and it costs one snapshot off the source the server already holds, so there
+   * is no second connection and no second collector.
+   */
+  const WIDGET_POLL_MS = 4000;
   let widgetInFlight = false;
+  let lastWidgetLine: string | null = null;
+  let widgetTimer: ReturnType<typeof setInterval> | null = null;
   const refreshWidget = async (ctx: ExtensionContext): Promise<void> => {
     // Feature-detected, not gated on `hasUI`. `session_start` is emitted from
     // `bindExtensions` during startup, when the TUI may not have come up yet and
@@ -379,17 +439,12 @@ export default function (pi: ExtensionAPI): void {
       const { providerBaseUrlOrNull } = await import("./core/llama-connection.js");
       const providerBaseUrl = await providerBaseUrlOrNull(ctx as unknown as ConnectionContext);
 
-      // Only read the machine when the dashboard is up; a stopped Steward has
-      // nothing to say about llama.cpp and should not pay for a probe.
+      // Read the source the dashboard is already polling. Only when the
+      // dashboard is up: a stopped Steward has nothing to say about llama.cpp,
+      // and the source belongs to the server.
       let snapshot = null;
-      if (portalUrl !== null) {
-        const make = await sourceFactory(ctx as unknown as ConnectionContext);
-        const source = make?.();
-        try {
-          snapshot = source === undefined ? null : await source.snapshot();
-        } finally {
-          source?.close();
-        }
+      if (portalUrl !== null && liveSource !== null) {
+        snapshot = await liveSource.snapshot();
       }
 
       // Does the file already say what Steward watches? If so the mismatch is a
@@ -410,7 +465,13 @@ export default function (pi: ExtensionAPI): void {
         },
         glyph,
       );
-      ctx.ui.setWidget(STATUS_WIDGET_KEY, [line], { placement: "aboveEditor" });
+      // Repaint only on change. The poll below runs every few seconds and the
+      // line is usually identical; redrawing it regardless would flicker the
+      // editor for nothing.
+      if (line !== lastWidgetLine) {
+        lastWidgetLine = line;
+        ctx.ui.setWidget(STATUS_WIDGET_KEY, [line], { placement: "aboveEditor" });
+      }
     } catch {
       // Informational only: never let it disturb the loop. The previous line
       // stays on screen rather than being cleared to nothing.
