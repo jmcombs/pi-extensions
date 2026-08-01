@@ -193,13 +193,15 @@ export function formatStatusWidget(state: WidgetState, glyph: string): string {
     return buildPowerline(segments);
   }
 
-  // Same reason as the mismatch block: two adjacent orange blocks would draw an
-  // invisible separator and fuse into one band anyway. Say it in one.
+  // Steward keeps its own block and its own colour: the dashboard is up, and
+  // saying otherwise because llama is down would report the wrong subject. The
+  // two blocks differ in colour here, so the separator draws — which is why this
+  // one is not merged the way the mismatch block is.
+  segments.push({ text: here, bg: WIDGET_COLORS.started });
   if (state.snapshot !== null && !state.snapshot.service.running) {
-    segments.push({ text: `${here} \u{B7} llama stopped`, bg: WIDGET_COLORS.error });
+    segments.push({ text: "llama: stopped", bg: WIDGET_COLORS.stopped });
     return buildPowerline(segments);
   }
-  segments.push({ text: here, bg: WIDGET_COLORS.started });
 
   // Not yet read is its own state. Ending the bar here would look exactly like a
   // healthy one with its tail cut off, which the eye reads as "fine".
