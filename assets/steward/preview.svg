@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="pi-steward">
+  <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
   <title>pi-steward — the llama.cpp control panel for pi</title>
   <!-- Netservant base ground -->
   <rect width="1024" height="1024" fill="#eff1f5"/>
