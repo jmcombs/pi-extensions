@@ -415,7 +415,7 @@ function isFile(path: string): boolean {
  * `/tmp` file nobody chose.
  *
  * Service-manager introspection deliberately does not happen here: recording
- * where this machine's router writes its log is the `/initialize-steward` skill's
+ * where this machine's router writes its log is the `/steward_initialize` skill's
  * job, and its answer arrives as `log.path`.
  */
 export function resolveLogPath(options: ResolveLogPathOptions = {}): string | null {

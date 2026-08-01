@@ -3,7 +3,7 @@
  *
  * Steward's facts about a machine (which flags `llama-server` was launched
  * with, which commands the operator approved) come from an artifact written
- * once, by the `/initialize-steward` skill. Nothing stops the operator editing
+ * once, by the `/steward_initialize` skill. Nothing stops the operator editing
  * their launchd plist or systemd unit afterwards, and nothing announces it when
  * they do. Without a re-check, a machine that lost `--metrics` shows a dark
  * throughput tile AND — because "fully compliant renders nothing" — an implicit
@@ -45,7 +45,7 @@ export interface ProgramChange {
 }
 
 /**
- * How the running process's argv compares to the argv `/initialize-steward`
+ * How the running process's argv compares to the argv `/steward_initialize`
  * recorded. `added` and `removed` are whole flag GROUPS (`--port 8080`, not two
  * loose tokens), so the notice can name what actually changed rather than
  * printing two command lines and leaving the operator to spot the difference.

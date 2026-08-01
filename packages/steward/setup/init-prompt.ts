@@ -1,5 +1,5 @@
 /**
- * The `/initialize-steward` instructions.
+ * The `/steward_initialize` instructions.
  *
  * This used to be a skill — a `SKILL.md` with four reference files, ~770 lines
  * of procedure and mechanism. It was replaced because the procedure turned out
@@ -93,6 +93,18 @@ below, establish whether this machine already delivers it, and propose the small
    which tool you found, or that you found none.
 7. **Start / stop / restart**, recorded as argv arrays. There is no shell: no pipes, no \`&&\`, no
    \`~\`, no \`$UID\` — write absolute paths and real numbers.
+
+## After you restart llama.cpp
+
+Pi holds an open connection to its \`llama.cpp\` provider. Restarting the server
+underneath it can leave that connection wedged: the next message hangs or fails
+with "Connection error" even though the server is healthy and answering \`curl\`.
+
+So finish by saying so, in one line: **the server was restarted, and if chat
+stops responding, switching models or restarting Pi reconnects it.** Do not
+present the setup as complete without that — a frozen agent right after a
+successful run reads as "the setup broke Pi", and it is worth the one sentence
+to say what actually happened.
 
 ## What will lie to you
 

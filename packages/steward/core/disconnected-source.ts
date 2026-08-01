@@ -23,7 +23,7 @@ import type { HostMetrics, LogLine, ModelAction, ServiceAction, Snapshot } from 
 
 /** Why the dashboard has nothing to show, in the operator's vocabulary. */
 export const NOT_CONNECTED_REASON =
-  "Steward is not connected to this machine — run /initialize-steward";
+  "Steward is not connected to this machine — run /steward_initialize";
 
 /**
  * Every gauge as a no-reading. `NaN` is deliberate and load-bearing: the UI

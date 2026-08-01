@@ -327,7 +327,7 @@ export function createServiceController(
         // Reachable when a client POSTs an action the dashboard never offered.
         return Promise.resolve({
           ok: false,
-          detail: `no consented ${action} command for this machine — run /initialize-steward`,
+          detail: `no consented ${action} command for this machine — run /steward_initialize`,
         });
       }
 

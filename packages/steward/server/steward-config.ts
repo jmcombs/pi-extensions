@@ -1,7 +1,7 @@
 /**
  * Reads and validates the `steward.json` handshake artifact.
  *
- * `steward.json` is written by the `/initialize-steward` skill (a later phase),
+ * `steward.json` is written by the `/steward_initialize` skill (a later phase),
  * not by hand in the common case, and it drives Steward to run local commands —
  * the host-metrics collector and the service-control commands — so it is a
  * code-execution surface.
@@ -55,7 +55,7 @@ export interface ServiceControlConfig {
 }
 
 /**
- * What `/initialize-steward` observed about how `llama-server` is launched on
+ * What `/steward_initialize` observed about how `llama-server` is launched on
  * this machine — the baseline the live process is re-checked against on every
  * snapshot (see `server/drift-probe.ts`).
  *
@@ -75,7 +75,7 @@ export interface LlamaLaunchConfig {
 
 /**
  * Where this machine's `llama-server` writes its combined stdout/stderr, as
- * recorded by `/initialize-steward`.
+ * recorded by `/steward_initialize`.
  *
  * It is a path Steward READS, never a command it runs, so — unlike the collector
  * and the control commands — it carries no consent hash: there is nothing here to
@@ -164,7 +164,7 @@ function currentUid(): number | null {
  * The canonical hash of a collector command, for the consent map: the sha256 of
  * the argv joined on single spaces. The space join keeps the hash reproducible
  * by hand (`printf '%s' 'macmon pipe -s 0 -i 1000' | shasum -a 256`) for a
- * maintainer writing `steward.json` to test live; the `/initialize-steward`
+ * maintainer writing `steward.json` to test live; the `/steward_initialize`
  * skill computes the same hash when it records consent. It trades a strict argv
  * canonicalisation for that reproducibility — the gate's job is operator
  * awareness of what runs, and consent still re-prompts whenever the command

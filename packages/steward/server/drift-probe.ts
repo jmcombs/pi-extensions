@@ -58,7 +58,7 @@ const MAX_RETRY_SKIP = 8;
 export type ArgvReader = (pid: number) => Promise<string | null>;
 
 export interface DriftProbeOptions {
-  /** The argv `/initialize-steward` recorded, from `steward.json`'s `llama` block. */
+  /** The argv `/steward_initialize` recorded, from `steward.json`'s `llama` block. */
   launchArgv: readonly string[];
   /** Overrides the `ps` command-line read. */
   readArgv?: ArgvReader;

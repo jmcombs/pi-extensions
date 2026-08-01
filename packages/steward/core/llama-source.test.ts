@@ -2097,7 +2097,7 @@ describe("LlamaSource — reconfigure", () => {
       expect(ui.log).toHaveLength(5);
       const simulatedSeqs = ui.log.map((line) => line.seq);
 
-      // `/initialize-steward` runs: a real tailer appears, numbering from its
+      // `/steward_initialize` runs: a real tailer appears, numbering from its
       // own backlog window — well ahead of the mock's, which is exactly the case
       // that used to append.
       const real = countedTailer("/tmp/llama-router.log");
@@ -2137,7 +2137,7 @@ describe("LlamaSource — reconfigure", () => {
     try {
       // A browser opens its log stream once and holds it for the life of the
       // tab. If that subscription lived on whatever was feeding the console, it
-      // would end the moment `/initialize-steward` gave Steward a real log — and
+      // would end the moment `/steward_initialize` gave Steward a real log — and
       // the console would go quiet while reporting a healthy source.
       const { unsubscribe } = source.attachLogs((line) => seen.push(line.message), 5);
 

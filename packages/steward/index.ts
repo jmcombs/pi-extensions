@@ -8,9 +8,10 @@
  * without a terminal.
  *
  * This file is the extension's entry point. Pi loads it via jiti, so
- * TypeScript works without a build step. `/steward` starts a loopback server
- * for the session and opens it in the browser; `/steward-stop` shuts it down,
- * as does the end of the session. `STEWARD_PORT` chooses the port; a port that
+ * TypeScript works without a build step. `/steward_start` brings up a loopback
+ * server for the session, `/steward_dashboard` opens it in a browser (starting it
+ * if needed), and `/steward_stop` shuts it down — as does the end of the session.
+ * `/steward_initialize` connects the machine in the first place. `STEWARD_PORT` chooses the port; a port that
  * is already taken costs an ephemeral one, not the dashboard.
  *
  * See:
@@ -35,9 +36,9 @@ const PORT_VARIABLE = "STEWARD_PORT";
 /** The dashboard is per-session: one server, started on first use. */
 let server: StewardServer | null = null;
 /**
- * Starts and stops run one at a time on this chain. Two quick `/steward`
+ * Starts and stops run one at a time on this chain. Two quick `/steward_start`
  * invocations then share one server rather than binding twice, and a
- * `/steward-stop` or a session shutdown that lands mid-start stops the server
+ * `/steward_stop` or a session shutdown that lands mid-start stops the server
  * that start produced instead of missing it.
  */
 let queue: Promise<void> = Promise.resolve();
@@ -96,8 +97,8 @@ type SourceFactory = () => StewardDataSource;
  *
  * Unconditional on purpose. This used to be gated behind `STEWARD_SOURCE=llama`,
  * which made the config wiring below unreachable unless the operator had opted
- * in *before* the machine was configured — so `/initialize-steward` followed by
- * `/steward` in the same session showed a simulated dashboard, and only a fresh
+ * in *before* the machine was configured — so `/steward_initialize` followed by
+ * `/steward_dashboard` in the same session showed a simulated dashboard, and only a fresh
  * Pi session ever showed the machine. The gate defeated the exact feature the
  * wiring exists to provide.
  *
@@ -121,7 +122,7 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
     // Everything `steward.json` decides — the host collector, the service
     // control commands, the drift baseline, the log tail — comes from the
     // wiring, which reads the artifact now and keeps reading it as it changes.
-    // That is what lets an operator run `/initialize-steward` with the dashboard
+    // That is what lets an operator run `/steward_initialize` with the dashboard
     // already open: the panels wire themselves up on the next repaint instead of
     // waiting for a new Pi session, and a config that is deleted takes its
     // collector and its buttons with it.
@@ -175,7 +176,7 @@ function ensureServer(ctx: ConnectionContext): Promise<Dashboard> {
     if (running !== null && running.url !== null) return { url: running.url, displaced: null };
 
     // Resolve the source inside the queued step, not before it: enqueueing must
-    // stay synchronous so a concurrent `/steward-stop` chains behind this start
+    // stay synchronous so a concurrent `/steward_stop` chains behind this start
     // rather than racing ahead of it.
     const launched = await launch(await sourceFactory(ctx));
     server = launched.instance;
@@ -213,8 +214,31 @@ function openInBrowser(url: string): Promise<void> {
 }
 
 export default function (pi: ExtensionAPI): void {
-  pi.registerCommand("steward", {
-    description: "Open the Steward dashboard for the local llama.cpp server.",
+  // Starting the server and opening a browser are separate commands: an
+  // operator on a headless box, or one who just wants the widget live, has no
+  // use for a browser, and someone whose tab is closed should not have to stop
+  // and restart the server to get it back.
+  pi.registerCommand("steward_start", {
+    description: "Start the Steward dashboard service.",
+    handler: async (_args, ctx) => {
+      let dashboard: Dashboard;
+      try {
+        dashboard = await ensureServer(ctx);
+      } catch (error) {
+        ctx.ui.notify(`Steward could not start: ${describe(error)}`, "error");
+        return;
+      }
+      const where =
+        dashboard.displaced === null
+          ? `Steward is serving at ${dashboard.url}`
+          : `Steward is serving at ${dashboard.url} — port ${dashboard.displaced} was already in use`;
+      ctx.ui.notify(`${where}. Open it with /steward_dashboard.`, "info");
+      void refreshWidget(ctx);
+    },
+  });
+
+  pi.registerCommand("steward_dashboard", {
+    description: "Open the Steward dashboard in your browser, starting it if needed.",
     handler: async (_args, ctx) => {
       let dashboard: Dashboard;
       try {
@@ -240,7 +264,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("steward-stop", {
+  pi.registerCommand("steward_stop", {
     description: "Stop the Steward dashboard server.",
     handler: async (_args, ctx) => {
       try {
@@ -256,7 +280,7 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("initialize-steward", {
+  pi.registerCommand("steward_initialize", {
     description:
       "Connect this machine to Steward — review the local llama.cpp setup and propose the configuration it needs.",
     handler: async (_args, ctx) => {

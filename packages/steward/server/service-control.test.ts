@@ -208,7 +208,7 @@ describe("createServiceController", () => {
     const result = await controller.run("stop");
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("no consented stop command");
-    expect(result.detail).toContain("/initialize-steward");
+    expect(result.detail).toContain("/steward_initialize");
   });
 
   it("passes the argv as arguments, never through a shell", async () => {

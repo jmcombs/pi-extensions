@@ -304,7 +304,7 @@ export class LlamaSource implements StewardDataSource {
   readonly #fetch: FetchLike;
   readonly #probeService: ServiceProbe | null;
   // Every part `steward.json` decides is mutable, because the artifact is: the
-  // operator can run `/initialize-steward` — or delete the file — with the
+  // operator can run `/steward_initialize` — or delete the file — with the
   // dashboard open, and `reconfigure` swaps these in place rather than making
   // them wait for a new Pi session.
   /** The declared control commands, or null when none are configured/consented. */
@@ -340,7 +340,7 @@ export class LlamaSource implements StewardDataSource {
    * replaced: the console would go quiet while `logStatus()` cheerfully reported
    * a healthy new source. The subscribers belong to the source, which keeps one
    * upstream subscription and re-points it at each swap — so a console opened
-   * before `/initialize-steward` ran is reading the real log a moment after it
+   * before `/steward_initialize` ran is reading the real log a moment after it
    * did, without being reopened.
    */
   readonly #logListeners = new Set<(line: LogLine) => void>();
@@ -435,7 +435,7 @@ export class LlamaSource implements StewardDataSource {
    * this machine, as of now.
    *
    * This is the whole of Steward's answer to an artifact that changes under it.
-   * `/initialize-steward` can be run, re-run, or its output deleted while the
+   * `/steward_initialize` can be run, re-run, or its output deleted while the
    * dashboard is open, and each of those has to take effect on the next repaint
    * rather than on the next Pi session: a collector appears, a log path moves,
    * a control command loses its consent hash, the file is removed entirely.

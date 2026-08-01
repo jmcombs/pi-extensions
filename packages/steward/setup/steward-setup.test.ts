@@ -1,5 +1,5 @@
 /**
- * The `/initialize-steward` helper script. It is the part of the skill that must
+ * The `/steward_initialize` helper script. It is the part of the skill that must
  * not be improvised: the consent hashes Steward matches against, the file mode
  * the reader refuses without, the atomic write, and the measurements that decide
  * whether a collector really streams.

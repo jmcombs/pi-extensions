@@ -247,7 +247,7 @@ describe("createConfigWiring", () => {
     const h = harness();
     const source = sourceFor(h.wiring);
     try {
-      // Cold start on a machine that has never run /initialize-steward: no
+      // Cold start on a machine that has never run /steward_initialize: no
       // collector, no console, no buttons, and drift reports itself unavailable
       // rather than clean.
       expect(h.built.collectors).toHaveLength(0);

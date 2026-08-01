@@ -12,7 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { diffLaunchArgv } from "./drift.js";
 
-/** A realistic router launch line, as `/initialize-steward` would record it. */
+/** A realistic router launch line, as `/steward_initialize` would record it. */
 const ARGV = [
   "/opt/homebrew/bin/llama-server",
   "--host",

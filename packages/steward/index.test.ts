@@ -1,7 +1,7 @@
 /**
  * These drive the extension the way Pi does: the stub below is a minimal
  * real-shape `ExtensionAPI` that records registrations and hands the real
- * command handlers back, so `/steward`, `/steward-stop` and the session
+ * command handlers back, so `/steward_dashboard`, `/steward_stop` and the session
  * shutdown hook run their actual code against a real loopback server. Every
  * method the factory is not expected to touch throws, so missing coverage is
  * loud.
@@ -178,7 +178,7 @@ beforeEach(() => {
 afterEach(async () => {
   // The module holds one server for the whole process, so every test hands it
   // back before the next one asks for it.
-  await load().run("steward-stop");
+  await load().run("steward_stop");
   process.env.PATH = realPath;
   delete process.env.STEWARD_PORT;
 });
@@ -191,7 +191,12 @@ describe("@jmcombs/pi-steward", () => {
   it("registers its expected commands", () => {
     const { log } = load();
 
-    expect(log.commands).toEqual(["steward", "steward-stop", "initialize-steward"]);
+    expect(log.commands).toEqual([
+      "steward_start",
+      "steward_dashboard",
+      "steward_stop",
+      "steward_initialize",
+    ]);
     expect(log.tools).toEqual([]);
   });
 
@@ -208,14 +213,19 @@ describe("@jmcombs/pi-steward", () => {
     const withoutOn = { ...api, on: undefined } as unknown as ExtensionAPI;
 
     expect(() => factory(withoutOn)).not.toThrow();
-    expect(log.commands).toEqual(["steward", "steward-stop", "initialize-steward"]);
+    expect(log.commands).toEqual([
+      "steward_start",
+      "steward_dashboard",
+      "steward_stop",
+      "steward_initialize",
+    ]);
   });
 });
 
 describe("/steward", () => {
   it("serves a dashboard, reports where, and warns when it cannot open a browser", async () => {
     const { log, run } = load();
-    await run("steward");
+    await run("steward_dashboard");
 
     const url = servedUrl(log);
     const response = await fetch(`${url}/api/snapshot`);
@@ -228,11 +238,11 @@ describe("/steward", () => {
 
   it("hands back the one server rather than binding a second one", async () => {
     const { log, run } = load();
-    await run("steward");
+    await run("steward_dashboard");
     const first = servedUrl(log);
 
     log.notifications.length = 0;
-    await run("steward");
+    await run("steward_dashboard");
     expect(servedUrl(log)).toBe(first);
   });
 
@@ -242,7 +252,7 @@ describe("/steward", () => {
 
     try {
       const { log, run } = load();
-      await run("steward");
+      await run("steward_dashboard");
 
       const url = servedUrl(log);
       expect(url).not.toContain(`:${taken.port}`);
@@ -257,7 +267,7 @@ describe("/steward", () => {
     process.env.STEWARD_PORT = "http-please";
     const { log, run } = load();
 
-    await run("steward");
+    await run("steward_dashboard");
 
     expect(log.notifications[0]?.level).toBe("error");
     expect(log.notifications[0]?.message).toContain("STEWARD_PORT=http-please");
@@ -265,21 +275,21 @@ describe("/steward", () => {
   });
 });
 
-describe("/steward-stop", () => {
+describe("/steward_stop", () => {
   it("says so when there is nothing to stop", async () => {
     const { log, run } = load();
-    await run("steward-stop");
+    await run("steward_stop");
 
     expect(log.notifications).toEqual([{ message: "Steward is not running.", level: "info" }]);
   });
 
   it("stops a running dashboard", async () => {
     const { log, run } = load();
-    await run("steward");
+    await run("steward_dashboard");
     const url = servedUrl(log);
 
     log.notifications.length = 0;
-    await run("steward-stop");
+    await run("steward_stop");
 
     expect(messages(log)).toEqual(["Steward stopped."]);
     await expect(fetch(url)).rejects.toThrow();
@@ -290,8 +300,8 @@ describe("/steward-stop", () => {
 
     // Both commands are in flight at once; the stop must not report "not
     // running" and then let the start bind behind it.
-    const opening = run("steward");
-    const stopping = run("steward-stop");
+    const opening = run("steward_dashboard");
+    const stopping = run("steward_stop");
     await Promise.all([opening, stopping]);
 
     expect(messages(log)).toContain("Steward stopped.");
@@ -304,7 +314,7 @@ describe("session shutdown", () => {
   it("leaves nothing bound when it lands mid-start", async () => {
     const { log, run, shutdown } = load();
 
-    const opening = run("steward");
+    const opening = run("steward_dashboard");
     await shutdown();
     await opening;
 
@@ -313,7 +323,7 @@ describe("session shutdown", () => {
 
   it("closes a dashboard the session opened earlier", async () => {
     const { log, run, shutdown } = load();
-    await run("steward");
+    await run("steward_dashboard");
     const url = servedUrl(log);
 
     await shutdown();

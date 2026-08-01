@@ -835,7 +835,7 @@ function serviceConsequence(action: ServiceAction, snapshot: Snapshot): string {
  *
  * Which actions exist is config, not a guess: the snapshot carries exactly the
  * actions `steward.json` declares a consented command for. None configured is
- * its own state — one setup affordance naming `/initialize-steward`, never
+ * its own state — one setup affordance naming `/steward_initialize`, never
  * three dead buttons that would 400 if pressed. An action that cannot apply
  * right now (starting a started service) disables WITH a reason, so the
  * greyed-out fill is never the only thing carrying it.
@@ -892,7 +892,7 @@ function selectServiceControls(snapshot: Snapshot, ui: UiState): ServiceControls
             label: "Service control is not set up.",
             detail:
               "Steward runs only the start, stop and restart commands this machine has declared and you have approved.",
-            command: "/initialize-steward",
+            command: "/steward_initialize",
           },
     confirm:
       confirming === null
@@ -920,7 +920,7 @@ function selectServiceControls(snapshot: Snapshot, ui: UiState): ServiceControls
 const DRIFT_LIST_LIMIT = 3;
 
 /** The Pi command that re-detects this machine and rewrites `steward.json`. */
-const SETUP_COMMAND = "/initialize-steward";
+const SETUP_COMMAND = "/steward_initialize";
 
 /** Human-readable action names for the consent-drift sentence. */
 const CONTROL_NAMES: Record<ServiceAction, string> = {

@@ -186,7 +186,7 @@ describe("the Steward server", () => {
     started.push(server);
 
     // Both commands are in flight at once, which is what a session shutdown
-    // arriving on the heels of a `/steward` looks like.
+    // arriving on the heels of a `/steward_dashboard` looks like.
     const starting = server.start();
     const stopping = server.stop();
 

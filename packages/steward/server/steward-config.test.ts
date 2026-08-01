@@ -30,7 +30,7 @@ const STOP = ["launchctl", "kill", "SIGTERM", LABEL];
 const RESTART = ["launchctl", "kickstart", "-k", LABEL];
 const CONTROL = { start: START, stop: STOP, restart: RESTART };
 
-/** The launch argv `/initialize-steward` records for the drift check. */
+/** The launch argv `/steward_initialize` records for the drift check. */
 const LAUNCH_ARGV = [
   "/opt/homebrew/bin/llama-server",
   "--host",

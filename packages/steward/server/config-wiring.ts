@@ -1,7 +1,7 @@
 /**
  * Keeps the live source wired to whatever `steward.json` says RIGHT NOW.
  *
- * The artifact is written by `/initialize-steward`, and an operator runs that
+ * The artifact is written by `/steward_initialize`, and an operator runs that
  * with the dashboard open — which is the whole point of a setup flow. Read once
  * at extension load, the config was baked into a closure: a machine that gained
  * a collector, a log path, control commands or a launch baseline saw none of it
@@ -426,7 +426,7 @@ export function createConfigWiring(options: ConfigWiringOptions = {}): ConfigWir
     } catch (error) {
       // A platform or filesystem that cannot watch (some network mounts) is a
       // degrade, not a failure: the config read at startup stands, and the
-      // operator is told why a later `/initialize-steward` needs a restart.
+      // operator is told why a later `/steward_initialize` needs a restart.
       const detail = error instanceof Error ? error.message : String(error);
       warn(`[steward] cannot watch ${path} for changes (${detail}); a change needs a restart`);
     }

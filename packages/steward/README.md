@@ -53,9 +53,9 @@ project-scoped install, and filtering options.
 
 ## What It Adds
 
-- **Command**: `/steward` — starts the dashboard server for the session and opens it in your
+- **Command**: `/steward_dashboard` — starts the dashboard server for the session and opens it in your
   browser. Running it again reuses the server already listening.
-- **Command**: `/steward-stop` — shuts the dashboard server down. It also stops on its own when
+- **Command**: `/steward_stop` — shuts the dashboard server down. It also stops on its own when
   the session ends.
 - **Skill**: `/skill:initialize-steward` — connects this machine. It works out how `llama-server`
   is launched here, proposes the flags and the log redirect Steward needs, helps you stand up a

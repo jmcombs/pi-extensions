@@ -240,7 +240,7 @@ describe("service controls", () => {
   it("shows one setup affordance — not dead buttons — when control is not configured", () => {
     const vm = selectDashboard(withControls([]), initialUiState("light"), NOW);
     expect(vm.service.controls.buttons).toEqual([]);
-    expect(vm.service.controls.setup?.command).toBe("/initialize-steward");
+    expect(vm.service.controls.setup?.command).toBe("/steward_initialize");
     expect(vm.service.controls.setup?.label).toContain("not set up");
   });
 
@@ -1331,7 +1331,7 @@ describe("drift notice", () => {
     expect(vm.service.drift?.messages).toEqual([
       "Launch flags changed since setup: --metrics removed.",
     ]);
-    expect(vm.service.drift?.fix).toBe("Re-run /initialize-steward to re-detect this machine.");
+    expect(vm.service.drift?.fix).toBe("Re-run /steward_initialize to re-detect this machine.");
     expect(vm.service.drift?.title).toBe("Configuration drift");
   });
 
@@ -1419,7 +1419,7 @@ describe("drift notice", () => {
     );
     expect(vm.service.drift?.messages).toHaveLength(2);
     expect(vm.service.drift?.announcement).toBe(
-      "Configuration drift. Launch flags changed since setup: --metrics removed. The host-metrics collector is declared but not approved, so no host readings are being collected. Re-run /initialize-steward to re-detect this machine.",
+      "Configuration drift. Launch flags changed since setup: --metrics removed. The host-metrics collector is declared but not approved, so no host readings are being collected. Re-run /steward_initialize to re-detect this machine.",
     );
   });
 
@@ -1463,7 +1463,7 @@ describe("driftAnnouncement", () => {
     key,
     title: "Configuration drift",
     messages: ["something changed"],
-    fix: "Re-run /initialize-steward to re-detect this machine.",
+    fix: "Re-run /steward_initialize to re-detect this machine.",
     dismissLabel: "Dismiss",
     dismissAriaLabel: "Dismiss",
     ariaLabel: "Configuration drift",
