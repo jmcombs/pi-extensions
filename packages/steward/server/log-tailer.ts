@@ -144,6 +144,22 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
   let seq = 0;
   /** Byte offset already consumed from the current file. */
   let position = 0;
+  /**
+   * An open descriptor on the file being followed, held for the whole time we
+   * follow it.
+   *
+   * It is what makes the inode comparison below mean anything. Linux frees an
+   * inode number the moment its last link goes and hands the very next file the
+   * same number: measured in a `node:22` container, delete-then-recreate
+   * returned an identical `ino` — and an identical `birthtimeMs`, so creation
+   * time cannot break the tie either. An open descriptor holds the old inode
+   * alive, so its number cannot be reissued and a replacement is guaranteed to
+   * stat differently. macOS happened not to recycle and hid this.
+   *
+   * It also removes the stat-then-open race: reads come from the handle whose
+   * identity we checked, never from whatever the path resolves to now.
+   */
+  let heldFd: number | null = null;
   /** Identity of the file we are following, so a replacement is detectable. */
   let inode: number | null = null;
   let device: number | null = null;
@@ -222,27 +238,63 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
     resetStream();
   }
 
-  /** Reads at most one chunk of new bytes and feeds them to the splitter. */
-  function drain(size: number): void {
-    if (position >= size) return;
-    const length = Math.min(size - position, MAX_READ_PER_POLL);
+  /** Lets go of the file we were following, if any. */
+  function release(): void {
+    if (heldFd === null) return;
+    try {
+      closeSync(heldFd);
+    } catch {
+      // Already gone, or never really open. Nothing here can be recovered from
+      // and nothing depends on it.
+    }
+    heldFd = null;
+  }
 
+  /**
+   * Starts following whatever `path` resolves to right now, from its tail.
+   *
+   * Identity and size are taken from the handle rather than from the caller's
+   * `stat`, so the file that gets read is the file that got measured even if the
+   * path is replaced in between. Returns false if it could not be opened, in
+   * which case the state has already been reported.
+   */
+  function follow(): boolean {
+    release();
     let fd: number;
     try {
       fd = openSync(path, "r");
     } catch (error) {
       markUnavailable(error);
-      return;
+      inode = null;
+      device = null;
+      return false;
     }
     try {
-      // The file can be replaced between the stat above and this open; reading
-      // a different inode at our offset would emit garbage. Check identity
-      // against the handle we actually hold and let the next poll re-anchor.
       const open = fstatSync(fd);
-      if (open.ino !== inode || open.dev !== device) return;
+      heldFd = fd;
+      inode = open.ino;
+      device = open.dev;
+      anchor(open.size);
+      return true;
+    } catch (error) {
+      closeSync(fd);
+      markUnavailable(error);
+      return false;
+    }
+  }
+
+  /** Reads at most one chunk of new bytes and feeds them to the splitter. */
+  function drain(): void {
+    if (heldFd === null) return;
+    try {
+      // The held handle's own size, not the path's: they differ exactly when the
+      // file was replaced mid-poll, and this is the one that matches `position`.
+      const size = fstatSync(heldFd).size;
+      if (position >= size) return;
+      const length = Math.min(size - position, MAX_READ_PER_POLL);
 
       const buffer = Buffer.allocUnsafe(length);
-      const read = readSync(fd, buffer, 0, length, position);
+      const read = readSync(heldFd, buffer, 0, length, position);
       if (read <= 0) return;
       position += read;
 
@@ -257,8 +309,6 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
       splitter.push(text);
     } catch (error) {
       markUnavailable(error);
-    } finally {
-      closeSync(fd);
     }
   }
 
@@ -290,9 +340,7 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
       if (!anchored) {
         // First sight: start at the tail, so a log that has grown for months
         // costs one backlog window rather than a whole-file read.
-        inode = stats.ino;
-        device = stats.dev;
-        anchor(stats.size);
+        if (!follow()) return;
         anchored = true;
       } else if (replaced) {
         // Unlinked and recreated (the `tmp_cleaner` case, once the router writes
@@ -302,11 +350,10 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
         // console with a whole log.
         //
         // Recovery from `missing` lands here, because a recreated file always
-        // has a new inode — while a transient stat failure on the SAME file does
-        // not, and so cannot make us re-read and re-emit what we already sent.
-        inode = stats.ino;
-        device = stats.dev;
-        anchor(stats.size);
+        // stats differently while we hold the old one open — whereas a transient
+        // stat failure on the SAME file does not, and so cannot make us re-read
+        // and re-emit what we already sent.
+        if (!follow()) return;
       } else if (stats.size < position) {
         // Truncated in place (`copytruncate`): same file, fresh content, and the
         // same cap again — a truncate followed by a large write before the next
@@ -316,7 +363,7 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
 
       source = "ok";
       detail = null;
-      drain(stats.size);
+      drain();
     } catch (error) {
       // Belt and braces: a tail that throws would take the dashboard's poll
       // loop with it.
@@ -376,6 +423,9 @@ export function createFileTailer(options: FileTailerOptions): FileTailer {
       closed = true;
       if (timer !== null) clearInterval(timer);
       listeners.clear();
+      // The held descriptor pins its inode; leaking it would keep a rotated log
+      // occupying disk for as long as the process lives.
+      release();
     },
   };
 }
