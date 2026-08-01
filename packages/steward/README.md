@@ -24,6 +24,10 @@ without leaving your editor:
 
 Start, stop and restart the service; load and unload models; watch the log — all from the dashboard.
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/dashboard.png" width="900" alt="The Steward dashboard">
+</div>
+
 ## Requirements
 
 | | |
