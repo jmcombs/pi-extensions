@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Steward">
+  <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
+  <title>Steward</title>
+  <!-- App icon: the mark in the accent-fg colour on an accent tile, corner radius 24% of the tile. -->
+  <rect width="512" height="512" rx="123" fill="#3465a4"/>
+  <g transform="translate(96 96) scale(8)" fill="none" color="#eff1f5">
+    <path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+    <rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"/>
+    <rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"/>
+  </g>
+</svg>

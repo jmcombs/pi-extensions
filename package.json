@@ -34,6 +34,7 @@
     "update:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts",
     "check:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts --check",
     "validate:extension-load": "bash scripts/validate-extension-load.sh",
+    "dev:steward": "tsx packages/steward/scripts/dev.ts",
     "prepare": "husky"
   },
   "engines": {

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Steward</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/ui/steward.css" />
+    <script>
+      // Applied before the first paint so a dark-mode operator never gets a
+      // flash of the light palette. main.ts owns the value from here on. The
+      // default (unset) is System, so an OS-dark machine must resolve to dark
+      // here too, not just an explicit "dark".
+      try {
+        const mode = localStorage.getItem("steward.theme") || "system";
+        const dark =
+          mode === "dark" ||
+          (mode === "system" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.setAttribute("data-theme", "dark");
+      } catch {
+        /* private browsing can refuse storage; the light default still works */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="rail" id="steward-rail" aria-label="Service, host, models and configuration"></aside>
+      <main class="main" id="steward-main" aria-label="Metrics, log console and slots"></main>
+    </div>
+    <p class="visually-hidden" id="steward-status" role="status" aria-live="polite"></p>
+    <script type="module" src="/ui/main.js"></script>
+  </body>
+</html>

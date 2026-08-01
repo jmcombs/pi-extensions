@@ -1,0 +1,177 @@
+/* ===================================================================
+   Netservant — Color Tokens
+   Base palette: Catppuccin Latte. Signature accent: Path Blue #3465a4.
+   Two tiers: raw palette (--latte-*, --psl-*) and semantic aliases.
+   =================================================================== */
+
+:root {
+  /* --- Raw palette: Catppuccin Latte accents --- */
+  --latte-rosewater: #dc8a78;
+  --latte-flamingo:  #dd7878;
+  --latte-pink:      #ea76cb;
+  --latte-mauve:     #8839ef;
+  --latte-red:       #d20f39;
+  --latte-maroon:    #e64553;
+  --latte-peach:     #fe640b;
+  --latte-yellow:    #df8e1d;
+  --latte-green:     #40a02b;
+  --latte-teal:      #179299;
+  --latte-sky:       #04a5e5;
+  --latte-sapphire:  #209fb5;
+  --latte-blue:      #1e66f5;
+  --latte-lavender:  #7287fd;
+
+  /* --- Raw palette: Catppuccin Latte neutrals (dark → light) --- */
+  --latte-text:      #4c4f69;
+  --latte-subtext1:  #5c5f77;
+  --latte-subtext0:  #6c6f85;
+  --latte-overlay2:  #7c7f93;
+  --latte-overlay1:  #8c8fa1;
+  --latte-overlay0:  #9ca0b0;
+  --latte-surface2:  #acb0be;
+  --latte-surface1:  #bcc0cc;
+  --latte-surface0:  #ccd0da;
+  --latte-base:      #eff1f5;
+  --latte-mantle:    #e6e9ef;
+  --latte-crust:     #dce0e8;
+
+  /* --- Signature custom colors --- */
+  --psl-path-blue:        #3465a4; /* the "Blue" — directories, prompt path, accent */
+  --psl-path-blue-active: #2855a3; /* pressed / active / button-hover (darker)        */
+  --psl-path-blue-soft:   #5a85c2; /* hover surface (lighter)                          */
+  --psl-selection-bg:     #a9c1e2; /* GitHub-Light-inspired selection                  */
+  --psl-selection-fg:     #24292f;
+
+  /* =================================================================
+     SEMANTIC ALIASES — reach for these in product work
+     ================================================================= */
+
+  /* Surfaces (background tier, lightest content pane → darkest chrome) */
+  --surface-page:    var(--latte-base);    /* editor / primary canvas         */
+  --surface-panel:   var(--latte-mantle);  /* sidebars, side panels           */
+  --surface-chrome:  var(--latte-crust);   /* title bars, toolbars, headers   */
+  --surface-raised:  var(--latte-surface0);/* inputs, raised chips            */
+  --surface-raised-1:var(--latte-surface1);
+  --surface-raised-2:var(--latte-surface2);
+
+  /* Text */
+  --text-primary:    var(--latte-text);     /* body, headlines                */
+  --text-secondary:  var(--latte-subtext1); /* sub-headlines, labels          */
+  --text-tertiary:   var(--latte-subtext0); /* tertiary, captions             */
+  --text-muted:      var(--latte-overlay1); /* subtle text                    */
+  --text-subtle:     var(--latte-overlay0); /* placeholders, disabled         */
+  --text-on-accent:  var(--latte-base);     /* text on path-blue / accents    */
+
+  /* Borders & dividers */
+  --border:          var(--latte-surface0); /* default border / divider       */
+  --border-strong:   var(--latte-overlay0);
+  --border-active:   var(--psl-path-blue);  /* focus / active border          */
+
+  /* Accent */
+  --accent:          var(--psl-path-blue);
+  --accent-hover:    var(--psl-path-blue-active);
+  --accent-soft:     var(--psl-path-blue-soft);
+  --accent-fg:       var(--latte-base);
+
+  /* Status / feedback */
+  --success:   var(--latte-green);
+  --warning:   var(--latte-yellow);
+  --error:     var(--latte-red);
+  --info:      var(--latte-teal);
+
+  /* Links */
+  --link:          var(--latte-blue);
+  --link-hover:    var(--latte-sky);
+  --link-visited:  var(--latte-lavender);
+
+  /* Selection / cursor */
+  --selection-bg:  var(--psl-selection-bg);
+  --selection-fg:  var(--psl-selection-fg);
+  --cursor:        var(--latte-rosewater);
+
+  /* =================================================================
+     SYNTAX — code-block / editor token colors
+     (matches the shipped VS Code theme; functions use Path Blue)
+     ================================================================= */
+  --syntax-comment:     var(--latte-overlay2);
+  --syntax-keyword:     var(--latte-mauve);
+  --syntax-string:      var(--latte-green);
+  --syntax-number:      var(--latte-peach);
+  --syntax-constant:    var(--latte-peach);
+  --syntax-function:    var(--psl-path-blue);
+  --syntax-type:        var(--latte-yellow);
+  --syntax-variable:    var(--latte-text);
+  --syntax-parameter:   var(--latte-maroon);
+  --syntax-operator:    var(--latte-sky);
+  --syntax-tag:         var(--latte-mauve);
+  --syntax-attribute:   var(--latte-yellow);
+  --syntax-property:    var(--psl-path-blue);
+  --syntax-punctuation: var(--latte-subtext0);
+  --syntax-escape:      var(--latte-pink);
+  --syntax-regexp:      var(--latte-pink);
+  --syntax-macro:       var(--latte-rosewater);
+
+  /* Diff (use at low alpha for backgrounds; see --diff-* helpers) */
+  --diff-added-fg:    var(--latte-green);
+  --diff-removed-fg:  var(--latte-red);
+  --diff-changed-fg:  var(--latte-yellow);
+  --diff-added-bg:    color-mix(in srgb, var(--latte-green) 18%, transparent);
+  --diff-removed-bg:  color-mix(in srgb, var(--latte-red) 18%, transparent);
+  --diff-changed-bg:  color-mix(in srgb, var(--latte-yellow) 18%, transparent);
+}
+
+/* =================================================================
+   DARK MODE — set [data-theme="dark"] on <html> (or any ancestor).
+   Overrides the raw ramp + accents (Catppuccin Mocha) so every
+   semantic alias and direct token reference flips automatically.
+   ================================================================= */
+[data-theme="dark"] {
+  /* Mocha accents */
+  --latte-rosewater: #f5e0dc; --latte-flamingo: #f2cdcd; --latte-pink: #f5c2e7;
+  --latte-mauve: #cba6f7; --latte-red: #f38ba8; --latte-maroon: #eba0ac;
+  --latte-peach: #fab387; --latte-yellow: #f9e2af; --latte-green: #a6e3a1;
+  --latte-teal: #94e2d5; --latte-sky: #89dceb; --latte-sapphire: #74c7ec;
+  --latte-blue: #89b4fa; --latte-lavender: #b4befe;
+
+  /* Mocha neutrals (dark → light) */
+  --latte-text: #cdd6f4; --latte-subtext1: #bac2de; --latte-subtext0: #a6adc8;
+  --latte-overlay2: #9399b2; --latte-overlay1: #7f849c; --latte-overlay0: #6c7086;
+  --latte-surface2: #585b70; --latte-surface1: #45475a; --latte-surface0: #313244;
+  --latte-base: #1e1e2e; --latte-mantle: #181825; --latte-crust: #11111b;
+
+  /* Signature accent, lightened for contrast on dark surfaces */
+  --psl-path-blue: #7aa2d6; --psl-path-blue-active: #8fb3e0; --psl-path-blue-soft: #3465a4;
+  --psl-selection-bg: #3a4a6b; --psl-selection-fg: #cdd6f4;
+
+  /* On-accent text reads dark on the lightened blue */
+  --text-on-accent: #11111b;
+  --accent-fg: #11111b;
+
+  /* Re-resolve the semantic + syntax aliases in this scope. (Declared with
+     var() on :root, they were computed LIGHT there and inherit resolved, so
+     overriding the raw ramp alone isn't enough — re-declare to re-resolve.) */
+  --surface-page: var(--latte-base); --surface-panel: var(--latte-mantle); --surface-chrome: var(--latte-crust);
+  --surface-raised: var(--latte-surface0); --surface-raised-1: var(--latte-surface1); --surface-raised-2: var(--latte-surface2);
+  --text-primary: var(--latte-text); --text-secondary: var(--latte-subtext1); --text-tertiary: var(--latte-subtext0);
+  --text-muted: var(--latte-overlay1); --text-subtle: var(--latte-overlay0);
+  --border: var(--latte-surface0); --border-strong: var(--latte-overlay0); --border-active: var(--psl-path-blue);
+  --accent: var(--psl-path-blue); --accent-hover: var(--psl-path-blue-active); --accent-soft: var(--psl-path-blue-soft);
+  --success: var(--latte-green); --warning: var(--latte-yellow); --error: var(--latte-red); --info: var(--latte-teal);
+  --link: var(--latte-blue); --link-hover: var(--latte-sky); --link-visited: var(--latte-lavender);
+  --selection-bg: var(--psl-selection-bg); --selection-fg: var(--psl-selection-fg); --cursor: var(--latte-rosewater);
+  --syntax-comment: var(--latte-overlay2); --syntax-keyword: var(--latte-mauve); --syntax-string: var(--latte-green);
+  --syntax-number: var(--latte-peach); --syntax-constant: var(--latte-peach); --syntax-function: var(--psl-path-blue);
+  --syntax-type: var(--latte-yellow); --syntax-variable: var(--latte-text); --syntax-parameter: var(--latte-maroon);
+  --syntax-operator: var(--latte-sky); --syntax-tag: var(--latte-mauve); --syntax-attribute: var(--latte-yellow);
+  --syntax-property: var(--psl-path-blue); --syntax-punctuation: var(--latte-subtext0); --syntax-escape: var(--latte-pink);
+  --syntax-regexp: var(--latte-pink); --syntax-macro: var(--latte-rosewater);
+
+  /* Shadows go to black on dark surfaces */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.30);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.36), 0 1px 2px rgba(0,0,0,0.30);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.40), 0 2px 4px rgba(0,0,0,0.30);
+  --shadow-lg: 0 12px 28px rgba(0,0,0,0.46), 0 4px 8px rgba(0,0,0,0.32);
+  --shadow-xl: 0 24px 60px rgba(0,0,0,0.55);
+  --shadow-paper:       0 10px 30px -8px rgba(0,0,0,0.5), 0 4px 10px -4px rgba(0,0,0,0.4);
+  --shadow-paper-hover: 0 18px 44px -10px rgba(0,0,0,0.6), 0 6px 14px -4px rgba(0,0,0,0.45);
+}

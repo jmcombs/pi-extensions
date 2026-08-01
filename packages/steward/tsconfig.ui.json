@@ -1,0 +1,18 @@
+{
+  // Browser half of the package. `ui/` runs in the browser, so it needs the DOM
+  // lib that the Node-facing root config omits; `scripts/typecheck.mjs` picks
+  // this project up automatically as `packages/*/tsconfig.ui.json`.
+  //
+  // The files here are served to the browser with their types stripped at
+  // request time (`node:module` `stripTypeScriptTypes`), so they must use only
+  // erasable syntax: no `enum`, no `namespace`, no parameter properties, and
+  // type-only imports written as `import type`.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "verbatimModuleSyntax": true
+  },
+  "include": ["ui/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

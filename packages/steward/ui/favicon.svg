@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-labelledby="steward-mark-title">
+  <title id="steward-mark-title">Steward</title>
+  <!--
+    The Steward mark: a serving dome over two trays, the lower one at 55%.
+    Drawn entirely in currentColor so it inverts with the theme. A standalone
+    favicon has no host element to inherit `color` from, so the accent is
+    resolved here — the one place in the package that names it outside the
+    stylesheet's tokens (Path Blue, lightened for dark tab bars).
+  -->
+  <style>
+    svg { color: #3465a4; }
+    @media (prefers-color-scheme: dark) { svg { color: #7aa2d6; } }
+  </style>
+  <path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+  <rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"/>
+  <rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"/>
+</svg>

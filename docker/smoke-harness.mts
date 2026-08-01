@@ -96,6 +96,7 @@ export interface Expected {
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_end, agent_end     | —                                     |
 // | prompt-enhancer | —                                 | enhance, enhance-model, enhance-revert                     | session_start, session_shutdown, model_select, input     | shortcuts ctrl+shift+p, ctrl+shift+z  |
 // | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok (via stub) |
+// | steward         | —                                 | steward_start, steward_dashboard, steward_stop, steward_initialize | session_start, turn_start, turn_end, session_shutdown | —                                     |
 // | tavily-search   | tavily_search                     | tavily_setup                                               | —                                                        | —                                     |
 
 export const EXPECTED: Record<string, Expected> = {
@@ -145,6 +146,11 @@ export const EXPECTED: Record<string, Expected> = {
   relay: {
     providers: ["relay-claude", "relay-grok"],
     note: "providers only: relay-claude, relay-grok (via stub registerProvider)",
+  },
+  steward: {
+    commands: ["steward_start", "steward_dashboard", "steward_stop", "steward_initialize"],
+    handlers: ["session_start", "turn_start", "turn_end", "session_shutdown"],
+    note: "four steward_* commands; the turn handlers only repaint the status widget, and the dashboard server still starts on demand",
   },
   "tavily-search": {
     tools: ["tavily_search"],

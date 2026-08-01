@@ -65,6 +65,12 @@
       "component": "relay",
       "package-name": "@jmcombs/pi-relay",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/steward": {
+      "release-type": "node",
+      "component": "steward",
+      "package-name": "@jmcombs/pi-steward",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

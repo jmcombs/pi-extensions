@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/colors.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/typography.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/styles.css">
+<script src="_ds/netservant-design-system-ff9c7601-b992-47d0-a764-2ea2293cbabd/_ds_bundle.js"></script>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--surface-page); font-family: var(--font-ui); color: var(--text-primary); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { color: var(--link-hover); }
+  input, select, button { font-family: inherit; }
+  ::selection { background: var(--selection-bg); color: var(--selection-fg); }
+</style>
+</helmet>
+
+<div style="display: grid; grid-template-columns: 340px 1fr; grid-template-rows: minmax(0, 1fr); height: 100vh; background: var(--surface-page); box-sizing: border-box; overflow: hidden;">
+
+  <!-- ============ RAIL: service, host, models, config ============ -->
+  <div style="display: flex; flex-direction: column; min-height: 0; background: var(--surface-panel); border-right: 1px solid var(--border); overflow-y: auto;">
+
+    <div style="padding: 20px 20px 18px; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 5px; color: var(--accent);">
+        <svg width="20" height="20" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+          <path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4" stroke-linecap="round"></path>
+          <rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"></rect>
+          <rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"></rect>
+        </svg>
+        <span style="font-family: var(--font-heading); font-size: 17px; font-weight: 800; letter-spacing: -0.015em; color: var(--text-primary);">Steward</span>
+        <span style="width: 9px; height: 9px; border-radius: 50%; background: {{ dot }};"></span>
+      </div>
+      <div style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted); margin-bottom: 14px;">llama.cpp {{ build }} · {{ host }}</div>
+      <div style="display: flex; gap: 8px;">
+        <button onClick="{{ toggleService }}" style="flex: 1; height: 36px; border-radius: var(--radius-md); border: 1px solid transparent; background: {{ ctlBg }}; color: {{ ctlFg }}; font-size: 13px; font-weight: 700; cursor: pointer; transition: filter var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="filter: brightness(0.94);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">{{ ctlLabel }}</button>
+        <button onClick="{{ restart }}" style="height: 36px; padding: 0 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="background: var(--surface-raised); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">Restart</button>
+        <button onClick="{{ toggleTheme }}" style="width: 36px; height: 36px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="background: var(--surface-raised); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">{{ themeGlyph }}</button>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">
+        <span>{{ stateLabel }}</span><span>uptime {{ uptime }}</span>
+      </div>
+    </div>
+
+    <div style="padding: 18px 20px; border-bottom: 1px solid var(--border);">
+      <div style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Host</div>
+      <div style="display: flex; flex-direction: column; gap: 12px;">
+        <sc-for list="{{ gauges }}" as="g" hint-placeholder-count="6">
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11.5px;">
+              <span style="color: var(--text-secondary);">{{ g.label }}</span>
+              <span style="color: {{ g.color }}; font-weight: 700;">{{ g.value }}</span>
+            </div>
+            <div style="height: 6px; border-radius: 999px; background: var(--surface-raised); overflow: hidden;">
+              <div style="height: 100%; width: {{ g.pct }}; background: {{ g.color }}; border-radius: 999px; transition: width 400ms var(--ease-out);"></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="padding: 18px 20px; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Models</span>
+        <button onClick="{{ showAll }}" style="height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid {{ allBorder }}; background: {{ allBg }}; color: {{ allFg }}; font-family: var(--font-mono); font-size: 11px; font-weight: 700; cursor: pointer; transition: filter var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="filter: brightness(0.95); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">all logs</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <sc-for list="{{ models }}" as="m" hint-placeholder-count="4">
+          <div onClick="{{ m.onFilter }}" style="padding: 12px 13px; border: 1px solid {{ m.cardBorder }}; border-radius: var(--radius-md); background: {{ m.cardBg }}; cursor: pointer; transition: box-shadow var(--dur-base) var(--ease-out), transform var(--dur-fast) var(--ease-out);" style-hover="box-shadow: var(--shadow-md);" style-active="transform: translateY(0.5px);">
+            <div style="display: flex; align-items: center; gap: 7px; margin-bottom: 6px;">
+              <span style="width: 7px; height: 7px; border-radius: 50%; background: {{ m.color }}; flex: none;"></span>
+              <span style="font-family: var(--font-mono); font-size: 12px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.short }}</span>
+            </div>
+            <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-bottom: 9px;">{{ m.meta }}</div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <span style="font-family: var(--font-mono); font-size: 11.5px; color: {{ m.statusColor }}; font-weight: 700;">{{ m.statusLabel }} · {{ m.tps }}</span>
+              <button onClick="{{ m.onToggle }}" style="height: 26px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid {{ m.btnBorder }}; background: {{ m.btnBg }}; color: {{ m.btnFg }}; font-size: 11.5px; font-weight: 700; cursor: pointer; transition: filter var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="filter: brightness(0.94); border-color: currentColor;" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">{{ m.btnLabel }}</button>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{ showConfig }}" hint-placeholder-val="{{ true }}">
+      <div style="padding: 18px 20px 24px;">
+        <div style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Config</div>
+        <div style="display: flex; flex-direction: column; gap: 7px;">
+          <sc-for list="{{ config }}" as="c" hint-placeholder-count="9">
+            <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-family: var(--font-mono); font-size: 11.5px;">
+              <span style="color: var(--text-muted); white-space: nowrap;">{{ c.k }}</span>
+              <span style="color: var(--text-secondary); text-align: right;">{{ c.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- ============ MAIN: metrics, console, slots ============ -->
+  <div style="display: flex; flex-direction: column; min-width: 0; min-height: 0;">
+
+    <div style="display: grid; grid-template-columns: repeat(3, 1fr) 1.4fr; gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);">
+      <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 7px; padding: 16px 20px; background: var(--surface-page);">
+          <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">{{ k.label }}</span>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: {{ k.color }}; line-height: 1;">{{ k.value }}</span>
+            <span style="font-size: 12px; color: var(--text-tertiary);">{{ k.unit }}</span>
+          </div>
+          <div style="height: 4px; border-radius: 999px; background: var(--surface-raised); overflow: hidden;">
+            <div style="height: 100%; width: {{ k.pct }}; background: {{ k.color }}; border-radius: 999px; transition: width 400ms var(--ease-out);"></div>
+          </div>
+          <span style="font-size: 12px; color: var(--text-tertiary);">{{ k.sub }}</span>
+        </div>
+      </sc-for>
+      <div style="display: flex; flex-direction: column; gap: 7px; padding: 16px 20px; background: var(--surface-page);">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 10px;">
+          <span style="font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Throughput history</span>
+          <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">avg {{ sparkAvg }} · peak {{ sparkPeak }} tok/s</span>
+        </div>
+        <div style="position: relative; height: 46px;">
+          <div style="position: absolute; left: 0; right: 0; bottom: {{ sparkAvgLine }}; height: 1px; border-top: 1px dashed var(--border-strong); opacity: 0.7;"></div>
+          <div style="display: flex; align-items: flex-end; gap: 2px; height: 100%;">
+            <sc-for list="{{ spark }}" as="s" hint-placeholder-count="40">
+              <div style="flex: 1; height: {{ s.h }}; background: {{ s.c }}; border-radius: 1px;"></div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-subtle);">
+          <span>−2 min</span><span>now</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--surface-chrome);">
+      <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">filter</span>
+      <span style="padding: 4px 11px; border-radius: 999px; background: {{ activeBg }}; color: {{ activeFg }}; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700;">{{ activeModel }}</span>
+      <div style="display: flex; gap: 6px;">
+        <sc-for list="{{ levelChips }}" as="c" hint-placeholder-count="4">
+          <button onClick="{{ c.onClick }}" style="height: 28px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid {{ c.border }}; background: {{ c.bg }}; color: {{ c.fg }}; font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; cursor: pointer; transition: filter var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="filter: brightness(0.95); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">{{ c.label }}</button>
+        </sc-for>
+      </div>
+      <input value="{{ q }}" onChange="{{ setQ }}" placeholder="search log…" style="height: 28px; flex: 1; min-width: 140px; padding: 0 11px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; outline: none; transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="border-color: var(--border-strong);" style-focus="border-color: var(--border-active); box-shadow: var(--ring);" />
+      <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);">{{ lineCount }} lines</span>
+      <button onClick="{{ togglePause }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid {{ pauseBorder }}; background: {{ pauseBg }}; color: {{ pauseFg }}; font-size: 12px; font-weight: 700; cursor: pointer; transition: filter var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="filter: brightness(0.95); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">{{ pauseLabel }}</button>
+      <button onClick="{{ copy }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="background: var(--surface-raised); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">{{ copyLabel }}</button>
+      <button onClick="{{ download }}" style="height: 28px; padding: 0 13px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-page); color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);" style-hover="background: var(--surface-raised); border-color: var(--border-strong);" style-active="transform: translateY(0.5px) scale(0.99);" style-focus="box-shadow: var(--ring); outline: none;">Download</button>
+    </div>
+
+    <div ref="{{ logRef }}" style="flex: 1; min-height: 0; overflow-y: auto; background: var(--surface-chrome); padding: 10px 0;">
+      <sc-for list="{{ lines }}" as="l" hint-placeholder-count="24">
+        <div style="display: grid; grid-template-columns: 92px 54px minmax(0, 200px) minmax(0, 1fr); gap: 12px; padding: 3px 18px; font-family: var(--font-mono); font-size: 12px; line-height: 1.6;">
+          <span style="color: var(--text-subtle);">{{ l.ts }}</span>
+          <span style="color: {{ l.levelColor }}; font-weight: 700;">{{ l.level }}</span>
+          <span style="color: {{ l.modelColor }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ l.model }}</span>
+          <span style="color: var(--text-secondary); white-space: pre-wrap;">{{ l.msg }}</span>
+        </div>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ showSlots }}" hint-placeholder-val="{{ true }}">
+      <div style="border-top: 1px solid var(--border); background: var(--surface-page); padding: 12px 18px 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span style="font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted);">Slots</span>
+          <span style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-tertiary);">{{ busySlots }} of {{ slotCount }} processing</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px;">
+          <sc-for list="{{ slots }}" as="s" hint-placeholder-count="4">
+            <div style="display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md);">
+              <div style="display: flex; align-items: center; justify-content: space-between; font-family: var(--font-mono); font-size: 11px;">
+                <span style="color: var(--text-muted);">slot {{ s.id }}</span>
+                <span style="padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 700; background: {{ s.stateBg }}; color: {{ s.stateColor }};">{{ s.state }}</span>
+              </div>
+              <span style="font-family: var(--font-mono); font-size: 11.5px; font-weight: 700; color: {{ s.color }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.model }}</span>
+              <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ s.client }} · {{ s.ctx }} · {{ s.tokens }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;'light'|'dark'&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;logRateMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;min&quot;:200,&quot;max&quot;:3000,&quot;step&quot;:100,&quot;default&quot;:900,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Log stream&quot;},&quot;maxLogLines&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;min&quot;:100,&quot;max&quot;:2000,&quot;step&quot;:100,&quot;default&quot;:500,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Log stream&quot;},&quot;showSlots&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;showConfig&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Layout&quot;}}">
+class Component extends DCLogic {
+  // ---------------------------------------------------------------
+  // DATA SOURCE — the only place that talks to the network.
+  // Set source: 'live', point base/supervisor at your hosts, and
+  // replace the mock tickers in componentDidMount with polls of
+  // these calls. Nothing else in the component fetches anything.
+  //   health   GET  /health                     service up?
+  //   models   GET  /v1/models                  loaded models
+  //   props    GET  /props                      ctx, n_gpu_layers, build
+  //   slots    GET  /slots                      per-slot state
+  //   metrics  GET  /metrics                    prometheus text
+  //   logs     GET  /logs/stream (SSE)          or tail the launchd unit
+  //   service  POST <supervisor>/service/{start|stop|restart}
+  //   model    POST <supervisor>/models/{id}/{load|unload}
+  // ---------------------------------------------------------------
+  api = {
+    source: 'mock',
+    base: 'http://127.0.0.1:8080',
+    supervisor: 'http://127.0.0.1:8081',
+    health:  function () { return fetch(this.base + '/health').then(r => r.json()); },
+    models:  function () { return fetch(this.base + '/v1/models').then(r => r.json()); },
+    props:   function () { return fetch(this.base + '/props').then(r => r.json()); },
+    slots:   function () { return fetch(this.base + '/slots').then(r => r.json()); },
+    metrics: function () { return fetch(this.base + '/metrics').then(r => r.text()); },
+    logs:    function () { return new EventSource(this.base + '/logs/stream'); },
+    service: function (action) { return fetch(this.supervisor + '/service/' + action, { method: 'POST' }); },
+    model:   function (id, action) { return fetch(this.supervisor + '/models/' + id + '/' + action, { method: 'POST' }); },
+  };
+
+  MODELS = [
+    { id: 'qwen3.6-moe-a3b-instruct-q4_k_m', short: 'qwen3.6-moe-a3b-instruct', role: 'chat', color: 'var(--latte-mauve)', meta: 'Q4_K_M · 18.4 GB · ctx 65536 · 48 gpu layers', vram: 18.4 },
+    { id: 'qwen3.6-moe-30b-thinking-q5_k_m', short: 'qwen3.6-moe-30b-thinking', role: 'reason', color: 'var(--latte-teal)', meta: 'Q5_K_M · 22.1 GB · ctx 32768 · 48 gpu layers', vram: 22.1 },
+    { id: 'qwen3.6-moe-coder-fim-q4_k_m', short: 'qwen3.6-moe-coder-fim', role: 'fim', color: 'var(--latte-peach)', meta: 'Q4_K_M · 9.8 GB · ctx 16384 · 32 gpu layers', vram: 9.8 },
+    { id: 'nomic-embed-text-v1.5-f16', short: 'nomic-embed-text-v1.5', role: 'embed', color: 'var(--latte-blue)', meta: 'F16 · 0.5 GB · ctx 8192 · pooling mean', vram: 0.5 },
+  ];
+
+  LEVELS = { INFO: 'var(--info)', WARN: 'var(--warning)', ERROR: 'var(--error)', DEBUG: 'var(--text-muted)' };
+
+  logRef = React.createRef();
+
+  state = {
+    dark: false,
+    running: true,
+    started: Date.now() - 1000 * 60 * 214,
+    log: [],
+    seq: 617,
+    model: 'all',
+    level: 'all',
+    q: '',
+    paused: false,
+    frozen: [],
+    copied: false,
+    unloaded: { 'nomic-embed-text-v1.5-f16': true },
+    tps: 0,
+    reqmin: 0,
+    vram: 0.62,
+    ram: 0.41,
+    cpu: 0.17,
+    gpu: 0.78,
+    gpuTemp: 64,
+    cpuTemp: 47,
+    spark: Array.from({ length: 42 }, () => 40 + Math.random() * 45),
+    slots: [
+      { id: 0, model: 0, client: 'pi · edit-session', ctx: '12.4k', tokens: 268, state: 'processing' },
+      { id: 1, model: 2, client: 'pi · inline-fim', ctx: '3.1k', tokens: 41, state: 'processing' },
+      { id: 2, model: 1, client: 'pi · plan-agent', ctx: '21.8k', tokens: 0, state: 'idle' },
+      { id: 3, model: -1, client: '—', ctx: '—', tokens: 0, state: 'idle' },
+    ],
+  };
+
+  componentDidMount() {
+    for (let i = 0; i < 60; i++) this.emit(true);
+    this.logTimer = setInterval(() => this.emit(), Math.max(200, this.props.logRateMs ?? 900));
+    this.metricTimer = setInterval(() => this.tickMetrics(), 1600);
+    this.clock = setInterval(() => this.forceUpdate(), 1000);
+    if ((this.props.theme ?? 'light') === 'dark') this.setTheme(true);
+    this.scrollLog();
+  }
+  componentWillUnmount() { clearInterval(this.logTimer); clearInterval(this.metricTimer); clearInterval(this.clock); }
+  componentDidUpdate() { this.scrollLog(); }
+
+  scrollLog() {
+    const el = this.logRef.current;
+    if (el && !this.state.paused) el.scrollTop = el.scrollHeight;
+  }
+
+  emit(seed) {
+    if (!this.state.running && !seed) return;
+    const n = seed ? 1 : 1 + (Math.random() < 0.4 ? 1 : 0);
+    const add = [];
+    for (let i = 0; i < n; i++) add.push(this.makeLine());
+    this.setState(s => ({ log: s.log.concat(add).slice(-(this.props.maxLogLines ?? 500)), seq: s.seq + n }));
+  }
+
+  makeLine() {
+    const active = this.MODELS.filter(m => !this.state.unloaded[m.id]);
+    const m = active[Math.floor(Math.random() * active.length)] || this.MODELS[0];
+    const slot = Math.floor(Math.random() * 4);
+    const task = this.state.seq + Math.floor(Math.random() * 3);
+    const r = Math.random();
+    let level = 'INFO', msg;
+    if (r < 0.10) {
+      level = 'WARN';
+      msg = `slot update_slots: id ${slot} | task ${task} | context shift, n_keep = 1024, n_discard = 2048`;
+    } else if (r < 0.14) {
+      level = 'ERROR';
+      msg = `srv send_error: task ${task} | prompt exceeds context window (${(Math.random() * 20000 + 66000).toFixed(0)} > 65536)`;
+    } else if (r < 0.30) {
+      msg = `srv log_server_r: request: POST /v1/chat/completions 127.0.0.1 200 (pi/0.9.4)`;
+    } else if (r < 0.50) {
+      msg = `prompt eval time = ${(200 + Math.random() * 900).toFixed(2)} ms / ${Math.floor(300 + Math.random() * 2200)} tokens (${(0.3 + Math.random()).toFixed(2)} ms per token, ${(900 + Math.random() * 1400).toFixed(1)} tokens per second)`;
+    } else if (r < 0.68) {
+      msg = `eval time = ${(1500 + Math.random() * 5000).toFixed(2)} ms / ${Math.floor(60 + Math.random() * 400)} runs (${(9 + Math.random() * 12).toFixed(2)} ms per token, ${(45 + Math.random() * 60).toFixed(1)} tokens per second)`;
+    } else if (r < 0.82) {
+      msg = `slot launch_slot_: id ${slot} | task ${task} | processing task`;
+    } else if (r < 0.92) {
+      msg = `slot update_slots: id ${slot} | task ${task} | n_past = ${Math.floor(1000 + Math.random() * 30000)}, cache_tokens = ${Math.floor(1000 + Math.random() * 30000)}`;
+    } else {
+      msg = `slot release: id ${slot} | task ${task} | stop processing: n_tokens = ${Math.floor(200 + Math.random() * 900)}, truncated = 0`;
+    }
+    const d = new Date();
+    const ts = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+    return { ts, level, model: m.id, msg };
+  }
+
+  tickMetrics() {
+    this.setState(s => {
+      const v = 46 + Math.random() * 52;
+      const drift = (t, target) => Math.max(35, Math.min(92, t + (target - t) * 0.25 + (Math.random() - 0.5) * 1.6));
+      return {
+        gpuTemp: drift(s.gpuTemp, 48 + s.gpu * 38),
+        cpuTemp: drift(s.cpuTemp, 38 + s.cpu * 46),
+        tps: Math.round(38 + Math.random() * 62),
+        reqmin: Math.round(9 + Math.random() * 14),
+        vram: Math.min(0.97, 0.55 + Math.random() * 0.2),
+        ram: 0.36 + Math.random() * 0.12,
+        cpu: 0.12 + Math.random() * 0.3,
+        gpu: 0.6 + Math.random() * 0.35,
+        spark: s.spark.slice(1).concat(v),
+        slots: s.slots.map(sl => sl.model < 0 ? sl : ({ ...sl, state: Math.random() < 0.68 ? 'processing' : 'idle', tokens: Math.floor(Math.random() * 520) })),
+      };
+    });
+  }
+
+  setTheme(dark) {
+    this.setState({ dark });
+    const el = document.documentElement;
+    if (dark) el.setAttribute('data-theme', 'dark'); else el.removeAttribute('data-theme');
+  }
+  modelById(id) { return this.MODELS.find(m => m.id === id); }
+  fmtUptime() {
+    const s = Math.floor((Date.now() - this.state.started) / 1000);
+    return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`;
+  }
+  chipStyle(on, color) {
+    return on
+      ? { bg: `color-mix(in srgb, ${color} 18%, transparent)`, fg: color, border: `color-mix(in srgb, ${color} 45%, transparent)` }
+      : { bg: 'var(--surface-page)', fg: 'var(--text-tertiary)', border: 'var(--border)' };
+  }
+
+  renderVals() {
+    const s = this.state;
+    const pct = n => `${Math.round(n * 100)}%`;
+    const run = s.running;
+
+    const src = s.paused ? s.frozen : s.log;
+    const q = s.q.trim().toLowerCase();
+    const lines = src.filter(l =>
+      (s.model === 'all' || l.model === s.model) &&
+      (s.level === 'all' || l.level === s.level) &&
+      (!q || l.msg.toLowerCase().includes(q))
+    ).slice(-200).map(l => ({
+      ...l,
+      levelColor: this.LEVELS[l.level],
+      modelColor: s.model === 'all' ? (this.modelById(l.model) || {}).color : 'var(--text-muted)',
+      model: (this.modelById(l.model) || {}).short || l.model,
+    }));
+
+    const models = this.MODELS.map(m => {
+      const loaded = !s.unloaded[m.id];
+      const busy = loaded && run && s.slots.some(sl => this.MODELS[sl.model] === m && sl.state === 'processing');
+      const sel = s.model === m.id;
+      const btn = loaded
+        ? { btnLabel: 'Unload', btnBg: 'var(--surface-page)', btnFg: 'var(--error)', btnBorder: 'color-mix(in srgb, var(--error) 40%, transparent)' }
+        : { btnLabel: 'Load', btnBg: 'var(--accent)', btnFg: 'var(--accent-fg)', btnBorder: 'var(--accent)' };
+      return {
+        ...m, ...btn,
+        statusLabel: loaded ? (busy ? 'active' : 'resident') : 'unloaded',
+        statusColor: loaded ? (busy ? 'var(--success)' : 'var(--text-tertiary)') : 'var(--text-subtle)',
+        tps: loaded ? (busy ? `${Math.round(s.tps * (0.5 + Math.random() * 0.6))} t/s` : 'idle') : '—',
+        cardBg: sel ? `color-mix(in srgb, ${m.color} 10%, transparent)` : 'var(--surface-page)',
+        cardBorder: sel ? `color-mix(in srgb, ${m.color} 50%, transparent)` : 'var(--border)',
+        onFilter: () => this.setState({ model: s.model === m.id ? 'all' : m.id }),
+        onToggle: (e) => { if (e) e.stopPropagation(); this.setState({ unloaded: { ...s.unloaded, [m.id]: loaded } }); },
+      };
+    });
+
+    const levelChips = ['all', 'INFO', 'WARN', 'ERROR'].map(lv => {
+      const color = lv === 'all' ? 'var(--accent)' : this.LEVELS[lv];
+      return { label: lv === 'all' ? 'all levels' : lv, ...this.chipStyle(s.level === lv, color), onClick: () => this.setState({ level: lv }) };
+    });
+
+    const slots = s.slots.map(sl => {
+      const m = sl.model >= 0 ? this.MODELS[sl.model] : null;
+      const off = !m || s.unloaded[m.id] || !run;
+      const st = off ? 'idle' : sl.state;
+      return {
+        id: sl.id,
+        model: m ? m.short : 'free',
+        color: m && !off ? m.color : 'var(--text-subtle)',
+        client: sl.client, ctx: sl.ctx,
+        tokens: st === 'processing' ? `${sl.tokens} tok` : '—',
+        state: st,
+        stateBg: st === 'processing' ? 'color-mix(in srgb, var(--success) 16%, transparent)' : 'var(--surface-raised)',
+        stateColor: st === 'processing' ? 'var(--success)' : 'var(--text-tertiary)',
+      };
+    });
+
+    const tcolor = t => t > 85 ? 'var(--error)' : (t > 75 ? 'var(--warning)' : 'var(--success)');
+    const tpct = t => `${Math.round(Math.min(1, Math.max(0, (t - 30) / 65)) * 100)}%`;
+    const max = Math.max(...s.spark, 1);
+    const avg = s.spark.reduce((t, v) => t + v, 0) / s.spark.length;
+    const activeM = s.model === 'all' ? null : this.modelById(s.model);
+    const logText = () => lines.map(l => `${l.ts} ${l.level} ${l.model} ${l.msg}`).join('\n');
+
+    return {
+      host: '127.0.0.1:8080',
+      build: 'b6122',
+      uptime: this.fmtUptime(),
+      slotCount: s.slots.length,
+      dot: run ? 'var(--success)' : 'var(--error)',
+      stateLabel: run ? 'running' : 'stopped',
+      ctlLabel: run ? 'Stop service' : 'Start service',
+      ctlBg: run ? 'color-mix(in srgb, var(--error) 14%, transparent)' : 'var(--accent)',
+      ctlFg: run ? 'var(--error)' : 'var(--accent-fg)',
+      toggleService: () => this.setState({ running: !run }),
+      restart: () => this.setState({ running: true, started: Date.now() }),
+      themeGlyph: s.dark ? '☀' : '☾',
+      toggleTheme: () => this.setTheme(!s.dark),
+
+      kpis: [
+        { label: 'service', value: run ? this.fmtUptime() : 'stopped', unit: run ? 'uptime' : '', sub: run ? 'pid 4821 · port 8080' : 'no process', color: run ? 'var(--success)' : 'var(--error)', pct: run ? '100%' : '0%' },
+        { label: 'requests', value: run ? String(s.reqmin) : '0', unit: 'req/min', sub: 'pi agent · 3 sessions', color: 'var(--accent)', pct: pct(s.reqmin / 30) },
+        { label: 'throughput', value: run ? String(s.tps) : '0', unit: 'tok/s', sub: 'generation, all slots', color: 'var(--latte-mauve)', pct: pct(s.tps / 120) },
+      ],
+      gauges: [
+        { label: 'VRAM', value: `${(s.vram * 48).toFixed(1)} / 48 GB`, pct: pct(s.vram), color: 'var(--latte-teal)' },
+        { label: 'GPU', value: pct(s.gpu), pct: pct(s.gpu), color: 'var(--latte-mauve)' },
+        { label: 'GPU temp', value: `${s.gpuTemp.toFixed(0)}°C`, pct: tpct(s.gpuTemp), color: tcolor(s.gpuTemp) },
+        { label: 'RAM', value: `${(s.ram * 128).toFixed(0)} / 128 GB`, pct: pct(s.ram), color: 'var(--accent)' },
+        { label: 'CPU', value: pct(s.cpu), pct: pct(s.cpu), color: 'var(--latte-peach)' },
+        { label: 'CPU temp', value: `${s.cpuTemp.toFixed(0)}°C`, pct: tpct(s.cpuTemp), color: tcolor(s.cpuTemp) },
+      ],
+      models, slots, levelChips, lines,
+      lineCount: lines.length,
+      busySlots: slots.filter(x => x.state === 'processing').length,
+      logRef: this.logRef,
+      q: s.q,
+      setQ: (e) => this.setState({ q: e.target.value }),
+      showAll: () => this.setState({ model: 'all' }),
+      activeModel: activeM ? activeM.short : 'all models',
+      activeBg: activeM ? `color-mix(in srgb, ${activeM.color} 18%, transparent)` : 'color-mix(in srgb, var(--accent) 16%, transparent)',
+      activeFg: activeM ? activeM.color : 'var(--accent)',
+      allBg: s.model === 'all' ? 'color-mix(in srgb, var(--accent) 16%, transparent)' : 'var(--surface-page)',
+      allFg: s.model === 'all' ? 'var(--accent)' : 'var(--text-tertiary)',
+      allBorder: s.model === 'all' ? 'color-mix(in srgb, var(--accent) 45%, transparent)' : 'var(--border)',
+      pauseLabel: s.paused ? 'Resume' : 'Pause',
+      pauseBg: s.paused ? 'color-mix(in srgb, var(--warning) 18%, transparent)' : 'var(--surface-page)',
+      pauseFg: s.paused ? 'var(--warning)' : 'var(--text-secondary)',
+      pauseBorder: s.paused ? 'color-mix(in srgb, var(--warning) 45%, transparent)' : 'var(--border)',
+      togglePause: () => this.setState({ paused: !s.paused, frozen: s.paused ? [] : s.log.slice() }),
+      copyLabel: s.copied ? 'Copied' : 'Copy',
+      copy: () => {
+        if (navigator.clipboard) navigator.clipboard.writeText(logText());
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 1400);
+      },
+      download: () => {
+        const url = URL.createObjectURL(new Blob([logText()], { type: 'text/plain' }));
+        const a = document.createElement('a');
+        a.href = url; a.download = 'llama-server.log'; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      },
+      spark: s.spark.map((v, i) => ({ h: `${Math.round((v / max) * 100)}%`, c: i === s.spark.length - 1 ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 38%, transparent)' })),
+      sparkPeak: Math.round(max),
+      sparkAvg: Math.round(avg),
+      sparkAvgLine: `${Math.round((avg / max) * 100)}%`,
+      showSlots: this.props.showSlots ?? true,
+      showConfig: this.props.showConfig ?? true,
+      config: [
+        { k: 'binary', v: 'llama-server b6122' },
+        { k: 'listen', v: '127.0.0.1:8080' },
+        { k: 'parallel slots', v: '4' },
+        { k: 'ctx per slot', v: '16384' },
+        { k: 'n_gpu_layers', v: '48 (all)' },
+        { k: 'flash attn', v: 'on' },
+        { k: 'kv cache', v: 'q8_0 / q8_0' },
+        { k: 'router', v: '--model-alias per pi profile' },
+        { k: 'supervisor', v: 'launchd · app.netservant.llamacpp' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

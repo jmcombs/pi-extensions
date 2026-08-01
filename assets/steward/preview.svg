@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="pi-steward">
+  <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
+  <title>pi-steward — the llama.cpp control panel for pi</title>
+  <!-- Netservant base ground -->
+  <rect width="1024" height="1024" fill="#eff1f5"/>
+  <!-- squircle chip holding the mark -->
+  <rect x="332" y="212" width="360" height="360" rx="83" fill="#ffffff" stroke="#d3d7e0" stroke-width="2"/>
+  <!-- serving-dome mark, Path Blue, centered in the chip (chip center 512,392) -->
+  <g transform="translate(412 292) scale(5)" fill="none" color="#3465a4">
+    <path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+    <rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"/>
+    <rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"/>
+  </g>
+  <!-- wordmark -->
+  <text x="512" y="712" text-anchor="middle" font-family="Manrope" font-weight="800"
+        font-size="140" letter-spacing="-5" fill="#4c4f69">steward</text>
+  <!-- eyebrow -->
+  <text x="512" y="772" text-anchor="middle" font-family="Manrope" font-weight="600"
+        font-size="26" letter-spacing="6" fill="#6c6f85">THE LLAMA.CPP CONTROL PANEL FOR PI</text>
+  <!-- tagline -->
+  <text x="512" y="836" text-anchor="middle" font-family="Instrument Serif, Georgia, serif"
+        font-style="italic" font-size="34" fill="#8c8fa1">How may we serve your models?</text>
+</svg>

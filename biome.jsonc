@@ -19,6 +19,10 @@
       "!**/CHANGELOG.md",
       "!**/.pi-subagents",
       "!packages/_template",
+      // Vendored design handoff bundles — prototype HTML plus a third-party
+      // design-system dump. Kept verbatim as the locked visual reference, so
+      // they are neither ours to format nor meaningful to lint.
+      "!docs/design",
       // Decorative design assets — biome ≥2.5 lints SVGs for a11y (empty
       // <title>), which does not apply to standalone marketing artwork.
       "!**/*.svg"

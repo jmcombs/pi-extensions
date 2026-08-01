@@ -1,0 +1,2008 @@
+/* Steward — the llama.cpp control panel for Pi.
+ *
+ * Self-contained: the Netservant design tokens are vendored below rather than
+ * linked, so the dashboard renders identically wherever it is served from and
+ * survives having no network. Only the webfonts are remote, and the fallback
+ * stacks keep the layout honest when they fail to load.
+ *
+ * Components set colors through custom properties (--bg, --fg, --bd, --fill,
+ * …) instead of writing `style.background` directly. That leaves :hover,
+ * :active and :focus-visible free to win in the cascade, which is what makes
+ * the control states below actually apply to tinted controls.
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+/* ===================================================================
+   Tokens — Catppuccin Latte with the Path Blue accent.
+   The syntax-highlighting and diff tiers of the design system are left
+   out: the dashboard renders no code.
+   =================================================================== */
+
+:root {
+  /* Raw palette: Latte accents */
+  --latte-rosewater: #dc8a78;
+  --latte-flamingo: #dd7878;
+  --latte-pink: #ea76cb;
+  --latte-mauve: #8839ef;
+  --latte-red: #d20f39;
+  --latte-maroon: #e64553;
+  --latte-peach: #fe640b;
+  --latte-yellow: #df8e1d;
+  --latte-green: #40a02b;
+  --latte-teal: #179299;
+  --latte-sky: #04a5e5;
+  --latte-sapphire: #209fb5;
+  --latte-blue: #1e66f5;
+  --latte-lavender: #7287fd;
+
+  /* Raw palette: Latte neutrals, dark to light */
+  --latte-text: #4c4f69;
+  --latte-subtext1: #5c5f77;
+  --latte-subtext0: #6c6f85;
+  --latte-overlay2: #7c7f93;
+  --latte-overlay1: #8c8fa1;
+  --latte-overlay0: #9ca0b0;
+  --latte-surface2: #acb0be;
+  --latte-surface1: #bcc0cc;
+  --latte-surface0: #ccd0da;
+  --latte-base: #eff1f5;
+  --latte-mantle: #e6e9ef;
+  --latte-crust: #dce0e8;
+
+  /* Signature colors */
+  --psl-path-blue: #3465a4;
+  --psl-path-blue-active: #2855a3;
+  --psl-path-blue-soft: #5a85c2;
+  --psl-selection-bg: #a9c1e2;
+  --psl-selection-fg: #24292f;
+
+  /* Surfaces */
+  --surface-page: var(--latte-base);
+  --surface-panel: var(--latte-mantle);
+  --surface-chrome: var(--latte-crust);
+  --surface-raised: var(--latte-surface0);
+  --surface-raised-1: var(--latte-surface1);
+  --surface-raised-2: var(--latte-surface2);
+
+  /* Text */
+  --text-primary: var(--latte-text);
+  --text-secondary: var(--latte-subtext1);
+  --text-tertiary: var(--latte-subtext0);
+  --text-muted: var(--latte-overlay1);
+  --text-subtle: var(--latte-overlay0);
+  --text-on-accent: var(--latte-base);
+
+  /* Borders */
+  --border: var(--latte-surface0);
+  --border-strong: var(--latte-overlay0);
+  --border-active: var(--psl-path-blue);
+
+  /* Accent */
+  --accent: var(--psl-path-blue);
+  --accent-hover: var(--psl-path-blue-active);
+  --accent-soft: var(--psl-path-blue-soft);
+  --accent-fg: var(--latte-base);
+
+  /* Status */
+  --success: var(--latte-green);
+  --warning: var(--latte-yellow);
+  --error: var(--latte-red);
+  --info: var(--latte-teal);
+  /* Text ON an amber fill. Fixed near-black in BOTH themes on purpose: the
+     crust token inverts per theme, and the light theme's #dce0e8 on #df8e1d is
+     roughly 1.7:1 — unreadable exactly where the WARN badge needs to shout. */
+  --on-warning: #11111b;
+
+  /* Links, selection, cursor */
+  --link: var(--latte-blue);
+  --link-hover: var(--latte-sky);
+  --link-visited: var(--latte-lavender);
+  --selection-bg: var(--psl-selection-bg);
+  --selection-fg: var(--psl-selection-fg);
+  --cursor: var(--latte-rosewater);
+
+  /* Type */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Menlo", monospace;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: var(--font-sans);
+  --font-ui: var(--font-sans);
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+
+  /* Shadows — cool and low, tuned for the Latte surface */
+  --shadow-xs: 0 1px 2px rgba(76, 79, 105, 0.06);
+  --shadow-sm: 0 1px 3px rgba(76, 79, 105, 0.08), 0 1px 2px rgba(76, 79, 105, 0.06);
+  --shadow-md: 0 4px 12px rgba(76, 79, 105, 0.1), 0 2px 4px rgba(76, 79, 105, 0.06);
+  --shadow-lg: 0 12px 28px rgba(76, 79, 105, 0.14), 0 4px 8px rgba(76, 79, 105, 0.07);
+
+  /* Focus ring — always Path Blue, never the browser default */
+  --ring: 0 0 0 3px color-mix(in srgb, var(--psl-path-blue) 35%, transparent);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 300ms;
+  --dur-bar: 400ms;
+}
+
+/* Dark mode is a Catppuccin Mocha ramp with a lightened Path Blue. The
+   semantic aliases are declared with var() on :root, so they were already
+   resolved light there — overriding the raw ramp alone is not enough and each
+   alias has to be re-declared in this scope. */
+[data-theme="dark"] {
+  --latte-rosewater: #f5e0dc;
+  --latte-flamingo: #f2cdcd;
+  --latte-pink: #f5c2e7;
+  --latte-mauve: #cba6f7;
+  --latte-red: #f38ba8;
+  --latte-maroon: #eba0ac;
+  --latte-peach: #fab387;
+  --latte-yellow: #f9e2af;
+  --latte-green: #a6e3a1;
+  --latte-teal: #94e2d5;
+  --latte-sky: #89dceb;
+  --latte-sapphire: #74c7ec;
+  --latte-blue: #89b4fa;
+  --latte-lavender: #b4befe;
+
+  --latte-text: #cdd6f4;
+  --latte-subtext1: #bac2de;
+  --latte-subtext0: #a6adc8;
+  --latte-overlay2: #9399b2;
+  --latte-overlay1: #7f849c;
+  --latte-overlay0: #6c7086;
+  --latte-surface2: #585b70;
+  --latte-surface1: #45475a;
+  --latte-surface0: #313244;
+  --latte-base: #1e1e2e;
+  --latte-mantle: #181825;
+  --latte-crust: #11111b;
+
+  --psl-path-blue: #7aa2d6;
+  --psl-path-blue-active: #8fb3e0;
+  --psl-path-blue-soft: #3465a4;
+  --psl-selection-bg: #3a4a6b;
+  --psl-selection-fg: #cdd6f4;
+
+  /* On-accent text reads dark on the lightened blue */
+  --text-on-accent: #11111b;
+  --accent-fg: #11111b;
+
+  --surface-page: var(--latte-base);
+  --surface-panel: var(--latte-mantle);
+  --surface-chrome: var(--latte-crust);
+  --surface-raised: var(--latte-surface0);
+  --surface-raised-1: var(--latte-surface1);
+  --surface-raised-2: var(--latte-surface2);
+  --text-primary: var(--latte-text);
+  --text-secondary: var(--latte-subtext1);
+  --text-tertiary: var(--latte-subtext0);
+  --text-muted: var(--latte-overlay1);
+  --text-subtle: var(--latte-overlay0);
+  --border: var(--latte-surface0);
+  --border-strong: var(--latte-overlay0);
+  --border-active: var(--psl-path-blue);
+  --accent: var(--psl-path-blue);
+  --accent-hover: var(--psl-path-blue-active);
+  --accent-soft: var(--psl-path-blue-soft);
+  --success: var(--latte-green);
+  --warning: var(--latte-yellow);
+  --error: var(--latte-red);
+  --info: var(--latte-teal);
+  --on-warning: #11111b;
+  --link: var(--latte-blue);
+  --link-hover: var(--latte-sky);
+  --link-visited: var(--latte-lavender);
+  --selection-bg: var(--psl-selection-bg);
+  --selection-fg: var(--psl-selection-fg);
+  --cursor: var(--latte-rosewater);
+
+  /* Shadows go to black on dark surfaces */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.46), 0 4px 8px rgba(0, 0, 0, 0.32);
+}
+
+/* ===================================================================
+   Base
+   =================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ===================================================================
+   Shell
+   =================================================================== */
+
+.shell {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+  background: var(--surface-page);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface-panel);
+  border-right: 1px solid var(--border);
+}
+
+.rail__block {
+  border-bottom: 1px solid var(--border);
+}
+
+.rail__block--service {
+  padding: 20px 20px 18px;
+}
+
+.rail__block--host,
+.rail__block--models {
+  padding: 18px 20px;
+}
+
+/* MODELS is now the last rail block, so it closes the rail rather than CONFIG. */
+.rail__block--models {
+  padding-bottom: 22px;
+  border-bottom: 0;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ===================================================================
+   Shared atoms
+   =================================================================== */
+
+/* The block eyebrows are the page's headings, so the class carries the reset
+   that keeps an <h2> looking exactly like the label it has always been. */
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Blocks whose eyebrow stands alone need the same 12px breathing room that
+   `.block__head` gives the ones with a control on the right. */
+.rail__block > .eyebrow {
+  margin-bottom: 12px;
+}
+
+.block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bar {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.bar__fill {
+  height: 100%;
+  width: 0;
+  border-radius: var(--radius-full);
+  background: var(--fill, var(--accent));
+  transition: width var(--dur-bar) var(--ease-out);
+}
+
+/* Honest gauge tracks. A bar the host could not read (`hatched`) — or a held
+   last-seen value (`dashed`, reserved for a later phase) — gets a visible
+   TEXTURE, not color alone, so an empty track is never mistaken for a real,
+   solid 0% fill. The two patterns are deliberately different shapes (diagonal
+   weave vs. horizontal dashes) so they don't both read as speckle at 6px, and
+   both reuse `--border-strong`, which is theme-defined, so they stay legible
+   in light and dark. The value token (`—`) is the primary signal; these
+   reinforce it. `solid` (the default) leaves the plain filled track. */
+.bar[data-track="hatched"] {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 2px,
+    var(--border-strong) 2px,
+    var(--border-strong) 4px
+  );
+}
+
+.bar[data-track="dashed"] {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--border-strong) 0,
+    var(--border-strong) 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+/* Buttons. Neutral controls repaint their surface on hover; filled and tinted
+   ones keep their assigned color and darken one step instead. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.btn:hover {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+}
+
+.btn:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.btn:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.btn:disabled:hover {
+  background: var(--surface-page);
+  border-color: var(--border);
+  filter: none;
+}
+
+.btn:disabled:active {
+  transform: none;
+}
+
+.btn--filled {
+  border-color: var(--bd, transparent);
+  background: var(--bg, var(--accent));
+  color: var(--fg, var(--accent-fg));
+  font-weight: 700;
+}
+
+.btn--filled:hover {
+  filter: brightness(0.94);
+  background: var(--bg, var(--accent));
+  border-color: var(--bd, transparent);
+}
+
+.btn--filled:disabled:hover {
+  background: var(--bg, var(--accent));
+  border-color: var(--bd, transparent);
+}
+
+.btn--block {
+  flex: 1;
+  height: 36px;
+}
+
+.btn--md {
+  height: 36px;
+  padding: 0 14px;
+}
+
+.btn--icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 13px;
+}
+
+.btn--sm {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.btn--toolbar {
+  height: 28px;
+  padding: 0 13px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Chips and pills carry their own tint, so hover darkens rather than repaints. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--bd, var(--border));
+  background: var(--bg, var(--surface-page));
+  color: var(--fg, var(--text-tertiary));
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    filter var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.chip:hover {
+  filter: brightness(0.95);
+  border-color: var(--border-strong);
+}
+
+.chip:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.chip--pause {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  padding: 0 13px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--bd, var(--border));
+  background: var(--bg, var(--surface-page));
+  color: var(--fg, var(--text-tertiary));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    filter var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.pill:hover {
+  filter: brightness(0.95);
+  border-color: var(--border-strong);
+}
+
+.pill:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.pill:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* ===================================================================
+   Rail — service
+   =================================================================== */
+
+/* The lockup carries four things: the mark, the wordmark, the status chip and
+   the theme toggle. It wraps rather than overflowing, because below 1100px the
+   rail becomes a two-column band and this row loses most of its width. */
+.lockup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 5px;
+  color: var(--accent);
+}
+
+.lockup__mark {
+  flex: none;
+}
+
+.lockup__name {
+  /* The lockup is the page's h1. */
+  margin: 0;
+  /* Pushes the chip and the theme toggle to the far end of the row. */
+  margin-right: auto;
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+/* The icon control is a 36px target in the toolbar; in the lockup it sits
+   beside a 22px chip, so it comes down to a size that still clears the 24px
+   minimum target without setting the row's height on its own. */
+.lockup .btn--icon {
+  width: 28px;
+  height: 28px;
+}
+
+/* The status readout: a chip in the lockup, not a slab of its own.
+   Deliberately inert — no hover, no focus ring, no press. It reports state and
+   nothing more; the buttons below it do the acting.
+
+   The WORD is painted with a text token rather than the state's hue. Latte's
+   `--success` is 2.75:1 and `--error` 4.47:1 on this panel ground, and at
+   11.5px there is no large-text exemption — a state word that cannot be read
+   is not a readout. The hue rides the dot, which is backed by the word and by
+   the dot's own shape. */
+.service__status {
+  flex: none;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: default;
+}
+
+/* Three states, three FORMS. Colour is the third signal and never the only
+   one: `started` is a filled disc, `stopped` an open ring, and a machine
+   Steward has not been pointed at yet a dotted one. The word beside the dot
+   says the same thing in text, so neither signal is load-bearing alone. */
+.service__status-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--fill, var(--success));
+}
+
+.service__status[data-state="down"] .service__status-dot {
+  background: transparent;
+  border: 2px solid var(--fill, var(--error));
+}
+
+.service__status[data-state="unknown"] .service__status-dot {
+  background: transparent;
+  border: 2px dotted var(--fill, var(--text-muted));
+}
+
+.service__status-label {
+  text-transform: capitalize;
+}
+
+/* The control row: one button per action this machine has a consented command
+   for, sharing the width evenly. Hidden outright when control is not set up —
+   the setup note takes its place rather than a row of dead buttons. */
+.service__controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.service__controls[hidden] {
+  display: none;
+}
+
+.service__control {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Stop and restart are destructive, so they carry the error hue — reinforcing
+   the verb on the button, never standing in for it. */
+.service__control[data-tone="danger"] {
+  color: var(--error);
+  border-color: color-mix(in srgb, var(--error) 38%, transparent);
+}
+
+.service__control[data-tone="danger"]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-color: color-mix(in srgb, var(--error) 55%, transparent);
+}
+
+/* Control is not configured: one instruction naming the skill that configures
+   it. Deliberately not a button — the page cannot run a Pi command. */
+.service__setup {
+  margin-top: 10px;
+  padding: 10px 11px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-page);
+}
+
+.service__setup[hidden] {
+  display: none;
+}
+
+.service__setup-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.service__setup-detail {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+}
+
+.service__setup-command {
+  display: inline-block;
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+/* The consequence gate. It states what the action costs, in words, and puts
+   Cancel first — focus lands there when the strip opens, and Esc backs out. */
+.service__confirm {
+  margin-top: 8px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--error) 38%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+}
+
+.service__confirm[hidden] {
+  display: none;
+}
+
+.service__confirm-text {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.service__confirm-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.service__confirm-row > .btn {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A refused command says so where the operator is looking, in the command's
+   own words. Never color-only: it is a sentence, prefixed by the failed verb. */
+.service__notice {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--error);
+  overflow-wrap: anywhere;
+}
+
+.service__notice[hidden] {
+  display: none;
+}
+
+/* Config drift: the machine no longer matches what `steward.json` says about
+   it. Warning-toned and set off by a left rule so it reads as a break in the
+   block, but it is only ever as loud as it needs to be — it appears at all only
+   when something is genuinely wrong, and a compliant machine renders nothing
+   here. The tone is never the only signal: the heading says "Configuration
+   drift", the glyph repeats it, and every line is a sentence. */
+.service__drift {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
+.service__drift[hidden] {
+  display: none;
+}
+
+.service__drift-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.service__drift-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--warning) 28%, transparent);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--warning);
+}
+
+.service__drift-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--warning);
+}
+
+.service__drift-dismiss {
+  flex: none;
+}
+
+.service__drift-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.service__drift-item {
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.service__drift-fix {
+  margin: 7px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+/* The router identity, divided from the live state/control row above by a
+   hairline. Uptime and pid live in the metrics band's service tile, not here. */
+.service__facts {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* ===================================================================
+   Rail — host gauges
+   =================================================================== */
+
+/* The unit control, in the block head beside the eyebrow. A text button rather
+   than a cycling glyph: its value IS a two-character string, so the label can
+   simply be it. Absent — never disabled — on a machine with no temperature
+   sensor, because there would be nothing on screen for it to change. */
+.host__unit {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.host__unit[hidden] {
+  display: none;
+}
+
+.gauges {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gauge__head {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.gauge__label {
+  color: var(--text-secondary);
+}
+
+.gauge__value {
+  color: var(--fill, var(--accent));
+  font-weight: 700;
+}
+
+/* ===================================================================
+   Rail — models
+   =================================================================== */
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-card {
+  padding: 12px 13px;
+  border: 1px solid var(--bd, var(--border));
+  border-radius: var(--radius-md);
+  background: var(--bg, var(--surface-page));
+  cursor: pointer;
+  transition:
+    box-shadow var(--dur-base) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.model-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.model-card:active {
+  transform: translateY(0.5px);
+}
+
+.model-card:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Top row: the model identity on the left, its live status and rate on the
+   right. The title takes the slack so the name ellipsizes before it crowds the
+   status, which always shows whole. */
+/* Header row: name (takes the slack, ellipsizes), then the status and the
+   Load/Unload button pinned to the right. The button lives here — the one row
+   every card always has — so it never moves with the data below. */
+.model-card__top {
+  display: flex;
+  /* Top-align so a name that wraps to two lines keeps the button beside its
+     first line rather than dragging it to the vertical centre. */
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.model-card__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.model-card__top > .btn {
+  flex: none;
+}
+
+.model-card__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--model-color, var(--accent));
+  flex: none;
+}
+
+/* The model name is never truncated — a clipped name hides the very suffix that
+   tells two builds apart. It wraps in full (breaking anywhere for a long raw id)
+   and the header row grows to fit. */
+.model-card__name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The card body: a fixed two-column grid of `Label: value` cells, same seven
+   labels on every card. All mono, since every value is data. The muted label and
+   the brighter value sit on one line per cell; a value that is `n/a` dims further
+   so the eye skips it without the label losing its footing. */
+.model-card__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  margin-top: 6px;
+}
+
+.model-card__field {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.model-card__label {
+  flex: none;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.model-card__value {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An unconfirmed field: the value recedes, the label does not, so the row still
+   reads as "this fact is unknown" rather than the whole cell going quiet. */
+.model-card__value[data-na="true"] {
+  color: var(--text-subtle);
+}
+
+/* The header's right-hand controls — the info legend and the "all logs" pill —
+   share the space the block__head justifies against the eyebrow. */
+.block__head-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* The info legend's toggle: a neutral icon control, sized to sit level with the
+   pill beside it and lit like the other neutral buttons on hover/focus. */
+.legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.legend-toggle:hover {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.legend-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.legend-toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+}
+
+/* The definitions panel. `hidden` zeroes it when collapsed, so it costs nothing
+   until opened and never pushes the cards down the rail. */
+.legend-panel {
+  margin-bottom: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.legend-panel[hidden] {
+  display: none;
+}
+
+.legend-list {
+  margin: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.legend-term {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.legend-def {
+  margin: 2px 0 0;
+  font-family: var(--font-ui);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* ===================================================================
+   Rail — config
+   =================================================================== */
+
+.config-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* The label hugs the left edge and its value is pushed to the right, so the
+   values line up as a scannable column down the block. */
+.config-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.config-row__key {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Right-justified so the values read as a column. Unlike the dense card grid,
+   the facts wrap rather than ellipsize, so a long engine build hash or host is
+   never clipped. */
+.config-row__value {
+  color: var(--text-secondary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* ===================================================================
+   Metrics band
+   =================================================================== */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr) 1.4fr;
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 16px 20px;
+  background: var(--surface-page);
+  min-width: 0;
+}
+
+.metric .eyebrow {
+  font-size: 11px;
+}
+
+.kpi__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.kpi__value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--fill, var(--accent));
+}
+
+.kpi__unit,
+.kpi__sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.bar--kpi {
+  height: 4px;
+}
+
+.spark__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Under the 1280px design width the chart cell is too narrow to hold the label
+   and the summary side by side. Let the summary drop to its own line rather
+   than be clipped by the shell — the design width itself is untouched. */
+@media (max-width: 1279px) {
+  .spark__head {
+    flex-wrap: wrap;
+  }
+}
+
+.spark__summary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  /* At the narrow end of the design range the header row runs out of room;
+     the label may wrap, but breaking "peak 96 tok/s" across lines would read
+     as two different numbers. */
+  white-space: nowrap;
+}
+
+.spark__plot {
+  position: relative;
+  height: 46px;
+}
+
+.spark__avg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  border-top: 1px dashed var(--border-strong);
+  opacity: 0.7;
+}
+
+.spark__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 100%;
+}
+
+/* The chart redraws every sample, so the bars and the average rule are not
+   animated: only the gauge and KPI fills transition. */
+.spark__bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 1px;
+  background: var(--fill, var(--accent));
+}
+
+.spark__axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-subtle);
+}
+
+/* ===================================================================
+   Console toolbar
+   =================================================================== */
+
+/* Two explicit rows, not one wrapping row: two chip groups that wrapped into
+   each other would read as one control set with two resets in it. */
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-chrome);
+}
+
+.toolbar__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.toolbar__label {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+.toolbar__active {
+  padding: 4px 11px;
+  border-radius: var(--radius-full);
+  background: var(--bg, transparent);
+  color: var(--fg, var(--accent));
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* One rule for both chip groups — they are the same component on two axes. */
+.toolbar__chips {
+  display: flex;
+  gap: 6px;
+}
+
+/* Tabular digits, or the whole toolbar jitters every time a count ticks. */
+.toolbar__count,
+.chip__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.toolbar__count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.chip__label + .chip__count {
+  margin-left: 6px;
+}
+
+/* The count segment is muted in every chip state. A zero must never read as a
+   tick — llama-server logs nothing at all for a rejected request, so `ERROR 0`
+   is a fact about the file and not a health check. */
+.chip__count {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* The proxied toggle sits with the level group, so it inherits the chip's
+   shape; only its glyph and its pressed state distinguish it. */
+.chip--proxy[aria-pressed="true"] {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.search {
+  height: 28px;
+  flex: 1;
+  min-width: 140px;
+  padding: 0 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.search::placeholder {
+  color: var(--text-subtle);
+}
+
+.search:hover {
+  border-color: var(--border-strong);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--border-active);
+  box-shadow: var(--ring);
+}
+
+/* ===================================================================
+   Log console
+   =================================================================== */
+
+.console {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface-chrome);
+  /* A browser scroll anchor would fight the follow logic for the scroll top. */
+  overflow-anchor: none;
+}
+
+/* The console is focusable and keyboard-scrollable, so it needs a visible ring
+   like every other control in this sheet. */
+.console:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Four columns become five. The model cell pays 24px of the task cell's bill;
+   a `short` name is already trimmed of its repo prefix and quant suffix. */
+.log-row {
+  display: grid;
+  grid-template-columns: 92px 54px minmax(0, 176px) 64px minmax(0, 1fr);
+  gap: 12px;
+  padding: 3px 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* Nothing in the matched set is framed — an idle router showing eleven banner
+   lines gets the original four-column grid back, not 64px of dead space. The
+   attribute sits on the console rather than the row list so the header collapses
+   with the column it labels. */
+.console[data-tasks="none"] .log-row {
+  grid-template-columns: 92px 54px minmax(0, 200px) minmax(0, 1fr);
+}
+
+/* The column labels. LABELS, not controls: no pointer cursor, no hover, no
+   press state — nothing that offers to sort. File order is the only valid order
+   here, and task ids are not monotonic, so a sorted view would be wrong rather
+   than merely different. */
+.console__head {
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: default;
+  user-select: none;
+}
+
+.console__head[hidden] {
+  display: none;
+}
+
+/* The header and the strips above it are one sticky block, so the labels can
+   never separate from the strips or slide out from over their own columns. */
+.console__sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-chrome);
+}
+
+.log-row__ts {
+  color: var(--text-subtle);
+}
+
+.log-row__level {
+  font-weight: 700;
+  justify-self: start;
+}
+
+/* Severity in FORM, not hue: WARN and ERROR read as a filled box, INFO and
+   DEBUG as plain text. That difference survives a monochrome display and a
+   colour-blind reader, and it fixes the contrast — every level colour fails AA
+   as 12px text on the light theme's console ground. */
+/* Quiet, but still readable: the plain-token-vs-filled-box difference is what
+   encodes severity here, so the token does not also need to be dim. The
+   tertiary token is 3.73:1 on this ground in the light theme, and swapping one
+   AA failure for another would miss the point of moving severity into form. */
+.log-row[data-level="INFO"] .log-row__level,
+.log-row[data-level="DEBUG"] .log-row__level {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.log-row[data-level="WARN"] .log-row__level {
+  background: var(--warning);
+  color: var(--on-warning);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+
+.log-row[data-level="ERROR"] .log-row__level {
+  background: var(--error);
+  color: var(--accent-fg);
+  border-radius: var(--radius-sm);
+  padding: 0 4px;
+}
+
+/* Redundant with the badge, and the point: an error is scannable down the
+   gutter without reading a single token. */
+.log-row[data-level="ERROR"] {
+  border-left: 2px solid var(--error);
+  padding-left: 16px;
+}
+
+.log-row__model {
+  color: var(--model-color, var(--text-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A router-wide line says the word `router`, italic — a real word a screen
+   reader can read, where an em dash is silence. The dash stays reserved for a
+   child line whose port Steward has not mapped. */
+.log-row__model[data-scope="router"] {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.log-row__model[data-scope="unknown"] {
+  color: var(--text-subtle);
+}
+
+/* The task cell: the same inline-button vocabulary as the args fold, glyph
+   included — `▸` already means "press to reveal more" in this console. */
+.log-row__task {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
+
+/* Scoped to the BUTTON. The header cell carries the same class for the grid's
+   sake, and a pointer cursor plus a hover colour on a column label is exactly
+   the sort affordance a header on this data must never offer — file order is
+   the only valid order. */
+button.log-row__task {
+  cursor: pointer;
+}
+
+/* No task to trace: the cell keeps its grid column so the rhythm never shifts,
+   and `visibility` takes it out of the tab order and the accessibility tree. */
+.log-row__task[data-empty="true"] {
+  visibility: hidden;
+}
+
+button.log-row__task:hover {
+  color: var(--text-primary);
+}
+
+.log-row__task[aria-pressed="true"] {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.log-row__task:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* Last, so it wins: with no framed line in the matched set the cell is gone
+   from the header and every row together, not merely emptied. */
+.console[data-tasks="none"] .log-row__task {
+  display: none;
+}
+
+.log-row__msg {
+  color: var(--text-secondary);
+}
+
+.log-row__text {
+  white-space: pre-wrap;
+  /* `pre-wrap` alone will not break an unbroken token: an absolute path or a
+     JSON blob would push the layout sideways. Wrap, never truncate — the
+     operator needs the whole error string. */
+  overflow-wrap: anywhere;
+}
+
+/* Trailing annotations. A leading badge would shift the message's left edge per
+   row and break the rhythm that makes a log scannable. */
+.log-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.log-badges:empty {
+  display: none;
+  margin-left: 0;
+}
+
+.log-badge {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  /* Severity in FORM: a glyph and a tinted ground, with the text at full
+     contrast. `--warning` as text is ~2.2:1 on Latte and is never used here. */
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-muted) 16%, transparent);
+  white-space: nowrap;
+}
+
+.log-badge[data-tone="warn"] {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+}
+
+/* A traced row is part of one request's story rather than the general tail. */
+.log-row[data-traced="true"] {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+/* The header reuses the row's cell classes so its grid can never drift apart
+   from the columns it labels — which means it also inherits their per-cell
+   colours. `--text-subtle` (time) is 1.97:1 and `--text-muted` (model) 2.42:1
+   on the chrome ground in Latte, and these are 10.5px labels. They are text
+   here, not decoration, so every cell is pinned to the same legible token.
+   Declared after the cells themselves so specificity and source order agree. */
+.console__head .log-row__ts,
+.console__head .log-row__level,
+.console__head .log-row__model,
+.console__head .log-row__task,
+.console__head .log-row__msg {
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-style: normal;
+}
+
+/* The launch-argument fold: a real button sitting inline in the scrollback,
+   which is where the operator is looking and the only interactive thing there. */
+.log-row--fold {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.log-row--fold:hover .log-row__text {
+  color: var(--text-primary);
+}
+
+.log-row--fold:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+.log-row[data-fold="member"] .log-row__msg {
+  padding-left: 12px;
+}
+
+/* Strips that coexist with rows. Sticky so they stay legible in a long
+   scrollback — a truncation warning that scrolls away has not warned anyone.
+   The top strips get their stickiness from `.console__sticky`, which pins them
+   together with the column header. */
+.console__banners {
+  background: var(--surface-chrome);
+}
+
+/* The rows carry the console's padding, not the console, so a sticky strip can
+   sit flush against the scrollport edge with no gap of content above it. */
+.console__rows {
+  padding: 10px 0;
+}
+
+.console__banners--bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+}
+
+.console__banners:empty {
+  display: none;
+}
+
+/* `--text-secondary`, not `--text-tertiary`: these strips carry real sentences
+   ("showing the latest 500 of 1,412", "nothing new since 14:19:02") and the
+   tertiary token is 3.73:1 on the light theme's console ground, under AA at
+   11.5px. Muted enough to recede, legible enough to be read. */
+.console__banner {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 18px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.console__banners--bottom .console__banner {
+  border-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Warn tone is carried by the ⚠ glyph, the tinted ground and the amber rule —
+   form, not hue. The amber token itself is ~2.2:1 as text on the light theme's
+   console ground and would fail AA on exactly the surfaces whose whole job is
+   telling the operator the console is not showing the truth. It stays where it
+   is decoration and never where it is the sentence. */
+.console__banner[data-tone="warn"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  border-left: 2px solid var(--warning);
+  padding-left: 16px;
+}
+
+.console__banner-detail {
+  flex-basis: 100%;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.console__banner[data-tone="warn"] .console__banner-detail {
+  color: var(--text-primary);
+}
+
+/* The trace banner. It needs no new machinery, only a stronger ground than the
+   muted strips it sits among — a trace is a mode, and a mode should look like
+   one. Text stays at full contrast; the accent is the ground and the rule. */
+.console__banner[data-tone="trace"] {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-left: 2px solid var(--accent);
+  padding-left: 16px;
+}
+
+.console__banner[data-tone="trace"] .console__banner-detail {
+  color: var(--text-primary);
+}
+
+.console__banner-action[hidden],
+.console__notice-action[hidden] {
+  display: none;
+}
+
+.console__notice {
+  display: grid;
+  gap: 6px;
+  padding: 20px 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  justify-items: start;
+}
+
+.console__notice-head {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.console__notice[data-tone="warn"] {
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  padding-left: 16px;
+}
+
+/* Same reasoning as the warn banner: the glyph and the amber rule carry the
+   tone, the words stay at full contrast in both themes. */
+.console__notice[data-tone="warn"] .console__notice-head {
+  color: var(--text-primary);
+}
+
+.console__notice-detail {
+  margin: 0;
+  max-width: 68ch;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* The glyph inherits full-contrast text on purpose. It is the FORM half of the
+   tone cue, so it has to be legible; amber survives in the rule and the tint,
+   which are decoration and carry nothing on their own. */
+.console__notice[data-tone="warn"] .console__notice-detail {
+  color: var(--text-primary);
+}
+
+.console__notice-glyph:empty {
+  display: none;
+}
+
+/* The soft counterpart to Pause: scrolling up holds the view while the buffer
+   keeps filling, and this offers the way back. */
+.console__jump {
+  position: sticky;
+  bottom: 12px;
+  display: block;
+  margin: 8px auto 0;
+  height: 28px;
+  padding: 0 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-page);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.console__jump[hidden] {
+  display: none;
+}
+
+.console__jump:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* ===================================================================
+   Slots panel — grouped under the model that owns them
+   =================================================================== */
+
+.slots {
+  border-top: 1px solid var(--border);
+  background: var(--surface-page);
+  padding: 12px 18px 14px;
+}
+
+.slots__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.slots__summary {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+/* Shown in place of the groups when no model is loaded. */
+.slots__empty {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-subtle);
+}
+
+.slots__empty[hidden] {
+  display: none;
+}
+
+/* One line of chips, one per loaded model, wrapping only when many are loaded. */
+.slots__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* A chip: the model's color dot, its short name, and its `busy/total` slots.
+   A busy chip is tinted green so activity reads at a glance; the fraction and
+   the word in the hover title carry it too, so color is never the only signal. */
+.slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--surface-page);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: default;
+}
+
+.slot-chip[data-busy="true"] {
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.slot-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--model-color, var(--accent));
+  flex: none;
+}
+
+/* Never clipped — a truncated model name is indistinguishable from a full one,
+   so the name always shows whole and the chip sizes to it (chips wrap as units
+   when a row runs out of room). */
+.slot-chip__name {
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.slot-chip__count {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.slot-chip[data-busy="true"] .slot-chip__count {
+  color: var(--success);
+}
+
+/* Generation rate on a working chip, beside the fraction. Hidden when the model
+   is idle or its child reports no rate. */
+.slot-chip__rate {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.slot-chip__rate[hidden] {
+  display: none;
+}
+
+/* The busiest lane's context fill, colored by threshold from the view model
+   (tertiary, then warning, then error). Shown only on a busy chip. */
+.slot-chip__peak {
+  color: var(--fg, var(--text-tertiary));
+  white-space: nowrap;
+}
+
+.slot-chip__peak[hidden] {
+  display: none;
+}
+
+/* ===================================================================
+   Narrow viewports — the rail becomes a top bar
+   =================================================================== */
+
+@media (max-width: 1100px) {
+  /* The rail stops being a column and becomes a band across the top: the shell
+     splits into two rows, and the band lays its blocks out side by side. It is
+     never a scroller of its own — it is exactly as tall as its content, and the
+     console takes what is left. */
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .rail {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Service and Host pair off in the first row; MODELS takes the full width so
+     its cards can spread sideways instead of stacking. Reading order is
+     untouched — the blocks land where they already were. */
+  .rail__block--service {
+    border-right: 1px solid var(--border);
+  }
+
+  .rail__block--models {
+    grid-column: 1 / -1;
+  }
+
+  /* The block contents reflow into as many columns as their rows can hold, so
+     a block that was six rows tall in the 340px rail is two or three rows tall
+     in the band. */
+  .gauges {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px 20px;
+  }
+
+  .model-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  /* In the band the card is no longer in the 340px rail: a single column of
+     `Label: value` rows reads cleaner than two cramped ones side by side. */
+  .model-card__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .config-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 7px 24px;
+  }
+
+  /* A definite basis: the console asks for 240px so the document never sizes
+     itself to the whole log buffer, then grows into whatever the viewport has
+     left over. */
+  .console {
+    flex: 1 1 240px;
+  }
+
+  /* Nothing clips the page below the design range, so the throughput summary —
+     which must not break mid-figure — drops to its own line rather than push
+     the document sideways. */
+  .spark__head {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Too narrow for two blocks abreast; the band becomes one column, and each
+     block still spreads its own rows across the full width. */
+  .rail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rail__block--service {
+    border-right: 0;
+  }
+
+  /* With no rail beside it the main column is wider than it was at the design
+     width, so the band only gives up columns once the window itself is
+     narrower than that. The slot grid tracks the viewport on its own — its
+     `auto-fill` template reflows without a breakpoint. */
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Every transition in this sheet is timed by one of the duration tokens, so
+   collapsing the tokens is enough to honour a reduced-motion preference — no
+   universal `!important` override, and nothing left animating behind it. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 1ms;
+    --dur-base: 1ms;
+    --dur-slow: 1ms;
+    --dur-bar: 1ms;
+  }
+}

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="240" viewBox="0 0 620 240" role="img" aria-label="Steward status bar states">
+  <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
+<title>Steward status bar — every state</title>
+<rect width="620" height="240" fill="#eff1f5"/>
+<rect x="14.0" y="10" width="117.8" height="30" fill="#3465a4"/>
+<g transform="translate(27.0 14.6) scale(0.52)" fill="none" stroke="#eff1f5"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke-width="4" stroke-linecap="round"/><rect x="4" y="21" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none"/><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none" opacity="0.55"/></g>
+<text x="53.0" y="30.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">Steward</text>
+<rect x="131.8" y="10" width="11" height="30" fill="#2f7d20"/>
+<polygon points="131.8,10 142.8,25.0 131.8,40" fill="#3465a4"/>
+<rect x="142.8" y="10" width="73.0" height="30" fill="#2f7d20"/>
+<text x="155.8" y="30.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">:8788</text>
+<rect x="215.8" y="10" width="11" height="30" fill="#1e66f5"/>
+<polygon points="215.8,10 226.8,25.0 215.8,40" fill="#2f7d20"/>
+<rect x="226.8" y="10" width="195.2" height="30" fill="#1e66f5"/>
+<text x="239.8" y="30.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">llama :8080 · 1/10</text>
+<polygon points="422.0,10 433.0,25.0 422.0,40" fill="#1e66f5"/>
+<rect x="14.0" y="54" width="117.8" height="30" fill="#3465a4"/>
+<g transform="translate(27.0 58.6) scale(0.52)" fill="none" stroke="#eff1f5"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke-width="4" stroke-linecap="round"/><rect x="4" y="21" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none"/><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none" opacity="0.55"/></g>
+<text x="53.0" y="74.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">Steward</text>
+<rect x="131.8" y="54" width="11" height="30" fill="#2f7d20"/>
+<polygon points="131.8,54 142.8,69.0 131.8,84" fill="#3465a4"/>
+<rect x="142.8" y="54" width="73.0" height="30" fill="#2f7d20"/>
+<text x="155.8" y="74.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">:8788</text>
+<rect x="215.8" y="54" width="11" height="30" fill="#d20f39"/>
+<polygon points="215.8,54 226.8,69.0 215.8,84" fill="#2f7d20"/>
+<rect x="226.8" y="54" width="157.6" height="30" fill="#d20f39"/>
+<text x="239.8" y="74.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">llama: stopped</text>
+<polygon points="384.4,54 395.4,69.0 384.4,84" fill="#d20f39"/>
+<rect x="14.0" y="98" width="117.8" height="30" fill="#3465a4"/>
+<g transform="translate(27.0 102.6) scale(0.52)" fill="none" stroke="#eff1f5"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke-width="4" stroke-linecap="round"/><rect x="4" y="21" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none"/><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none" opacity="0.55"/></g>
+<text x="53.0" y="118.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">Steward</text>
+<rect x="131.8" y="98" width="11" height="30" fill="#2f7d20"/>
+<polygon points="131.8,98 142.8,113.0 131.8,128" fill="#3465a4"/>
+<rect x="142.8" y="98" width="73.0" height="30" fill="#2f7d20"/>
+<text x="155.8" y="118.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">:8788</text>
+<rect x="215.8" y="98" width="11" height="30" fill="#9ca0b0"/>
+<polygon points="215.8,98 226.8,113.0 215.8,128" fill="#2f7d20"/>
+<rect x="226.8" y="98" width="91.8" height="30" fill="#9ca0b0"/>
+<text x="239.8" y="118.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">llama —</text>
+<polygon points="318.6,98 329.6,113.0 318.6,128" fill="#9ca0b0"/>
+<rect x="14.0" y="142" width="117.8" height="30" fill="#3465a4"/>
+<g transform="translate(27.0 146.6) scale(0.52)" fill="none" stroke="#eff1f5"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke-width="4" stroke-linecap="round"/><rect x="4" y="21" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none"/><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none" opacity="0.55"/></g>
+<text x="53.0" y="162.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">Steward</text>
+<rect x="131.8" y="142" width="11" height="30" fill="#d20f39"/>
+<polygon points="131.8,142 142.8,157.0 131.8,172" fill="#3465a4"/>
+<rect x="142.8" y="142" width="91.8" height="30" fill="#d20f39"/>
+<text x="155.8" y="162.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">stopped</text>
+<polygon points="234.6,142 245.6,157.0 234.6,172" fill="#d20f39"/>
+<rect x="14.0" y="186" width="117.8" height="30" fill="#3465a4"/>
+<g transform="translate(27.0 190.6) scale(0.52)" fill="none" stroke="#eff1f5"><path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke-width="4" stroke-linecap="round"/><rect x="4" y="21" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none"/><rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="#eff1f5" stroke="none" opacity="0.55"/></g>
+<text x="53.0" y="206.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5" xml:space="preserve">Steward</text>
+<rect x="131.8" y="186" width="11" height="30" fill="#fe640b"/>
+<polygon points="131.8,186 142.8,201.0 131.8,216" fill="#3465a4"/>
+<rect x="142.8" y="186" width="449.0" height="30" fill="#fe640b"/>
+<text x="155.8" y="206.0" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#1e1e2e" xml:space="preserve">chat still on :8080 · restart pi to use :8091</text>
+<polygon points="591.8,186 602.8,201.0 591.8,216" fill="#fe640b"/>
+</svg>

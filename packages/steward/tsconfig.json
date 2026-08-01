@@ -1,0 +1,7 @@
+{
+  // Node half of the package. `ui/` is covered by `tsconfig.ui.json` instead,
+  // which adds the DOM lib.
+  "extends": "../../tsconfig.json",
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist", "ui"]
+}

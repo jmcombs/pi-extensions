@@ -1,0 +1,51 @@
+{
+  "name": "@jmcombs/pi-steward",
+  "version": "0.0.0",
+  "description": "Steward — the llama.cpp control panel for Pi. A local browser dashboard for service control, resident models, host health, and streamed logs.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/steward",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/steward"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "core/",
+    "server/",
+    "ui/",
+    "setup/",
+    "README.md",
+    "LICENSE",
+    "!**/*.test.ts",
+    "!**/__fixtures__"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "llama.cpp",
+    "llama-server",
+    "dashboard",
+    "local-models",
+    "observability"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/preview.png"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

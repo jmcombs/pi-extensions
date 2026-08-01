@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" fill="none" role="img" aria-label="Steward">
+  <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
+  <title>Steward</title>
+  <!-- Serving dome over two trays; drawn with currentColor so it inverts with the theme. -->
+  <path d="M8 17C8 10.9 13.4 6 20 6s12 4.9 12 11" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+  <rect x="4" y="21" width="32" height="5" rx="2.5" fill="currentColor"/>
+  <rect x="4" y="29.6" width="32" height="5" rx="2.5" fill="currentColor" opacity="0.55"/>
+</svg>
