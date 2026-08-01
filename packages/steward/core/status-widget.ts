@@ -109,13 +109,23 @@ export interface WidgetState {
   /** The machine as last read, or `null` when it has not been read yet. */
   snapshot: Snapshot | null;
   /**
-   * Where Pi's llama.cpp provider points, and where Steward was told to look.
-   * When both are set and differ, the operator has a router Pi cannot use — a
-   * dashboard reporting green while chat fails. That is the failure the orange
-   * state exists for.
+   * Where Pi's llama.cpp provider is pointing **right now**, in memory. When
+   * this differs from what Steward watches, chat fails with "Connection error"
+   * while the dashboard reports a perfectly healthy server — the failure the
+   * orange state exists for.
    */
   providerBaseUrl: string | null;
   stewardBaseUrl: string | null;
+  /**
+   * Whether Pi's provider config on disk already agrees with Steward. It can:
+   * setup edits the file, but Pi read it once at startup and keeps using the old
+   * value, so the running session dials the old address until it is restarted.
+   *
+   * That distinction is the whole difference between "restart Pi" and "Pi is
+   * configured wrong" — advice the operator cannot act on if the widget only
+   * prints two ports and a `≠`.
+   */
+  providerFileAgrees: boolean;
 }
 
 /** Hosts that mean "this machine", where naming the host says nothing. */
@@ -168,8 +178,13 @@ export function formatStatusWidget(state: WidgetState, glyph: string): string {
     state.stewardBaseUrl !== null &&
     state.providerBaseUrl !== state.stewardBaseUrl
   ) {
+    const pi = formatUrl(state.providerBaseUrl);
+    const llama = formatUrl(state.stewardBaseUrl);
+    // Name the symptom the operator actually hit — chat failing — then the fix.
     segments.push({
-      text: `${here} \u{2260} pi ${formatUrl(state.providerBaseUrl)}`,
+      text: state.providerFileAgrees
+        ? `chat still on ${pi} \u{B7} restart pi to use ${llama}`
+        : `chat is set to ${pi}, llama is on ${llama} \u{B7} /steward_initialize`,
       bg: WIDGET_COLORS.error,
     });
     return buildPowerline(segments);

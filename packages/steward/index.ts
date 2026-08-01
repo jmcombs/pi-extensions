@@ -43,6 +43,11 @@ let server: StewardServer | null = null;
  */
 let queue: Promise<void> = Promise.resolve();
 
+/** Compares two URLs ignoring a trailing slash or `/v1`, which mean the same server. */
+function normalizeLoose(url: string): string {
+  return url.trim().replace(/\/+$/u, "").replace(/\/v1$/u, "");
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -140,6 +145,40 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
       rewire: wiring.rewire,
     });
   };
+}
+
+/**
+ * What Pi's llama.cpp provider config says **on disk**, or `null` when it cannot
+ * be read.
+ *
+ * Pi resolves that file once at startup and keeps the value in memory, so an
+ * edit made by `/steward_initialize` does not reach the running session — chat
+ * keeps dialling the old address until Pi restarts. Comparing disk against the
+ * live value is what lets the widget say "restart pi" instead of printing two
+ * ports and leaving the operator to guess.
+ *
+ * Best-effort and read-only: a missing file, a changed shape, or anything else
+ * simply yields `null` and the widget falls back to the vaguer wording.
+ */
+async function providerUrlOnDisk(): Promise<string | null> {
+  try {
+    const { readFileSync } = await import("node:fs");
+    const { homedir } = await import("node:os");
+    const { join } = await import("node:path");
+    const raw = readFileSync(join(homedir(), ".pi", "agent", "auth.json"), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const entry = (parsed as Record<string, unknown>)["llama.cpp"];
+    if (typeof entry !== "object" || entry === null) return null;
+    const env = (entry as Record<string, unknown>).env;
+    const url =
+      typeof env === "object" && env !== null
+        ? (env as Record<string, unknown>).LLAMA_BASE_URL
+        : undefined;
+    return typeof url === "string" && url.trim() !== "" ? url.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 async function launch(makeSource?: SourceFactory): Promise<Launched> {
@@ -357,8 +396,22 @@ export default function (pi: ExtensionAPI): void {
         }
       }
 
+      // Does the file already say what Steward watches? If so the mismatch is a
+      // stale session, not a bad config, and the fix is a restart.
+      const onDisk = await providerUrlOnDisk();
+      const providerFileAgrees =
+        onDisk !== null &&
+        stewardBaseUrl !== null &&
+        normalizeLoose(onDisk) === normalizeLoose(stewardBaseUrl);
+
       const line = formatStatusWidget(
-        { portalUrl, snapshot, providerBaseUrl: provider.baseUrl, stewardBaseUrl },
+        {
+          portalUrl,
+          snapshot,
+          providerBaseUrl: provider.baseUrl,
+          stewardBaseUrl,
+          providerFileAgrees,
+        },
         glyph,
       );
       ctx.ui.setWidget(STATUS_WIDGET_KEY, [line], { placement: "aboveEditor" });

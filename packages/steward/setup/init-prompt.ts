@@ -94,17 +94,23 @@ below, establish whether this machine already delivers it, and propose the small
 7. **Start / stop / restart**, recorded as argv arrays. There is no shell: no pipes, no \`&&\`, no
    \`~\`, no \`$UID\` — write absolute paths and real numbers.
 
-## After you restart llama.cpp
+## Pi will not notice what you changed
 
-Pi holds an open connection to its \`llama.cpp\` provider. Restarting the server
-underneath it can leave that connection wedged: the next message hangs or fails
-with "Connection error" even though the server is healthy and answering \`curl\`.
+Pi reads its provider config **once, at startup**, and keeps it in memory. If you
+edit \`LLAMA_BASE_URL\` — or restart llama.cpp underneath the open connection —
+the running session does not find out. Chat keeps dialling the old address and
+fails with "Connection error" while the server answers \`curl\` perfectly.
 
-So finish by saying so, in one line: **the server was restarted, and if chat
-stops responding, switching models or restarting Pi reconnects it.** Do not
-present the setup as complete without that — a frozen agent right after a
-successful run reads as "the setup broke Pi", and it is worth the one sentence
-to say what actually happened.
+There is no reload for this. So when you have changed the provider URL or
+restarted the server, **end by telling me to restart Pi**, in those words, as the
+last line of your report — not as a footnote. Say what will not work until I do:
+
+> Pi is still using the old address in this session. Restart Pi for chat to
+> reach the server.
+
+A setup that reports success and leaves chat broken reads as "the setup broke
+Pi". The one sentence is what makes it read as "the setup finished, and here is
+the last step."
 
 ## What will lie to you
 
