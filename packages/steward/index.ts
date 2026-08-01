@@ -374,14 +374,11 @@ export default function (pi: ExtensionAPI): void {
       const portalUrl = server?.url ?? null;
       const recorded = readStewardConfig();
       const stewardBaseUrl = recorded?.baseUrl ?? null;
-      // Where Pi would send a chat, ignoring what Steward was told. Passing
-      // `null` deliberately bypasses the recorded URL so the two can be compared
-      // — a router Pi cannot reach is the failure the orange state is for.
-      const provider = await resolveLlamaConnection(
-        ctx as unknown as ConnectionContext,
-        process.env,
-        null,
-      );
+      // Where Pi would send a chat.  when that cannot be established —
+      // never the loopback default, which would render an unknown as a
+      // plausible-looking misconfiguration.
+      const { providerBaseUrlOrNull } = await import("./core/llama-connection.js");
+      const providerBaseUrl = await providerBaseUrlOrNull(ctx as unknown as ConnectionContext);
 
       // Only read the machine when the dashboard is up; a stopped Steward has
       // nothing to say about llama.cpp and should not pay for a probe.
@@ -408,7 +405,7 @@ export default function (pi: ExtensionAPI): void {
         {
           portalUrl,
           snapshot,
-          providerBaseUrl: provider.baseUrl,
+          providerBaseUrl,
           stewardBaseUrl,
           providerFileAgrees,
         },

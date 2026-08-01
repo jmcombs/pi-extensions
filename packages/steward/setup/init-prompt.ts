@@ -70,6 +70,9 @@ anything:
   today — the file or unit that defines it, the label it runs as, how it is stopped and reloaded. If
   nothing supervises it, say so: that is the create path, and you write the definition.
 - **What can measure this host** — whichever tool is already installed for GPU, CPU and temperature.
+- **Where Pi already expects \`llama.cpp\`** — its provider's base URL. This is a *given*, not
+  something to negotiate: Pi is configured, other things may depend on it, and it holds that value
+  in memory for the life of the session. Read it before you plan anything.
 
 Say what you found in one line. Then translate every requirement below into that environment's own
 terms. The requirements are the contract; the mechanism is yours to choose.
@@ -87,15 +90,19 @@ below, establish whether this machine already delivers it, and propose the small
    **off by default**.
 3. **Per-slot context fill and the busy count.** From \`/slots\`, on unless disabled.
 4. **A log console.** One file containing the server's **complete** output — see the traps below.
-5. **A reachable loopback base URL — and it must be the one Pi already uses.**
-   Find where Pi's \`llama.cpp\` provider points (\`LLAMA_BASE_URL\` in its provider
-   auth, or the provider's \`baseUrl\`) **before** you propose anything. If the
-   server you are configuring is not at that address, Pi cannot talk to it: chat
-   fails with "llama.cpp unavailable" while Steward reports a perfectly healthy
-   router, which is worse than both being broken because nothing looks wrong.
-   Do not finish with the two diverged. Say so plainly and ask which way to
-   reconcile — move Pi's provider to this server, or move this server to Pi's
-   address — then carry out the answer.
+5. **The base URL Pi already expects.** Not a URL of your choosing — the one you found in
+   discovery. If \`llama-server\` is not answering there, **move the server to Pi's address**: change
+   the port in its service definition, reload, done. Do not move Pi to the server.
+
+   That direction matters. Editing Pi's provider config means editing a file Pi read once at
+   startup and now holds in memory, so the change does not take effect in the running session, may
+   live in more than one file, and can break other things pointing at the same provider. Moving the
+   server needs no Pi change at all, so nothing has to be reloaded and nothing can be half-applied.
+
+   If the server cannot move — the port is taken, or something else depends on it — say so and ask.
+   Do not finish with the two diverged: chat then fails with "llama.cpp unavailable" while Steward
+   reports a perfectly healthy router, which is worse than both being broken because nothing looks
+   wrong.
 6. **Host metrics.** Steward spawns one long-lived command you nominate and reads **NDJSON on its
    stdout**, one object per line forever: \`{"schema":"steward.hostmetrics/1","ts":<epoch ms>,…}\`
    with \`gpuUtil\`, \`cpuUtil\` as fractions 0..1, \`gpuTempC\`, \`cpuTempC\`, \`ramUsedGB\`, \`ramTotalGB\`.
@@ -109,23 +116,19 @@ below, establish whether this machine already delivers it, and propose the small
 7. **Start / stop / restart**, recorded as argv arrays. There is no shell: no pipes, no \`&&\`, no
    \`~\`, no \`$UID\` — write absolute paths and real numbers.
 
-## Pi will not notice what you changed
+## Restarting the server can wedge Pi's connection
 
-Pi reads its provider config **once, at startup**, and keeps it in memory. If you
-edit \`LLAMA_BASE_URL\` — or restart llama.cpp underneath the open connection —
-the running session does not find out. Chat keeps dialling the old address and
-fails with "Connection error" while the server answers \`curl\` perfectly.
+Pi holds an open connection to \`llama.cpp\`. Restart the server underneath it and the next message
+can hang or fail with "Connection error" while the server answers \`curl\` perfectly. There is no
+reload for this.
 
-There is no reload for this. So when you have changed the provider URL or
-restarted the server, **end by telling me to restart Pi**, in those words, as the
-last line of your report — not as a footnote. Say what will not work until I do:
+So if — and only if — you restarted the server, **end by saying that chat may need a nudge**, as the
+last line of your report:
 
-> Pi is still using the old address in this session. Restart Pi for chat to
-> reach the server.
+> The server was restarted. If chat does not respond, switch models once, or restart Pi.
 
-A setup that reports success and leaves chat broken reads as "the setup broke
-Pi". The one sentence is what makes it read as "the setup finished, and here is
-the last step."
+If you did not restart it, do not say this: a reconnect notice on a run that changed nothing reads
+as though something went wrong.
 
 ## What will lie to you
 

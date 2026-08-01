@@ -166,3 +166,50 @@ export async function resolveLlamaConnection(
     apiKey: env.LLAMA_API_KEY ?? "",
   };
 }
+
+/**
+ * Where Pi's provider actually points, or `null` when that cannot be
+ * established — as opposed to {@link resolveLlamaConnection}, which falls back
+ * to the loopback default so the dashboard always has somewhere to poll.
+ *
+ * That fallback is right for polling and wrong for comparing. The widget used it
+ * to decide whether Pi and Steward disagreed, so a host that could not resolve
+ * provider auth at all produced a confident `pi points at :8080` — a number
+ * nobody had configured, reported as a misconfiguration, on a machine where both
+ * of Pi's config files said :8091. An unknown must not render as a plausible
+ * value.
+ */
+export async function providerBaseUrlOrNull(
+  ctx?: ConnectionContext,
+  env: Record<string, string | undefined> = process.env,
+): Promise<string | null> {
+  const getProviderAuth = ctx?.modelRegistry?.getProviderAuth;
+  if (typeof getProviderAuth === "function") {
+    try {
+      const result = await getProviderAuth(LLAMA_PROVIDER);
+      if (result !== undefined) {
+        const envUrl = result.env?.LLAMA_BASE_URL;
+        const configured =
+          typeof envUrl === "string" && envUrl !== "" ? envUrl : result.auth.baseUrl;
+        if (typeof configured === "string" && configured.trim() !== "") {
+          try {
+            return normalizeLlamaServerUrl(configured);
+          } catch {
+            return null;
+          }
+        }
+      }
+    } catch {
+      // Unresolvable is unknown, not a default.
+    }
+  }
+  const fromEnv = env.LLAMA_BASE_URL;
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") {
+    try {
+      return normalizeLlamaServerUrl(fromEnv);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
