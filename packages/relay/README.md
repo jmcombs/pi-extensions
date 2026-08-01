@@ -88,7 +88,7 @@ through pi's own `createAssistantMessageEventStream()` (`@earendil-works/pi-ai`)
 ## Requirements
 
 - Pi (loads the extension via jiti — no build step)
-- Node `>= 22.0.0`
+- Node `>= 22.19.0`
 - The [`claude`](https://claude.com/claude-code) CLI on `PATH`, authenticated via
   your Claude subscription (`oauthAccount`), for `relay-claude`
 - The `grok` (Grok Build) CLI on `PATH`, authenticated (`grok login` or

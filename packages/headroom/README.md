@@ -284,7 +284,7 @@ restart the proxy yourself with the desired flags.
 ## Requirements
 
 - Pi `>= 0.80.8` (credentials via the `@jmcombs/pi-1password` API and `ExtensionAPI`)
-- Node `>= 22.0.0`
+- Node `>= 22.19.0`
 - Optional: the `op` (1Password) CLI for vault-backed onboarding and startup unlock
 - A running Headroom Python proxy (see [above](#requirement-the-headroom-python-proxy)).
 - A [Nerd Font](https://www.nerdfonts.com/) in your terminal, for the status

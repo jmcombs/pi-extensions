@@ -19,6 +19,20 @@ updates:
       production-dependencies:
         dependency-type: "production"
         update-types: ["minor", "patch"]
+    # Time-boxed exceptions. Each entry needs an `expires:` line; the date is
+    # enforced by scripts/check-dependabot-ignores.mjs and shared with the other
+    # exceptions in scripts/exception-expiry.mjs. Once it passes, the gate fails
+    # until the ignore is renewed or removed.
+    ignore:
+      # expires: 2026-11-01
+      # @types/node tracks the Node major it describes, so the types must not
+      # run ahead of the runtime we support. pi (@earendil-works/pi-coding-agent)
+      # requires >=22.19.0, tests only on Node 22, and builds its release
+      # binaries on Node 22 — so extensions can land on Node 22 in the wild.
+      # Types from a later major would let tsc accept APIs absent there. Held at
+      # the v22 line; revisit when pi raises its own engines.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     labels:
       - "dependencies"
 

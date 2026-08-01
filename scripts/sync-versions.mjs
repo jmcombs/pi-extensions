@@ -15,7 +15,7 @@
  * Behavior:
  *   - Discovers every directory under packages/ except `_template/`
  *   - Verifies each package.json has: name, version (semver), description,
- *     license=MIT, author, engines.node (>=22.0.0), the `pi-package` keyword, and a `pi`
+ *     license=MIT, author, engines.node (>=22.19.0), the `pi-package` keyword, and a `pi`
  *     manifest with at least one `extensions` entry.
  *   - Verifies the package's name+version is registered in
  *     `.release-please-manifest.json` and `release-please-config.json`.
@@ -36,6 +36,13 @@ const MANIFEST_PATH = path.join(ROOT, ".release-please-manifest.json");
 const RP_CONFIG_PATH = path.join(ROOT, "release-please-config.json");
 
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/;
+
+// Every package declares the same Node floor as the host it plugs into:
+// @earendil-works/pi-coding-agent and pi-tui both require >=22.19.0, and pi's
+// own CI and release binaries build on Node 22 exclusively. Promising anything
+// looser advertises a range pi itself will not install on. Raise this only when
+// pi raises its own engines.
+const REQUIRED_NODE_ENGINE = ">=22.19.0";
 
 // ── Discovery ──────────────────────────────────────────────────────
 
@@ -90,12 +97,13 @@ function validatePackage(pkgName, manifest, rpConfig) {
     issues.push(`license must be "MIT" (got ${JSON.stringify(pkg.license)})`);
   if (!pkg.author) issues.push("author missing");
 
-  // Engines — Node >=22 is the project floor (Node 20 dropped after secretlint 12.x
-  // raised its engines and Node 24 LTS became the publish runtime).
+  // Engines — mirrors the host's floor exactly; see REQUIRED_NODE_ENGINE.
   const node = pkg.engines?.node;
   if (!node) issues.push("engines.node missing");
-  else if (!/>=\s*(2[2-9]|[3-9][0-9])(\.|$|\s)/.test(node))
-    issues.push(`engines.node should require >=22.0.0 (got ${JSON.stringify(node)})`);
+  else if (node !== REQUIRED_NODE_ENGINE)
+    issues.push(
+      `engines.node must be ${JSON.stringify(REQUIRED_NODE_ENGINE)} (got ${JSON.stringify(node)})`,
+    );
 
   // Keywords + pi-package
   const keywords = Array.isArray(pkg.keywords) ? pkg.keywords : [];
