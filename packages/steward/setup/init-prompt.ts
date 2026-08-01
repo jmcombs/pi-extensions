@@ -58,6 +58,22 @@ Then ask exactly one question: **approve the whole plan, or go one change at a t
   not what you expected, a step would now do something the plan did not describe — stop and tell me.
   Approval covers the plan you showed me, not a different one.
 
+## First, learn the machine
+
+Nothing below names an operating system, a service manager, or a sensor tool, because you are
+better at recognising those than any list I could write. Establish them yourself before you propose
+anything:
+
+- **The OS and the hardware** — enough to know whether the GPU has its own memory or shares the
+  system's.
+- **How this machine supervises long-running services**, and how \`llama-server\` is started under it
+  today — the file or unit that defines it, the label it runs as, how it is stopped and reloaded. If
+  nothing supervises it, say so: that is the create path, and you write the definition.
+- **What can measure this host** — whichever tool is already installed for GPU, CPU and temperature.
+
+Say what you found in one line. Then translate every requirement below into that environment's own
+terms. The requirements are the contract; the mechanism is yours to choose.
+
 ## What Steward needs to work
 
 It reads exactly one file, \`$STEWARD_CONFIG\` if set and non-empty, otherwise
@@ -84,13 +100,12 @@ below, establish whether this machine already delivers it, and propose the small
    stdout**, one object per line forever: \`{"schema":"steward.hostmetrics/1","ts":<epoch ms>,…}\`
    with \`gpuUtil\`, \`cpuUtil\` as fractions 0..1, \`gpuTempC\`, \`cpuTempC\`, \`ramUsedGB\`, \`ramTotalGB\`.
    Every field is \`number|null\`; \`null\` means "this machine cannot measure it" and is never a zero.
-   **Look for a tool that already measures this host before writing your own.**
-   \`macmon\` on Apple Silicon, \`nvidia-smi\`, \`rocm-smi\`, \`sensors\` — one of them is
-   often already installed, and each reports figures a hand-rolled collector
-   cannot reach. Hand-rolling from \`vm_stat\`/\`ioreg\`/\`top\` works but silently
-   gives up CPU and GPU temperature, so the dashboard shows two permanent
-   no-reading gauges on a machine that could have filled them. Check first; say
-   which tool you found, or that you found none.
+   **Use the tool this machine already has before writing your own.** Whatever it is, it will
+   report figures a hand-rolled collector cannot reach — temperature in particular usually needs
+   privileged access or a vendor tool. Assembling one from general-purpose utilities works and
+   silently gives up those readings, leaving permanent no-reading gauges on a machine that could
+   have filled them. Check first; say which tool you found, or that you found none and what that
+   costs.
 7. **Start / stop / restart**, recorded as argv arrays. There is no shell: no pipes, no \`&&\`, no
    \`~\`, no \`$UID\` — write absolute paths and real numbers.
 
@@ -122,8 +137,10 @@ that looks healthy. Everything else here you can verify yourself; these you cann
   write at independent offsets. Never propose it.
 - **stdout alone gives you an empty log.** llama.cpp writes every levelled line — including every
   error — to **stderr**, and only the forwarded child lines to **stdout**. Redirecting stdout only
-  yields a running server with a silent, often 0-byte log. Both streams must reach **one** file.
-  Confirm it against the running process's file descriptors, not only the launch record.
+  yields a running server with a silent, often 0-byte log. Both streams must reach **one** file, however this
+  machine's service manager expresses that. Confirm it against the running process's file
+  descriptors, not only the launch record — the descriptors are the same question on every platform,
+  and they are the answer that cannot be stale.
 - **\`/metrics\`, \`/slots\` and \`/props\` return 400 both when the flag is missing and when no model is
   loaded.** They cannot tell you whether the server is configured correctly. Determine compliance
   from the **launch arguments**, never from a request.
@@ -135,20 +152,27 @@ that looks healthy. Everything else here you can verify yourself; these you cann
   recorded script path hashes only the path, so its contents can then change without invalidating
   the consent, which is the entire point of the gate. A script file looks tidier and is a valid
   argv array, which is exactly why this one is easy to get wrong.
-- **\`launchctl kickstart -k\` does not re-read the plist.** It restarts the process from the job
-  definition already loaded in launchd, so an edited plist has no effect: new pid, exit 0, nothing
-  changed — measured on a machine whose plist had gained \`--metrics\` and \`StandardErrorPath\` while
-  the running process had neither and its log stayed at 0 bytes. To pick up an edit you must
-  \`launchctl bootout gui/<uid>/<label>\` then \`launchctl bootstrap gui/<uid> <plist>\`. Afterwards,
-  confirm the change reached the process — compare \`launchctl print\` and the live argv against the
-  file you edited.
-- **\`launchctl bootout\` unregisters the job**, so Steward's Start stops working afterwards. Stop
-  must leave the job registered — \`launchctl kill SIGTERM gui/<uid>/<label>\`. (Reloading an edited
-  plist is the one time you do use \`bootout\`, immediately followed by \`bootstrap\`.)
-- **On unified memory (Apple Silicon) there is no VRAM figure to report.** Record
-  \`memoryTopology: "unified"\` with RAM only. Any VRAM number there is invented.
-- **\`STEWARD_LOG_FILE\`, if set, overrides the log path you record**, and \`/tmp\` logs are purged
-  after about three days idle. Say which file the console will actually follow.
+- **Restarting a service does not reload its definition.** Every service manager keeps the loaded
+  job separate from the file that describes it, and the restart verb usually acts on the loaded
+  copy: the process comes back with a new pid and exit 0, running the *old* definition, and nothing
+  in the output says so. Measured on one machine whose service file had gained \`--metrics\` and a
+  second redirect while the running process had neither and its log stayed at 0 bytes.
+  Find this machine's reload path and use it. Then **prove the change reached the process** — read
+  the live argv and the live file descriptors, not the file you edited. A restart that reports
+  success is not evidence.
+- **A stop that deregisters the service breaks Start.** Some managers have two kinds of stop: one
+  halts the process and leaves the job known, the other removes it entirely. Steward's Stop must be
+  the first kind, or Start has nothing left to start. Record the halting form, not the removing
+  one — and if reloading a definition requires the removing form, that is a separate step you
+  perform yourself, not the command you record.
+- **On unified-memory hardware there is no VRAM figure to report.** Where the GPU shares system
+  memory there is no separate pool and no readable ceiling, so record \`memoryTopology: "unified"\`
+  with RAM only. Any VRAM number there is invented. A discrete GPU is the other case, not the
+  default — decide from the hardware you found, not from the operating system.
+- **\`STEWARD_LOG_FILE\`, if set, overrides the log path you record.** Say which file the console will
+  actually follow. And prefer a durable location for the log over a temporary one: systems clear
+  their scratch directories on their own schedule, and a server stopped over a long weekend can come
+  back to find its history gone.
 
 ## Writing the config
 
