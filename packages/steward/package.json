@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-steward",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Steward — the llama.cpp control panel for Pi. A local browser dashboard for service control, resident models, host health, and streamed logs.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/steward",
   "repository": {
