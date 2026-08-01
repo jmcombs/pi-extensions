@@ -367,7 +367,6 @@ export default function (pi: ExtensionAPI): void {
     try {
       const { formatStatusWidget, resolveGlyph } = await import("./core/status-widget.js");
       const { readStewardConfig } = await import("./server/steward-config.js");
-      const { resolveLlamaConnection } = await import("./core/llama-connection.js");
       const glyph = resolveGlyph(process.env);
 
       // Steward's own state costs nothing: the extension holds the server.
