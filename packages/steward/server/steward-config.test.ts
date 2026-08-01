@@ -86,6 +86,8 @@ describe("readStewardConfig", () => {
     const config = readStewardConfig({ path });
     expect(config).toEqual<StewardConfig>({
       memoryTopology: "unified",
+      // Absent from this fixture, so Steward falls back to Pi's provider auth.
+      baseUrl: null,
       hostCollector: { command: COMMAND, intervalMs: 1000 },
       // The launch record is optional too: without it the drift check is simply
       // unavailable, which is not a reason to refuse the config.
@@ -406,5 +408,38 @@ describe("stewardConfigPath", () => {
   it("falls back to ~/.config/steward/steward.json", () => {
     delete process.env.STEWARD_CONFIG;
     expect(stewardConfigPath()).toMatch(/\.config[/\\]steward[/\\]steward\.json$/);
+  });
+});
+
+/**
+ * `baseUrl` decides which server Steward watches. It was written by setup and
+ * ignored by this reader entirely, so a machine that had recorded :8091 was
+ * polled on whatever Pi's provider named — the dashboard read "not reachable"
+ * and every control looked broken while the server was healthy.
+ */
+describe("baseUrl", () => {
+  it("reads a recorded base URL", () => {
+    write({ ...validConfig(), baseUrl: "http://127.0.0.1:8091" });
+    expect(readStewardConfig({ path })?.baseUrl).toBe("http://127.0.0.1:8091");
+  });
+
+  it("is null when absent, so the provider's URL is used", () => {
+    write(validConfig());
+    expect(readStewardConfig({ path })?.baseUrl).toBeNull();
+  });
+
+  it("warns rather than silently falling back when present but unusable", () => {
+    const warnings: string[] = [];
+    write({ ...validConfig(), baseUrl: "   " });
+    const config = readStewardConfig({ path, warn: (m) => warnings.push(m) });
+    expect(config?.baseUrl).toBeNull();
+    expect(warnings.some((w) => w.includes("baseUrl"))).toBe(true);
+  });
+
+  it("keeps the rest of the config when the URL is unusable", () => {
+    write({ ...validConfig(), baseUrl: 42 });
+    const config = readStewardConfig({ path, warn: () => {} });
+    expect(config?.baseUrl).toBeNull();
+    expect(config?.memoryTopology).toBe("unified");
   });
 });

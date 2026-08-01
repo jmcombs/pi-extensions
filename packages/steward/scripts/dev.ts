@@ -34,7 +34,13 @@ async function buildSource(): Promise<StewardDataSource | undefined> {
   const { createDisconnectedSource } = await import("../core/disconnected-source.js");
   const { createListenerProbe } = await import("../server/service-probe.js");
   const { createConfigWiring } = await import("../server/config-wiring.js");
-  const connection = await resolveLlamaConnection();
+  const { readStewardConfig } = await import("../server/steward-config.js");
+  const recorded = readStewardConfig();
+  const connection = await resolveLlamaConnection(
+    undefined,
+    process.env,
+    recorded?.baseUrl ?? null,
+  );
   const wiring = createConfigWiring();
   return new LlamaSource({
     connection,

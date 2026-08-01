@@ -71,11 +71,26 @@ below, establish whether this machine already delivers it, and propose the small
    **off by default**.
 3. **Per-slot context fill and the busy count.** From \`/slots\`, on unless disabled.
 4. **A log console.** One file containing the server's **complete** output — see the traps below.
-5. **A reachable loopback base URL.**
+5. **A reachable loopback base URL — and it must be the one Pi already uses.**
+   Find where Pi's \`llama.cpp\` provider points (\`LLAMA_BASE_URL\` in its provider
+   auth, or the provider's \`baseUrl\`) **before** you propose anything. If the
+   server you are configuring is not at that address, Pi cannot talk to it: chat
+   fails with "llama.cpp unavailable" while Steward reports a perfectly healthy
+   router, which is worse than both being broken because nothing looks wrong.
+   Do not finish with the two diverged. Say so plainly and ask which way to
+   reconcile — move Pi's provider to this server, or move this server to Pi's
+   address — then carry out the answer.
 6. **Host metrics.** Steward spawns one long-lived command you nominate and reads **NDJSON on its
    stdout**, one object per line forever: \`{"schema":"steward.hostmetrics/1","ts":<epoch ms>,…}\`
    with \`gpuUtil\`, \`cpuUtil\` as fractions 0..1, \`gpuTempC\`, \`cpuTempC\`, \`ramUsedGB\`, \`ramTotalGB\`.
    Every field is \`number|null\`; \`null\` means "this machine cannot measure it" and is never a zero.
+   **Look for a tool that already measures this host before writing your own.**
+   \`macmon\` on Apple Silicon, \`nvidia-smi\`, \`rocm-smi\`, \`sensors\` — one of them is
+   often already installed, and each reports figures a hand-rolled collector
+   cannot reach. Hand-rolling from \`vm_stat\`/\`ioreg\`/\`top\` works but silently
+   gives up CPU and GPU temperature, so the dashboard shows two permanent
+   no-reading gauges on a machine that could have filled them. Check first; say
+   which tool you found, or that you found none.
 7. **Start / stop / restart**, recorded as argv arrays. There is no shell: no pipes, no \`&&\`, no
    \`~\`, no \`$UID\` — write absolute paths and real numbers.
 

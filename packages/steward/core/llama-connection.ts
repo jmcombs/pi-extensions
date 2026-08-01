@@ -107,10 +107,42 @@ function normalizeOrDefault(value: string): string {
  *
  * `env` is injectable so tests need not mutate the real environment.
  */
+/** The API key from Pi's provider auth, or the environment. Never throws. */
+async function providerApiKey(
+  ctx: ConnectionContext | undefined,
+  env: Record<string, string | undefined>,
+): Promise<string> {
+  const getProviderAuth = ctx?.modelRegistry?.getProviderAuth;
+  if (typeof getProviderAuth === "function") {
+    try {
+      const result = await getProviderAuth(LLAMA_PROVIDER);
+      if (result !== undefined) return result.auth.apiKey ?? "";
+    } catch {
+      // Best-effort, same as the main path.
+    }
+  }
+  return env.LLAMA_API_KEY ?? "";
+}
+
 export async function resolveLlamaConnection(
   ctx?: ConnectionContext,
   env: Record<string, string | undefined> = process.env,
+  recordedBaseUrl?: string | null,
 ): Promise<LlamaConnection> {
+  // `steward.json`'s baseUrl wins over everything. It is the operator telling
+  // Steward which server to watch; Pi's provider auth describes which server Pi
+  // *chats with*, and the two are allowed to differ — a testbed on one port
+  // while the daily driver answers on another is a normal thing to want.
+  //
+  // This used to be ignored, so a machine that had recorded :8091 was polled on
+  // the provider's :8080: the dashboard read "llama.cpp not reachable" and every
+  // control appeared broken while the server was perfectly healthy. The API key
+  // still comes from the provider, which is the only place it lives.
+  if (typeof recordedBaseUrl === "string" && recordedBaseUrl.trim() !== "") {
+    const apiKey = await providerApiKey(ctx, env);
+    return { baseUrl: normalizeOrDefault(recordedBaseUrl), apiKey };
+  }
+
   const getProviderAuth = ctx?.modelRegistry?.getProviderAuth;
   if (typeof getProviderAuth === "function") {
     try {

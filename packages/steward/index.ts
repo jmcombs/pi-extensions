@@ -110,7 +110,11 @@ async function sourceFactory(ctx: ConnectionContext): Promise<SourceFactory | un
   const { createDisconnectedSource } = await import("./core/disconnected-source.js");
   const { createListenerProbe } = await import("./server/service-probe.js");
   const { createConfigWiring } = await import("./server/config-wiring.js");
-  const connection = await resolveLlamaConnection(ctx);
+  // Read the artifact before resolving the connection: its baseUrl decides
+  // which server Steward watches, and the resolver needs it up front.
+  const { readStewardConfig } = await import("./server/steward-config.js");
+  const recorded = readStewardConfig();
+  const connection = await resolveLlamaConnection(ctx, process.env, recorded?.baseUrl ?? null);
   const probeService = createListenerProbe();
 
   return () => {
@@ -229,6 +233,7 @@ export default function (pi: ExtensionAPI): void {
       ctx.ui.notify(where, "info");
       try {
         await openInBrowser(dashboard.url);
+        void refreshWidget(ctx);
       } catch (error) {
         ctx.ui.notify(`Steward could not open a browser (${describe(error)})`, "warning");
       }
@@ -244,6 +249,7 @@ export default function (pi: ExtensionAPI): void {
         // once that start has settled.
         const stopped = await stopServer();
         ctx.ui.notify(stopped ? "Steward stopped." : "Steward is not running.", "info");
+        void refreshWidget(ctx);
       } catch (error) {
         ctx.ui.notify(`Steward could not stop cleanly: ${describe(error)}`, "warning");
       }
@@ -285,35 +291,58 @@ export default function (pi: ExtensionAPI): void {
   // Guarded on `hasUI` and on the method itself: Pi runs headless, and oh-my-pi
   // ships a subset shim, so the commands must keep working with no chip.
   const STATUS_WIDGET_KEY = "steward-status";
-  let chipInFlight = false;
-  const refreshChip = async (ctx: ExtensionContext): Promise<void> => {
+  let widgetInFlight = false;
+  const refreshWidget = async (ctx: ExtensionContext): Promise<void> => {
     // Feature-detected, not gated on `hasUI`. `session_start` is emitted from
     // `bindExtensions` during startup, when the TUI may not have come up yet and
     // `hasUI` is still false — gating on it meant the chip did not appear until
     // the first turn ended. Setting a status headless is harmless: nothing
     // renders it.
     if (typeof ctx.ui?.setWidget !== "function") return;
-    if (chipInFlight) return;
-    chipInFlight = true;
+    if (widgetInFlight) return;
+    widgetInFlight = true;
     try {
       const { formatStatusWidget, resolveGlyph } = await import("./core/status-widget.js");
+      const { readStewardConfig } = await import("./server/steward-config.js");
+      const { resolveLlamaConnection } = await import("./core/llama-connection.js");
       const glyph = resolveGlyph(process.env);
-      // Read the machine directly rather than standing up a dashboard for it.
-      const make = await sourceFactory(ctx as unknown as ConnectionContext);
-      const source = make?.();
-      try {
-        const snapshot = source === undefined ? null : await source.snapshot();
-        ctx.ui.setWidget(STATUS_WIDGET_KEY, [formatStatusWidget(snapshot, glyph)], {
-          placement: "aboveEditor",
-        });
-      } finally {
-        source?.close();
+
+      // Steward's own state costs nothing: the extension holds the server.
+      const portalUrl = server?.url ?? null;
+      const recorded = readStewardConfig();
+      const stewardBaseUrl = recorded?.baseUrl ?? null;
+      // Where Pi would send a chat, ignoring what Steward was told. Passing
+      // `null` deliberately bypasses the recorded URL so the two can be compared
+      // — a router Pi cannot reach is the failure the orange state is for.
+      const provider = await resolveLlamaConnection(
+        ctx as unknown as ConnectionContext,
+        process.env,
+        null,
+      );
+
+      // Only read the machine when the dashboard is up; a stopped Steward has
+      // nothing to say about llama.cpp and should not pay for a probe.
+      let snapshot = null;
+      if (portalUrl !== null) {
+        const make = await sourceFactory(ctx as unknown as ConnectionContext);
+        const source = make?.();
+        try {
+          snapshot = source === undefined ? null : await source.snapshot();
+        } finally {
+          source?.close();
+        }
       }
+
+      const line = formatStatusWidget(
+        { portalUrl, snapshot, providerBaseUrl: provider.baseUrl, stewardBaseUrl },
+        glyph,
+      );
+      ctx.ui.setWidget(STATUS_WIDGET_KEY, [line], { placement: "aboveEditor" });
     } catch {
       // Informational only: never let it disturb the loop. The previous line
       // stays on screen rather than being cleared to nothing.
     } finally {
-      chipInFlight = false;
+      widgetInFlight = false;
     }
   };
 
@@ -322,16 +351,16 @@ export default function (pi: ExtensionAPI): void {
   // server simply outlives the session until the process exits.
   if (typeof pi.on === "function") {
     pi.on("session_start", async (_event, ctx) => {
-      await refreshChip(ctx);
+      await refreshWidget(ctx);
     });
     // Also on turn START: if the chip missed its first chance at session_start
     // — a TUI that was not up yet, a probe that lost a race — this is the next
     // moment the operator looks at the footer, and it costs one loopback read.
     pi.on("turn_start", async (_event, ctx) => {
-      await refreshChip(ctx);
+      await refreshWidget(ctx);
     });
     pi.on("turn_end", async (_event, ctx) => {
-      await refreshChip(ctx);
+      await refreshWidget(ctx);
     });
     pi.on("session_shutdown", async () => {
       await stopServer();

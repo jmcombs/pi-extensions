@@ -94,6 +94,19 @@ export interface LogFileConfig {
 export interface StewardConfig {
   /** Static machine memory layout — picks the HOST gauge SET, not a reading. */
   memoryTopology: MemoryTopology;
+  /**
+   * Where `llama-server` listens, as the operator recorded it, or `null` when
+   * the artifact declares none.
+   *
+   * This **wins** over Pi's llama.cpp provider auth. It used to be written by
+   * setup and then ignored by this reader entirely, so a machine whose server
+   * was recorded on one port was polled on whatever port Pi's provider happened
+   * to name — the dashboard reported "not reachable" and every control looked
+   * broken while the server was healthy. Steward's own artifact is the operator
+   * telling Steward what to watch; the provider describes what Pi chats with,
+   * and the two are allowed to differ.
+   */
+  baseUrl: string | null;
   hostCollector: HostCollectorConfig;
   /**
    * The recorded launch argv, or `null` when the artifact does not carry one
@@ -394,8 +407,20 @@ export function readStewardConfig(options: ReadStewardConfigOptions = {}): Stewa
     warn(`[steward] ${path}: ignoring log — it needs a non-empty path string`);
   }
 
+  // Optional like the blocks above, and said out loud when present but unusable:
+  // silently falling back to the provider's URL is exactly the failure this
+  // field exists to prevent.
+  const baseUrl =
+    typeof parsed.baseUrl === "string" && parsed.baseUrl.trim() !== ""
+      ? parsed.baseUrl.trim()
+      : null;
+  if (parsed.baseUrl !== undefined && baseUrl === null) {
+    warn(`[steward] ${path}: ignoring baseUrl — it needs a non-empty URL string`);
+  }
+
   return {
     memoryTopology,
+    baseUrl,
     hostCollector,
     llama,
     control,
