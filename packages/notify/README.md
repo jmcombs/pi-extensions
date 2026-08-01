@@ -75,7 +75,7 @@ issue.
 ## Requirements
 
 - Pi `>= 0.72.0`
-- Node `>= 22.0.0`
+- Node `>= 22.19.0`
 - No API keys or additional configuration required
 
 ## Development

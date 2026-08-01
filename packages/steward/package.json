@@ -43,7 +43,7 @@
     "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/preview.png"
   },
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.19.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

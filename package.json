@@ -24,21 +24,22 @@
     "typecheck": "node scripts/typecheck.mjs",
     "test": "vitest run",
     "security:secrets": "secretlint \"**/*\"",
-    "security:audit": "npm audit --omit=dev",
+    "security:audit": "node scripts/check-audit.mjs",
     "security": "npm run security:secrets && npm run security:audit",
     "sync-versions": "node scripts/sync-versions.mjs",
     "check:versions": "node scripts/sync-versions.mjs --check",
     "migrate:biome": "biome migrate --write",
     "check:biome-config": "node scripts/check-biome-config.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run check:versions && npm run check:biome-config && npm run security",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run check:versions && npm run check:biome-config && npm run check:dependabot && npm run security",
     "update:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts",
     "check:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts --check",
     "validate:extension-load": "bash scripts/validate-extension-load.sh",
     "dev:steward": "tsx packages/steward/scripts/dev.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "check:dependabot": "node scripts/check-dependabot-ignores.mjs"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
@@ -48,7 +49,7 @@
     "@earendil-works/pi-coding-agent": "^0.82.1",
     "@earendil-works/pi-tui": "^0.82.1",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
-    "@types/node": "^24.13.3",
+    "@types/node": "^22.19.0",
     "husky": "^9.1.7",
     "secretlint": "^13.0.2",
     "tsx": "^4.23.1",

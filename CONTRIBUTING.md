@@ -17,7 +17,7 @@ npm ci
 npm run check
 ```
 
-> **Node version policy.** This project requires **Node ≥ 22.0.0**. CI runs the
+> **Node version policy.** This project requires **Node ≥ 22.19.0**. CI runs the
 > quality gate on **Node 22 and Node 24**. The release pipeline (and `.nvmrc`) is
 > pinned to **Node 24**, which ships npm 11+ — required for npm Trusted Publishing
 > with provenance. Node 20 is no longer supported.
@@ -260,7 +260,7 @@ Each package must have:
 - `name`: scoped under `@jmcombs/`, prefixed with `pi-` (e.g. `@jmcombs/pi-foo`)
 - `version`: semver (Release Please manages bumps after the first release)
 - `description`, `license: "MIT"`, `author: "Jeremy Combs"`
-- `engines.node: ">=22.0.0"`
+- `engines.node: ">=22.19.0"`
 - `keywords` containing `"pi-package"`
 - `pi.extensions`: array of paths to extension entry points
 - `image` and/or `video`: raw GitHub URLs from `packages/<name>/assets/` (or root `assets/<name>/`)

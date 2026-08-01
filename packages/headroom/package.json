@@ -41,7 +41,7 @@
     "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/headroom/preview.png"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0"
   },
   "dependencies": {
     "@jmcombs/pi-1password": "^1.0.2 || ^2.0.0",

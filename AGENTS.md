@@ -30,7 +30,7 @@ npm via OIDC Trusted Publishing.
 
 ## Conventions You Must Follow
 
-- Node `>= 22.0.0`. CI tests on Node 22 and Node 24; the release pipeline (and `.nvmrc`)
+- Node `>= 22.19.0`. CI tests on Node 22 and Node 24; the release pipeline (and `.nvmrc`)
   is pinned to Node 24, which ships npm 11+ — required for npm Trusted Publishing.
   Node 20 is no longer supported.
 - Conventional Commits, scoped to the package directory name when relevant
@@ -42,7 +42,7 @@ npm via OIDC Trusted Publishing.
 - **No mocking external APIs in tests.** Smoke tests that load the extension and verify
   registration are the preferred shape.
 - Each package's `package.json` must include: `keywords: ["pi-package"]`, a `pi` manifest
-  with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=22.0.0"`,
+  with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=22.19.0"`,
   and an `image` URL for the gallery card.
 
 ## When Adding a New Extension

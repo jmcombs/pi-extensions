@@ -58,7 +58,7 @@ pi-extensions/
 
 ## Requirements
 
-- Node.js `>= 22.0.0` (CI tests on Node 22 and Node 24; the release pipeline runs on Node 24)
+- Node.js `>= 22.19.0` (CI tests on Node 22 and Node 24; the release pipeline runs on Node 24)
 - npm 10+ (Node 24 ships npm 11+, required for npm Trusted Publishing)
 
 ## Quality Gate
