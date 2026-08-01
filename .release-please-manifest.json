@@ -9,5 +9,5 @@
   "packages/blue-psl-10k": "1.1.1",
   "packages/headroom": "2.0.0",
   "packages/relay": "1.1.1",
-  "packages/steward": "0.0.0"
+  "packages/steward": "1.0.0"
 }
