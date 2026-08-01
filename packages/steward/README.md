@@ -11,101 +11,145 @@
 
 # @jmcombs/pi-steward
 
-> **Steward — the llama.cpp control panel for Pi.** *How may we serve your models?*
+> **Steward — the llama.cpp control panel for [Pi](https://pi.dev).** *How may we serve your models?*
 
-Steward is a single-page operator dashboard for the local `llama-server` that backs
-[Pi's llama.cpp provider](https://pi.dev/docs/latest/llama-cpp). It answers four questions at a
-glance, and lets you act on all of them without a terminal:
+A single-page operator dashboard for the local `llama-server` behind Pi's llama.cpp provider, plus a
+status bar inside Pi itself. It answers four questions at a glance, and lets you act on all of them
+without leaving your editor:
 
-1. Is the service up, and for how long?
-2. Which models are resident, which are hot, and what are they costing in VRAM?
-3. Is the box healthy — VRAM, GPU, RAM, CPU, temperatures?
-4. What is the server actually doing right now — streamed logs, filterable per model.
+1. **Is the service up**, and for how long?
+2. **Which models are resident**, and what is each costing you in memory?
+3. **Is the box healthy** — GPU, CPU, memory, temperature?
+4. **What is the server doing right now** — slots, throughput, requests, and its live log?
 
-llama.cpp is the engine and Pi is the client; both are credited in the chrome, never in the
-name. Say "Steward for llama.cpp" on first mention, then just "Steward".
+Start, stop and restart the service; load and unload models; watch the log — all from the dashboard.
 
-> **Status: live where it counts, simulated where it doesn't yet.** Set
-> `STEWARD_SOURCE=llama` and the config, service, models, slots and throughput panels read a
-> real `llama-server` (`/props`, `/models`, `/slots`, `/metrics`), with real load/unload, and
-> the log console follows the server's own log file when one can be found; the
-> host-metrics band and the requests tile are still generated locally. Left
-> unset (the default) the whole dashboard is simulated, so it needs nothing running. The live
-> reader plugs into the same seam the simulation uses (`core/source.ts`), so the interface you
-> see now is the interface you will get, and the remaining panels move to live over time.
+## Requirements
 
-## Quick Start
+| | |
+| --- | --- |
+| **Node** | ≥ 22.13 |
+| **[Pi](https://pi.dev)** | any recent version |
+| **`llama-server`** | running in **router mode** — `--models-dir` and/or `--models-preset`, with no `-m`/`--model`/`-hf`. Pi's own llama.cpp provider requires this too. |
+| **A [Nerd Font](https://www.nerdfonts.com)** | for the status bar's mark and separators. Set `STEWARD_GLYPH=""` to drop the mark if you would rather not install one. |
 
-1. Install:
+`/steward_initialize` checks everything else — metrics, slots, log capture, host sensors — and offers
+to fix whatever is missing.
 
-   ```bash
-   pi install npm:@jmcombs/pi-steward
-   ```
+## Install
 
-2. (Optional) Try without installing:
+```bash
+# Globally (recommended)
+pi install npm:@jmcombs/pi-steward
 
-   ```bash
-   pi -e ./packages/steward
-   ```
+# For a single session, without installing
+pi -e ./packages/steward
+```
 
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local path,
 project-scoped install, and filtering options.
 
-## What It Adds
+## Quick start
 
-- **Command**: `/steward_dashboard` — starts the dashboard server for the session and opens it in your
-  browser. Running it again reuses the server already listening.
-- **Command**: `/steward_stop` — shuts the dashboard server down. It also stops on its own when
-  the session ends.
-- **Skill**: `/skill:initialize-steward` — connects this machine. It works out how `llama-server`
-  is launched here, proposes the flags and the log redirect Steward needs, helps you stand up a
-  host-metrics collector, records your start/stop/restart commands, and writes
-  `~/.config/steward/steward.json`. It edits service configuration, so it shows a diff and asks
-  before every change, backs up anything it touches, and tells you the exact command to undo it.
-  It never runs on its own — only when you ask for it by name.
+Start Pi, then:
 
-The dashboard is served on loopback only, and nothing it shows leaves the machine.
+```
+/steward_initialize     1. connect this machine — review, approve, done
+/steward_start          2. start the dashboard service
+/steward_dashboard      3. open it in your browser
+```
+
+That is the whole path. Step 1 is once per machine; steps 2 and 3 are once per session — and
+`/steward_dashboard` starts the service for you, so you can skip straight to it.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `/steward_initialize` | Connects this machine to Steward. Works out how `llama-server` runs here, proposes the changes it needs, and writes `steward.json` — **asking before every change**. Run once per machine, or again whenever the setup moves. |
+| `/steward_start` | Starts the dashboard service on `127.0.0.1:8788` for this session. Prints the URL and opens nothing — useful on a headless box, or when you only want the status bar. |
+| `/steward_dashboard` | Opens the dashboard in your browser, starting the service first if it is not already running. |
+| `/steward_stop` | Stops the dashboard service. It also stops on its own when the Pi session ends. |
+
+## The status bar
+
+Steward draws a line above the editor whenever it has something to say. It reports **Steward's own
+state** first, with llama.cpp as detail:
+
+```
+󰢍 Steward   :8788   llama :8080 · 1/10     dashboard up, server up, 1 of 10 models resident
+󰢍 Steward   :8788   llama: stopped         dashboard up, server down
+󰢍 Steward   :8788   llama —                dashboard up, server not read yet
+󰢍 Steward   stopped                        dashboard not running
+󰢍 Steward   chat still on :8080 · restart pi to use :8091
+```
+
+Three colours, and only three: **green** started, **red** stopped, **orange** running but something
+needs a person. That last line is the orange case — Pi is dialling a different address than the
+server Steward is watching, so chat fails while the dashboard looks perfectly healthy. The bar names
+which fix applies.
+
+It refreshes while the dashboard is up and reads the same data the dashboard does, so it costs no
+extra connection to your server.
+
+## What `/steward_initialize` does
+
+It establishes how this machine supervises services, what it can measure, and where Pi already
+expects `llama.cpp` — then proposes the smallest set of changes that makes Steward work, and asks
+once whether to apply them all or one at a time.
+
+In practice that usually means enabling `--metrics`, capturing **both** stdout and stderr to one
+durable file, nominating a host-metrics collector, and recording start/stop/restart commands.
+
+Two things it will not do. It never guesses a command at runtime — everything Steward may run is
+recorded with a hash you approved. And it never edits Pi's own configuration: if the server is on the
+wrong port, it moves the **server**, so nothing about Pi has to be reloaded.
+
+It shows a diff and a revert command before touching anything.
 
 ## Configuration
 
-| Variable | Default | Effect |
+`/steward_initialize` writes `~/.config/steward/steward.json` at mode `0600`. Steward refuses to read
+that file if it is not owned by you or is world-writable, because it is a code-execution surface.
+
+It records the memory topology, the host-metrics collector and its cadence, the log path, the base
+URL to watch, the start/stop/restart commands, the launch argv to check drift against, and a consent
+hash for every command Steward may run.
+
+Editing a recorded command by hand invalidates its hash, and Steward then declines to run it — which
+shows up as a missing button rather than an error. Re-run `/steward_initialize` instead of writing
+hashes yourself.
+
+### Environment variables
+
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `STEWARD_PORT` | `8788` | Port the dashboard binds on loopback. `0` picks a free one. |
-| `STEWARD_SOURCE` | `mock` | `llama` drives the live panels (config, service, models, slots, throughput) from a real `llama-server`; anything else keeps the fully simulated dashboard. |
-| `LLAMA_BASE_URL` | `http://127.0.0.1:8080` | Where to read `llama-server` when running outside Pi (e.g. the dev server). Inside Pi the provider auth is used instead. |
-| `LLAMA_API_KEY` | _(none)_ | Bearer key for a key-gated `llama-server`, outside Pi. |
-| `STEWARD_CONFIG` | `~/.config/steward/steward.json` | The per-machine artifact `/skill:initialize-steward` writes: memory topology, the host-metrics collector command and cadence, the log path, the service-control commands, the recorded launch argv, and the consent hash for each command Steward may run. It must be owned by you and not world-writable, or Steward ignores it. |
-| `STEWARD_LOG_FILE` | _(discovered)_ | The `llama-server` log to follow — its combined stdout/stderr redirect, not `--log-file`, which llama.cpp copies into every child server. Unset, Steward uses the path recorded for this machine, then `/tmp/llama-router.log` if it exists, and otherwise says it has no log source. |
+| `STEWARD_CONFIG` | `~/.config/steward/steward.json` | Where the artifact lives. |
+| `STEWARD_PORT` | `8788` | Dashboard port. `0` asks the OS for any free port; a port already taken costs an ephemeral one, not the dashboard. |
+| `STEWARD_LOG_FILE` | — | Overrides the recorded `log.path` for the log console. |
+| `STEWARD_GLYPH` | `󰢍` | The status bar's mark. `""` drops it; any other value replaces it. |
 
-If the preferred port is already taken — a second Pi session, say — Steward falls back to an
-ephemeral port and tells you which one it landed on.
+## Honesty
 
-## Requirements
+Steward never invents a reading. A gauge with no data renders as **no reading**, never as zero — a
+real 0% and an unmeasurable value are different facts and must not be confused. A machine it cannot
+see reports itself disconnected rather than showing a plausible dashboard made of nothing. Where it
+cannot tell two states apart, it says so instead of picking the likelier one.
 
-- Node `>= 22.13.0`
-- A local `llama-server` (llama.cpp) instance in router mode (Pi's default)
-- For live **throughput** and **tokens/sec**, start `llama-server` with `--metrics` — the
-  Prometheus endpoint is off by default. (`--slots`, which powers the slots panel, is on by
-  default.)
+That is the whole design. A dashboard you cannot trust at a glance is worse than no dashboard.
 
 ## Development
 
-This package lives in the [pi-extensions monorepo](https://github.com/jmcombs/pi-extensions).
-See `CONTRIBUTING.md` at the repo root for project conventions.
-
 ```bash
 # From the repo root
-npm ci
-npm run check       # full quality gate
-npm run test        # this package's smoke test
-```
+npx vitest run packages/steward     # tests
+node scripts/typecheck.mjs          # types
+npx biome check packages/steward    # lint and format
 
-To try local changes against a real Pi session:
-
-```bash
-pi -e ./packages/steward
+# Run the dashboard without Pi
+npx tsx packages/steward/scripts/dev.ts
 ```
 
 ## License
 
-[MIT](./LICENSE) © Jeremy Combs
+MIT © [Jeremy Combs](https://github.com/jmcombs)
