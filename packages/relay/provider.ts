@@ -130,11 +130,41 @@ function extractTask(context: RelayContext): string {
   return parts.join("\n\n").trim();
 }
 
+const RELAY_TERMINAL_YIELD_TOOL = "yield";
+const RELAY_TERMINAL_YIELD_CALL_ID = "relay-yield";
+
+function hasTerminalYieldTool(context: RelayContext): boolean {
+  return (context.tools ?? []).some(
+    (tool) => tool.name.trim().toLowerCase() === RELAY_TERMINAL_YIELD_TOOL,
+  );
+}
+
+interface AssistantMessageOptions {
+  isError?: boolean;
+  terminalYield?: boolean;
+}
+
 /** Build a minimal final assistant message carrying `text`. */
-function assistantMessage(model: RelayModel, text: string, isError = false): RelayAssistantMessage {
+function assistantMessage(
+  model: RelayModel,
+  text: string,
+  options: AssistantMessageOptions = {},
+): RelayAssistantMessage {
+  const { isError = false, terminalYield = false } = options;
+  const content: Array<Record<string, unknown>> = [];
+  if (text.length > 0) content.push({ type: "text", text });
+  if (!isError && terminalYield) {
+    content.push({
+      type: "toolCall",
+      id: RELAY_TERMINAL_YIELD_CALL_ID,
+      name: RELAY_TERMINAL_YIELD_TOOL,
+      arguments: { type: "result", result: {} },
+    });
+  }
+
   const message = {
     role: "assistant",
-    content: text.length > 0 ? [{ type: "text", text }] : [],
+    content,
     api: model.api,
     provider: model.provider,
     model: model.id,
@@ -146,7 +176,7 @@ function assistantMessage(model: RelayModel, text: string, isError = false): Rel
       totalTokens: 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     },
-    stopReason: isError ? "error" : "stop",
+    stopReason: isError ? "error" : terminalYield ? "toolUse" : "stop",
     timestamp: Date.now(),
     ...(isError ? { errorMessage: text || "relay run produced no result" } : {}),
   };
@@ -168,6 +198,7 @@ export function streamViaDriver(
   context: RelayContext,
   signal?: AbortSignal,
 ): RelayStreamReturn {
+  const terminalYield = hasTerminalYieldTool(context);
   // D11: pi's own event-stream contract (for use in extensions) — not hand-rolled.
   const stream = createAssistantMessageEventStream();
   // Push events typed against our (structurally identical) message shape. The
@@ -269,7 +300,8 @@ export function streamViaDriver(
     if (isError) {
       push({ type: "error", reason: "error", error: final });
     } else {
-      push({ type: "done", reason: "stop", message: final });
+      const reason = final.stopReason === "toolUse" ? "toolUse" : "stop";
+      push({ type: "done", reason, message: final });
     }
   };
 
@@ -280,7 +312,9 @@ export function streamViaDriver(
   child.on("error", (error: Error) => {
     // Spawn failure (e.g. missing binary) → fail-safe error, never auto-success.
     settle(
-      assistantMessage(model, `relay: failed to run ${driver.bin} — ${error.message}`, true),
+      assistantMessage(model, `relay: failed to run ${driver.bin} — ${error.message}`, {
+        isError: true,
+      }),
       true,
     );
   });
@@ -292,7 +326,7 @@ export function streamViaDriver(
         assistantMessage(
           model,
           "relay: run cut short (wall-cap or abort) before producing a result — UNVERIFIED",
-          true,
+          { isError: true },
         ),
         true,
       );
@@ -309,10 +343,10 @@ export function streamViaDriver(
         parsed.result.length === 0
           ? "backend produced no parseable result"
           : "backend reported is_error";
-      settle(assistantMessage(model, `relay: ${detail} — UNVERIFIED`, true), true);
+      settle(assistantMessage(model, `relay: ${detail} — UNVERIFIED`, { isError: true }), true);
       return;
     }
-    settle(assistantMessage(model, parsed.result), false);
+    settle(assistantMessage(model, parsed.result, { terminalYield }), false);
   });
 
   return stream as unknown as RelayStreamReturn;
