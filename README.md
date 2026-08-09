@@ -85,17 +85,15 @@ Extensions that need a user-provided secret resolve it through the shared
 
 ## Sponsor
 
-If these extensions save you time, tokens, or friction — a sponsorship is the single best way to keep them maintained and expanding.
-
-**One-time and monthly support:**
+If these extensions save you time, tokens, or friction — a sponsorship is the single best way to keep them maintained and expanding. Every dollar goes to maintenance, new extensions, and keeping the quality bar high.
 
 <p>
   <a href="https://github.com/sponsors/jmcombs"><img src="https://img.shields.io/badge/Sponsor_on_GitHub-EA4AAA?style=for-the-badge&logo=GitHub-Sponsors&logoColor=white" alt="Sponsor on GitHub"></a>
+  <a href="https://ko-fi.com/jmcombs"><img src="https://img.shields.io/badge/Tip_on_Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Tip on Ko-fi"></a>
 </p>
 
-GitHub Sponsors is preferred here: **0% platform fee** on personal sponsorships, one-time *and* monthly tiers, and it shows up natively on the repo. Every dollar goes to maintenance, new extensions, and keeping the quality bar high.
-
-> Prefer a coffee-style tip jar outside GitHub? Say so in an issue and a Ko-fi link can be added — same goal, different doorway.
+- **[GitHub Sponsors](https://github.com/sponsors/jmcombs)** — one-time *and* monthly; **0%** platform fee on personal sponsorships; shows up natively on the repo
+- **[Ko-fi](https://ko-fi.com/jmcombs)** — simple one-time tips if you prefer a tip jar outside GitHub
 
 ## Requirements
 
