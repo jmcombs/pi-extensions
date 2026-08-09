@@ -19,10 +19,10 @@ updates:
       production-dependencies:
         dependency-type: "production"
         update-types: ["minor", "patch"]
-    # Time-boxed exceptions. Each entry needs an `expires:` line; the date is
-    # enforced by scripts/check-dependabot-ignores.mjs and shared with the other
-    # exceptions in scripts/exception-expiry.mjs. Once it passes, the gate fails
-    # until the ignore is renewed or removed.
+    # Time-boxed exceptions. Each entry needs an `expires:` line matching a
+    # constant in scripts/exception-expiry.mjs (EXCEPTIONS_EXPIRE or
+    # SHORT_EXCEPTIONS_EXPIRE). Enforced by scripts/check-dependabot-ignores.mjs.
+    # Once the date passes, the gate fails until the ignore is renewed or removed.
     ignore:
       # expires: 2026-11-01
       # @types/node tracks the Node major it describes, so the types must not
@@ -33,6 +33,22 @@ updates:
       # the v22 line; revisit when pi raises its own engines.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # expires: 2026-09-08
+      # Dev-only transitive under @commitlint/cli → ajv. Leaf fix is fast-uri
+      # 3.1.5 (GHSA-7p8r-x3mc-p8w7); we are not force-bumping nested leaves.
+      # Production audit (--omit=dev) is unaffected. Short hold; re-check
+      # whether ajv/commitlint have moved by SHORT_EXCEPTIONS_EXPIRE.
+      - dependency-name: "fast-uri"
+      # expires: 2026-09-08
+      # Dev-only transitive under @commitlint/cli → cosmiconfig and secretlint
+      # → textlint/rc-config-loader. Leaf fix is js-yaml 4.3.1
+      # (GHSA-5p4m-2wfm-xmqj). Same policy as fast-uri above.
+      - dependency-name: "js-yaml"
+      # expires: 2026-09-08
+      # Dev-only transitive under vitest → vite → postcss. Leaf fix is nanoid
+      # >=3.3.17 (GHSA-2v37-7h3g-55p8); postcss 8.5.26 already requires it,
+      # but we are not force-bumping the nested chain. Same short hold.
+      - dependency-name: "nanoid"
     labels:
       - "dependencies"
 
