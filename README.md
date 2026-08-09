@@ -23,6 +23,7 @@
     <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
     <a href="https://pi.dev/packages"><img src="https://img.shields.io/badge/pi.dev-packages-0A7EA4" alt="pi.dev packages"></a>
     <a href="https://github.com/sponsors/jmcombs"><img src="https://img.shields.io/badge/Sponsor-30363D?style=flat&logo=GitHub-Sponsors&logoColor=EA4AAA" alt="Sponsor"></a>
+    <a href="https://ko-fi.com/jmcombs"><img src="https://img.shields.io/badge/Ko--fi-FF5E5B?style=flat&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
   </p>
 </div>
 
