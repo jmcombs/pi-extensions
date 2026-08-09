@@ -1,19 +1,18 @@
 /**
  * exception-expiry.mjs — One review date, shared by every deliberate exception.
  *
- * This repo currently grants two exceptions, both for the same underlying
- * reason (upstream constraints outside our control):
+ * This repo currently grants one exception for an upstream constraint outside
+ * our control:
  *
- *   1. scripts/check-audit.mjs         — allowlists GHSA-mh99-v99m-4gvg,
- *      unfixable while pi-coding-agent's npm-shrinkwrap.json pins it.
- *   2. .github/dependabot.yml          — ignores @types/node majors, holding
- *      the types at the v22 line that pi's engines (>=22.19.0) actually
- *      target.
+ *   1. .github/dependabot.yml — ignores @types/node majors, holding the types
+ *      at the v22 line that pi's engines (>=22.19.0) actually target.
  *
- * Neither has a natural expiry signal — an advisory nobody has fixed and a
- * Dependabot rule both simply persist. Sharing one date means a single
- * scheduled conversation re-examines all of them together, rather than each
- * quietly becoming permanent on its own timeline.
+ * (The previous brace-expansion audit allowlist was removed when
+ * pi-coding-agent >=0.84.0 refreshed its shrinkwrap pins.)
+ *
+ * The Dependabot ignore has no natural expiry signal — it simply persists.
+ * A shared review date means a scheduled conversation re-examines it rather
+ * than it quietly becoming permanent.
  *
  * When this date passes, the gate fails. That is the point: decide again,
  * then move the date forward or remove the exception.
