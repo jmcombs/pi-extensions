@@ -205,10 +205,11 @@ export function streamViaDriver(
   // `text_delta` beat carries an empty partial and drives pi's `message_update`
   // (heartbeat, below); the terminal result rides only on `done`/`error`.
   const push = stream.push.bind(stream) as (event: {
-    type: "start" | "text_delta" | "done" | "error";
+    type: "start" | "text_delta" | "toolcall_start" | "toolcall_end" | "done" | "error";
     reason?: string;
     contentIndex?: number;
     delta?: string;
+    toolCall?: unknown;
     partial?: RelayAssistantMessage;
     message?: RelayAssistantMessage;
     error?: RelayAssistantMessage;
@@ -300,6 +301,17 @@ export function streamViaDriver(
     if (isError) {
       push({ type: "error", reason: "error", error: final });
     } else {
+      const terminalToolCall = final.content.find(
+        (content) =>
+          content.type === "toolCall" &&
+          content.id === RELAY_TERMINAL_YIELD_CALL_ID &&
+          content.name === RELAY_TERMINAL_YIELD_TOOL,
+      );
+      if (terminalToolCall?.type === "toolCall") {
+        const contentIndex = final.content.indexOf(terminalToolCall);
+        push({ type: "toolcall_start", contentIndex, partial: final });
+        push({ type: "toolcall_end", contentIndex, toolCall: terminalToolCall, partial: final });
+      }
       const reason = final.stopReason === "toolUse" ? "toolUse" : "stop";
       push({ type: "done", reason, message: final });
     }

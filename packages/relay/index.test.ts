@@ -110,6 +110,12 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
   type StreamEvent = {
     type: string;
     reason?: string;
+    contentIndex?: number;
+    partial?: {
+      content?: StreamContent[];
+      stopReason?: string;
+    };
+    toolCall?: StreamContent;
     message?: {
       content?: StreamContent[];
       stopReason?: string;
@@ -214,19 +220,31 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
       const events: StreamEvent[] = [];
       for await (const event of stream) events.push(event);
 
-      expect(events.map((event) => event.type)).toEqual(["start", "done"]);
+      expect(events.map((event) => event.type)).toEqual([
+        "start",
+        "toolcall_start",
+        "toolcall_end",
+        "done",
+      ]);
+      const yieldCall = {
+        type: "toolCall",
+        id: "relay-yield",
+        name: "yield",
+        arguments: { type: "result", result: {} },
+      };
+      const toolCallStart = events[1];
+      const toolCallEnd = events[2];
+      expect(toolCallStart?.contentIndex).toBe(1);
+      expect(toolCallStart?.partial?.content?.[1]).toEqual(yieldCall);
+      expect(toolCallEnd?.contentIndex).toBe(1);
+      expect(toolCallEnd?.toolCall).toEqual(yieldCall);
+      expect(toolCallEnd?.partial?.content?.[1]).toEqual(yieldCall);
+      expect(toolCallStart?.partial?.content?.[1]).toBe(toolCallEnd?.toolCall);
+      expect(toolCallEnd?.toolCall).toBe(toolCallEnd?.partial?.content?.[1]);
       const done = events.at(-1);
       expect(done?.reason).toBe("toolUse");
       expect(done?.message?.stopReason).toBe("toolUse");
-      expect(done?.message?.content).toEqual([
-        { type: "text", text: "HEARTBEAT_OK" },
-        {
-          type: "toolCall",
-          id: "relay-yield",
-          name: "yield",
-          arguments: { type: "result", result: {} },
-        },
-      ]);
+      expect(done?.message?.content).toEqual([{ type: "text", text: "HEARTBEAT_OK" }, yieldCall]);
     } finally {
       if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
       else process.env.PI_RELAY_HEARTBEAT_MS = previous;
