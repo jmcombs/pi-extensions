@@ -11,8 +11,9 @@
  * it. Past that date this gate fails, forcing the decision to be made again
  * rather than inherited. An entry with no expiry fails immediately.
  *
- * Dates come from scripts/exception-expiry.mjs so every deliberate exception in
- * the repo surfaces for review on the same day.
+ * Dates must match a constant in scripts/exception-expiry.mjs
+ * (EXCEPTIONS_EXPIRE or SHORT_EXCEPTIONS_EXPIRE) so comments cannot drift from
+ * the source of truth.
  *
  * Parsed with a line scanner rather than a YAML library on purpose: js-yaml is
  * only present transitively, and this file is small and rigidly formatted.
@@ -21,7 +22,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EXCEPTIONS_EXPIRE, isExpired } from "./exception-expiry.mjs";
+import {
+  EXCEPTIONS_EXPIRE,
+  isExpired,
+  isKnownExpiry,
+  SHORT_EXCEPTIONS_EXPIRE,
+  VALID_EXCEPTION_EXPIRIES,
+} from "./exception-expiry.mjs";
 
 const ROOT = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const CONFIG = path.join(ROOT, ".github/dependabot.yml");
@@ -68,23 +75,27 @@ for (const entry of entries) {
         `    No expiry. Add "# expires: ${EXCEPTIONS_EXPIRE}" directly above it,\n` +
         `    with a comment explaining why the update is being suppressed.`,
     );
-  } else if (entry.expiry.date !== EXCEPTIONS_EXPIRE) {
+  } else if (!isKnownExpiry(entry.expiry.date)) {
     // The YAML comment is a readable mirror, not a second source of truth.
-    // Without this check, moving EXCEPTIONS_EXPIRE would renew the audit
-    // allowlist while leaving this ignore on its old date — the exact silent
-    // drift the shared constant exists to prevent.
+    // Without this check, moving a constant in exception-expiry.mjs would
+    // leave this ignore on its old date — the silent drift the constants exist
+    // to prevent.
     problems.push(
       `${where}  ${entry.name}\n` +
-        `    Expiry ${entry.expiry.date} does not match EXCEPTIONS_EXPIRE (${EXCEPTIONS_EXPIRE}).\n` +
-        `    Every exception shares one review date. Update the comment to match\n` +
-        `    scripts/exception-expiry.mjs.`,
+        `    Expiry ${entry.expiry.date} is not a known exception date\n` +
+        `    (${VALID_EXCEPTION_EXPIRIES.join(" | ")}).\n` +
+        `    Update the comment to match scripts/exception-expiry.mjs.`,
     );
   } else if (isExpired(entry.expiry.date)) {
+    const which =
+      entry.expiry.date === SHORT_EXCEPTIONS_EXPIRE
+        ? "SHORT_EXCEPTIONS_EXPIRE"
+        : "EXCEPTIONS_EXPIRE";
     problems.push(
       `${where}  ${entry.name}\n` +
-        `    Expired ${entry.expiry.date}. Re-evaluate: remove the ignore, or renew every\n` +
-        `    exception together by moving EXCEPTIONS_EXPIRE in\n` +
-        `    scripts/exception-expiry.mjs forward (then update this comment to match).`,
+        `    Expired ${entry.expiry.date}. Re-evaluate: remove the ignore, or renew\n` +
+        `    by moving ${which} in scripts/exception-expiry.mjs forward\n` +
+        `    (then update this comment to match).`,
     );
   }
 }

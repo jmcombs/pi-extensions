@@ -18,22 +18,10 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { EXCEPTIONS_EXPIRE, isExpired } from "./exception-expiry.mjs";
+import { isExpired } from "./exception-expiry.mjs";
 
 /** @type {{id: string, package: string, reason: string, expires: string}[]} */
-const ALLOWLIST = [
-  {
-    id: "GHSA-mh99-v99m-4gvg",
-    package: "brace-expansion",
-    reason:
-      "Nested under @earendil-works/pi-coding-agent's npm-shrinkwrap.json " +
-      "(brace-expansion 5.0.7 via minimatch 10.2.5). Root overrides do not " +
-      "apply to a shrinkwrapped subtree and `npm audit fix` cannot reach it. " +
-      "Still present as of pi-coding-agent 0.83.0; clears when upstream " +
-      "refreshes the pin to >=5.0.8.",
-    expires: EXCEPTIONS_EXPIRE,
-  },
-];
+const ALLOWLIST = [];
 
 const result = spawnSync("npm", ["audit", "--omit=dev", "--json"], {
   encoding: "utf8",
