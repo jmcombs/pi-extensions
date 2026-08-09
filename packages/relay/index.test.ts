@@ -161,6 +161,21 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
     },
   };
 
+  // A backend that finishes cleanly but returns no text: `claude` reports this as
+  // `is_error: false` with an empty `.result`, so it reaches the success path.
+  const emptyResultDriver: AgentDriver = {
+    name: "empty-fake",
+    bin: "node",
+    buildArgs: () => [
+      "-e",
+      "process.stdout.write(JSON.stringify({ result: '', is_error: false }))",
+    ],
+    parseResult: (stdout: string) => {
+      const envelope = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+      return { result: String(envelope.result ?? ""), isError: envelope.is_error === true };
+    },
+  };
+
   it("pushes `start` then periodic `text_delta` beats before the final `done`", async () => {
     const context = {
       messages: [{ role: "user", content: "verify the phase" }],
@@ -202,7 +217,7 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
     }
   });
 
-  it("synthesizes one terminal yield when the host context exposes yield", async () => {
+  it("synthesizes one terminal `yield` call when the host context exposes that tool", async () => {
     const context = {
       messages: [{ role: "user", content: "return the marker" }],
       systemPrompt: undefined,
@@ -228,7 +243,9 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
       ]);
       const yieldCall = {
         type: "toolCall",
-        id: "relay-yield",
+        // Unique per call (`relay-yield-1`, `-2`, …) so two calls in one session
+        // can't collide on a host that keys tool results by id.
+        id: expect.stringMatching(/^relay-yield-\d+$/),
         name: "yield",
         arguments: { type: "result", result: {} },
       };
@@ -238,13 +255,68 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
       expect(toolCallStart?.partial?.content?.[1]).toEqual(yieldCall);
       expect(toolCallEnd?.contentIndex).toBe(1);
       expect(toolCallEnd?.toolCall).toEqual(yieldCall);
-      expect(toolCallEnd?.partial?.content?.[1]).toEqual(yieldCall);
-      expect(toolCallStart?.partial?.content?.[1]).toBe(toolCallEnd?.toolCall);
-      expect(toolCallEnd?.toolCall).toBe(toolCallEnd?.partial?.content?.[1]);
       const done = events.at(-1);
       expect(done?.reason).toBe("toolUse");
       expect(done?.message?.stopReason).toBe("toolUse");
       expect(done?.message?.content).toEqual([{ type: "text", text: "HEARTBEAT_OK" }, yieldCall]);
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+    }
+  });
+
+  it("calls the `yield` tool by the host's own spelling of its name", async () => {
+    // The call has to carry the name the host registered, or it resolves to no
+    // tool at all. Matching is case-insensitive; the emitted name is not.
+    const context = {
+      messages: [{ role: "user", content: "return the marker" }],
+      systemPrompt: undefined,
+      tools: [{ name: "Yield" }],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        fakeDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+
+      expect(events.at(-1)?.message?.content?.[1]?.name).toBe("Yield");
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+    }
+  });
+
+  it("sends no terminal `yield` call on a run that produced no text", async () => {
+    // The call closes the omp task as done. Sending it for an empty result banks a
+    // successful task carrying nothing, which for the verify role reads as a pass.
+    const context = {
+      messages: [{ role: "user", content: "return the marker" }],
+      systemPrompt: undefined,
+      tools: [{ name: "yield" }],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        emptyResultDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+
+      expect(events.map((event) => event.type)).toEqual(["start", "done"]);
+      const done = events.at(-1);
+      expect(done?.reason).toBe("stop");
+      expect(done?.message?.stopReason).toBe("stop");
+      expect(done?.message?.content).toEqual([]);
     } finally {
       if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
       else process.env.PI_RELAY_HEARTBEAT_MS = previous;
@@ -276,7 +348,7 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
     }
   });
 
-  it("never synthesizes a successful yield for an errored backend", async () => {
+  it("never synthesizes a successful `yield` call for an errored backend", async () => {
     const context = {
       messages: [{ role: "user", content: "return the marker" }],
       systemPrompt: undefined,
