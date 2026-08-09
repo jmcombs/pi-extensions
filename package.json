@@ -11,6 +11,10 @@
   "bugs": {
     "url": "https://github.com/jmcombs/pi-extensions/issues"
   },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/jmcombs"
+  },
   "license": "MIT",
   "author": "Jeremy Combs",
   "workspaces": [
