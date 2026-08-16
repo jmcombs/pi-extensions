@@ -11,9 +11,14 @@
  * ── Single completion = one full headless CLI run (single-turn) ──
  * The relayed subagent has NO pi-side tools; the external agent runs its OWN tool
  * loop and returns final text. So `streamSimple` emits exactly one assistant
- * message (`stop`), the child pi agent loop ends after one turn, and pi's native
+ * message, the child agent loop ends after one turn, and the host's native
  * subagent-async layer delivers the result. This supersedes relay's Phase-1/2
  * bespoke `verify_phase` tool + custom `sendMessage` pushback.
+ *
+ * That message stops with `stop` on pi. On oh-my-pi it stops with `toolUse` and
+ * carries one extra content part: a call to omp's local `yield` tool, which is how
+ * a task is finished there (see {@link RELAY_TERMINAL_YIELD_TOOL}). Either way it
+ * is still a single external CLI run.
  *
  * ── Persona + skills (context → inlined content) ──
  * pi-subagents assembles the subagent persona body + a skill INJECTION into the
@@ -130,11 +135,84 @@ function extractTask(context: RelayContext): string {
   return parts.join("\n\n").trim();
 }
 
+/**
+ * oh-my-pi's task-completion tool. omp runs a relayed subagent as a TASK: it does
+ * not treat the assistant's text as terminal, and instead waits for a call to its
+ * own local `yield` tool. Without one it injects a reminder and re-runs the whole
+ * request — a fresh headless CLI invocation each time. pi has no such tool, so the
+ * tool's presence in `context.tools` is what tells us we're on omp.
+ *
+ * `yield` is deliberately absent from every driver's tool-name map, so it is
+ * dropped by `mapToolNames` and never reaches `claude`/`grok` — it stays local to
+ * the host, and relay is the one that calls it.
+ */
+const RELAY_TERMINAL_YIELD_TOOL = "yield";
+
+/** Prefix for the synthetic call's id; a per-call counter is appended (see below). */
+const RELAY_TERMINAL_YIELD_CALL_ID = "relay-yield";
+
+/**
+ * Counter making each synthetic call id unique (`relay-yield-1`, `-2`, …). Tool
+ * call ids must not repeat within a session: hosts pair a tool result back to its
+ * call by id, so a repeated id makes two calls indistinguishable.
+ */
+let terminalYieldCallSeq = 0;
+
+/**
+ * The host's own name for its `yield` tool, or `undefined` if it has none
+ * (pi, rather than omp). Matched case-insensitively but returned as the host
+ * spells it — the emitted call must use the host's exact name to resolve.
+ *
+ * The `typeof` guard covers hosts whose tool entries don't match pi's declared
+ * `Tool` type; omp diverges from it elsewhere at this seam (see
+ * `normalizeSystemPrompt` for `systemPrompt`), and a malformed entry must not
+ * throw a provider that would otherwise have run.
+ */
+function terminalYieldToolName(context: RelayContext): string | undefined {
+  return (context.tools ?? []).find(
+    (tool) =>
+      typeof tool?.name === "string" &&
+      tool.name.trim().toLowerCase() === RELAY_TERMINAL_YIELD_TOOL,
+  )?.name;
+}
+
+interface AssistantMessageOptions {
+  isError?: boolean;
+  /**
+   * Host tool name to append a terminal `yield` call for. Omit for no call (the pi
+   * path, and any run that produced no text — see the caller).
+   */
+  terminalYieldTool?: string;
+}
+
 /** Build a minimal final assistant message carrying `text`. */
-function assistantMessage(model: RelayModel, text: string, isError = false): RelayAssistantMessage {
+function assistantMessage(
+  model: RelayModel,
+  text: string,
+  options: AssistantMessageOptions = {},
+): RelayAssistantMessage {
+  const { isError = false, terminalYieldTool } = options;
+  const content: Array<Record<string, unknown>> = [];
+  if (text.length > 0) content.push({ type: "text", text });
+  if (!isError && terminalYieldTool !== undefined) {
+    // Frozen: this exact object is handed to `toolcall_start`, `toolcall_end` and
+    // the final message, so an unfrozen one lets a consumer mutating the event
+    // mutate the settled result too.
+    content.push(
+      Object.freeze({
+        type: "toolCall",
+        id: `${RELAY_TERMINAL_YIELD_CALL_ID}-${++terminalYieldCallSeq}`,
+        name: terminalYieldTool,
+        // `yield` takes the outcome shape, not the answer — the text content part
+        // above is what carries the result.
+        arguments: { type: "result", result: {} },
+      }),
+    );
+  }
+
   const message = {
     role: "assistant",
-    content: text.length > 0 ? [{ type: "text", text }] : [],
+    content,
     api: model.api,
     provider: model.provider,
     model: model.id,
@@ -146,7 +224,7 @@ function assistantMessage(model: RelayModel, text: string, isError = false): Rel
       totalTokens: 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     },
-    stopReason: isError ? "error" : "stop",
+    stopReason: isError ? "error" : terminalYieldTool !== undefined ? "toolUse" : "stop",
     timestamp: Date.now(),
     ...(isError ? { errorMessage: text || "relay run produced no result" } : {}),
   };
@@ -161,6 +239,11 @@ function assistantMessage(model: RelayModel, text: string, isError = false): Rel
  * `done` event (the external agent's final text) or, on a cut / spawn-failure /
  * unparseable result, an `error` event — NEVER a silent success (D6 fail-safe: no
  * auto-PASS on a cut run). The verdict rides ONLY on the terminal event.
+ *
+ * On oh-my-pi a successful run that produced text also emits `toolcall_start` +
+ * `toolcall_end` for the synthetic `yield` call just before `done`, and `done`
+ * carries `toolUse` instead of `stop`. Errored runs never do — that call would tell
+ * omp the task succeeded.
  */
 export function streamViaDriver(
   driver: AgentDriver,
@@ -168,16 +251,19 @@ export function streamViaDriver(
   context: RelayContext,
   signal?: AbortSignal,
 ): RelayStreamReturn {
+  const terminalYieldTool = terminalYieldToolName(context);
   // D11: pi's own event-stream contract (for use in extensions) — not hand-rolled.
   const stream = createAssistantMessageEventStream();
   // Push events typed against our (structurally identical) message shape. The
   // `text_delta` beat carries an empty partial and drives pi's `message_update`
-  // (heartbeat, below); the terminal result rides only on `done`/`error`.
+  // (heartbeat, below); the terminal result rides only on `done`/`error`. The
+  // `toolcall_*` pair is the omp `yield` call and carries no verdict of its own.
   const push = stream.push.bind(stream) as (event: {
-    type: "start" | "text_delta" | "done" | "error";
+    type: "start" | "text_delta" | "toolcall_start" | "toolcall_end" | "done" | "error";
     reason?: string;
     contentIndex?: number;
     delta?: string;
+    toolCall?: unknown;
     partial?: RelayAssistantMessage;
     message?: RelayAssistantMessage;
     error?: RelayAssistantMessage;
@@ -269,7 +355,16 @@ export function streamViaDriver(
     if (isError) {
       push({ type: "error", reason: "error", error: final });
     } else {
-      push({ type: "done", reason: "stop", message: final });
+      // The only tool call relay ever synthesizes is the terminal `yield`, so the
+      // first `toolCall` part is it.
+      const terminalToolCall = final.content.find((content) => content.type === "toolCall");
+      if (terminalToolCall?.type === "toolCall") {
+        const contentIndex = final.content.indexOf(terminalToolCall);
+        push({ type: "toolcall_start", contentIndex, partial: final });
+        push({ type: "toolcall_end", contentIndex, toolCall: terminalToolCall, partial: final });
+      }
+      const reason = final.stopReason === "toolUse" ? "toolUse" : "stop";
+      push({ type: "done", reason, message: final });
     }
   };
 
@@ -280,7 +375,9 @@ export function streamViaDriver(
   child.on("error", (error: Error) => {
     // Spawn failure (e.g. missing binary) → fail-safe error, never auto-success.
     settle(
-      assistantMessage(model, `relay: failed to run ${driver.bin} — ${error.message}`, true),
+      assistantMessage(model, `relay: failed to run ${driver.bin} — ${error.message}`, {
+        isError: true,
+      }),
       true,
     );
   });
@@ -292,7 +389,7 @@ export function streamViaDriver(
         assistantMessage(
           model,
           "relay: run cut short (wall-cap or abort) before producing a result — UNVERIFIED",
-          true,
+          { isError: true },
         ),
         true,
       );
@@ -309,10 +406,16 @@ export function streamViaDriver(
         parsed.result.length === 0
           ? "backend produced no parseable result"
           : "backend reported is_error";
-      settle(assistantMessage(model, `relay: ${detail} — UNVERIFIED`, true), true);
+      settle(assistantMessage(model, `relay: ${detail} — UNVERIFIED`, { isError: true }), true);
       return;
     }
-    settle(assistantMessage(model, parsed.result), false);
+    // D6: only signal completion on a run that actually produced text. `claude`
+    // can return a clean envelope with an empty `.result`; sending the terminal
+    // call for that would close the omp task as a success carrying nothing, which
+    // for the verify role reads as a pass. Without the call, omp keeps the task
+    // open instead of banking an empty one.
+    const emitYield = terminalYieldTool !== undefined && parsed.result.length > 0;
+    settle(assistantMessage(model, parsed.result, emitYield ? { terminalYieldTool } : {}), false);
   });
 
   return stream as unknown as RelayStreamReturn;
