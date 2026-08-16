@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.2](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.1...relay/v1.1.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* **relay:** terminate OMP tasks through yield ([#197](https://github.com/jmcombs/pi-extensions/issues/197)) ([95646a5](https://github.com/jmcombs/pi-extensions/commit/95646a5b321145abf3f4309446c13eaf898ab56a))
+
 ## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.0...relay/v1.1.1) (2026-07-19)
 
 
