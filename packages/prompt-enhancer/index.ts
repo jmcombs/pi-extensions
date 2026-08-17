@@ -35,7 +35,15 @@ import {
   type ExtensionContext,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
+import {
+  Container,
+  fuzzyFilter,
+  getKeybindings,
+  Input,
+  type SelectItem,
+  SelectList,
+  Text,
+} from "@earendil-works/pi-tui";
 
 // `execFile` (not `exec`) avoids passing args through a shell, so we don't
 // need to escape user-derived `cwd` paths.
@@ -100,12 +108,13 @@ const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert to previous prompt";
 const WIDGET_KEY = "prompt-enhancer";
 const TRANSIENT_STATUS_MS = 4000;
 
-// Pattern 1 chrome around SelectList: top border, title, help, bottom border,
-// plus the (n/total) scrollInfo line SelectList emits when the list overflows.
-const PICKER_CHROME_LINES = 5;
+// Pattern 1 chrome around SelectList: top border, title, search Input, help,
+// bottom border, plus the (n/total) scrollInfo line when the list overflows.
+const PICKER_CHROME_LINES = 6;
 const PICKER_MIN_VISIBLE = 3;
 const PICKER_TITLE = "Pick enhancer model";
-const PICKER_HELP = "↑↓ navigate • enter select • esc cancel";
+const PICKER_HELP = "↑↓ navigate • type to filter • enter select • esc cancel";
+const PICKER_NO_MATCH = "  No matching models";
 
 // ── Session-scoped state ────────────────────────────────────────────────
 
@@ -372,6 +381,13 @@ export function computePickerMaxVisible(terminalRows: number, itemCount: number)
   return Math.max(PICKER_MIN_VISIBLE, Math.min(itemCount, budget));
 }
 
+/** Same tokenized fuzzy filter `/model` uses (`fuzzyFilter` from pi-tui). */
+export function filterPickerItems(items: readonly SelectItem[], query: string): SelectItem[] {
+  const q = query.trim();
+  if (q.length === 0) return [...items];
+  return fuzzyFilter([...items], q, (item) => item.label);
+}
+
 export interface EnhancerModelPickerHandle {
   render(width: number): string[];
   invalidate(): void;
@@ -385,25 +401,46 @@ export function createEnhancerModelSelector(
   items: SelectItem[],
   done: (value: string | undefined) => void,
 ): EnhancerModelPickerHandle {
-  const maxVisible = computePickerMaxVisible(tui.terminal?.rows ?? 24, items.length);
-  const container = new Container();
-  container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-  container.addChild(new Text(theme.fg("accent", theme.bold(PICKER_TITLE)), 1, 0));
-
-  const selectList = new SelectList(items, maxVisible, {
+  const listTheme = {
     selectedPrefix: (t: string) => theme.fg("accent", t),
     selectedText: (t: string) => theme.fg("accent", t),
     description: (t: string) => theme.fg("muted", t),
     scrollInfo: (t: string) => theme.fg("dim", t),
     noMatch: (t: string) => theme.fg("warning", t),
-  });
-  selectList.onSelect = (item: SelectItem): void => {
-    done(item.value);
   };
-  selectList.onCancel = (): void => {
-    done(undefined);
+
+  const searchInput = new Input();
+  searchInput.focused = true;
+
+  const listContainer = new Container();
+  let selectList: SelectList | undefined;
+
+  const buildList = (visible: SelectItem[]): void => {
+    listContainer.clear();
+    if (visible.length === 0) {
+      selectList = undefined;
+      listContainer.addChild(new Text(theme.fg("warning", PICKER_NO_MATCH), 1, 0));
+      return;
+    }
+    const maxVisible = computePickerMaxVisible(tui.terminal?.rows ?? 24, visible.length);
+    const list = new SelectList(visible, maxVisible, listTheme);
+    list.onSelect = (item: SelectItem): void => {
+      done(item.value);
+    };
+    list.onCancel = (): void => {
+      done(undefined);
+    };
+    selectList = list;
+    listContainer.addChild(list);
   };
-  container.addChild(selectList);
+
+  buildList(items);
+
+  const container = new Container();
+  container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+  container.addChild(new Text(theme.fg("accent", theme.bold(PICKER_TITLE)), 1, 0));
+  container.addChild(searchInput);
+  container.addChild(listContainer);
   container.addChild(new Text(theme.fg("dim", PICKER_HELP), 1, 0));
   container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
@@ -413,7 +450,22 @@ export function createEnhancerModelSelector(
       container.invalidate();
     },
     handleInput: (data: string): void => {
-      selectList.handleInput(data);
+      const kb = getKeybindings();
+      if (
+        kb.matches(data, "tui.select.up") ||
+        kb.matches(data, "tui.select.down") ||
+        kb.matches(data, "tui.select.confirm") ||
+        kb.matches(data, "tui.select.cancel")
+      ) {
+        if (selectList) {
+          selectList.handleInput(data);
+        } else if (kb.matches(data, "tui.select.cancel")) {
+          done(undefined);
+        }
+      } else {
+        searchInput.handleInput(data);
+        buildList(filterPickerItems(items, searchInput.getValue()));
+      }
       tui.requestRender();
     },
   };
