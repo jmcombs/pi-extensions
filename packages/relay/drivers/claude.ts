@@ -84,8 +84,10 @@ export function mapToolNames(piNames: readonly string[]): string[] {
 }
 
 /**
- * The JSON envelope emitted by `claude -p --output-format json`. Only the fields
- * the driver reads are modelled; everything else in the envelope is ignored.
+ * The JSON envelope emitted by `claude -p --output-format json`. Claude Code
+ * historically emitted a single object; 2.1.220+ emits a JSON array of stream
+ * events ending in `{ type: "result", result, is_error }`. Only the fields the
+ * driver reads are modelled; everything else is ignored.
  */
 export interface ClaudeResultEnvelope {
   type?: string;
@@ -115,6 +117,23 @@ export interface AgentDriver {
   buildArgs(invocation: DriverInvocation): string[];
   /** Extract the neutral result from the backend's raw stdout. */
   parseResult(stdout: string): DriverResult;
+}
+
+function asEnvelope(value: unknown): ClaudeResultEnvelope | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  return value as ClaudeResultEnvelope;
+}
+
+/**
+ * Pull the terminal `{ type: "result" }` event from a 2.1.220+ stream array, or
+ * accept the historical single-object envelope. A missing result event (or a
+ * non-object parse) is `undefined` so the caller can fail closed (D6).
+ */
+function extractResultEnvelope(parsed: unknown): ClaudeResultEnvelope | undefined {
+  if (Array.isArray(parsed)) {
+    return asEnvelope(parsed.findLast((entry: unknown) => asEnvelope(entry)?.type === "result"));
+  }
+  return asEnvelope(parsed);
 }
 
 /**
@@ -156,7 +175,12 @@ export const claudeDriver: AgentDriver = {
 
   parseResult(stdout: string): DriverResult {
     try {
-      const envelope = JSON.parse(stdout) as ClaudeResultEnvelope;
+      const parsed: unknown = JSON.parse(stdout);
+      // 2.1.220+ emits a stream-event array ending in type:"result". Older CLIs
+      // emit a single envelope object. Missing/non-object shapes are an error —
+      // never an empty-string success (D6).
+      const envelope = extractResultEnvelope(parsed);
+      if (!envelope) return { result: "", isError: true };
       return {
         result: String(envelope.result ?? ""),
         isError: envelope.is_error === true,
