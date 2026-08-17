@@ -484,6 +484,45 @@ describe("claudeDriver — read-only by declaration, NO OS sandbox (D12)", () =>
   });
 });
 
+describe("claudeDriver — parseResult (D6 fail-safe)", () => {
+  it("picks the terminal result event from a Claude Code 2.1.220 stream array", () => {
+    const stdout = JSON.stringify([
+      { type: "system" },
+      { type: "result", is_error: false, result: "X" },
+    ]);
+    expect(claudeDriver.parseResult(stdout)).toEqual({ result: "X", isError: false });
+  });
+
+  it("still accepts the pre-2.1.220 single-object envelope", () => {
+    const stdout = JSON.stringify({ is_error: false, result: "X" });
+    expect(claudeDriver.parseResult(stdout)).toEqual({ result: "X", isError: false });
+  });
+
+  it("surfaces is_error from a result event as an error", () => {
+    const stdout = JSON.stringify([{ type: "result", is_error: true, result: "boom" }]);
+    expect(claudeDriver.parseResult(stdout)).toEqual({ result: "boom", isError: true });
+  });
+
+  it("treats an array with no result event as an error (never empty success)", () => {
+    const stdout = JSON.stringify([{ type: "system" }]);
+    expect(claudeDriver.parseResult(stdout)).toEqual({ result: "", isError: true });
+  });
+
+  it("treats unparseable/empty stdout as an error with no result (D6)", () => {
+    expect(claudeDriver.parseResult("")).toEqual({ result: "", isError: true });
+    expect(claudeDriver.parseResult("not json")).toEqual({ result: "", isError: true });
+  });
+
+  it("picks the last result event when more than one is present", () => {
+    const stdout = JSON.stringify([
+      { type: "result", is_error: false, result: "first" },
+      { type: "assistant" },
+      { type: "result", is_error: false, result: "last" },
+    ]);
+    expect(claudeDriver.parseResult(stdout)).toEqual({ result: "last", isError: false });
+  });
+});
+
 describe("grokDriver — tool-name map (D10, in the driver)", () => {
   it("maps pi tool names to Grok tool names", () => {
     expect(mapGrokToolName("read")).toBe("Read");
