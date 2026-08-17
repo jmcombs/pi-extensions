@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.2...relay/v1.1.3) (2026-08-17)
+
+
+### Bug Fixes
+
+* **relay:** parse Claude Code 2.1.220 array output shape ([#211](https://github.com/jmcombs/pi-extensions/issues/211)) ([4118de8](https://github.com/jmcombs/pi-extensions/commit/4118de86a39f789d357f06a590560b5d00607c6d))
+
 ## [1.1.2](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.1...relay/v1.1.2) (2026-08-16)
 
 
