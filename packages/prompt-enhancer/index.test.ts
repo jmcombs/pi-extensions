@@ -16,6 +16,7 @@ import factory, {
   createEnhancerModelSelector,
   type EnhancerContext,
   filterPickerItems,
+  SYSTEM_PROMPT,
 } from "./index.js";
 
 interface RegistrationLog {
@@ -104,6 +105,12 @@ describe("buildEnhancerUserMessage", () => {
     const out = buildEnhancerUserMessage("fix the bug", baseContext);
     expect(out).toContain("## Working directory\n/tmp/example");
     expect(out).toContain("## Original prompt\nfix the bug");
+  });
+
+  it("leads with a do-not-answer task so the model rewrites instead of solving", () => {
+    const out = buildEnhancerUserMessage("fix the bug", baseContext);
+    expect(out).toMatch(/^## Task\n/);
+    expect(out).toContain("Do not answer, solve, implement, or explain");
   });
 
   it("omits the project tree section when no tree was gathered", () => {
@@ -221,6 +228,14 @@ describe("createEnhancerModelSelector", () => {
   });
 });
 
+describe("SYSTEM_PROMPT", () => {
+  it("forbids answering or implementing the user's request", () => {
+    expect(SYSTEM_PROMPT).toMatch(/do not answer/i);
+    expect(SYSTEM_PROMPT).toMatch(/do not solve, implement/i);
+    expect(SYSTEM_PROMPT).toContain("rewritten *request*");
+  });
+});
+
 describe("filterPickerItems", () => {
   const items = [
     { value: "anthropic/claude-sonnet-4", label: "anthropic/claude-sonnet-4 (current)" },
@@ -251,6 +266,7 @@ describe("buildEnhancerUserMessage section order", () => {
       mentionedFiles: [{ path: "f.ts", content: "x" }],
     });
     const order = [
+      "## Task",
       "## Working directory",
       "## Project tree",
       "## Git",

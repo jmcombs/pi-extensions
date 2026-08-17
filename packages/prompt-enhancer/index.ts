@@ -44,6 +44,7 @@ import {
   SelectList,
   Text,
 } from "@earendil-works/pi-tui";
+import { formatStatusWidget, resolveGlyph } from "./widget.js";
 
 // `execFile` (not `exec`) avoids passing args through a shell, so we don't
 // need to escape user-derived `cwd` paths.
@@ -82,7 +83,7 @@ const GIT_LOG_LIMIT = 8;
 const FILE_MAX_LINES = 100;
 const FILE_MAX_REFERENCES = 3;
 
-const SYSTEM_PROMPT = `You are a prompt enhancer for a coding agent.
+export const SYSTEM_PROMPT = `You are a prompt rewriter for a coding agent. You do not answer the user's request. You do not solve, implement, explain, or carry out the work described in the prompt. Your only job is to rewrite the user's rough request into a better request that a *different* coding agent will execute later.
 
 Given a user's rough prompt and live context from their working directory (project tree, git state, mentioned file contents), rewrite the prompt to be precise, actionable, and codebase-aware.
 
@@ -92,6 +93,7 @@ Rules:
 - Be concise. Output only the rewritten prompt — no preamble, no commentary, no markdown headings, no quoting of the original.
 - If the original is already precise, return it nearly verbatim with only minor clarifications.
 - Do not address the agent in the second person ("please ...") unless the original did. Match the tone of the original.
+- If you catch yourself answering the question, writing code, listing steps to do the work, or saying "here is the fix", stop. Output the rewritten *request* instead.
 
 Return only the enhanced prompt as plain text.`;
 
@@ -348,6 +350,9 @@ export async function gatherEnhancerContext(
 
 export function buildEnhancerUserMessage(originalPrompt: string, context: EnhancerContext): string {
   const sections: string[] = [];
+  sections.push(
+    "## Task\nRewrite the original prompt so a coding agent can execute it later. Do not answer, solve, implement, or explain the original request. Output only the rewritten prompt.",
+  );
   sections.push(`## Working directory\n${context.cwd}`);
   if (context.tree)
     sections.push(`## Project tree (depth ${String(TREE_MAX_DEPTH)})\n${context.tree}`);
@@ -473,28 +478,28 @@ export function createEnhancerModelSelector(
 
 // ── Persistent widget ────────────────────────────────────────
 //
-// A 2- or 3-line panel rendered above the editor:
-//   1. "Prompt Enhancer"
-//   2. "  Model: <provider/id>"          (or "  Model: — (no model)")
-//   3. "  · <transient status>"          (only when a status is active)
+// One Powerline line above the editor (Steward / Headroom standard):
+//   [glyph Prompt Enhancer] [model | no model] [optional status]
 //
-// The widget is the canonical place for soft messages (cancelled, reverted,
-// nothing-to-enhance, etc.) so they don't pile up as Pi notifications. Hard
-// errors still go through ctx.ui.notify.
+// Soft messages (cancelled, reverted, nothing-to-enhance) ride the status
+// segment so they don't pile up as Pi notifications. Hard errors still go
+// through ctx.ui.notify. Pi cannot place widgets left/right of each other —
+// only above/below the editor — so this sits in the same stack as Steward.
 
-function renderWidgetLines(ctx: ExtensionContext, transientStatus?: string): string[] {
+function renderWidgetLine(ctx: ExtensionContext, transientStatus?: string): string {
   const model = resolveEnhancerModel(ctx);
-  const lines: string[] = [
-    "Prompt Enhancer",
-    `  Model: ${model ? modelLabel(model) : "— (no model)"}`,
-  ];
-  if (transientStatus !== undefined) lines.push(`  · ${transientStatus}`);
-  return lines;
+  return formatStatusWidget(
+    {
+      model: model ? modelLabel(model) : undefined,
+      status: transientStatus,
+    },
+    resolveGlyph(process.env),
+  );
 }
 
 function updateWidget(ctx: ExtensionContext, transientStatus?: string): void {
   if (!ctx.hasUI) return;
-  ctx.ui.setWidget(WIDGET_KEY, renderWidgetLines(ctx, transientStatus), {
+  ctx.ui.setWidget(WIDGET_KEY, [renderWidgetLine(ctx, transientStatus)], {
     placement: "aboveEditor",
   });
 }

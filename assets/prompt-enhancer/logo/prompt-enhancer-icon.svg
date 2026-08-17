@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Prompt Enhancer app icon">
+  <rect width="64" height="64" rx="15" fill="#3465a4"/>
+  <!-- prompt caret + line (the request) -->
+  <path d="M14 42 L22 36 L14 30" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="26" y="34" width="24" height="4" rx="2" fill="#ffffff"/>
+  <!-- sparkle (the enhance) -->
+  <path d="M44 16 L46.2 21.8 L52 24 L46.2 26.2 L44 32 L41.8 26.2 L36 24 L41.8 21.8 Z" fill="#ffffff"/>
+</svg>
