@@ -8,9 +8,14 @@
  * exercised manually with `pi -e ./packages/prompt-enhancer`.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { buildEnhancerUserMessage, type EnhancerContext } from "./index.js";
+import factory, {
+  buildEnhancerUserMessage,
+  computePickerMaxVisible,
+  createEnhancerModelSelector,
+  type EnhancerContext,
+} from "./index.js";
 
 interface RegistrationLog {
   commands: string[];
@@ -135,7 +140,55 @@ describe("buildEnhancerUserMessage", () => {
     expect(out).toContain("### README.md\n```\n# hello\n```");
     expect(out).toContain("### src/index.ts\n```\nexport {};\n```");
   });
+});
 
+describe("computePickerMaxVisible", () => {
+  it("sizes the viewport to 70% of terminal rows minus chrome", () => {
+    // 24 rows → floor(24 * 0.7) = 16, minus 5 chrome = 11.
+    expect(computePickerMaxVisible(24, 50)).toBe(11);
+  });
+
+  it("clamps to the item count when the list is shorter than the budget", () => {
+    expect(computePickerMaxVisible(24, 4)).toBe(4);
+  });
+
+  it("clamps to a minimum of 3 visible rows on a short terminal", () => {
+    expect(computePickerMaxVisible(10, 50)).toBe(3);
+  });
+
+  it("falls back to 24 rows when the terminal size is missing or invalid", () => {
+    expect(computePickerMaxVisible(Number.NaN, 50)).toBe(11);
+    expect(computePickerMaxVisible(0, 50)).toBe(11);
+    expect(computePickerMaxVisible(-4, 50)).toBe(11);
+  });
+});
+
+describe("createEnhancerModelSelector", () => {
+  const identityTheme: Pick<Theme, "fg" | "bold"> = {
+    fg: (_color, text) => text,
+    bold: (text) => text,
+  };
+
+  it("instantiates and renders without throwing", () => {
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      value: `provider/model-${String(i)}`,
+      label: i === 0 ? `provider/model-${String(i)} (current)` : `provider/model-${String(i)}`,
+    }));
+    const picker = createEnhancerModelSelector(
+      { terminal: { rows: 24 }, requestRender: () => {} },
+      identityTheme,
+      items,
+      () => {},
+    );
+    const lines = picker.render(80);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((line) => line.includes("Pick enhancer model"))).toBe(true);
+    expect(lines.some((line) => line.includes("(current)"))).toBe(true);
+    expect(lines.some((line) => /\(\d+\/\d+\)/.test(line))).toBe(true);
+  });
+});
+
+describe("buildEnhancerUserMessage section order", () => {
   it("preserves section ordering: cwd → tree → git → files → original", () => {
     const out = buildEnhancerUserMessage("do the thing", {
       cwd: "/tmp/example",

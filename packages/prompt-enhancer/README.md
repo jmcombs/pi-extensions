@@ -77,9 +77,10 @@ automatically once you submit a new prompt.
 
 By default the enhancer uses the same model that's currently active in your Pi
 session (`ctx.model`). Run `/enhance-model` to open an interactive picker showing
-every model that has a configured API key. Your choice persists for the lifetime
-of the session only — restarting Pi or starting a new session resets it back to
-the default.
+every model that has a configured API key. The picker sizes itself to the
+current terminal and scrolls with a `(n/total)` cue when the list is longer than
+the window. Your choice persists for the lifetime of the session only —
+restarting Pi or starting a new session resets it back to the default.
 
 ## Behavior Notes
 

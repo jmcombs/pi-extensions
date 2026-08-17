@@ -30,9 +30,12 @@ import { promisify } from "node:util";
 import { type Api, complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
 import {
   BorderedLoader,
+  DynamicBorder,
   type ExtensionAPI,
   type ExtensionContext,
+  type Theme,
 } from "@earendil-works/pi-coding-agent";
+import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 
 // `execFile` (not `exec`) avoids passing args through a shell, so we don't
 // need to escape user-derived `cwd` paths.
@@ -96,6 +99,13 @@ const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert to previous prompt";
 // Widget rendered above the editor with persistent enhancer state.
 const WIDGET_KEY = "prompt-enhancer";
 const TRANSIENT_STATUS_MS = 4000;
+
+// Pattern 1 chrome around SelectList: top border, title, help, bottom border,
+// plus the (n/total) scrollInfo line SelectList emits when the list overflows.
+const PICKER_CHROME_LINES = 5;
+const PICKER_MIN_VISIBLE = 3;
+const PICKER_TITLE = "Pick enhancer model";
+const PICKER_HELP = "↑↓ navigate • enter select • esc cancel";
 
 // ── Session-scoped state ────────────────────────────────────────────────
 
@@ -349,6 +359,64 @@ function resolveEnhancerModel(ctx: ExtensionContext): Model<Api> | undefined {
 
 function modelLabel(model: Model<Api>): string {
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * Visible SelectList rows for a terminal height. Uses 70% of rows minus the
+ * Pattern 1 chrome (borders, title, help, optional scrollInfo), clamped so a
+ * tiny terminal still shows a few items and a short list is not padded.
+ */
+export function computePickerMaxVisible(terminalRows: number, itemCount: number): number {
+  const rows = Number.isFinite(terminalRows) && terminalRows > 0 ? Math.floor(terminalRows) : 24;
+  const budget = Math.floor(rows * 0.7) - PICKER_CHROME_LINES;
+  return Math.max(PICKER_MIN_VISIBLE, Math.min(itemCount, budget));
+}
+
+export interface EnhancerModelPickerHandle {
+  render(width: number): string[];
+  invalidate(): void;
+  handleInput(data: string): void;
+}
+
+/** Official Pattern 1 selector: DynamicBorder + SelectList, editor-replace. */
+export function createEnhancerModelSelector(
+  tui: { terminal?: { rows?: number }; requestRender: () => void },
+  theme: Pick<Theme, "fg" | "bold">,
+  items: SelectItem[],
+  done: (value: string | undefined) => void,
+): EnhancerModelPickerHandle {
+  const maxVisible = computePickerMaxVisible(tui.terminal?.rows ?? 24, items.length);
+  const container = new Container();
+  container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+  container.addChild(new Text(theme.fg("accent", theme.bold(PICKER_TITLE)), 1, 0));
+
+  const selectList = new SelectList(items, maxVisible, {
+    selectedPrefix: (t: string) => theme.fg("accent", t),
+    selectedText: (t: string) => theme.fg("accent", t),
+    description: (t: string) => theme.fg("muted", t),
+    scrollInfo: (t: string) => theme.fg("dim", t),
+    noMatch: (t: string) => theme.fg("warning", t),
+  });
+  selectList.onSelect = (item: SelectItem): void => {
+    done(item.value);
+  };
+  selectList.onCancel = (): void => {
+    done(undefined);
+  };
+  container.addChild(selectList);
+  container.addChild(new Text(theme.fg("dim", PICKER_HELP), 1, 0));
+  container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+
+  return {
+    render: (width: number): string[] => container.render(width),
+    invalidate: (): void => {
+      container.invalidate();
+    },
+    handleInput: (data: string): void => {
+      selectList.handleInput(data);
+      tui.requestRender();
+    },
+  };
 }
 
 // ── Persistent widget ────────────────────────────────────────
@@ -635,19 +703,23 @@ export default function (pi: ExtensionAPI): void {
         return { label: `${base}${tag}`, model: m };
       });
 
-      // Inline selector. Pi's ctx.ui.select doesn't expose sizing knobs, so
-      // on terminals shorter than the model list the picker visually overflows
-      // — same behavior as pi's built-in /model, /skill, /theme selectors. The
-      // sort above ensures the active model is at the top, which is what most
-      // users want to see immediately. We tried wrapping ExtensionSelectorComponent
-      // in a sized ctx.ui.custom overlay but the component's scroll logic isn't
-      // viewport-aware, so it clipped without scrolling — worse than this.
-      const choice = await ctx.ui.select(
-        "Pick enhancer model",
-        choices.map((c) => c.label),
+      if (!ctx.hasUI) {
+        ctx.ui.notify("Prompt enhancer model picker requires interactive mode.", "warning");
+        return;
+      }
+
+      // Official Pattern 1: SelectList + DynamicBorder via ctx.ui.custom
+      // (editor-replace, no overlay). Overlay maxHeight only clips; SelectList
+      // sizes its viewport from tui.terminal.rows so the highlight stays on screen.
+      const items: SelectItem[] = choices.map((c) => ({
+        value: modelLabel(c.model),
+        label: c.label,
+      }));
+      const choice = await ctx.ui.custom<string | undefined>((tui, theme, _kb, done) =>
+        createEnhancerModelSelector(tui, theme, items, done),
       );
       if (choice === undefined) return;
-      const picked = choices.find((c) => c.label === choice)?.model;
+      const picked = choices.find((c) => modelLabel(c.model) === choice)?.model;
       if (!picked) return;
       enhancerModelOverride = picked;
       updateWidget(ctx);
