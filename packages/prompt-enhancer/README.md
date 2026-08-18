@@ -53,11 +53,6 @@ currently active in your session — or one you pick with `/prompt_enhance_model
 There is no shortcut for `/prompt_enhance_model` or `/prompt_enhance_auto` —
 those are commands. The two accelerators appear in `/hotkeys`.
 
-> Pi's terminal `Ctrl+Z` is bound to `app.suspend` (it sends `SIGTSTP` and
-> backgrounds Pi — resume with `fg`). The extension uses `Ctrl+Shift+Z` instead.
-> `Ctrl+Shift+P` is Pi's own `app.model.cycleBackward` and is intentionally
-> not used here — a colliding extension shortcut is skipped.
-
 **Footer hint chips** — enhance is not advertised as an always-on chip. After
 a successful enhance, a revert chip appears (`Ctrl+Shift+Z to revert enhanced
 prompt`, or `Enter to send · Ctrl+Shift+Z to revert` when auto is on) and
