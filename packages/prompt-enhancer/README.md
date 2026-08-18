@@ -76,14 +76,21 @@ separators to render. Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark.
 
 ## Auto-enhance on Enter
 
-Off by default. `/prompt_enhance_auto` toggles it for this session. A green
-`auto` block on the status bar means it is on.
+Off by default. Run `/prompt_enhance_auto` to turn it on for this session. A
+green `auto` block on the status bar means it is on.
 
-When it is on, the first Enter rewrites the draft into the editor; the next
-Enter sends it.
+```mermaid
+flowchart TD
+    A[Type a request] --> B[Enter]
+    B --> C[Rewrite appears in the editor]
+    C --> D{Keep it?}
+    D -->|Enter| E[Send to the model]
+    D -->|Ctrl+Shift+Z| F[Original comes back]
+```
 
-Auto-enhance leaves empty drafts, tiny replies with no file path, and short
-answers to a question alone. `Ctrl+Shift+E` always rewrites.
+Short replies — `ok`, `yes`, or a brief answer to a question — skip the
+rewrite and go straight to the model. `Ctrl+Shift+E` always enhances, even
+those.
 
 ## Configuration
 
