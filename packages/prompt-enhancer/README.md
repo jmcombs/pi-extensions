@@ -60,33 +60,20 @@ enhance that is still running.
 
 ## The status bar
 
-Prompt Enhancer draws a Powerline line above the editor — same family as
-[Steward](../steward) and [Headroom](../headroom). Pi cannot place widgets
-left/right of each other, so the bars stack as separate lines.
+A line above the editor shows the enhancer model, whether auto-enhance is on,
+and a short status after you enhance or revert.
+
+A [Nerd Font](https://www.nerdfonts.com/) is required for the mark and
+separators to render. Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="820" alt="Prompt Enhancer status widget states">
 </div>
 
-- **Ready** — a model is resolved (session default or a `/prompt_enhance_model`
-  override). The blue block is `provider/id`. Enhance with `Ctrl+Shift+E`.
-- **Auto on** — `/prompt_enhance_auto` armed a green `auto` block. Enter
-  rewrites; Enter again sends. Off by default, and reset when the session
-  restarts.
-- **No model** — nothing is configured. `/prompt_enhance` will refuse until you
-  pick one with `/model` or `/prompt_enhance_model`.
-- **Review** — a rewrite is sitting in the editor and has not been sent. Teal
-  `Enter to send` (auto) or `Prompt enhanced` (manual). `Ctrl+Shift+Z` restores
-  the original.
-
-> **Nerd Font required.** The widget uses Powerline separators and a two-glyph
-> brand mark (`nf-cod-chevron-right` + `nf-cod-sparkle`, the caret and the
-> spark, adjacent with no space). Your terminal must be using a
-> [Nerd Font](https://www.nerdfonts.com/) (e.g. MesloLGS NF, FiraCode NF,
-> JetBrainsMono NF) or the separators and icon will render as missing-glyph
-> boxes. This affects **display only** — enhance, revert, auto, and the picker
-> work regardless of the font. Override the mark with `PROMPT_ENHANCER_GLYPH`;
-> set it empty to drop the mark and keep the wordmark.
+- **Ready** — a model is resolved. Enhance with `Ctrl+Shift+E`.
+- **Auto on** — `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
+- **No model** — pick one with `/model` or `/prompt_enhance_model`.
+- **Review** — a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
 
 ## Auto-enhance on Enter
 
