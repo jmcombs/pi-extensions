@@ -94,7 +94,7 @@ export interface Expected {
 // | grok-search     | grok_search                       | grok_setup                                                 | —                                                        | —                                     |
 // | headroom        | headroom_retrieve                 | headroom-status, headroom_setup, headroom-stats, headroom-simulate | context, session_start                          | —                                     |
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_end, agent_end     | —                                     |
-// | prompt-enhancer | —                                 | enhance, enhance-model, enhance-revert                     | session_start, session_shutdown, model_select, input     | shortcuts ctrl+shift+p, ctrl+shift+z  |
+// | prompt-enhancer | —                                 | prompt_enhance, prompt_enhance_model, prompt_enhance_revert, prompt_enhance_auto | session_start, session_shutdown, model_select, input | shortcuts ctrl+shift+e, ctrl+shift+z  |
 // | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok (via stub) |
 // | steward         | —                                 | steward_start, steward_dashboard, steward_stop, steward_initialize | session_start, turn_start, turn_end, session_shutdown | —                                     |
 // | tavily-search   | tavily_search                     | tavily_setup                                               | —                                                        | —                                     |
@@ -138,9 +138,14 @@ export const EXPECTED: Record<string, Expected> = {
     note: "lifecycle handlers + notify command",
   },
   "prompt-enhancer": {
-    commands: ["enhance", "enhance-model", "enhance-revert"],
+    commands: [
+      "prompt_enhance",
+      "prompt_enhance_model",
+      "prompt_enhance_revert",
+      "prompt_enhance_auto",
+    ],
     handlers: ["session_start", "session_shutdown", "model_select", "input"],
-    shortcuts: ["ctrl+shift+p", "ctrl+shift+z"],
+    shortcuts: ["ctrl+shift+e", "ctrl+shift+z"],
     note: "commands + handlers + shortcuts, no tools",
   },
   relay: {
