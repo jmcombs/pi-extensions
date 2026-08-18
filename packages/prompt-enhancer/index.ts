@@ -6,7 +6,6 @@
  *                          codebase context and load the result into the editor.
  *   - /prompt-enhance-model   — pick the Prompt Enhancer model for this session.
  *   - /prompt-enhance-revert  — restore the editor to the pre-enhance text.
- *   - /enhance* aliases for the three commands above.
  *   - Ctrl+Shift+E / Ctrl+Shift+Z — enhance / revert shortcuts.
  *
  * Design constraints (from the project plan):
@@ -123,7 +122,7 @@ let enhancerModelOverride: Model<Api> | undefined;
 
 /**
  * The text that was in the editor (or supplied as args) immediately before
- * the most recent successful /enhance. /enhance-revert restores this and
+ * the most recent successful /prompt-enhance. /prompt-enhance-revert restores this and
  * clears the slot. Cleared also when the user submits a non-command prompt
  * (input event), since at that point the previous "original" is no longer
  * relevant.
@@ -567,7 +566,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   const editorBeforeReplace = editorText;
   // Replace the editor with the original (in case the user typed it via
-  // /enhance "..." rather than into the editor) so a Ctrl+Z after success
+  // /prompt-enhance "..." rather than into the editor) so a Ctrl+Z after success
   // takes them back to what they typed before invoking the enhancer.
   if (providedText !== undefined) ctx.ui.setEditorText(originalPrompt);
 
@@ -694,7 +693,7 @@ export default function (pi: ExtensionAPI): void {
     activeCtx = undefined;
   });
 
-  // The user changed the active Pi model. If we don't have a /enhance-model
+  // The user changed the active Pi model. If we don't have a /prompt-enhance-model
   // override in place, the widget's Model line should reflect the change.
   pi.on("model_select", (_event, ctx) => {
     activeCtx = ctx;
@@ -723,19 +722,9 @@ export default function (pi: ExtensionAPI): void {
     description: "Prompt Enhancer: rewrite the editor into a codebase-aware prompt.",
     handler: handleEnhance,
   });
-  pi.registerCommand("enhance", {
-    description: "Alias for /prompt-enhance.",
-    handler: handleEnhance,
-  });
 
   pi.registerCommand("prompt-enhance-model", {
     description: "Prompt Enhancer: pick the enhancer model for this session (resets on restart).",
-    handler: async (_args, ctx) => {
-      await handleEnhanceModel(ctx);
-    },
-  });
-  pi.registerCommand("enhance-model", {
-    description: "Alias for /prompt-enhance-model.",
     handler: async (_args, ctx) => {
       await handleEnhanceModel(ctx);
     },
@@ -807,10 +796,6 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("prompt-enhance-revert", {
     description: "Prompt Enhancer: restore the editor to the text from before the last enhance.",
-    handler: handleRevert,
-  });
-  pi.registerCommand("enhance-revert", {
-    description: "Alias for /prompt-enhance-revert.",
     handler: handleRevert,
   });
 

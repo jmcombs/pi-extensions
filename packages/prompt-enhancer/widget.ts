@@ -16,7 +16,7 @@ const ARROW_RIGHT = "\u{E0B0}";
  * spark, matching the logo. `PROMPT_ENHANCER_GLYPH` replaces the pair; an
  * empty value drops the mark and keeps the wordmark.
  */
-export const PROMPT_ENHANCER_GLYPH = "\u{EAB6} \u{EC10}";
+export const PROMPT_ENHANCER_GLYPH = "\u{EAB6}\u{EC10}";
 
 const WIDGET_COLORS = {
   fg: "#eff1f5",

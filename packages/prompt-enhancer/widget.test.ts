@@ -63,7 +63,7 @@ describe("formatStatusWidget", () => {
 describe("resolveGlyph", () => {
   it("defaults to the chevron + sparkle mark", () => {
     expect(resolveGlyph({})).toBe(PROMPT_ENHANCER_GLYPH);
-    expect(PROMPT_ENHANCER_GLYPH).toBe("\u{EAB6} \u{EC10}");
+    expect(PROMPT_ENHANCER_GLYPH).toBe("\u{EAB6}\u{EC10}");
   });
 
   it("honours PROMPT_ENHANCER_GLYPH, including an empty override", () => {

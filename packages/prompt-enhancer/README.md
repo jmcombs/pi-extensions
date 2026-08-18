@@ -37,11 +37,11 @@ currently active in your session — or one you pick with `/prompt-enhance-model
 
 ## Commands
 
-| Command | Alias | What it does |
-| --- | --- | --- |
-| `/prompt-enhance [text]` | `/enhance` | Rewrite the provided text, or the editor's current contents if no argument is given. |
-| `/prompt-enhance-model` | `/enhance-model` | Interactively pick which model to use as the enhancer for this session. Choice is held in memory and resets on restart. |
-| `/prompt-enhance-revert` | `/enhance-revert` | Restore the editor to the prompt from immediately before the most recent enhance. Single-step: cleared after one revert, and also when you submit a non-command prompt. |
+| Command | What it does |
+| --- | --- |
+| `/prompt-enhance [text]` | Rewrite the provided text, or the editor's current contents if no argument is given. |
+| `/prompt-enhance-model` | Interactively pick which model to use as the enhancer for this session. Choice is held in memory and resets on restart. |
+| `/prompt-enhance-revert` | Restore the editor to the prompt from immediately before the most recent enhance. Single-step: cleared after one revert, and also when you submit a non-command prompt. |
 
 **Shortcuts**
 
@@ -147,7 +147,7 @@ starting a new session resets it back to the default.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `PROMPT_ENHANCER_GLYPH` | ` ` (`nf-cod-chevron-right` + `nf-cod-sparkle`) | The status bar's mark. `""` drops it; any other value replaces it. |
+| `PROMPT_ENHANCER_GLYPH` | `` (`nf-cod-chevron-right` + `nf-cod-sparkle`) | The status bar's mark. `""` drops it; any other value replaces it. |
 
 ## Requirements
 

@@ -67,7 +67,7 @@ No single Nerd Font glyph carries both the caret and the spark. Closest pairing,
 matching the mark:
 
 ```
-\ueab6 \uec10    nf-cod-chevron-right + nf-cod-sparkle
+\ueab6\uec10    nf-cod-chevron-right + nf-cod-sparkle
 ```
 
 That pair is the widget default (`PROMPT_ENHANCER_GLYPH`). On the Path Blue

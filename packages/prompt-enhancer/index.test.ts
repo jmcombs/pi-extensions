@@ -75,9 +75,6 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     factory(api);
 
     expect(log.commands.sort()).toEqual([
-      "enhance",
-      "enhance-model",
-      "enhance-revert",
       "prompt-enhance",
       "prompt-enhance-model",
       "prompt-enhance-revert",
