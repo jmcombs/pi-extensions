@@ -74,7 +74,14 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    expect(log.commands.sort()).toEqual(["enhance", "enhance-model", "enhance-revert"]);
+    expect(log.commands.sort()).toEqual([
+      "enhance",
+      "enhance-model",
+      "enhance-revert",
+      "prompt-enhance",
+      "prompt-enhance-model",
+      "prompt-enhance-revert",
+    ]);
     expect(log.shortcuts.sort()).toEqual(["ctrl+shift+p", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);
   });
@@ -190,7 +197,7 @@ describe("createEnhancerModelSelector", () => {
     );
     const lines = picker.render(80);
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((line) => line.includes("Pick enhancer model"))).toBe(true);
+    expect(lines.some((line) => line.includes("Pick Prompt Enhancer model"))).toBe(true);
     expect(lines.some((line) => line.includes("(current)"))).toBe(true);
     expect(lines.some((line) => /\(\d+\/\d+\)/.test(line))).toBe(true);
     expect(lines.some((line) => line.includes("> "))).toBe(true);

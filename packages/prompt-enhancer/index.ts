@@ -2,11 +2,12 @@
  * @jmcombs/pi-prompt-enhancer — Codebase-aware prompt enhancer for Pi.
  *
  * Registers:
- *   - /enhance [text]   — enhance the editor's contents (or supplied text) using
- *                          live codebase context (project tree, git, mentioned
- *                          files) and load the result back into the editor.
- *   - Ctrl+Shift+E      — enhance the editor's contents in place.
- *   - /enhance-model    — pick which model the enhancer uses for this session.
+ *   - /prompt-enhance [text]  — rewrite the editor (or supplied text) using live
+ *                          codebase context and load the result into the editor.
+ *   - /prompt-enhance-model   — pick the Prompt Enhancer model for this session.
+ *   - /prompt-enhance-revert  — restore the editor to the pre-enhance text.
+ *   - /enhance* aliases for the three commands above.
+ *   - Ctrl+Shift+P / Ctrl+Shift+Z — enhance / revert shortcuts.
  *
  * Design constraints (from the project plan):
  *   - No external npm deps. Pi-runtime + Node built-ins only.
@@ -104,7 +105,7 @@ const STATUS_KEY_REVERT_HINT = "pe-revert";
 const STATUS_KEY_PROGRESS = "pe-progress";
 
 const ENHANCE_HINT_TEXT = "Ctrl+Shift+P to enhance prompt";
-const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert to previous prompt";
+const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert enhanced prompt";
 
 // Widget rendered above the editor with persistent enhancer state.
 const WIDGET_KEY = "prompt-enhancer";
@@ -114,7 +115,7 @@ const TRANSIENT_STATUS_MS = 4000;
 // bottom border, plus the (n/total) scrollInfo line when the list overflows.
 const PICKER_CHROME_LINES = 6;
 const PICKER_MIN_VISIBLE = 3;
-const PICKER_TITLE = "Pick enhancer model";
+const PICKER_TITLE = "Pick Prompt Enhancer model";
 const PICKER_HELP = "↑↓ navigate • type to filter • enter select • esc cancel";
 const PICKER_NO_MATCH = "  No matching models";
 
@@ -536,7 +537,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // crashing on the undefined result.
   if (!ctx.hasUI) {
     ctx.ui.notify(
-      "Prompt enhancer requires interactive mode (it reads and writes the editor).",
+      "Prompt Enhancer requires interactive mode (it reads and writes the editor).",
       "warning",
     );
     return;
@@ -552,17 +553,17 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   const model = resolveEnhancerModel(ctx);
   if (!model) {
-    ctx.ui.notify("Prompt enhancer: no active model. Pick one with /model first.", "error");
+    ctx.ui.notify("Prompt Enhancer: no active model. Pick one with /model first.", "error");
     return;
   }
 
   const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
   if (!auth.ok) {
-    ctx.ui.notify(`Prompt enhancer: ${auth.error}`, "error");
+    ctx.ui.notify(`Prompt Enhancer: ${auth.error}`, "error");
     return;
   }
   if (!auth.apiKey) {
-    ctx.ui.notify(`Prompt enhancer: no API key configured for ${modelLabel(model)}.`, "error");
+    ctx.ui.notify(`Prompt Enhancer: no API key configured for ${modelLabel(model)}.`, "error");
     return;
   }
 
@@ -641,7 +642,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     ctx.ui.setEditorText(result.enhanced);
     lastOriginalPrompt = originalPrompt;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, REVERT_HINT_TEXT);
-    showTransientStatus(ctx, "Enhanced — Ctrl+Shift+Z to revert.");
+    showTransientStatus(ctx, "Prompt enhanced — Ctrl+Shift+Z to revert.");
     return;
   }
 
@@ -657,7 +658,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
 function runRevert(ctx: ExtensionContext): void {
   if (!ctx.hasUI) {
-    ctx.ui.notify("Prompt enhancer revert requires interactive mode.", "warning");
+    ctx.ui.notify("Prompt Enhancer revert requires interactive mode.", "warning");
     return;
   }
   if (lastOriginalPrompt === undefined) {
@@ -714,93 +715,115 @@ export default function (pi: ExtensionAPI): void {
     return { action: "continue" };
   });
 
+  const handleEnhance = async (args: string, ctx: ExtensionContext): Promise<void> => {
+    const provided = args.trim();
+    await runEnhancer(ctx, provided.length > 0 ? provided : undefined);
+  };
+
+  pi.registerCommand("prompt-enhance", {
+    description: "Prompt Enhancer: rewrite the editor into a codebase-aware prompt.",
+    handler: handleEnhance,
+  });
   pi.registerCommand("enhance", {
-    description: "Rewrite the editor's prompt into a precise, codebase-aware one.",
-    handler: async (args, ctx) => {
-      const provided = args.trim();
-      await runEnhancer(ctx, provided.length > 0 ? provided : undefined);
-    },
+    description: "Alias for /prompt-enhance.",
+    handler: handleEnhance,
   });
 
-  pi.registerCommand("enhance-model", {
-    description: "Pick the model used by /enhance for this session (resets on restart).",
+  pi.registerCommand("prompt-enhance-model", {
+    description: "Prompt Enhancer: pick the enhancer model for this session (resets on restart).",
     handler: async (_args, ctx) => {
-      const available = ctx.modelRegistry.getAvailable();
-      if (available.length === 0) {
-        ctx.ui.notify(
-          "Prompt enhancer: no models with configured API keys. Configure one in ~/.pi/agent/auth.json.",
-          "error",
-        );
-        return;
-      }
-
-      // Order so the currently-active model appears first. Pi's selector
-      // scrolls to the matching item; if the active model happens to fall
-      // alphabetically near the bottom, the picker would otherwise open
-      // already scrolled to the bottom of a long list.
-      const isActive = (m: Model<Api>): boolean => {
-        if (enhancerModelOverride !== undefined) {
-          return enhancerModelOverride.provider === m.provider && enhancerModelOverride.id === m.id;
-        }
-        return ctx.model?.provider === m.provider && ctx.model.id === m.id;
-      };
-      const sortedAvailable = [...available].sort((a, b) => {
-        const aActive = isActive(a);
-        const bActive = isActive(b);
-        if (aActive !== bActive) return aActive ? -1 : 1;
-        return modelLabel(a).localeCompare(modelLabel(b));
-      });
-      const choices = sortedAvailable.map((m) => {
-        const base = modelLabel(m);
-        const tag = isActive(m)
-          ? enhancerModelOverride !== undefined
-            ? " (current)"
-            : " (session default)"
-          : "";
-        return { label: `${base}${tag}`, model: m };
-      });
-
-      if (!ctx.hasUI) {
-        ctx.ui.notify("Prompt enhancer model picker requires interactive mode.", "warning");
-        return;
-      }
-
-      // Official Pattern 1: SelectList + DynamicBorder via ctx.ui.custom
-      // (editor-replace, no overlay). Overlay maxHeight only clips; SelectList
-      // sizes its viewport from tui.terminal.rows so the highlight stays on screen.
-      const items: SelectItem[] = choices.map((c) => ({
-        value: modelLabel(c.model),
-        label: c.label,
-      }));
-      const choice = await ctx.ui.custom<string | undefined>((tui, theme, _kb, done) =>
-        createEnhancerModelSelector(tui, theme, items, done),
-      );
-      if (choice === undefined) return;
-      const picked = choices.find((c) => modelLabel(c.model) === choice)?.model;
-      if (!picked) return;
-      enhancerModelOverride = picked;
-      updateWidget(ctx);
-      showTransientStatus(ctx, `Now using ${modelLabel(picked)}.`);
+      await handleEnhanceModel(ctx);
+    },
+  });
+  pi.registerCommand("enhance-model", {
+    description: "Alias for /prompt-enhance-model.",
+    handler: async (_args, ctx) => {
+      await handleEnhanceModel(ctx);
     },
   });
 
+  async function handleEnhanceModel(ctx: ExtensionContext): Promise<void> {
+    const available = ctx.modelRegistry.getAvailable();
+    if (available.length === 0) {
+      ctx.ui.notify(
+        "Prompt Enhancer: no models with configured API keys. Configure one in ~/.pi/agent/auth.json.",
+        "error",
+      );
+      return;
+    }
+
+    // Order so the currently-active model appears first. Pi's selector
+    // scrolls to the matching item; if the active model happens to fall
+    // alphabetically near the bottom, the picker would otherwise open
+    // already scrolled to the bottom of a long list.
+    const isActive = (m: Model<Api>): boolean => {
+      if (enhancerModelOverride !== undefined) {
+        return enhancerModelOverride.provider === m.provider && enhancerModelOverride.id === m.id;
+      }
+      return ctx.model?.provider === m.provider && ctx.model.id === m.id;
+    };
+    const sortedAvailable = [...available].sort((a, b) => {
+      const aActive = isActive(a);
+      const bActive = isActive(b);
+      if (aActive !== bActive) return aActive ? -1 : 1;
+      return modelLabel(a).localeCompare(modelLabel(b));
+    });
+    const choices = sortedAvailable.map((m) => {
+      const base = modelLabel(m);
+      const tag = isActive(m)
+        ? enhancerModelOverride !== undefined
+          ? " (current)"
+          : " (session default)"
+        : "";
+      return { label: `${base}${tag}`, model: m };
+    });
+
+    if (!ctx.hasUI) {
+      ctx.ui.notify("Prompt Enhancer model picker requires interactive mode.", "warning");
+      return;
+    }
+
+    // Official Pattern 1: SelectList + DynamicBorder via ctx.ui.custom
+    // (editor-replace, no overlay). Overlay maxHeight only clips; SelectList
+    // sizes its viewport from tui.terminal.rows so the highlight stays on screen.
+    const items: SelectItem[] = choices.map((c) => ({
+      value: modelLabel(c.model),
+      label: c.label,
+    }));
+    const choice = await ctx.ui.custom<string | undefined>((tui, theme, _kb, done) =>
+      createEnhancerModelSelector(tui, theme, items, done),
+    );
+    if (choice === undefined) return;
+    const picked = choices.find((c) => modelLabel(c.model) === choice)?.model;
+    if (!picked) return;
+    enhancerModelOverride = picked;
+    updateWidget(ctx);
+    showTransientStatus(ctx, `Now using ${modelLabel(picked)}.`);
+  }
+
+  const handleRevert = (_args: string, ctx: ExtensionContext): Promise<void> => {
+    runRevert(ctx);
+    return Promise.resolve();
+  };
+
+  pi.registerCommand("prompt-enhance-revert", {
+    description: "Prompt Enhancer: restore the editor to the text from before the last enhance.",
+    handler: handleRevert,
+  });
   pi.registerCommand("enhance-revert", {
-    description: "Restore the editor to the prompt before the most recent /enhance.",
-    handler: (_args, ctx) => {
-      runRevert(ctx);
-      return Promise.resolve();
-    },
+    description: "Alias for /prompt-enhance-revert.",
+    handler: handleRevert,
   });
 
   pi.registerShortcut("ctrl+shift+p", {
-    description: "Enhance the editor's prompt in place.",
+    description: "Prompt Enhancer: enhance the editor prompt in place.",
     handler: async (ctx) => {
       await runEnhancer(ctx, undefined);
     },
   });
 
   pi.registerShortcut("ctrl+shift+z", {
-    description: "Revert the editor to the prompt before the most recent /enhance.",
+    description: "Prompt Enhancer: revert to the pre-enhance prompt.",
     handler: (ctx) => {
       runRevert(ctx);
       return Promise.resolve();
