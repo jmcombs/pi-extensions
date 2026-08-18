@@ -10,6 +10,7 @@ const BG = {
   brand: "48;2;52;101;164", // #3465a4
   model: "48;2;30;102;245", // #1e66f5
   missing: "48;2;210;15;57", // #d20f39
+  auto: "48;2;47;125;32", // #2f7d20
   status: "48;2;23;146;153", // #179299
 };
 const ARROW = "\u{E0B0}";
@@ -51,6 +52,15 @@ describe("formatStatusWidget", () => {
     expect(idle).not.toContain(BG.status);
     expect(busy).toContain("Enhanced — Ctrl+Shift+Z to revert.");
     expect(busy).toContain(BG.status);
+  });
+
+  it("inserts a green auto block only when auto-enhance is armed", () => {
+    const off = formatStatusWidget(base, PROMPT_ENHANCER_GLYPH);
+    const on = formatStatusWidget({ ...base, auto: true }, PROMPT_ENHANCER_GLYPH);
+    expect(off).not.toContain(BG.auto);
+    expect(off).not.toContain(" auto ");
+    expect(on).toContain(BG.auto);
+    expect(on).toContain("auto");
   });
 
   it("drops the glyph and keeps the wordmark when the mark is empty", () => {

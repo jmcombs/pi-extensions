@@ -42,6 +42,7 @@ currently active in your session — or one you pick with `/prompt_enhance_model
 | `/prompt_enhance [text]` | Rewrite the provided text, or the editor's current contents if no argument is given. |
 | `/prompt_enhance_model` | Interactively pick which model to use as the enhancer for this session. Choice is held in memory and resets on restart. |
 | `/prompt_enhance_revert` | Restore the editor to the prompt from immediately before the most recent enhance. Single-step: cleared after one revert, and also when you submit a non-command prompt. |
+| `/prompt_enhance_auto` | Toggle auto-enhance on Enter. **Off by default.** When on, Enter rewrites the draft; Enter again sends it. |
 
 **Shortcuts**
 
@@ -78,6 +79,12 @@ left/right of each other, so the bars stack as separate lines.
 - **Just enhanced** — a short-lived teal status after a soft event (enhanced,
   cancelled, reverted, nothing-to-enhance, model-changed). Hard errors still
   surface as Pi notifications.
+- **Auto** — a green `auto` block after `/prompt_enhance_auto`. Enter rewrites
+  the draft; Enter again sends. Off by default, and reset when the session
+  restarts. Short replies (`ok`, `yes`, a two-word ack, or a brief answer to a
+  question) skip the rewrite with **no word list** — we look at length, whether
+  a path was named, and whether the last assistant turn asked a question.
+  `Ctrl+Shift+E` always enhances.
 
 > **Nerd Font required.** The widget uses Powerline separators and a two-glyph
 > brand mark (`nf-cod-chevron-right` + `nf-cod-sparkle`, the caret and the

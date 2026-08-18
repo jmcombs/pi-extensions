@@ -24,6 +24,7 @@ const WIDGET_COLORS = {
   brand: "#3465a4", // Path Blue — logo tile
   model: "#1e66f5", // blue — configured model
   missing: "#d20f39", // red — no model
+  auto: "#2f7d20", // green — auto-enhance on Enter is armed
   status: "#179299", // teal — transient feedback
 } as const;
 
@@ -75,6 +76,8 @@ export function resolveGlyph(env: Record<string, string | undefined>): string {
 export interface WidgetState {
   /** `provider/id` when a model is resolved, else undefined. */
   model?: string;
+  /** When true, Enter will try to enhance before sending. */
+  auto?: boolean;
   /** Soft status (cancelled, enhanced, …). Omitted when idle. */
   status?: string;
 }
@@ -82,6 +85,10 @@ export interface WidgetState {
 export function formatStatusWidget(state: WidgetState, glyph: string): string {
   const brand = glyph === "" ? "Prompt Enhancer" : `${glyph} Prompt Enhancer`;
   const segments: WidgetSegment[] = [{ text: brand, bg: WIDGET_COLORS.brand }];
+
+  if (state.auto === true) {
+    segments.push({ text: "auto", bg: WIDGET_COLORS.auto });
+  }
 
   if (state.model === undefined) {
     segments.push({ text: "no model", bg: WIDGET_COLORS.missing });

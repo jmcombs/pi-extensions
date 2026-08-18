@@ -6,6 +6,7 @@
  *                          codebase context and load the result into the editor.
  *   - /prompt_enhance_model   — pick the Prompt Enhancer model for this session.
  *   - /prompt_enhance_revert  — restore the editor to the pre-enhance text.
+ *   - /prompt_enhance_auto    — toggle auto-enhance on Enter (off by default).
  *   - Ctrl+Shift+E / Ctrl+Shift+Z — enhance / revert shortcuts.
  *
  * Design constraints (from the project plan):
@@ -44,7 +45,10 @@ import {
   SelectList,
   Text,
 } from "@earendil-works/pi-tui";
+import { shouldSkipAutoEnhance } from "./auto.js";
 import { formatStatusWidget, resolveGlyph } from "./widget.js";
+
+export { shouldSkipAutoEnhance } from "./auto.js";
 
 // `execFile` (not `exec`) avoids passing args through a shell, so we don't
 // need to escape user-derived `cwd` paths.
@@ -102,7 +106,11 @@ Return only the enhanced prompt as plain text.`;
 // chip — /hotkeys and Ctrl+Shift+E are the catalog. Revert is contextual.
 const STATUS_KEY_REVERT_HINT = "pe-revert";
 
-const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert enhanced prompt";
+function revertHintText(): string {
+  return autoEnhanceEnabled
+    ? "Enter to send · Ctrl+Shift+Z to revert"
+    : "Ctrl+Shift+Z to revert enhanced prompt";
+}
 
 // Widget rendered above the editor with persistent enhancer state.
 const WIDGET_KEY = "prompt-enhancer";
@@ -128,6 +136,9 @@ let enhancerModelOverride: Model<Api> | undefined;
  * relevant.
  */
 let lastOriginalPrompt: string | undefined;
+
+/** Session-scoped. Off by default. Enter enhances, Enter again sends. */
+let autoEnhanceEnabled = false;
 
 /**
  * Latest known interactive ExtensionContext. Captured on session_start (and
@@ -489,6 +500,7 @@ function renderWidgetLine(ctx: ExtensionContext, transientStatus?: string): stri
   return formatStatusWidget(
     {
       model: model ? modelLabel(model) : undefined,
+      auto: autoEnhanceEnabled,
       status: transientStatus,
     },
     resolveGlyph(process.env),
@@ -638,15 +650,20 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
     lastOriginalPrompt = originalPrompt;
-    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, REVERT_HINT_TEXT);
-    showTransientStatus(ctx, "Prompt enhanced — Ctrl+Shift+Z to revert.");
+    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
+    showTransientStatus(
+      ctx,
+      autoEnhanceEnabled
+        ? "Prompt enhanced — Enter to send."
+        : "Prompt enhanced — Ctrl+Shift+Z to revert.",
+    );
     return;
   }
 
   // Restore whatever was in the editor before we touched it.
   ctx.ui.setEditorText(editorBeforeReplace);
   if (lastOriginalPrompt !== undefined) {
-    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, REVERT_HINT_TEXT);
+    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
   }
   if (result.reason === "cancelled") {
     showTransientStatus(ctx, "Cancelled.");
@@ -672,6 +689,48 @@ function runRevert(ctx: ExtensionContext): void {
   showTransientStatus(ctx, "Reverted to your original prompt.");
 }
 
+function extractMessageText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (
+      typeof block === "object" &&
+      block !== null &&
+      "type" in block &&
+      block.type === "text" &&
+      "text" in block &&
+      typeof block.text === "string"
+    ) {
+      parts.push(block.text);
+    }
+  }
+  return parts.join("\n");
+}
+
+/** True when the latest assistant turn asked a question — no vocabulary. */
+export function lastAssistantAskedQuestion(ctx: ExtensionContext): boolean {
+  try {
+    const branch = ctx.sessionManager.getBranch();
+    for (let i = branch.length - 1; i >= 0; i--) {
+      const entry = branch[i] as {
+        role?: string;
+        content?: unknown;
+        message?: { role?: string; content?: unknown };
+      };
+      const msg = entry.message ?? entry;
+      if (msg.role !== "assistant") continue;
+      const text = extractMessageText(msg.content).trim();
+      if (text.length === 0) return false;
+      const tail = text.slice(-400);
+      return /\?\s*$/.test(text) || /\?\s*\n/.test(tail);
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 // ── Extension factory ───────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
@@ -680,6 +739,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     activeCtx = ctx;
     lastOriginalPrompt = undefined;
+    autoEnhanceEnabled = false;
     clearTransientStatusTimer();
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
@@ -700,17 +760,42 @@ export default function (pi: ExtensionAPI): void {
     if (enhancerModelOverride === undefined) updateWidget(ctx);
   });
 
-  // When the user submits a non-command prompt, the previous "original" is no
-  // longer relevant. Clear the revert state so the chip reflects reality.
-  // (Slash-command submissions do not fire input; they go through their own
-  // command handlers, so the chip persists across other commands as expected.)
-  pi.on("input", (_event, ctx) => {
+  // Enter: if auto-enhance is on and this draft is a real request, rewrite
+  // and swallow the submit (handled). A second Enter, a skipped short reply,
+  // or auto-off all continue to the agent. Slash commands never reach here.
+  pi.on("input", async (event, ctx) => {
     activeCtx = ctx;
-    if (lastOriginalPrompt !== undefined) {
-      lastOriginalPrompt = undefined;
-      if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
+
+    const sendThrough = (): { action: "continue" } => {
+      if (lastOriginalPrompt !== undefined) {
+        lastOriginalPrompt = undefined;
+        if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
+      }
+      return { action: "continue" };
+    };
+
+    if (event.source !== "interactive") return sendThrough();
+    if (event.streamingBehavior === "steer" || event.streamingBehavior === "followUp") {
+      return sendThrough();
     }
-    return { action: "continue" };
+    if (Array.isArray(event.images) && event.images.length > 0) return sendThrough();
+
+    // Already reviewed (or explicitly enhanced) — send.
+    if (lastOriginalPrompt !== undefined) return sendThrough();
+
+    if (!autoEnhanceEnabled) return sendThrough();
+
+    const draft = event.text.trim();
+    if (
+      shouldSkipAutoEnhance(draft, {
+        lastAssistantAsked: lastAssistantAskedQuestion(ctx),
+      })
+    ) {
+      return sendThrough();
+    }
+
+    await runEnhancer(ctx, draft);
+    return { action: "handled" };
   });
 
   const handleEnhance = async (args: string, ctx: ExtensionContext): Promise<void> => {
@@ -797,6 +882,21 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("prompt_enhance_revert", {
     description: "Prompt Enhancer: restore the editor to the text from before the last enhance.",
     handler: handleRevert,
+  });
+
+  pi.registerCommand("prompt_enhance_auto", {
+    description: "Prompt Enhancer: toggle auto-enhance on Enter (off by default).",
+    handler: (_args, ctx) => {
+      autoEnhanceEnabled = !autoEnhanceEnabled;
+      updateWidget(ctx);
+      showTransientStatus(
+        ctx,
+        autoEnhanceEnabled
+          ? "Auto-enhance on — Enter rewrites, Enter again sends."
+          : "Auto-enhance off.",
+      );
+      return Promise.resolve();
+    },
   });
 
   pi.registerShortcut("ctrl+shift+e", {
