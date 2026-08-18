@@ -12,11 +12,11 @@ const ESC = "\x1b";
 /** Powerline solid right-pointing separator (Nerd Font). */
 const ARROW_RIGHT = "\u{E0B0}";
 /**
- * Brand mark: `nf-md-auto-fix` — the magic wand. Matches the logo sparkle-on-
- * prompt metaphor (refine a rough request). `PROMPT_ENHANCER_GLYPH` replaces
- * it; an empty value drops the mark and keeps the wordmark.
+ * Brand mark: `nf-cod-chevron-right` + `nf-cod-sparkle` — caret and enhance
+ * spark, matching the logo. `PROMPT_ENHANCER_GLYPH` replaces the pair; an
+ * empty value drops the mark and keeps the wordmark.
  */
-export const PROMPT_ENHANCER_GLYPH = "\u{F0068}";
+export const PROMPT_ENHANCER_GLYPH = "\u{EAB6} \u{EC10}";
 
 const WIDGET_COLORS = {
   fg: "#eff1f5",

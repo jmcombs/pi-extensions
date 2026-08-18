@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="332" height="60" viewBox="0 0 332 60" fill="none" role="img" aria-label="Prompt Enhancer">
+  <g transform="translate(0 6)">
+    <path d="M11 13 L23 24 L11 35" stroke="#4c4f69" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"></path>
+    <rect x="26" y="30" width="15" height="5.6" rx="2.8" fill="#4c4f69" opacity="0.4"></rect>
+    <path d="M35 6 L37.4 12.6 L44 15 L37.4 17.4 L35 24 L32.6 17.4 L26 15 L32.6 12.6 Z" fill="#3465a4"></path>
+  </g>
+  <text x="66" y="39" font-family="Manrope, system-ui, sans-serif" font-size="30" font-weight="800" letter-spacing="-0.75" fill="#4c4f69">Prompt Enhancer</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 144" width="900" height="144" role="img" aria-label="@jmcombs/pi-prompt-enhancer">
+  <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
+  <title>Prompt Enhancer — codebase-aware prompt rewriter for pi</title>
+  <!-- README banner: Path Blue rounded card, white mark + paper wordmark. -->
+  <rect width="900" height="144" rx="20" fill="#3465a4"/>
+
+  <!-- Lockup centered: 48×48 mark + 22px gap + ~15-char Manrope 800 wordmark. -->
+  <g transform="translate(206 24)">
+    <svg x="0" y="6" width="84" height="84" viewBox="0 0 48 48" fill="none">
+      <path d="M11 13 L23 24 L11 35" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="26" y="30" width="15" height="5.6" rx="2.8" fill="#ffffff" opacity="0.5"/>
+      <path d="M35 6 L37.4 12.6 L44 15 L37.4 17.4 L35 24 L32.6 17.4 L26 15 L32.6 12.6 Z" fill="#ffffff"/>
+    </svg>
+    <text x="116" y="64" font-family="Manrope, sans-serif" font-size="44" font-weight="800" letter-spacing="-1.1" fill="#eff1f5">Prompt Enhancer</text>
+  </g>
+</svg>
