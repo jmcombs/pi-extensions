@@ -42,15 +42,16 @@ currently active in your session — or one you pick with `/prompt_enhance_model
 | `/prompt_enhance [text]` | Rewrite the provided text, or the editor's current contents if no argument is given. |
 | `/prompt_enhance_model` | Interactively pick which model to use as the enhancer for this session. Choice is held in memory and resets on restart. |
 | `/prompt_enhance_revert` | Restore the editor to the prompt from immediately before the most recent enhance. Single-step: cleared after one revert, and also when you submit a non-command prompt. |
-| `/prompt_enhance_auto` | Toggle auto-enhance on Enter. **Off by default.** When on, Enter rewrites the draft; Enter again sends it. |
+| `/prompt_enhance_auto` | Toggle auto-enhance on Enter. **Off by default**, session-scoped. When on, Enter rewrites the draft; Enter again sends it. |
 
 **Shortcuts**
 
-- `Ctrl+Shift+E` — enhance the editor's current contents in place.
+- `Ctrl+Shift+E` — enhance the editor's current contents in place. Always
+  available, even when auto-enhance would skip the draft.
 - `Ctrl+Shift+Z` — revert the most recent enhance.
 
-There is no shortcut for `/prompt_enhance_model` — pick the model from the
-command. Both accelerators appear in `/hotkeys`.
+There is no shortcut for `/prompt_enhance_model` or `/prompt_enhance_auto` —
+those are commands. The two accelerators appear in `/hotkeys`.
 
 > Pi's terminal `Ctrl+Z` is bound to `app.suspend` (it sends `SIGTSTP` and
 > backgrounds Pi — resume with `fg`). The extension uses `Ctrl+Shift+Z` instead.
@@ -58,9 +59,10 @@ command. Both accelerators appear in `/hotkeys`.
 > not used here — a colliding extension shortcut is skipped.
 
 **Footer hint chips** — enhance is not advertised as an always-on chip. After
-a successful enhance, a `Ctrl+Shift+Z to revert enhanced prompt` chip appears
-and disappears once you revert or submit a new prompt. While an enhance is
-in flight, the `BorderedLoader` owns cancel (**Esc**).
+a successful enhance, a revert chip appears (`Ctrl+Shift+Z to revert enhanced
+prompt`, or `Enter to send · Ctrl+Shift+Z to revert` when auto is on) and
+disappears once you revert or submit. While an enhance is in flight, the
+`BorderedLoader` owns cancel (**Esc**).
 
 ## The status bar
 
@@ -69,30 +71,61 @@ Prompt Enhancer draws a Powerline line above the editor — same family as
 left/right of each other, so the bars stack as separate lines.
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="760" alt="Prompt Enhancer status widget states">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="820" alt="Prompt Enhancer status widget states">
 </div>
 
 - **Ready** — a model is resolved (session default or a `/prompt_enhance_model`
-  override). The blue block is `provider/id`.
+  override). The blue block is `provider/id`. Enhance with `Ctrl+Shift+E`.
+- **Auto on** — `/prompt_enhance_auto` armed a green `auto` block. Enter
+  rewrites; Enter again sends. Off by default, and reset when the session
+  restarts.
 - **No model** — nothing is configured. `/prompt_enhance` will refuse until you
   pick one with `/model` or `/prompt_enhance_model`.
-- **Just enhanced** — a short-lived teal status after a soft event (enhanced,
-  cancelled, reverted, nothing-to-enhance, model-changed). Hard errors still
-  surface as Pi notifications.
-- **Auto** — a green `auto` block after `/prompt_enhance_auto`. Enter rewrites
-  the draft; Enter again sends. Off by default, and reset when the session
-  restarts. Short replies (`ok`, `yes`, a two-word ack, or a brief answer to a
-  question) skip the rewrite with **no word list** — we look at length, whether
-  a path was named, and whether the last assistant turn asked a question.
-  `Ctrl+Shift+E` always enhances.
+- **Review** — a rewrite is sitting in the editor and has not been sent. Teal
+  `Enter to send` (auto) or `Prompt enhanced` (manual). `Ctrl+Shift+Z` restores
+  the original.
 
 > **Nerd Font required.** The widget uses Powerline separators and a two-glyph
 > brand mark (`nf-cod-chevron-right` + `nf-cod-sparkle`, the caret and the
-> spark). Your terminal must be using a [Nerd Font](https://www.nerdfonts.com/)
-> (e.g. MesloLGS NF, FiraCode NF, JetBrainsMono NF) or the separators and icon
-> will render as missing-glyph boxes. This affects **display only** — enhance,
-> revert, and the picker work regardless of the font. Override the mark with
-> `PROMPT_ENHANCER_GLYPH`; set it empty to drop the mark and keep the wordmark.
+> spark, adjacent with no space). Your terminal must be using a
+> [Nerd Font](https://www.nerdfonts.com/) (e.g. MesloLGS NF, FiraCode NF,
+> JetBrainsMono NF) or the separators and icon will render as missing-glyph
+> boxes. This affects **display only** — enhance, revert, auto, and the picker
+> work regardless of the font. Override the mark with `PROMPT_ENHANCER_GLYPH`;
+> set it empty to drop the mark and keep the wordmark.
+
+## Auto-enhance on Enter
+
+Off by default. `/prompt_enhance_auto` toggles it for this session only. The
+green `auto` block is how you know it is armed.
+
+```mermaid
+flowchart TD
+    A["Enter"] --> B{"auto on?"}
+    B -- "No" --> S["Send to the model"]
+    B -- "Yes" --> C{"Already reviewing a rewrite?"}
+    C -- "Yes" --> S
+    C -- "No" --> D{"Skip? short / reply / no path"}
+    D -- "Yes" --> S
+    D -- "No" --> E["Rewrite into the editor · do not send"]
+    E --> F["Enter again to send · Ctrl+Shift+Z to revert"]
+```
+
+**Skip is turn shape, not a word list.** Vocabulary lists rot. Auto-enhance
+stands down when:
+
+- the draft is empty, or
+- it is **two tokens or fewer** and names no path (`ok`, `yes`, `approved`,
+  `denied`, `ship it`), or
+- the last assistant turn asked a **question** (`?`) and this reply is a short
+  single line (six words or fewer, no path).
+
+A path or file extension (`foo.ts`, `packages/x`) is treated as a **task**,
+even when the draft is two words — so `fix foo.ts` still enhances.
+
+`Ctrl+Shift+E` never consults the skip rules. Mid-stream steer / follow-up
+messages, extension-injected input, and prompts with attached images also
+bypass auto-enhance and go through as-is.
 
 ## How it works
 
@@ -140,8 +173,9 @@ starting a new session resets it back to the default.
 
 ## Behavior notes
 
-- **Nothing is submitted to the LLM automatically.** The flow always ends with
-  the enhanced prompt sitting in your editor awaiting your review.
+- **The rewrite is never submitted for you.** Manual enhance always ends with
+  the text in the editor. Auto-enhance is the same: first Enter rewrites,
+  second Enter is the one that starts the agent.
 - An empty prompt, no model, or a model with no configured API key produces a
   notification (or a soft status) and a no-op return — your editor is never
   modified.
@@ -185,8 +219,8 @@ pi --no-extensions -e ./packages/prompt-enhancer
 ```
 
 The committed test suite asserts registration shape, picker sizing/filtering,
-and the widget's Powerline output with **no network**. Real end-to-end
-behavior is exercised manually via `pi -e`.
+auto-enhance skip rules, and the widget's Powerline output with **no network**.
+Real end-to-end behavior is exercised manually via `pi -e`.
 
 ## License
 

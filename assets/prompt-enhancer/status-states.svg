@@ -1,7 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="980" height="186" viewBox="0 0 980 186" role="img" aria-label="Prompt Enhancer status widget states">
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="242" viewBox="0 0 1040 242" role="img" aria-label="Prompt Enhancer status widget states">
   <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
   <title>Prompt Enhancer status bar — every state</title>
-  <rect x="0.5" y="0.5" width="979" height="185" rx="12" fill="#1e1e2e" stroke="#313244"/>
+  <rect x="0.5" y="0.5" width="1039" height="241" rx="12" fill="#1e1e2e" stroke="#313244"/>
+
+  <!-- mark + wordmark reused via groups -->
+  <defs>
+    <g id="pe-mark">
+      <g fill="none" stroke="#eff1f5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M0 7 L8 15 L0 23"/>
+      </g>
+      <path d="M20 6 L21.6 10.2 L26 12 L21.6 13.8 L20 18 L18.4 13.8 L14 12 L18.4 10.2 Z" fill="#eff1f5"/>
+    </g>
+  </defs>
 
   <!-- Ready -->
   <text x="22" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">Ready</text>
@@ -9,42 +19,50 @@
   <rect x="368" y="22" width="232" height="30" fill="#1e66f5"/>
   <polygon points="368,22 382,37 368,52" fill="#3465a4"/>
   <polygon points="600,22 614,37 600,52" fill="#1e66f5"/>
-  <g fill="none" stroke="#eff1f5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M166 29 L174 37 L166 45"/>
-  </g>
-  <path d="M186 28 L187.6 32.2 L192 34 L187.6 35.8 L186 40 L184.4 35.8 L180 34 L184.4 32.2 Z" fill="#eff1f5"/>
+  <use href="#pe-mark" x="166" y="22"/>
   <text x="198" y="42" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt Enhancer</text>
   <text x="393" y="42" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">anthropic/claude-sonnet-4</text>
-  <text x="632" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">enhancer model resolved · Ctrl+Shift+E to enhance</text>
+  <text x="632" y="41" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">model resolved · Ctrl+Shift+E to enhance</text>
+
+  <!-- Auto armed -->
+  <text x="22" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">Auto on</text>
+  <rect x="154" y="78" width="214" height="30" fill="#3465a4"/>
+  <rect x="368" y="78" width="78" height="30" fill="#2f7d20"/>
+  <rect x="446" y="78" width="232" height="30" fill="#1e66f5"/>
+  <polygon points="368,78 382,93 368,108" fill="#3465a4"/>
+  <polygon points="446,78 460,93 446,108" fill="#2f7d20"/>
+  <polygon points="678,78 692,93 678,108" fill="#1e66f5"/>
+  <use href="#pe-mark" x="166" y="78"/>
+  <text x="198" y="98" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt Enhancer</text>
+  <text x="383" y="98" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">auto</text>
+  <text x="471" y="98" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">anthropic/claude-sonnet-4</text>
+  <text x="710" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">/prompt_enhance_auto · Enter rewrites, Enter again sends</text>
 
   <!-- No model -->
-  <text x="22" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">No model</text>
-  <rect x="154" y="78" width="214" height="30" fill="#3465a4"/>
-  <rect x="368" y="78" width="108" height="30" fill="#d20f39"/>
-  <polygon points="368,78 382,93 368,108" fill="#3465a4"/>
-  <polygon points="476,78 490,93 476,108" fill="#d20f39"/>
-  <g fill="none" stroke="#eff1f5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M166 85 L174 93 L166 101"/>
-  </g>
-  <path d="M186 84 L187.6 88.2 L192 90 L187.6 91.8 L186 96 L184.4 91.8 L180 90 L184.4 88.2 Z" fill="#eff1f5"/>
-  <text x="198" y="98" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt Enhancer</text>
-  <text x="393" y="98" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">no model</text>
-  <text x="508" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">no session model and no /prompt_enhance_model override</text>
-
-  <!-- Transient status -->
-  <text x="22" y="153" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">Just enhanced</text>
+  <text x="22" y="153" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">No model</text>
   <rect x="154" y="134" width="214" height="30" fill="#3465a4"/>
-  <rect x="368" y="134" width="232" height="30" fill="#1e66f5"/>
-  <rect x="600" y="134" width="196" height="30" fill="#179299"/>
+  <rect x="368" y="134" width="108" height="30" fill="#d20f39"/>
   <polygon points="368,134 382,149 368,164" fill="#3465a4"/>
-  <polygon points="600,134 614,149 600,164" fill="#1e66f5"/>
-  <polygon points="796,134 810,149 796,164" fill="#179299"/>
-  <g fill="none" stroke="#eff1f5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M166 141 L174 149 L166 157"/>
-  </g>
-  <path d="M186 140 L187.6 144.2 L192 146 L187.6 147.8 L186 152 L184.4 147.8 L180 146 L184.4 144.2 Z" fill="#eff1f5"/>
+  <polygon points="476,134 490,149 476,164" fill="#d20f39"/>
+  <use href="#pe-mark" x="166" y="134"/>
   <text x="198" y="154" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt Enhancer</text>
-  <text x="393" y="154" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">anthropic/claude-sonnet-4</text>
-  <text x="625" y="154" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt enhanced</text>
-  <text x="828" y="153" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">soft status, 4s</text>
+  <text x="393" y="154" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">no model</text>
+  <text x="508" y="153" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">no session model and no /prompt_enhance_model override</text>
+
+  <!-- Review / just enhanced -->
+  <text x="22" y="209" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">Review</text>
+  <rect x="154" y="190" width="214" height="30" fill="#3465a4"/>
+  <rect x="368" y="190" width="78" height="30" fill="#2f7d20"/>
+  <rect x="446" y="190" width="232" height="30" fill="#1e66f5"/>
+  <rect x="678" y="190" width="168" height="30" fill="#179299"/>
+  <polygon points="368,190 382,205 368,220" fill="#3465a4"/>
+  <polygon points="446,190 460,205 446,220" fill="#2f7d20"/>
+  <polygon points="678,190 692,205 678,220" fill="#1e66f5"/>
+  <polygon points="846,190 860,205 846,220" fill="#179299"/>
+  <use href="#pe-mark" x="166" y="190"/>
+  <text x="198" y="210" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt Enhancer</text>
+  <text x="383" y="210" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">auto</text>
+  <text x="471" y="210" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">anthropic/claude-sonnet-4</text>
+  <text x="703" y="210" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Enter to send</text>
+  <text x="878" y="209" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">rewrite in editor · not sent</text>
 </svg>
