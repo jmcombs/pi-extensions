@@ -53,11 +53,10 @@ currently active in your session — or one you pick with `/prompt_enhance_model
 There is no shortcut for `/prompt_enhance_model` or `/prompt_enhance_auto` —
 those are commands. The two accelerators appear in `/hotkeys`.
 
-**Footer hint chips** — enhance is not advertised as an always-on chip. After
-a successful enhance, a revert chip appears (`Ctrl+Shift+Z to revert enhanced
-prompt`, or `Enter to send · Ctrl+Shift+Z to revert` when auto is on) and
-disappears once you revert or submit. While an enhance is in flight, the
-`BorderedLoader` owns cancel (**Esc**).
+After a successful enhance, the footer reminds you how to revert
+(`Ctrl+Shift+Z`). With auto-enhance on it also says `Enter to send`. That
+reminder goes away when you revert or submit. Press **Esc** to cancel an
+enhance that is still running.
 
 ## The status bar
 
