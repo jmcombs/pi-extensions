@@ -75,9 +75,9 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     factory(api);
 
     expect(log.commands.sort()).toEqual([
-      "prompt-enhance",
-      "prompt-enhance-model",
-      "prompt-enhance-revert",
+      "prompt_enhance",
+      "prompt_enhance_model",
+      "prompt_enhance_revert",
     ]);
     expect(log.shortcuts.sort()).toEqual(["ctrl+shift+e", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);

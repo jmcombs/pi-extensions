@@ -2,10 +2,10 @@
  * @jmcombs/pi-prompt-enhancer — Codebase-aware prompt enhancer for Pi.
  *
  * Registers:
- *   - /prompt-enhance [text]  — rewrite the editor (or supplied text) using live
+ *   - /prompt_enhance [text]  — rewrite the editor (or supplied text) using live
  *                          codebase context and load the result into the editor.
- *   - /prompt-enhance-model   — pick the Prompt Enhancer model for this session.
- *   - /prompt-enhance-revert  — restore the editor to the pre-enhance text.
+ *   - /prompt_enhance_model   — pick the Prompt Enhancer model for this session.
+ *   - /prompt_enhance_revert  — restore the editor to the pre-enhance text.
  *   - Ctrl+Shift+E / Ctrl+Shift+Z — enhance / revert shortcuts.
  *
  * Design constraints (from the project plan):
@@ -122,7 +122,7 @@ let enhancerModelOverride: Model<Api> | undefined;
 
 /**
  * The text that was in the editor (or supplied as args) immediately before
- * the most recent successful /prompt-enhance. /prompt-enhance-revert restores this and
+ * the most recent successful /prompt_enhance. /prompt_enhance_revert restores this and
  * clears the slot. Cleared also when the user submits a non-command prompt
  * (input event), since at that point the previous "original" is no longer
  * relevant.
@@ -566,7 +566,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   const editorBeforeReplace = editorText;
   // Replace the editor with the original (in case the user typed it via
-  // /prompt-enhance "..." rather than into the editor) so a Ctrl+Z after success
+  // /prompt_enhance "..." rather than into the editor) so a Ctrl+Z after success
   // takes them back to what they typed before invoking the enhancer.
   if (providedText !== undefined) ctx.ui.setEditorText(originalPrompt);
 
@@ -693,7 +693,7 @@ export default function (pi: ExtensionAPI): void {
     activeCtx = undefined;
   });
 
-  // The user changed the active Pi model. If we don't have a /prompt-enhance-model
+  // The user changed the active Pi model. If we don't have a /prompt_enhance_model
   // override in place, the widget's Model line should reflect the change.
   pi.on("model_select", (_event, ctx) => {
     activeCtx = ctx;
@@ -718,12 +718,12 @@ export default function (pi: ExtensionAPI): void {
     await runEnhancer(ctx, provided.length > 0 ? provided : undefined);
   };
 
-  pi.registerCommand("prompt-enhance", {
+  pi.registerCommand("prompt_enhance", {
     description: "Prompt Enhancer: rewrite the editor into a codebase-aware prompt.",
     handler: handleEnhance,
   });
 
-  pi.registerCommand("prompt-enhance-model", {
+  pi.registerCommand("prompt_enhance_model", {
     description: "Prompt Enhancer: pick the enhancer model for this session (resets on restart).",
     handler: async (_args, ctx) => {
       await handleEnhanceModel(ctx);
@@ -794,7 +794,7 @@ export default function (pi: ExtensionAPI): void {
     return Promise.resolve();
   };
 
-  pi.registerCommand("prompt-enhance-revert", {
+  pi.registerCommand("prompt_enhance_revert", {
     description: "Prompt Enhancer: restore the editor to the text from before the last enhance.",
     handler: handleRevert,
   });

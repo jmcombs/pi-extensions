@@ -33,22 +33,22 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 path, project-scoped install, and filtering options.
 
 No external API keys are required. The enhancer uses whichever Pi model is
-currently active in your session — or one you pick with `/prompt-enhance-model`.
+currently active in your session — or one you pick with `/prompt_enhance_model`.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `/prompt-enhance [text]` | Rewrite the provided text, or the editor's current contents if no argument is given. |
-| `/prompt-enhance-model` | Interactively pick which model to use as the enhancer for this session. Choice is held in memory and resets on restart. |
-| `/prompt-enhance-revert` | Restore the editor to the prompt from immediately before the most recent enhance. Single-step: cleared after one revert, and also when you submit a non-command prompt. |
+| `/prompt_enhance [text]` | Rewrite the provided text, or the editor's current contents if no argument is given. |
+| `/prompt_enhance_model` | Interactively pick which model to use as the enhancer for this session. Choice is held in memory and resets on restart. |
+| `/prompt_enhance_revert` | Restore the editor to the prompt from immediately before the most recent enhance. Single-step: cleared after one revert, and also when you submit a non-command prompt. |
 
 **Shortcuts**
 
 - `Ctrl+Shift+E` — enhance the editor's current contents in place.
 - `Ctrl+Shift+Z` — revert the most recent enhance.
 
-There is no shortcut for `/prompt-enhance-model` — pick the model from the
+There is no shortcut for `/prompt_enhance_model` — pick the model from the
 command. Both accelerators appear in `/hotkeys`.
 
 > Pi's terminal `Ctrl+Z` is bound to `app.suspend` (it sends `SIGTSTP` and
@@ -71,10 +71,10 @@ left/right of each other, so the bars stack as separate lines.
   <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="760" alt="Prompt Enhancer status widget states">
 </div>
 
-- **Ready** — a model is resolved (session default or a `/prompt-enhance-model`
+- **Ready** — a model is resolved (session default or a `/prompt_enhance_model`
   override). The blue block is `provider/id`.
-- **No model** — nothing is configured. `/prompt-enhance` will refuse until you
-  pick one with `/model` or `/prompt-enhance-model`.
+- **No model** — nothing is configured. `/prompt_enhance` will refuse until you
+  pick one with `/model` or `/prompt_enhance_model`.
 - **Just enhanced** — a short-lived teal status after a soft event (enhanced,
   cancelled, reverted, nothing-to-enhance, model-changed). Hard errors still
   surface as Pi notifications.
@@ -108,14 +108,14 @@ flight, a `BorderedLoader` covers the editor; pressing **Esc** cancels at any
 point and restores your original text.
 
 On success the enhanced prompt is loaded into the editor. Press
-**Ctrl+Shift+Z** (or run `/prompt-enhance-revert`) to restore your original;
+**Ctrl+Shift+Z** (or run `/prompt_enhance_revert`) to restore your original;
 the revert affordance is single-step and clears automatically once you submit
 a new prompt.
 
 ## Model selection
 
 By default the enhancer uses the same model that's currently active in your Pi
-session (`ctx.model`). Run `/prompt-enhance-model` to open an interactive picker
+session (`ctx.model`). Run `/prompt_enhance_model` to open an interactive picker
 showing every model that has a configured API key.
 
 The picker is official Pi Pattern 1 (`SelectList` + `DynamicBorder` via
