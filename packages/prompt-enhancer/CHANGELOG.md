@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.2...prompt-enhancer/v3.0.0) (2026-08-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **prompt-enhancer:** Commands are now /prompt_enhance, /prompt_enhance_model, /prompt_enhance_revert, and /prompt_enhance_auto. The /enhance* aliases are removed. Enhance is Ctrl+Shift+E; Ctrl+Shift+P is no longer registered.
+
+### Features
+
+* **prompt-enhancer:** 3.0 overhaul ([#215](https://github.com/jmcombs/pi-extensions/issues/215)) ([83c923a](https://github.com/jmcombs/pi-extensions/commit/83c923ab0469349b953605e8f0dd2a017b124628))
+
 ## [2.0.2](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.1...prompt-enhancer/v2.0.2) (2026-07-19)
 
 
