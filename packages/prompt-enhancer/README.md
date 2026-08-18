@@ -58,20 +58,21 @@ running.
 
 ## The status bar
 
-A line above the editor shows the enhancer model, whether auto-enhance is on,
-and a short status after you enhance or revert.
-
-A [Nerd Font](https://www.nerdfonts.com/) is required for the mark and
-separators to render. Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark.
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="820" alt="Prompt Enhancer status widget states">
-</div>
+Prompt Enhancer displays in the Pi status bar with the enhancer model, when
+auto-enhance is enabled, and a short status after an action is taken. Here are
+the elements of the status bar:
 
 - **Ready** — a model is resolved. Enhance with `Ctrl+Shift+E`.
 - **Auto on** — `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
 - **No model** — pick one with `/model` or `/prompt_enhance_model`.
 - **Review** — a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
+
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="820" alt="Prompt Enhancer status widget states">
+</div>
+
+A [Nerd Font](https://www.nerdfonts.com/) is required for the mark and
+separators to render. Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark.
 
 ## Auto-enhance on Enter
 
