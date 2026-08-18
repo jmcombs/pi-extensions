@@ -33,22 +33,6 @@ updates:
       # the v22 line; revisit when pi raises its own engines.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # expires: 2026-09-08
-      # Dev-only transitive under @commitlint/cli → ajv. Leaf fix is fast-uri
-      # 3.1.5 (GHSA-7p8r-x3mc-p8w7); we are not force-bumping nested leaves.
-      # Production audit (--omit=dev) is unaffected. Short hold; re-check
-      # whether ajv/commitlint have moved by SHORT_EXCEPTIONS_EXPIRE.
-      - dependency-name: "fast-uri"
-      # expires: 2026-09-08
-      # Dev-only transitive under @commitlint/cli → cosmiconfig and secretlint
-      # → textlint/rc-config-loader. Leaf fix is js-yaml 4.3.1
-      # (GHSA-5p4m-2wfm-xmqj). Same policy as fast-uri above.
-      - dependency-name: "js-yaml"
-      # expires: 2026-09-08
-      # Dev-only transitive under vitest → vite → postcss. Leaf fix is nanoid
-      # >=3.3.17 (GHSA-2v37-7h3g-55p8); postcss 8.5.26 already requires it,
-      # but we are not force-bumping the nested chain. Same short hold.
-      - dependency-name: "nanoid"
     labels:
       - "dependencies"
 
