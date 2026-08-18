@@ -70,11 +70,8 @@ matching the mark:
 \ueab6\uec10    nf-cod-chevron-right + nf-cod-sparkle
 ```
 
-That pair is the widget default (`PROMPT_ENHANCER_GLYPH`). On the Path Blue
-Powerline brand block both glyphs render in paper (`#eff1f5`). Single-glyph
-fallbacks if two glyphs are too wide: `\uf489` (`nf-oct-terminal`) or `\uebcf`
-(`nf-cod-wand`). Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark and keep the
-wordmark.
+That pair is the widget mark. On the Path Blue Powerline brand block both
+glyphs render in paper (`#eff1f5`). A Nerd Font is required.
 
 ## Don't
 

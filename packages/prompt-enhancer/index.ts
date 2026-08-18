@@ -46,7 +46,7 @@ import {
   Text,
 } from "@earendil-works/pi-tui";
 import { shouldSkipAutoEnhance } from "./auto.js";
-import { formatStatusWidget, resolveGlyph } from "./widget.js";
+import { formatStatusWidget } from "./widget.js";
 
 export { shouldSkipAutoEnhance } from "./auto.js";
 
@@ -497,14 +497,11 @@ export function createEnhancerModelSelector(
 
 function renderWidgetLine(ctx: ExtensionContext, transientStatus?: string): string {
   const model = resolveEnhancerModel(ctx);
-  return formatStatusWidget(
-    {
-      model: model ? modelLabel(model) : undefined,
-      auto: autoEnhanceEnabled,
-      status: transientStatus,
-    },
-    resolveGlyph(process.env),
-  );
+  return formatStatusWidget({
+    model: model ? modelLabel(model) : undefined,
+    auto: autoEnhanceEnabled,
+    status: transientStatus,
+  });
 }
 
 function updateWidget(ctx: ExtensionContext, transientStatus?: string): void {

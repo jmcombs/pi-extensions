@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  formatStatusWidget,
-  PROMPT_ENHANCER_GLYPH,
-  resolveGlyph,
-  type WidgetState,
-} from "./widget.js";
+import { formatStatusWidget, PROMPT_ENHANCER_GLYPH, type WidgetState } from "./widget.js";
 
 const BG = {
   brand: "48;2;52;101;164", // #3465a4
@@ -20,7 +15,7 @@ const base: WidgetState = { model: "anthropic/claude-sonnet-4" };
 
 describe("formatStatusWidget", () => {
   it("renders brand + model blocks with powerline separators", () => {
-    const out = formatStatusWidget(base, PROMPT_ENHANCER_GLYPH);
+    const out = formatStatusWidget(base);
     expect(out).toContain(`${PROMPT_ENHANCER_GLYPH} Prompt Enhancer`);
     expect(out).toContain("anthropic/claude-sonnet-4");
     expect(out).toContain(ARROW);
@@ -30,54 +25,33 @@ describe("formatStatusWidget", () => {
   });
 
   it("keeps the brand block Path Blue with or without a model", () => {
-    const on = formatStatusWidget(base, PROMPT_ENHANCER_GLYPH);
-    const off = formatStatusWidget({}, PROMPT_ENHANCER_GLYPH);
-    expect(on).toContain(BG.brand);
-    expect(off).toContain(BG.brand);
+    expect(formatStatusWidget(base)).toContain(BG.brand);
+    expect(formatStatusWidget({})).toContain(BG.brand);
   });
 
   it("shows a red no-model block when no model is resolved", () => {
-    const out = formatStatusWidget({}, PROMPT_ENHANCER_GLYPH);
+    const out = formatStatusWidget({});
     expect(out).toContain("no model");
     expect(out).toContain(BG.missing);
     expect(out).not.toContain(BG.model);
   });
 
   it("appends a teal status block only when status is set", () => {
-    const idle = formatStatusWidget(base, PROMPT_ENHANCER_GLYPH);
-    const busy = formatStatusWidget(
-      { ...base, status: "Enhanced — Ctrl+Shift+Z to revert." },
-      PROMPT_ENHANCER_GLYPH,
-    );
+    const idle = formatStatusWidget(base);
+    const busy = formatStatusWidget({
+      ...base,
+      status: "Enhanced. Ctrl+Shift+Z to revert.",
+    });
     expect(idle).not.toContain(BG.status);
-    expect(busy).toContain("Enhanced — Ctrl+Shift+Z to revert.");
+    expect(busy).toContain("Enhanced. Ctrl+Shift+Z to revert.");
     expect(busy).toContain(BG.status);
   });
 
   it("inserts a green auto block only when auto-enhance is armed", () => {
-    const off = formatStatusWidget(base, PROMPT_ENHANCER_GLYPH);
-    const on = formatStatusWidget({ ...base, auto: true }, PROMPT_ENHANCER_GLYPH);
+    const off = formatStatusWidget(base);
+    const on = formatStatusWidget({ ...base, auto: true });
     expect(off).not.toContain(BG.auto);
-    expect(off).not.toContain(" auto ");
     expect(on).toContain(BG.auto);
     expect(on).toContain("auto");
-  });
-
-  it("drops the glyph and keeps the wordmark when the mark is empty", () => {
-    const out = formatStatusWidget(base, "");
-    expect(out).toContain("Prompt Enhancer");
-    expect(out).not.toContain(PROMPT_ENHANCER_GLYPH);
-  });
-});
-
-describe("resolveGlyph", () => {
-  it("defaults to the chevron + sparkle mark", () => {
-    expect(resolveGlyph({})).toBe(PROMPT_ENHANCER_GLYPH);
-    expect(PROMPT_ENHANCER_GLYPH).toBe("\u{EAB6}\u{EC10}");
-  });
-
-  it("honours PROMPT_ENHANCER_GLYPH, including an empty override", () => {
-    expect(resolveGlyph({ PROMPT_ENHANCER_GLYPH: "x" })).toBe("x");
-    expect(resolveGlyph({ PROMPT_ENHANCER_GLYPH: "  " })).toBe("");
   });
 });

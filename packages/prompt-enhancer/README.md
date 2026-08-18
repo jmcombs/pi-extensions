@@ -72,7 +72,7 @@ the elements of the status bar:
 </div>
 
 A [Nerd Font](https://www.nerdfonts.com/) is required for the mark and
-separators to render. Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark.
+separators to render.
 
 ## Auto-enhance on Enter
 
@@ -90,12 +90,6 @@ flowchart TD
 
 Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
 are skipped. To enhance those anyway, use `Ctrl+Shift+E`.
-
-## Configuration
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PROMPT_ENHANCER_GLYPH` | `` | The status bar's mark. `""` drops it; any other value replaces it. |
 
 ## Requirements
 

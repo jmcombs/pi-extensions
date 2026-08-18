@@ -11,11 +11,7 @@
 const ESC = "\x1b";
 /** Powerline solid right-pointing separator (Nerd Font). */
 const ARROW_RIGHT = "\u{E0B0}";
-/**
- * Brand mark: `nf-cod-chevron-right` + `nf-cod-sparkle` — caret and enhance
- * spark, matching the logo. `PROMPT_ENHANCER_GLYPH` replaces the pair; an
- * empty value drops the mark and keeps the wordmark.
- */
+/** Brand mark: `nf-cod-chevron-right` + `nf-cod-sparkle`. */
 export const PROMPT_ENHANCER_GLYPH = "\u{EAB6}\u{EC10}";
 
 const WIDGET_COLORS = {
@@ -67,12 +63,6 @@ function buildPowerline(segments: readonly WidgetSegment[]): string {
   return out;
 }
 
-/** Resolves the brand mark, honouring an operator override. */
-export function resolveGlyph(env: Record<string, string | undefined>): string {
-  const override = env.PROMPT_ENHANCER_GLYPH;
-  return override === undefined ? PROMPT_ENHANCER_GLYPH : override.trim();
-}
-
 export interface WidgetState {
   /** `provider/id` when a model is resolved, else undefined. */
   model?: string;
@@ -82,8 +72,8 @@ export interface WidgetState {
   status?: string;
 }
 
-export function formatStatusWidget(state: WidgetState, glyph: string): string {
-  const brand = glyph === "" ? "Prompt Enhancer" : `${glyph} Prompt Enhancer`;
+export function formatStatusWidget(state: WidgetState): string {
+  const brand = `${PROMPT_ENHANCER_GLYPH} Prompt Enhancer`;
   const segments: WidgetSegment[] = [{ text: brand, bg: WIDGET_COLORS.brand }];
 
   if (state.auto === true) {
