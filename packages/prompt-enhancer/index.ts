@@ -7,7 +7,7 @@
  *   - /prompt-enhance-model   — pick the Prompt Enhancer model for this session.
  *   - /prompt-enhance-revert  — restore the editor to the pre-enhance text.
  *   - /enhance* aliases for the three commands above.
- *   - Ctrl+Shift+P / Ctrl+Shift+Z — enhance / revert shortcuts.
+ *   - Ctrl+Shift+E / Ctrl+Shift+Z — enhance / revert shortcuts.
  *
  * Design constraints (from the project plan):
  *   - No external npm deps. Pi-runtime + Node built-ins only.
@@ -99,12 +99,10 @@ Rules:
 Return only the enhanced prompt as plain text.`;
 
 // Status keys for ctx.ui.setStatus footer chips. Distinct keys so we can
-// independently set/clear them.
-const STATUS_KEY_ENHANCE_HINT = "pe-enhance";
+// independently set/clear them. Enhance is not advertised as an always-on
+// chip — /hotkeys and Ctrl+Shift+E are the catalog. Revert is contextual.
 const STATUS_KEY_REVERT_HINT = "pe-revert";
-const STATUS_KEY_PROGRESS = "pe-progress";
 
-const ENHANCE_HINT_TEXT = "Ctrl+Shift+P to enhance prompt";
 const REVERT_HINT_TEXT = "Ctrl+Shift+Z to revert enhanced prompt";
 
 // Widget rendered above the editor with persistent enhancer state.
@@ -573,7 +571,9 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // takes them back to what they typed before invoking the enhancer.
   if (providedText !== undefined) ctx.ui.setEditorText(originalPrompt);
 
-  ctx.ui.setStatus(STATUS_KEY_PROGRESS, `enhancing via ${modelLabel(model)}`);
+  // Loader owns in-flight UX. Hide the revert chip while we work; restore it
+  // below if this run does not produce a new successful enhance.
+  ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
 
   const result = await ctx.ui.custom<
     { ok: true; enhanced: string } | { ok: false; reason: "cancelled" | "error"; message?: string }
@@ -636,8 +636,6 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     return loader;
   });
 
-  ctx.ui.setStatus(STATUS_KEY_PROGRESS, undefined);
-
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
     lastOriginalPrompt = originalPrompt;
@@ -648,6 +646,9 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   // Restore whatever was in the editor before we touched it.
   ctx.ui.setEditorText(editorBeforeReplace);
+  if (lastOriginalPrompt !== undefined) {
+    ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, REVERT_HINT_TEXT);
+  }
   if (result.reason === "cancelled") {
     showTransientStatus(ctx, "Cancelled.");
   } else {
@@ -675,15 +676,13 @@ function runRevert(ctx: ExtensionContext): void {
 // ── Extension factory ───────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  // session_start sets up the always-on enhance hint chip, the persistent
-  // widget above the editor, and clears any stale state from a previous
-  // session.
+  // session_start paints the persistent widget and clears any stale revert
+  // chip from a previous session. Enhance is not advertised as a footer chip.
   pi.on("session_start", (_event, ctx) => {
     activeCtx = ctx;
     lastOriginalPrompt = undefined;
     clearTransientStatusTimer();
     if (!ctx.hasUI) return;
-    ctx.ui.setStatus(STATUS_KEY_ENHANCE_HINT, ENHANCE_HINT_TEXT);
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
     updateWidget(ctx);
   });
@@ -815,7 +814,7 @@ export default function (pi: ExtensionAPI): void {
     handler: handleRevert,
   });
 
-  pi.registerShortcut("ctrl+shift+p", {
+  pi.registerShortcut("ctrl+shift+e", {
     description: "Prompt Enhancer: enhance the editor prompt in place.",
     handler: async (ctx) => {
       await runEnhancer(ctx, undefined);

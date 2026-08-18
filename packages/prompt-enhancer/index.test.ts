@@ -82,7 +82,7 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
       "prompt-enhance-model",
       "prompt-enhance-revert",
     ]);
-    expect(log.shortcuts.sort()).toEqual(["ctrl+shift+p", "ctrl+shift+z"]);
+    expect(log.shortcuts.sort()).toEqual(["ctrl+shift+e", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);
   });
 
@@ -90,8 +90,8 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    // session_start sets the always-on enhance hint chip and the persistent
-    // widget. session_shutdown cancels the pending auto-clear timer.
+    // session_start paints the persistent widget and clears a stale revert
+    // chip. session_shutdown cancels the pending auto-clear timer.
     // model_select refreshes the widget's Model line when the user changes
     // pi models. input clears the revert chip when the user submits a
     // non-command prompt.

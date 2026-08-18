@@ -45,16 +45,21 @@ currently active in your session — or one you pick with `/prompt-enhance-model
 
 **Shortcuts**
 
-- `Ctrl+Shift+P` — enhance the editor's current contents in place.
+- `Ctrl+Shift+E` — enhance the editor's current contents in place.
 - `Ctrl+Shift+Z` — revert the most recent enhance.
+
+There is no shortcut for `/prompt-enhance-model` — pick the model from the
+command. Both accelerators appear in `/hotkeys`.
 
 > Pi's terminal `Ctrl+Z` is bound to `app.suspend` (it sends `SIGTSTP` and
 > backgrounds Pi — resume with `fg`). The extension uses `Ctrl+Shift+Z` instead.
+> `Ctrl+Shift+P` is Pi's own `app.model.cycleBackward` and is intentionally
+> not used here — a colliding extension shortcut is skipped.
 
-**Footer hint chips** — a `Ctrl+Shift+P to enhance prompt` chip is always
-visible from the start of every session. After a successful enhance, a second
-`Ctrl+Shift+Z to revert enhanced prompt` chip appears next to it, and
-disappears once you revert or submit a new prompt.
+**Footer hint chips** — enhance is not advertised as an always-on chip. After
+a successful enhance, a `Ctrl+Shift+Z to revert enhanced prompt` chip appears
+and disappears once you revert or submit a new prompt. While an enhance is
+in flight, the `BorderedLoader` owns cancel (**Esc**).
 
 ## The status bar
 
