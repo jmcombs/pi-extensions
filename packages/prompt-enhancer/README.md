@@ -43,9 +43,9 @@ you pick with `/prompt_enhance_model`.
 | Command | What it does |
 | --- | --- |
 | `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
-| `/prompt_enhance_model` | Pick the enhancer model for this session. Resets when Pi restarts. |
+| `/prompt_enhance_model` | Pick the enhancer model for the current session. Resets when Pi restarts. |
 | `/prompt_enhance_revert` | Put the pre-enhance text back. Once only; also clears when you send a prompt. |
-| `/prompt_enhance_auto` | Turn auto-enhance on or off for this session. Off until you do. |
+| `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
 **Shortcuts** — also listed in `/hotkeys`:
 
@@ -76,7 +76,7 @@ separators to render. Set `PROMPT_ENHANCER_GLYPH=""` to drop the mark.
 
 ## Auto-enhance on Enter
 
-Off by default. Run `/prompt_enhance_auto` to turn it on for this session. A
+Off by default. Run `/prompt_enhance_auto` to turn it on for the current session. A
 green `auto` block on the status bar means it is on.
 
 ```mermaid
