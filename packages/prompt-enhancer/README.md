@@ -12,7 +12,7 @@
 # @jmcombs/pi-prompt-enhancer
 
 > Codebase-aware prompt rewriting for the [Pi coding agent](https://pi.dev).
-> It turns a rough request into a precise one — then puts that rewrite back in
+> It turns a rough request into a precise one, then puts that rewrite back in
 > the editor for you to review. Nothing is submitted until you say so.
 
 The enhancer looks at your project tree, git status, and any files the draft
@@ -35,7 +35,7 @@ you pick with `/prompt_enhance_model`.
 
 1. Type a rough request.
 2. Press `Ctrl+Shift+E`.
-3. Read the rewrite — nothing has been sent.
+3. Read the rewrite. Nothing has been sent.
 4. Press Enter to send, or `Ctrl+Shift+Z` for the original.
 
 ## Commands
@@ -47,10 +47,10 @@ you pick with `/prompt_enhance_model`.
 | `/prompt_enhance_revert` | Put the pre-enhance text back. Once only; also clears when you send a prompt. |
 | `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
-**Shortcuts** — also listed in `/hotkeys`:
+**Shortcuts** (also listed in `/hotkeys`):
 
-- `Ctrl+Shift+E` — enhance what is in the editor. Always works, even when auto-enhance would skip.
-- `Ctrl+Shift+Z` — revert the last enhance.
+- `Ctrl+Shift+E`: enhance what is in the editor. Always works, even when auto-enhance would skip.
+- `Ctrl+Shift+Z`: revert the last enhance.
 
 After an enhance, the footer reminds you how to revert. With auto-enhance on it
 also says `Enter to send`. Press **Esc** to cancel an enhance that is still
@@ -62,10 +62,10 @@ Prompt Enhancer displays in the Pi status bar with the enhancer model, when
 auto-enhance is enabled, and a short status after an action is taken. Here are
 the elements of the status bar:
 
-- **Ready** — a model is resolved. Enhance with `Ctrl+Shift+E`.
-- **Auto on** — `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
-- **No model** — pick one with `/model` or `/prompt_enhance_model`.
-- **Review** — a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
+- **Ready**: a model is resolved. Enhance with `Ctrl+Shift+E`.
+- **Auto on**: `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
+- **No model**: pick one with `/model` or `/prompt_enhance_model`.
+- **Review**: a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="820" alt="Prompt Enhancer status widget states">
@@ -88,9 +88,8 @@ flowchart TD
     D -->|Ctrl+Shift+Z| F[Original comes back]
 ```
 
-Short replies — `ok`, `yes`, or a brief answer to a question — skip the
-rewrite and go straight to the model. `Ctrl+Shift+E` always enhances, even
-those.
+Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
+are skipped. To enhance those anyway, use `Ctrl+Shift+E`.
 
 ## Configuration
 
