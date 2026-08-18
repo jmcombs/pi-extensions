@@ -8,9 +8,16 @@
  * exercised manually with `pi -e ./packages/prompt-enhancer`.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { buildEnhancerUserMessage, type EnhancerContext } from "./index.js";
+import factory, {
+  buildEnhancerUserMessage,
+  computePickerMaxVisible,
+  createEnhancerModelSelector,
+  type EnhancerContext,
+  filterPickerItems,
+  SYSTEM_PROMPT,
+} from "./index.js";
 
 interface RegistrationLog {
   commands: string[];
@@ -67,8 +74,13 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    expect(log.commands.sort()).toEqual(["enhance", "enhance-model", "enhance-revert"]);
-    expect(log.shortcuts.sort()).toEqual(["ctrl+shift+p", "ctrl+shift+z"]);
+    expect(log.commands.sort()).toEqual([
+      "prompt_enhance",
+      "prompt_enhance_auto",
+      "prompt_enhance_model",
+      "prompt_enhance_revert",
+    ]);
+    expect(log.shortcuts.sort()).toEqual(["ctrl+shift+e", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);
   });
 
@@ -76,8 +88,8 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     const { api, log } = createApiStub();
     factory(api);
 
-    // session_start sets the always-on enhance hint chip and the persistent
-    // widget. session_shutdown cancels the pending auto-clear timer.
+    // session_start paints the persistent widget and clears a stale revert
+    // chip. session_shutdown cancels the pending auto-clear timer.
     // model_select refreshes the widget's Model line when the user changes
     // pi models. input clears the revert chip when the user submits a
     // non-command prompt.
@@ -98,6 +110,12 @@ describe("buildEnhancerUserMessage", () => {
     const out = buildEnhancerUserMessage("fix the bug", baseContext);
     expect(out).toContain("## Working directory\n/tmp/example");
     expect(out).toContain("## Original prompt\nfix the bug");
+  });
+
+  it("leads with a do-not-answer task so the model rewrites instead of solving", () => {
+    const out = buildEnhancerUserMessage("fix the bug", baseContext);
+    expect(out).toMatch(/^## Task\n/);
+    expect(out).toContain("Do not answer, solve, implement, or explain");
   });
 
   it("omits the project tree section when no tree was gathered", () => {
@@ -135,7 +153,116 @@ describe("buildEnhancerUserMessage", () => {
     expect(out).toContain("### README.md\n```\n# hello\n```");
     expect(out).toContain("### src/index.ts\n```\nexport {};\n```");
   });
+});
 
+describe("computePickerMaxVisible", () => {
+  it("sizes the viewport to 70% of terminal rows minus chrome", () => {
+    // 24 rows → floor(24 * 0.7) = 16, minus 6 chrome = 10.
+    expect(computePickerMaxVisible(24, 50)).toBe(10);
+  });
+
+  it("clamps to the item count when the list is shorter than the budget", () => {
+    expect(computePickerMaxVisible(24, 4)).toBe(4);
+  });
+
+  it("clamps to a minimum of 3 visible rows on a short terminal", () => {
+    expect(computePickerMaxVisible(10, 50)).toBe(3);
+  });
+
+  it("falls back to 24 rows when the terminal size is missing or invalid", () => {
+    expect(computePickerMaxVisible(Number.NaN, 50)).toBe(10);
+    expect(computePickerMaxVisible(0, 50)).toBe(10);
+    expect(computePickerMaxVisible(-4, 50)).toBe(10);
+  });
+});
+
+describe("createEnhancerModelSelector", () => {
+  const identityTheme: Pick<Theme, "fg" | "bold"> = {
+    fg: (_color, text) => text,
+    bold: (text) => text,
+  };
+
+  it("instantiates and renders without throwing", () => {
+    const items = Array.from({ length: 20 }, (_, i) => ({
+      value: `provider/model-${String(i)}`,
+      label: i === 0 ? `provider/model-${String(i)} (current)` : `provider/model-${String(i)}`,
+    }));
+    const picker = createEnhancerModelSelector(
+      { terminal: { rows: 24 }, requestRender: () => {} },
+      identityTheme,
+      items,
+      () => {},
+    );
+    const lines = picker.render(80);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((line) => line.includes("Pick Prompt Enhancer model"))).toBe(true);
+    expect(lines.some((line) => line.includes("(current)"))).toBe(true);
+    expect(lines.some((line) => /\(\d+\/\d+\)/.test(line))).toBe(true);
+    expect(lines.some((line) => line.includes("> "))).toBe(true);
+    expect(lines.some((line) => line.includes("type to filter"))).toBe(true);
+  });
+
+  it("narrows the list as you type, like /model", () => {
+    const items = [
+      { value: "anthropic/claude-sonnet-4", label: "anthropic/claude-sonnet-4 (current)" },
+      { value: "openai/gpt-4o", label: "openai/gpt-4o" },
+      { value: "google/gemini-2.5-pro", label: "google/gemini-2.5-pro" },
+    ];
+    const picker = createEnhancerModelSelector(
+      { terminal: { rows: 24 }, requestRender: () => {} },
+      identityTheme,
+      items,
+      () => {},
+    );
+    picker.handleInput("sonnet");
+    const lines = picker.render(80).join("\n");
+    expect(lines).toContain("claude-sonnet-4");
+    expect(lines).not.toContain("gpt-4o");
+    expect(lines).not.toContain("gemini-2.5-pro");
+  });
+
+  it("shows No matching models when the query matches nothing", () => {
+    const picker = createEnhancerModelSelector(
+      { terminal: { rows: 24 }, requestRender: () => {} },
+      identityTheme,
+      [{ value: "openai/gpt-4o", label: "openai/gpt-4o" }],
+      () => {},
+    );
+    picker.handleInput("zzzz");
+    expect(picker.render(80).some((line) => line.includes("No matching models"))).toBe(true);
+  });
+});
+
+describe("SYSTEM_PROMPT", () => {
+  it("forbids answering or implementing the user's request", () => {
+    expect(SYSTEM_PROMPT).toMatch(/do not answer/i);
+    expect(SYSTEM_PROMPT).toMatch(/do not solve, implement/i);
+    expect(SYSTEM_PROMPT).toContain("rewritten *request*");
+  });
+});
+
+describe("filterPickerItems", () => {
+  const items = [
+    { value: "anthropic/claude-sonnet-4", label: "anthropic/claude-sonnet-4 (current)" },
+    { value: "openai/gpt-4o", label: "openai/gpt-4o" },
+  ];
+
+  it("returns all items when the query is empty or whitespace", () => {
+    expect(filterPickerItems(items, "")).toEqual(items);
+    expect(filterPickerItems(items, "   ")).toEqual(items);
+  });
+
+  it("fuzzy-matches provider/id tokens", () => {
+    const matched = filterPickerItems(items, "sonnet");
+    expect(matched.map((item) => item.value)).toEqual(["anthropic/claude-sonnet-4"]);
+  });
+
+  it("returns no items when nothing fuzzy-matches", () => {
+    expect(filterPickerItems(items, "zzzz")).toEqual([]);
+  });
+});
+
+describe("buildEnhancerUserMessage section order", () => {
   it("preserves section ordering: cwd → tree → git → files → original", () => {
     const out = buildEnhancerUserMessage("do the thing", {
       cwd: "/tmp/example",
@@ -144,6 +271,7 @@ describe("buildEnhancerUserMessage", () => {
       mentionedFiles: [{ path: "f.ts", content: "x" }],
     });
     const order = [
+      "## Task",
       "## Working directory",
       "## Project tree",
       "## Git",

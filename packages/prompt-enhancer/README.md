@@ -1,119 +1,119 @@
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/banner.png" width="420" alt="@jmcombs/pi-prompt-enhancer">
+  <br>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer"><img src="https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer"><img src="https://img.shields.io/npm/dm/@jmcombs/pi-prompt-enhancer.svg" alt="npm downloads"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/stargazers"><img src="https://img.shields.io/github/stars/jmcombs/pi-extensions?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/jmcombs/pi-extensions/issues"><img src="https://img.shields.io/github/issues/jmcombs/pi-extensions" alt="Open issues"></a>
+  <a href="https://github.com/sponsors/jmcombs"><img src="https://img.shields.io/badge/Sponsor-30363D?style=flat&logo=GitHub-Sponsors&logoColor=EA4AAA" alt="Sponsor"></a>
+</div>
+
 # @jmcombs/pi-prompt-enhancer
 
-A [Pi coding agent](https://pi.dev) extension that rewrites rough user prompts into
-precise, codebase-aware ones — before they reach the model. The enhanced prompt is
-loaded back into the editor for your review, so you stay in control of what gets
-submitted.
+> Codebase-aware prompt rewriting for the [Pi coding agent](https://pi.dev).
+> It turns a rough request into a precise one, then puts that rewrite back in
+> the editor for you to review. Nothing is submitted until you say so.
 
-## Fixes
-
-- **Aligned the assistant-message imports with `@earendil-works/pi-ai/compat` for
-  Pi 0.80.8+.** This is a typecheck-correctness fix; runtime behavior is unchanged
-  (it already resolved via the loader alias).
+The enhancer looks at your project tree, git status, and any files the draft
+names, then **rewrites the request** instead of answering it. The original
+stays one keystroke away.
 
 ## Install
 
 ```bash
-# Globally (recommended)
 pi install npm:@jmcombs/pi-prompt-enhancer
-
-# For a single session, without installing
-pi -e npm:@jmcombs/pi-prompt-enhancer
 ```
 
-No external API keys are required. The enhancer uses whichever Pi model is currently
-active in your session (or one you pick interactively via `/enhance-model`).
+See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
+path, project-scoped install, and filtering options.
 
-## What It Adds
+No extra API keys. It uses the model already active in your session, or one
+you pick with `/prompt_enhance_model`.
 
-- **Command** `/enhance [text]` — enhance the provided text, or the editor's current
-  contents if no argument is given.
-- **Shortcut** `Ctrl+Shift+P` — enhance the editor's current contents in place.
-- **Command** `/enhance-revert` and **Shortcut** `Ctrl+Shift+Z` — restore the editor
-  to the prompt that was there immediately before the most recent `/enhance`.
-  Cleared after one revert (single-step undo) and also when you submit a
-  non-command prompt.
-- **Command** `/enhance-model` — interactively pick which model to use as the
-  enhancer for the current session. Choice is held in memory and resets on restart.
-- **Persistent widget above the editor** — a two-line panel showing
-  `Prompt Enhancer` and the model the enhancer will use. Soft messages
-  (cancelled, reverted, nothing-to-enhance, model-changed, etc.) appear as a
-  third line for ~4 seconds and then auto-clear. Hard errors still surface as
-  Pi notifications.
-- **Footer hint chips** — a `Ctrl+Shift+P to enhance prompt` chip is always
-  visible from the start of every session. After a successful `/enhance`, a
-  second `Ctrl+Shift+Z to revert to previous prompt` chip appears next to it,
-  and disappears once you revert or submit a new prompt.
+## Quick start
 
-## How It Works
+1. Type a rough request.
+2. Press `Ctrl+Shift+E`.
+3. Read the rewrite. Nothing has been sent.
+4. Press Enter to send, or `Ctrl+Shift+Z` for the original.
 
-When you trigger an enhancement, the extension gathers (in parallel):
+## Commands
 
-1. **Project directory tree** — up to 3 levels deep, max 100 entries, skipping
-   `node_modules`, `.git`, `dist`, `build`, `coverage`, and similar artifact
-   directories.
-2. **Git context** — current branch, `git status --short`, and the last 8 commits
-   via `git log --oneline`. 3-second timeout per call; failures are silently
-   ignored (works fine outside a git repo).
-3. **Mentioned file contents** — filenames or paths referenced in your prompt are
-   resolved relative to `cwd`, verified to exist, and read up to 100 lines each
-   (capped at 3 files; unreadable files are silently skipped).
+| Command | What it does |
+| --- | --- |
+| `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
+| `/prompt_enhance_model` | Pick the enhancer model for the current session. Resets when Pi restarts. |
+| `/prompt_enhance_revert` | Put the pre-enhance text back. Once only; also clears when you send a prompt. |
+| `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
-That context plus your original prompt is sent to the configured enhancer model.
-While the request is in flight, a `BorderedLoader` covers the editor; pressing
-**Esc** cancels at any point and restores your original text.
+**Shortcuts** (also listed in `/hotkeys`):
 
-On success the enhanced prompt is loaded into the editor and you receive a notification
-to review it before submitting. Press **Ctrl+Shift+Z** (or run `/enhance-revert`) to
-restore your original prompt; the revert affordance is single-step and clears
-automatically once you submit a new prompt.
+- `Ctrl+Shift+E`: enhance what is in the editor. Always works, even when auto-enhance would skip.
+- `Ctrl+Shift+Z`: revert the last enhance.
 
-> Note: Pi's terminal `Ctrl+Z` is bound to `app.suspend` (it sends `SIGTSTP` to
-> the OS and suspends Pi to the background — you can resume with `fg` in the
-> shell). The extension uses `Ctrl+Shift+Z` instead for revert, which doesn't
-> collide.
+After an enhance, the footer reminds you how to revert. With auto-enhance on it
+also says `Enter to send`. Press **Esc** to cancel an enhance that is still
+running.
 
-## Model Selection
+## The status bar
 
-By default the enhancer uses the same model that's currently active in your Pi
-session (`ctx.model`). Run `/enhance-model` to open an interactive picker showing
-every model that has a configured API key. Your choice persists for the lifetime
-of the session only — restarting Pi or starting a new session resets it back to
-the default.
+Prompt Enhancer displays in the Pi status bar with the enhancer model, when
+auto-enhance is enabled, and a short status after an action is taken. Here are
+the elements of the status bar:
 
-## Behavior Notes
+- **Ready**: a model is resolved. Enhance with `Ctrl+Shift+E`.
+- **Auto on**: `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
+- **No model**: pick one with `/model` or `/prompt_enhance_model`.
+- **Review**: a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
 
-- **Nothing is submitted to the LLM automatically.** The flow always ends with the
-  enhanced prompt sitting in your editor awaiting your review.
-- An empty prompt, no model, or a model with no configured API key produces a
-  notification and a no-op return — your editor is never modified.
-- Cancellation (**Esc**) and errors both restore the original prompt and notify you.
-- The extension makes no network calls of its own — it only invokes Pi's existing
-  model interface, which means anything that works in your `pi` setup (local
-  models, OpenRouter, Anthropic direct, etc.) works here.
+<div align="center">
+  <img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/status-states.svg" width="820" alt="Prompt Enhancer status widget states">
+</div>
+
+A [Nerd Font](https://www.nerdfonts.com/) is required for the mark and
+separators to render.
+
+## Auto-enhance on Enter
+
+Off by default. Run `/prompt_enhance_auto` to turn it on for the current session. A
+green `auto` block on the status bar means it is on.
+
+```mermaid
+flowchart TD
+    A[Type a request] --> B[Enter]
+    B --> C[Rewrite appears in the editor]
+    C --> D{Keep it?}
+    D -->|Enter| E[Send to the model]
+    D -->|Ctrl+Shift+Z| F[Original comes back]
+```
+
+Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
+are skipped. To enhance those anyway, use `Ctrl+Shift+E`.
 
 ## Requirements
 
-- Pi `>= 0.72.0`
-- Node `>= 20.6.0`
-- At least one Pi-configured model with an API key (any provider)
+| | |
+| --- | --- |
+| **Node** | ≥ 22.19.0 |
+| **[Pi](https://pi.dev)** | any recent version |
+| **A [Nerd Font](https://www.nerdfonts.com)** | for the status bar mark and separators |
+| **A configured model** | at least one Pi model with an API key |
 
 ## Development
 
 This package lives in the [pi-extensions monorepo](https://github.com/jmcombs/pi-extensions).
+See `CONTRIBUTING.md` at the repo root for project conventions.
 
 ```bash
 # From the repo root
 npm ci
-npm run check       # full quality gate
+npm run check
+npm run test -- packages/prompt-enhancer
 
-# Try local changes against a real pi session
-pi -e ./packages/prompt-enhancer
+# Try local changes (skip globally installed extensions so they do not collide)
+pi --no-extensions -e ./packages/prompt-enhancer
 ```
-
-The smoke test in `index.test.ts` does **not** mock the LLM API; it only verifies
-registration shape (commands, shortcuts). Real end-to-end behavior is exercised
-manually via `pi -e`.
 
 ## License
 

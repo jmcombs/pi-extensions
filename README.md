@@ -64,7 +64,7 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 | Package | Description |
 | --- | --- |
 | [`@jmcombs/pi-better-toolsy`](./packages/better-toolsy) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-better-toolsy.svg)](https://www.npmjs.com/package/@jmcombs/pi-better-toolsy) | Drop-in replacements for `ls` / `read` / `grep` / `find` / `edit` / `write` — `.gitignore` awareness, path-traversal protection, injection-safe edits. |
-| [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt rewriter — project tree, git context, and referenced files before the model sees your prompt. |
+| [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt rewriter: project tree, git context, referenced files, and an optional auto-enhance on Enter. |
 | [`@jmcombs/pi-notify`](./packages/notify) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify) | Terminal notifications (OSC 777/9/99) when Pi finishes a turn. Ghostty, iTerm2, WezTerm, Kitty, and more — no OS binaries. |
 
 ### Context, models & UI
