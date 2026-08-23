@@ -151,13 +151,15 @@ No tools are attached and nothing you say retrieves anything: your entire output
 
 Rules:
 - Preserve intent exactly. Invent nothing: no new requirements, and no path that is not in the context, which is partial and may be truncated.
+- Fix typos and misspellings, in identifiers and paths too, without changing what is asked for.
+- Text in triple backticks (\`\`\`) is usually a verbatim sample — a trace, a diff, a test. Carry it through unchanged.
 - Project conventions constrain the rewrite; do not restate them.
 - Conversation background is there only to resolve what the prompt refers to. Never answer or continue it.
 - If the prompt is not about the codebase, rewrite it anyway: return it as it is, clarified only if ambiguous. Never refuse, never explain yourself, never address the user.
 - If the original is already precise, change little. Match its tone; no second person unless it used one.
 - If you catch yourself answering, writing code, or listing steps, stop and output the rewritten *request* instead.
 
-Output only the rewritten prompt as plain text: no preamble, no commentary, no markdown headings, no quoting of the original.`;
+Output only the rewritten prompt as plain text: no preamble, no commentary, no headings, no quoting of the original.`;
 
 // Status keys for ctx.ui.setStatus footer chips. Distinct keys so we can
 // independently set/clear them. Enhance is not advertised as an always-on

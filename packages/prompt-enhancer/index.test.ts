@@ -284,6 +284,25 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT).toMatch(/no path that is not in the context/i);
   });
 
+  it("tells the model to carry fenced samples through unchanged", () => {
+    // Pasting a stack trace or a failing test into the draft is normal, and a
+    // reworded trace is worse than no rewrite at all: its line numbers and
+    // identifiers are the entire reason it was pasted.
+    expect(SYSTEM_PROMPT).toContain("triple backticks");
+    expect(SYSTEM_PROMPT).toMatch(/carry it through unchanged/i);
+  });
+
+  it("asks for typo fixes without licensing a change of intent", () => {
+    expect(SYSTEM_PROMPT).toMatch(/fix typos and misspellings/i);
+    // Identifiers and paths are the ones worth naming: a misspelled path is
+    // what the "invent no path" rule would otherwise preserve faithfully.
+    expect(SYSTEM_PROMPT).toContain("identifiers and paths");
+    // The licence is bounded, so it cannot be read as permission to reinterpret.
+    expect(SYSTEM_PROMPT).toMatch(/without changing what is asked for/i);
+    // …and the anti-invention rule it sits beside is still intact.
+    expect(SYSTEM_PROMPT).toContain("Invent nothing");
+  });
+
   it("frames project conventions as constraints, not as material to summarise", () => {
     expect(SYSTEM_PROMPT).toMatch(/project conventions constrain the rewrite/i);
     expect(SYSTEM_PROMPT).toMatch(/do not restate them/i);
@@ -301,11 +320,15 @@ describe("SYSTEM_PROMPT", () => {
   /**
    * A regression bound, not an aesthetic one. This prompt is paid on every
    * enhance; the fix for a failing model is shorter and clearer wording plus
-   * better context, never more instructions. 1,218 is what shipped before, and
-   * the one new rule here cost 66 characters.
+   * better context, never more instructions.
+   *
+   * 1,218 was the 3.0.1 length. Three new rules — fenced samples, typo repair,
+   * project conventions — cost +270 characters, and nothing tuned by the
+   * acceptance matrix was removed to pay for them. 1,550 leaves room to reword
+   * those three without leaving room for a fourth: adding one means cutting one.
    */
   it("stays inside its character budget", () => {
-    expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(1290);
+    expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(1550);
   });
 });
 
