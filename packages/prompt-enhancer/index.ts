@@ -168,6 +168,20 @@ export function normalizeFailureReason(raw: string | undefined): string | undefi
 }
 
 /**
+ * The one thing a failed enhancement says, identical in every mode.
+ *
+ * The point of the wording is the second clause: whatever went wrong, the text
+ * the user typed is still theirs and still in the editor. Auto-enhance standing
+ * itself down is shown by the widget, not repeated here.
+ */
+export function formatEnhancementFailure(reason: string | undefined): string {
+  const normalized = normalizeFailureReason(reason);
+  return normalized === undefined
+    ? "prompt enhancement failed; your prompt is unchanged"
+    : `prompt enhancement failed (${normalized}); your prompt is unchanged`;
+}
+
+/**
  * The loader line while a retry is pending.
  *
  * Naming the reason turns a 14-second wait into a decision: a user who can see
@@ -866,7 +880,17 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     return;
   }
 
-  const editorBeforeReplace = editorText;
+  /**
+   * What goes back in the editor if this run does not produce a rewrite.
+   *
+   * Normally that is whatever was there before we touched it. On the
+   * auto-enhance path it cannot be: pi clears the editor before it fires the
+   * `input` event, so the snapshot is empty and restoring it would delete the
+   * very draft a cancel or a failure promises to leave alone. Falling back to
+   * the prompt itself puts back exactly what the user typed.
+   */
+  const editorRestoreText = editorText.trim().length > 0 ? editorText : originalPrompt;
+
   // Replace the editor with the original (in case the user typed it via
   // /prompt_enhance "..." rather than into the editor) so a Ctrl+Z after success
   // takes them back to what they typed before invoking the enhancer.
@@ -964,17 +988,34 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     return;
   }
 
-  // Restore whatever was in the editor before we touched it.
-  ctx.ui.setEditorText(editorBeforeReplace);
+  // Neither outcome may cost the user their text.
+  ctx.ui.setEditorText(editorRestoreText);
+
+  if (result.reason === "cancelled") {
+    // Esc is a decision, not a breakage: nothing stands down, nothing changes
+    // except that this run stopped.
+    if (lastOriginalPrompt !== undefined) {
+      ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
+    }
+    showTransientStatus(ctx, "Cancelled.");
+    return;
+  }
+
+  // A failure stands auto-enhance down for the rest of the session (session
+  // state only — nothing is written to config). pi already spent four attempts
+  // over ~14 s before calling it a failure, so one is enough evidence that the
+  // next Enter should just send rather than walk into the same wait again.
+  //
+  // The message is said once; the widget losing its green `auto` block is what
+  // keeps the new state on screen afterwards.
+  autoEnhanceEnabled = false;
+  clearTransientStatusTimer();
   if (lastOriginalPrompt !== undefined) {
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
   }
-  if (result.reason === "cancelled") {
-    showTransientStatus(ctx, "Cancelled.");
-  } else {
-    // Hard failures stay as notifications — the user needs to see them loud.
-    ctx.ui.notify(`Prompt enhancement failed: ${result.message ?? "unknown error"}`, "error");
-  }
+  updateWidget(ctx);
+  // Hard failures stay as notifications — the user needs to see them loud.
+  ctx.ui.notify(formatEnhancementFailure(result.message), "error");
 }
 
 function runRevert(ctx: ExtensionContext): void {

@@ -70,6 +70,18 @@ the reason so you can decide to wait or press Esc:
 Retrying (1/3) in 2s… · Connection error
 ```
 
+Esc cancels and changes nothing else. If the retries run out, three things
+happen and nothing else:
+
+- your prompt goes back in the editor, exactly as you typed it;
+- auto-enhance turns itself off for the rest of the session, so the next Enter
+  sends — turn it back on with `/prompt_enhance_auto`;
+- one message says so, and names the reason:
+
+```text
+prompt enhancement failed (Connection error); your prompt is unchanged
+```
+
 ## The status bar
 
 Prompt Enhancer displays in the Pi status bar with the enhancer model, when

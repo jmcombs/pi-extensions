@@ -8,9 +8,17 @@
  * exercised manually with `pi -e ./packages/prompt-enhancer`.
  */
 
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import {
+  type ExtensionAPI,
+  type ExtensionContext,
+  initTheme,
+  type Theme,
+} from "@earendil-works/pi-coding-agent";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import factory, {
   buildEnhancerUserMessage,
   buildRecentTurns,
@@ -20,6 +28,7 @@ import factory, {
   ENHANCER_RETRY_POLICY,
   type EnhancerContext,
   filterPickerItems,
+  formatEnhancementFailure,
   formatRetryStatus,
   normalizeFailureReason,
   SYSTEM_PROMPT,
@@ -614,6 +623,30 @@ describe("normalizeFailureReason", () => {
   });
 });
 
+describe("formatEnhancementFailure", () => {
+  it("quotes the reason in parentheses and promises the prompt is unchanged", () => {
+    expect(formatEnhancementFailure("Connection error")).toBe(
+      "prompt enhancement failed (Connection error); your prompt is unchanged",
+    );
+  });
+
+  it("normalizes the reason it is given", () => {
+    expect(formatEnhancementFailure("Connection error.\nstack frame")).toBe(
+      "prompt enhancement failed (Connection error); your prompt is unchanged",
+    );
+    expect(formatEnhancementFailure(`${"y".repeat(120)}`)).toBe(
+      `prompt enhancement failed (${"y".repeat(100)}…); your prompt is unchanged`,
+    );
+  });
+
+  it("drops the parenthetical and its space entirely when there is no reason", () => {
+    const expected = "prompt enhancement failed; your prompt is unchanged";
+    expect(formatEnhancementFailure(undefined)).toBe(expected);
+    expect(formatEnhancementFailure("")).toBe(expected);
+    expect(formatEnhancementFailure("   ")).toBe(expected);
+  });
+});
+
 describe("formatRetryStatus", () => {
   it("names the reason the last attempt gave, so Esc is an informed choice", () => {
     expect(formatRetryStatus(1, 3, 2000, "Connection error.")).toBe(
@@ -627,5 +660,261 @@ describe("formatRetryStatus", () => {
   it("falls back to pi's own wording when no reason came through", () => {
     expect(formatRetryStatus(2, 3, 4000)).toBe("Retrying (2/3) in 4s…");
     expect(formatRetryStatus(2, 3, 4000, "")).toBe("Retrying (2/3) in 4s…");
+  });
+});
+
+// ── Failure handling, end to end through the real runEnhancer ───────────
+//
+// No LLM is mocked. The stub host hands the enhancer a model whose `api` no
+// provider is registered for, so pi-ai's own `stream()` throws before it opens
+// a socket: a genuine failure, produced by the real code path, with no network
+// and no retry budget to wait out. Cancellation is equally real — the stub
+// presses Escape on the actual `BorderedLoader` the extension built.
+
+const ESCAPE = "\x1b";
+
+/**
+ * A real, empty working directory for these runs.
+ *
+ * It must exist: `gatherEnhancerContext` spawns git in it, and aborting a
+ * child that failed to spawn because its `cwd` was missing takes the whole
+ * process group down with it under Node. Empty is enough — the tree walk finds
+ * nothing, git reports no repository, and the run reaches the model call at
+ * once.
+ */
+let hostCwd = "";
+
+// `BorderedLoader` renders pi's own cancel key hint, which reads the global
+// theme. Pinned to the built-in "dark" so the tests never depend on the
+// developer's configured theme.
+beforeAll(async () => {
+  initTheme("dark", false);
+  hostCwd = await fs.mkdtemp(path.join(os.tmpdir(), "pi-prompt-enhancer-tests-"));
+});
+
+afterAll(async () => {
+  if (hostCwd) await fs.rm(hostCwd, { recursive: true, force: true });
+});
+
+interface HostLog {
+  notifications: { message: string; level: string }[];
+  widgets: string[][];
+  editorTexts: string[];
+}
+
+/** Registered handlers, so tests can drive commands and events like pi does. */
+function createHarness(): {
+  commands: Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>;
+  events: Map<string, (event: unknown, ctx: ExtensionContext) => unknown>;
+} {
+  const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>();
+  const events = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
+  const api = {
+    on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
+      events.set(name, handler);
+    },
+    registerCommand: (
+      name: string,
+      def: { handler: (args: string, ctx: ExtensionContext) => Promise<void> },
+    ) => {
+      commands.set(name, def.handler);
+    },
+    registerShortcut: () => {},
+  } as unknown as ExtensionAPI;
+  factory(api);
+  return { commands, events };
+}
+
+function createHost(options: { draft: string; cancel?: boolean }): {
+  ctx: ExtensionContext;
+  log: HostLog;
+  /** What pi does to the editor on Enter, before it fires the input event. */
+  clearEditorLikeEnter: () => void;
+} {
+  const log: HostLog = { notifications: [], widgets: [], editorTexts: [] };
+  let editorText = options.draft;
+
+  const tuiStub = { requestRender: () => {}, terminal: { rows: 24, columns: 80 } };
+  const themeStub = {
+    fg: (_name: string, text: string) => text,
+    bold: (text: string) => text,
+  };
+
+  const ctx = {
+    hasUI: true,
+    mode: "tui",
+    cwd: hostCwd,
+    model: { provider: "test", id: "unreachable", api: "no-such-api-provider" },
+    modelRegistry: {
+      getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "test-key", headers: {} }),
+    },
+    sessionManager: { getBranch: () => [] },
+    ui: {
+      getEditorText: () => editorText,
+      setEditorText: (text: string) => {
+        editorText = text;
+        log.editorTexts.push(text);
+      },
+      setStatus: () => {},
+      setWidget: (_key: string, lines: string[]) => {
+        log.widgets.push(lines);
+      },
+      notify: (message: string, level: string) => {
+        log.notifications.push({ message, level });
+      },
+      custom: async <T>(
+        build: (
+          tui: unknown,
+          theme: unknown,
+          kb: unknown,
+          done: (value: T) => void,
+        ) => { handleInput?: (data: string) => void; dispose?: () => void },
+      ): Promise<T> => {
+        let settle: (value: T) => void = () => {};
+        const settled = new Promise<T>((resolve) => {
+          settle = resolve;
+        });
+        const component = build(tuiStub, themeStub, {}, settle);
+        // Escape on the real loader: aborts its signal and fires onAbort,
+        // exactly as a keypress would.
+        if (options.cancel === true) component.handleInput?.(ESCAPE);
+        const outcome = await settled;
+        component.dispose?.();
+        return outcome;
+      },
+    },
+  } as unknown as ExtensionContext;
+
+  return {
+    ctx,
+    log,
+    clearEditorLikeEnter: () => {
+      editorText = "";
+    },
+  };
+}
+
+function lastWidgetLine(log: HostLog): string {
+  return log.widgets.at(-1)?.[0] ?? "";
+}
+
+/** The green `auto` block is a padded Powerline segment. */
+function hasAutoChip(line: string): boolean {
+  return line.includes(" auto ");
+}
+
+describe("enhancement failure", () => {
+  const DRAFT = "rework the widget rendering so the segments collapse cleanly";
+
+  type Armed = {
+    harness: ReturnType<typeof createHarness>;
+    ctx: ExtensionContext;
+    log: HostLog;
+    clearEditorLikeEnter: () => void;
+  };
+
+  async function armed(options: { cancel?: boolean } = {}): Promise<Armed> {
+    const harness = createHarness();
+    const host = createHost({ draft: DRAFT, cancel: options.cancel });
+    // session_start resets the module-scoped session state between tests.
+    await harness.events.get("session_start")?.({}, host.ctx);
+    await harness.commands.get("prompt_enhance_auto")?.("", host.ctx);
+    expect(hasAutoChip(lastWidgetLine(host.log))).toBe(true);
+    return { harness, ...host };
+  }
+
+  /**
+   * Enter, the way pi delivers it: the editor is emptied *before* the input
+   * event fires, so the enhancer never sees the draft in `getEditorText()`.
+   */
+  function submit(armedHost: Armed): Promise<unknown> {
+    armedHost.clearEditorLikeEnter();
+    return Promise.resolve(
+      armedHost.harness.events.get("input")?.(
+        { source: "interactive", text: DRAFT, images: [] },
+        armedHost.ctx,
+      ),
+    );
+  }
+
+  async function shutdown(
+    harness: ReturnType<typeof createHarness>,
+    ctx: ExtensionContext,
+  ): Promise<void> {
+    await harness.events.get("session_shutdown")?.({}, ctx);
+  }
+
+  it("switches auto-enhance off and drops the widget's auto block", async () => {
+    const host = await armed();
+
+    // The submit was swallowed: the draft went to the enhancer, not the agent.
+    expect(await submit(host)).toEqual({ action: "handled" });
+    expect(hasAutoChip(lastWidgetLine(host.log))).toBe(false);
+
+    // Auto is genuinely off, not merely unpainted: the same Enter now passes
+    // the draft straight through to the agent.
+    expect(await submit(host)).toEqual({ action: "continue" });
+    expect(host.log.notifications).toHaveLength(1);
+
+    await shutdown(host.harness, host.ctx);
+  });
+
+  it("puts the draft back in the editor, which is what the message promises", async () => {
+    const host = await armed();
+    await submit(host);
+
+    // pi emptied the editor on Enter, so "restore what was there" would have
+    // restored nothing. The draft itself is what comes back.
+    expect(host.log.editorTexts.at(-1)).toBe(DRAFT);
+    expect(host.ctx.ui.getEditorText()).toBe(DRAFT);
+
+    await shutdown(host.harness, host.ctx);
+  });
+
+  it("says one thing, with the reason, and promises the prompt is unchanged", async () => {
+    const host = await armed();
+    await submit(host);
+
+    const log = host.log;
+    expect(log.notifications).toHaveLength(1);
+    const only = log.notifications[0];
+    expect(only?.message).toMatch(/^prompt enhancement failed \(.+\); your prompt is unchanged$/);
+    expect(only?.message).toBe(
+      formatEnhancementFailure("No API provider registered for api: no-such-api-provider"),
+    );
+
+    await shutdown(host.harness, host.ctx);
+  });
+
+  it("says exactly the same thing on the manual path", async () => {
+    const auto = await armed();
+    await submit(auto);
+    await shutdown(auto.harness, auto.ctx);
+
+    // Manual: /prompt_enhance on the editor's contents, auto never turned on.
+    const harness = createHarness();
+    const { ctx, log } = createHost({ draft: DRAFT });
+    await harness.events.get("session_start")?.({}, ctx);
+    await harness.commands.get("prompt_enhance")?.("", ctx);
+
+    expect(log.notifications).toHaveLength(1);
+    expect(log.notifications[0]?.message).toBe(auto.log.notifications[0]?.message);
+    expect(hasAutoChip(lastWidgetLine(log))).toBe(false);
+    expect(log.editorTexts.at(-1)).toBe(DRAFT);
+
+    await shutdown(harness, ctx);
+  });
+
+  it("leaves auto-enhance alone when the user cancels with Esc", async () => {
+    const host = await armed({ cancel: true });
+    await submit(host);
+
+    // Cancel is a decision, not a failure: no message, and auto is still armed.
+    expect(host.log.notifications).toEqual([]);
+    expect(hasAutoChip(lastWidgetLine(host.log))).toBe(true);
+    // The draft still comes back — cancelling must not cost the user their text.
+    expect(host.log.editorTexts.at(-1)).toBe(DRAFT);
+
+    await shutdown(host.harness, host.ctx);
   });
 });
