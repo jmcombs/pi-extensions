@@ -112,6 +112,24 @@ const BINARY_PROBE_CHARS = 8192;
 const BINARY_SUSPICIOUS_RATIO = 0.02;
 
 /**
+ * The project's own instruction files, sent as constraints on the rewrite.
+ *
+ * A rewrite that ignores what the repo already says about how work in it is
+ * done is a worse prompt than the draft it replaced: the agent that executes it
+ * then has to be corrected. These three names cover the conventions this
+ * ecosystem actually writes down; they are probed at the working-directory root
+ * only, never walked.
+ *
+ * Bounded harder than mentioned files. Mentioned files were asked for by the
+ * prompt; these are sent on every enhance whether they help or not, so they get
+ * a shorter per-file line cap and one character budget shared across all of
+ * them — the budget is what is left, not what each file would like.
+ */
+const CONVENTION_FILES = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"] as const;
+const CONVENTIONS_MAX_LINES = 80;
+const CONVENTIONS_MAX_CHARS = 4000;
+
+/**
  * Bounds on the conversation background sent with the rewrite.
  *
  * A mid-conversation prompt ("I need to work with you on this dependabot
@@ -133,6 +151,7 @@ No tools are attached and nothing you say retrieves anything: your entire output
 
 Rules:
 - Preserve intent exactly. Invent nothing: no new requirements, and no path that is not in the context, which is partial and may be truncated.
+- Project conventions constrain the rewrite; do not restate them.
 - Conversation background is there only to resolve what the prompt refers to. Never answer or continue it.
 - If the prompt is not about the codebase, rewrite it anyway: return it as it is, clarified only if ambiguous. Never refuse, never explain yourself, never address the user.
 - If the original is already precise, change little. Match its tone; no second person unless it used one.
@@ -260,6 +279,13 @@ export interface EnhancerContext {
   tree?: string;
   git?: string;
   mentionedFiles: { path: string; content: string }[];
+  /**
+   * The repo's own instruction files (`AGENTS.md`, `CLAUDE.md`,
+   * `CONTRIBUTING.md`) as constraints on the rewrite. Optional so an existing
+   * consumer constructing this type by hand keeps compiling; absent and empty
+   * mean the same thing to `buildEnhancerUserMessage`.
+   */
+  conventions?: { path: string; content: string }[];
   /**
    * Recent conversation turns, oldest first, already bounded by
    * `buildRecentTurns`. Absent on the first turn of a session and on any host
@@ -504,6 +530,39 @@ async function buildMentionedFiles(
   return results;
 }
 
+/**
+ * The project's instruction files: what the repo already says about how work in
+ * it should be done.
+ *
+ * Probed at the working-directory root only. The whole set shares one character
+ * budget, spent in `CONVENTION_FILES` order, so a repo with a 3,000-line
+ * `CLAUDE.md` cannot crowd the rest of the message out.
+ *
+ * Returns `[]` when the repo has none, which keeps the section out of the user
+ * message entirely rather than sending an empty heading.
+ */
+export async function buildProjectConventions(
+  cwd: string,
+): Promise<{ path: string; content: string }[]> {
+  const files = await Promise.all(
+    CONVENTION_FILES.map((name) => readBoundedFile(name, cwd, CONVENTIONS_MAX_LINES)),
+  );
+
+  const out: { path: string; content: string }[] = [];
+  let budget = CONVENTIONS_MAX_CHARS;
+  for (const file of files) {
+    if (!file) continue;
+    if (budget <= 0) break;
+    const content =
+      file.content.length > budget
+        ? `${file.content.slice(0, budget)}\n… (truncated)`
+        : file.content;
+    budget -= Math.min(file.content.length, budget);
+    out.push({ path: file.path, content });
+  }
+  return out;
+}
+
 // ── Context assembly ────────────────────────────────────────────────────
 
 export async function gatherEnhancerContext(
@@ -511,12 +570,13 @@ export async function gatherEnhancerContext(
   cwd: string,
   signal: AbortSignal,
 ): Promise<EnhancerContext> {
-  const [tree, git, mentionedFiles] = await Promise.all([
+  const [tree, git, mentionedFiles, conventions] = await Promise.all([
     buildProjectTree(cwd, signal),
     buildGitContext(cwd, signal),
     buildMentionedFiles(prompt, cwd),
+    buildProjectConventions(cwd),
   ]);
-  return { cwd, tree, git, mentionedFiles };
+  return { cwd, tree, git, mentionedFiles, conventions };
 }
 
 /**
@@ -583,6 +643,15 @@ export function buildEnhancerUserMessage(originalPrompt: string, context: Enhanc
   if (context.tree)
     sections.push(`## Project tree (depth ${String(TREE_MAX_DEPTH)})\n${context.tree}`);
   if (context.git) sections.push(`## Git\n${context.git}`);
+  // Ahead of the prompt-specific files on purpose: these are the rules the
+  // rewrite has to hold to, and the heading says so, because a model handed a
+  // style guide will otherwise summarise it back as if that were the task.
+  if (context.conventions && context.conventions.length > 0) {
+    const blocks = context.conventions.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``);
+    sections.push(
+      `## Project conventions (constraints on the rewrite — do not restate them)\n\n${blocks.join("\n\n")}`,
+    );
+  }
   if (context.mentionedFiles.length > 0) {
     const blocks = context.mentionedFiles.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``);
     sections.push(`## Files referenced in the prompt\n\n${blocks.join("\n\n")}`);
