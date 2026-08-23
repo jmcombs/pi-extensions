@@ -535,12 +535,77 @@ function showTransientStatus(ctx: ExtensionContext, status: string): void {
 
 // ── Main flow ───────────────────────────────────────────────────────────
 
+type EnhancementOutcome =
+  | { ok: true; enhanced: string }
+  | { ok: false; reason: "cancelled" | "error"; message?: string };
+
+/** The successful half of `ModelRegistry.getApiKeyAndHeaders`'s result. */
+type ResolvedEnhancerAuth = Extract<
+  Awaited<ReturnType<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>>,
+  { ok: true }
+>;
+
+/**
+ * The enhancement itself: gather context, call the model, extract the rewrite.
+ *
+ * Shared by the interactive path (cancellation driven by BorderedLoader's
+ * signal) and the headless path (driven by a local AbortController), so the
+ * LLM call exists exactly once.
+ */
+async function performEnhancement(
+  params: {
+    cwd: string;
+    model: Model<Api>;
+    auth: ResolvedEnhancerAuth;
+    originalPrompt: string;
+  },
+  signal: AbortSignal,
+): Promise<EnhancementOutcome> {
+  const { cwd, model, auth, originalPrompt } = params;
+
+  const context = await gatherEnhancerContext(originalPrompt, cwd, signal);
+  if (signal.aborted) return { ok: false, reason: "cancelled" };
+
+  const userMessage: Message = {
+    role: "user",
+    content: [{ type: "text", text: buildEnhancerUserMessage(originalPrompt, context) }],
+    timestamp: Date.now(),
+  };
+
+  const response = await complete(
+    model,
+    { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+    { apiKey: auth.apiKey, headers: auth.headers, signal },
+  );
+
+  if (response.stopReason === "aborted") return { ok: false, reason: "cancelled" };
+  if (response.stopReason === "error") {
+    return {
+      ok: false,
+      reason: "error",
+      message: response.errorMessage ?? "Unknown LLM error",
+    };
+  }
+
+  const enhanced = response.content
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
+    .join("\n")
+    .trim();
+
+  if (!enhanced) {
+    return { ok: false, reason: "error", message: "Model returned an empty response." };
+  }
+
+  return { ok: true, enhanced };
+}
+
 async function runEnhancer(ctx: ExtensionContext, providedText: string | undefined): Promise<void> {
-  // The enhancer needs an interactive editor (to read/write prompt text) and
-  // a TUI overlay (for the BorderedLoader). In print mode and JSON mode
-  // ctx.hasUI is false and ctx.ui.custom is a no-op that returns undefined,
-  // so the flow can't work — fail fast with a clear notification instead of
-  // crashing on the undefined result.
+  // The enhancer needs an interactive editor (to read/write prompt text). In
+  // print mode and JSON mode ctx.hasUI is false and there is no editor to read
+  // from or write to, so the flow can't work — fail fast with a clear
+  // notification. RPC mode keeps hasUI true but has no custom-component host;
+  // that case runs headlessly below.
   if (!ctx.hasUI) {
     ctx.ui.notify(
       "Prompt Enhancer requires interactive mode (it reads and writes the editor).",
@@ -583,66 +648,67 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // below if this run does not produce a new successful enhance.
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
 
-  const result = await ctx.ui.custom<
-    { ok: true; enhanced: string } | { ok: false; reason: "cancelled" | "error"; message?: string }
-  >((tui, theme, _kb, done) => {
-    const loader = new BorderedLoader(tui, theme, `Enhancing prompt via ${modelLabel(model)}…`, {
-      cancellable: true,
-    });
-    loader.onAbort = () => {
-      done({ ok: false, reason: "cancelled" });
-    };
+  // Custom components are terminal-only. pi's own JSDoc on ExtensionContext.mode
+  // says to guard them on "tui"; RPC keeps hasUI true but implements custom()
+  // as `async custom() { return undefined; }`, which used to crash this flow.
+  // Allowlist, not a denylist, so a future mode degrades to headless instead of
+  // crashing. `mode` may be absent on a host that ships a subset shim of
+  // @earendil-works/pi-coding-agent, hence the typeof check.
+  const wantsCustomUI = typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI;
 
-    const work = async (): Promise<
-      | { ok: true; enhanced: string }
-      | { ok: false; reason: "cancelled" | "error"; message?: string }
-    > => {
-      const context = await gatherEnhancerContext(originalPrompt, ctx.cwd, loader.signal);
-      if (loader.signal.aborted) return { ok: false, reason: "cancelled" };
+  const enhanceParams = {
+    cwd: ctx.cwd,
+    model,
+    auth,
+    originalPrompt,
+  };
+  let result: EnhancementOutcome | undefined;
 
-      const userMessage: Message = {
-        role: "user",
-        content: [{ type: "text", text: buildEnhancerUserMessage(originalPrompt, context) }],
-        timestamp: Date.now(),
+  if (wantsCustomUI) {
+    // Fallback for a host that reports "tui" but never invokes the factory:
+    // without this we would consume whatever custom() resolved to.
+    //
+    // Edge case, unreachable on pi and knowingly left alone: a host that *does*
+    // run the factory but still resolves `undefined` (rather than the value
+    // passed to `done`) leaves `result` unset, and the headless branch below
+    // then re-runs performEnhancement — a second billed LLM call for one
+    // /prompt_enhance. Guarding it would mean distinguishing "done() never
+    // fired" from "done(undefined)", which the ExtensionUIContext.custom
+    // contract gives us no way to do, and pi's TUI mode always resolves with
+    // the done() value. Recorded here so a future host quirk is diagnosable.
+    let factoryRan = false;
+    const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
+      factoryRan = true;
+      const loader = new BorderedLoader(tui, theme, `Enhancing prompt via ${modelLabel(model)}…`, {
+        cancellable: true,
+      });
+      loader.onAbort = () => {
+        done({ ok: false, reason: "cancelled" });
       };
 
-      const response = await complete(
-        model,
-        { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-        { apiKey: auth.apiKey, headers: auth.headers, signal: loader.signal },
-      );
+      performEnhancement(enhanceParams, loader.signal)
+        .then(done)
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          done({ ok: false, reason: "error", message });
+        });
 
-      if (response.stopReason === "aborted") return { ok: false, reason: "cancelled" };
-      if (response.stopReason === "error") {
-        return {
-          ok: false,
-          reason: "error",
-          message: response.errorMessage ?? "Unknown LLM error",
-        };
-      }
+      return loader;
+    });
+    if (factoryRan) result = customResult;
+  }
 
-      const enhanced = response.content
-        .filter((c): c is { type: "text"; text: string } => c.type === "text")
-        .map((c) => c.text)
-        .join("\n")
-        .trim();
-
-      if (!enhanced) {
-        return { ok: false, reason: "error", message: "Model returned an empty response." };
-      }
-
-      return { ok: true, enhanced };
-    };
-
-    work()
-      .then(done)
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        done({ ok: false, reason: "error", message });
-      });
-
-    return loader;
-  });
+  if (!result) {
+    // Headless: same work, no BorderedLoader. Nothing can cancel it from the
+    // UI, so the controller exists only to satisfy performEnhancement.
+    const controller = new AbortController();
+    try {
+      result = await performEnhancement(enhanceParams, controller.signal);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      result = { ok: false, reason: "error", message };
+    }
+  }
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
