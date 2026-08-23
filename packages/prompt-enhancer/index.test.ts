@@ -36,6 +36,9 @@ import factory, {
   formatEnhancementFailure,
   formatRetryStatus,
   gatherEnhancerContext,
+  HISTORY_MAX_CHARS,
+  HISTORY_MAX_TURNS,
+  HISTORY_TURN_MAX_CHARS,
   normalizeFailureReason,
   SYSTEM_PROMPT,
 } from "./index.js";
@@ -378,22 +381,56 @@ describe("buildRecentTurns", () => {
   });
 
   it("clips a long turn and marks it", () => {
-    const out = buildRecentTurns([turn("user", "x".repeat(1000))]);
+    const out = buildRecentTurns([turn("user", "x".repeat(2000))]);
     expect(out?.endsWith("…")).toBe(true);
-    expect((out ?? "").length).toBeLessThan(360);
+    // "User: " + 600 clipped characters + the ellipsis.
+    expect((out ?? "").length).toBe("User: ".length + HISTORY_TURN_MAX_CHARS + 1);
   });
 
   it("stops at the total budget instead of returning a whole long session", () => {
-    const long = "y".repeat(320);
+    const long = "y".repeat(HISTORY_TURN_MAX_CHARS);
     const out = buildRecentTurns([
       turn("user", long),
       turn("assistant", long),
       turn("user", long),
       turn("assistant", long),
     ]);
-    expect((out ?? "").length).toBeLessThanOrEqual(1200);
+    expect((out ?? "").length).toBeLessThanOrEqual(HISTORY_MAX_CHARS);
     // The newest turn survives; the oldest is what the budget drops.
     expect(out?.split("\n").at(-1)?.startsWith("Agent:")).toBe(true);
+  });
+
+  /**
+   * The caps, pinned. 320 characters cut an assistant turn mid-sentence, and
+   * the assistant turn is usually the referent of the follow-up being rewritten
+   * ("do that for the other package too"), so the clip landed on exactly the
+   * text the rewrite needed. Turn count stays at 4: the fix was depth per turn,
+   * not more turns.
+   */
+  it("keeps the conversation bounds where they were set", () => {
+    expect(HISTORY_MAX_TURNS).toBe(4);
+    expect(HISTORY_TURN_MAX_CHARS).toBe(600);
+    expect(HISTORY_MAX_CHARS).toBe(2000);
+    // The total must hold more than one full-width turn, or the per-turn cap
+    // would be unreachable for anything but the newest entry.
+    expect(HISTORY_MAX_CHARS).toBeGreaterThan(HISTORY_TURN_MAX_CHARS * 2);
+  });
+
+  it("fits four full-width turns inside the total budget", () => {
+    const long = "z".repeat(5000);
+    const out = buildRecentTurns([
+      turn("user", long),
+      turn("assistant", long),
+      turn("user", long),
+      turn("assistant", long),
+      turn("user", long),
+    ]);
+    const lines = (out ?? "").split("\n");
+    // Three clipped 600-char turns fit in 2,000; the fourth does not, and the
+    // budget drops whole lines rather than truncating one mid-sentence.
+    expect(lines.length).toBe(3);
+    expect((out ?? "").length).toBeLessThanOrEqual(HISTORY_MAX_CHARS);
+    for (const line of lines) expect(line.endsWith("…")).toBe(true);
   });
 
   it("skips empty turns rather than emitting a bare label", () => {

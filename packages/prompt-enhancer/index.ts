@@ -138,12 +138,19 @@ const CONVENTIONS_MAX_CHARS = 4000;
  * announcing what it would go and look at. A few recent turns close it.
  *
  * Deliberately small. The enhancer is one cheap completion before the real
- * turn, not a second agent; the budget caps the section at roughly 300 tokens
+ * turn, not a second agent; the budget caps the section at roughly 500 tokens
  * even in a long session.
+ *
+ * The per-turn cap is the one that had to move. At 320 characters an assistant
+ * turn was clipped mid-sentence — and the assistant turn is usually the one a
+ * follow-up prompt ("do that for the other package too") is pointing at, so the
+ * clip landed on exactly the text the rewrite needed. 600 carries a normal
+ * paragraph whole. Turn count stays at 4: the fix was depth per turn, not more
+ * turns.
  */
-const HISTORY_MAX_TURNS = 4;
-const HISTORY_TURN_MAX_CHARS = 320;
-const HISTORY_MAX_CHARS = 1200;
+export const HISTORY_MAX_TURNS = 4;
+export const HISTORY_TURN_MAX_CHARS = 600;
+export const HISTORY_MAX_CHARS = 2000;
 
 export const SYSTEM_PROMPT = `You are a prompt rewriter for a coding agent. You do not answer the user's request. You do not solve, implement, or explain it. You rewrite their rough prompt into a better prompt for a *different* coding agent to execute later.
 
