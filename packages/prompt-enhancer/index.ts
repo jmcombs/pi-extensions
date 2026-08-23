@@ -247,13 +247,34 @@ const PICKER_NO_MATCH = "  No matching models";
 let enhancerModelOverride: Model<Api> | undefined;
 
 /**
- * The text that was in the editor (or supplied as args) immediately before
- * the most recent successful /prompt_enhance. /prompt_enhance_revert restores this and
- * clears the slot. Cleared also when the user submits a non-command prompt
- * (input event), since at that point the previous "original" is no longer
- * relevant.
+ * The text the *user* wrote, from before the first enhance in the current
+ * chain. /prompt_enhance_revert restores this and clears the slot. Cleared also
+ * when the user submits a non-command prompt (input event), since at that point
+ * the previous "original" is no longer relevant.
+ *
+ * "From before the *first* enhance" is the whole point. This used to be
+ * assigned unconditionally on every success, so enhancing twice overwrote the
+ * typed draft with the first rewrite: Ctrl+Shift+Z then put rewrite #1 in the
+ * editor while the status read "Reverted to your original prompt." — the status
+ * lying being the sharper half of the bug. `lastEnhancedText` below closes it.
  */
 let lastOriginalPrompt: string | undefined;
+
+/**
+ * The exact rewrite this extension last put in the editor.
+ *
+ * Enhancing again while the editor still holds it means the user is refining
+ * our output, not starting over, so `lastOriginalPrompt` must not move. If the
+ * text differs — they edited it, retyped it, or it came from somewhere else —
+ * that is a new original and the slot is replaced.
+ *
+ * One value rather than a stack, on purpose: revert is a single labelled
+ * promise ("your original prompt"), and the honest thing to hand back is the
+ * text the user actually wrote, not an intermediate machine draft they never
+ * chose. Stepping through the drafts is the editor's own undo stack, which pi
+ * keeps unbounded.
+ */
+let lastEnhancedText: string | undefined;
 
 /** Session-scoped. Off by default. Enter enhances, Enter again sends. */
 let autoEnhanceEnabled = false;
@@ -1117,7 +1138,15 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
-    lastOriginalPrompt = originalPrompt;
+    // Re-enhancing our own output keeps the original the user typed. Anything
+    // else — a fresh draft, or one they edited after the last enhance — is a
+    // new original, and the revert promise now points at that.
+    const refiningOurOwnOutput =
+      lastOriginalPrompt !== undefined &&
+      lastEnhancedText !== undefined &&
+      originalPrompt === lastEnhancedText.trim();
+    if (!refiningOurOwnOutput) lastOriginalPrompt = originalPrompt;
+    lastEnhancedText = result.enhanced;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
     showTransientStatus(
       ctx,
@@ -1169,6 +1198,7 @@ function runRevert(ctx: ExtensionContext): void {
   }
   const restored = lastOriginalPrompt;
   lastOriginalPrompt = undefined;
+  lastEnhancedText = undefined;
   ctx.ui.setEditorText(restored);
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
   showTransientStatus(ctx, "Reverted to your original prompt.");
@@ -1224,6 +1254,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     activeCtx = ctx;
     lastOriginalPrompt = undefined;
+    lastEnhancedText = undefined;
     autoEnhanceEnabled = false;
     clearTransientStatusTimer();
     if (!ctx.hasUI) return;
@@ -1254,6 +1285,7 @@ export default function (pi: ExtensionAPI): void {
     const sendThrough = (): { action: "continue" } => {
       if (lastOriginalPrompt !== undefined) {
         lastOriginalPrompt = undefined;
+        lastEnhancedText = undefined;
         if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
       }
       return { action: "continue" };

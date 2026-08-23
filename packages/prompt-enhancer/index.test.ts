@@ -11,7 +11,11 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
+import {
+  type AssistantMessage,
+  fauxAssistantMessage,
+  registerFauxProvider,
+} from "@earendil-works/pi-ai/compat";
 import {
   type ExtensionAPI,
   type ExtensionContext,
@@ -756,11 +760,24 @@ function createHarness(): {
   return { commands, events };
 }
 
-function createHost(options: { draft: string; cancel?: boolean }): {
+function createHost(options: {
+  draft: string;
+  cancel?: boolean;
+  /**
+   * Which model the host hands the enhancer. Defaults to one whose `api` no
+   * provider is registered for, which is how the failure suite gets a genuine
+   * error out of the real code path. The revert suite passes a faux provider's
+   * model instead, so the same path succeeds.
+   */
+  model?: unknown;
+  cwd?: string;
+}): {
   ctx: ExtensionContext;
   log: HostLog;
   /** What pi does to the editor on Enter, before it fires the input event. */
   clearEditorLikeEnter: () => void;
+  /** Type over the editor the way the user would. */
+  typeIntoEditor: (text: string) => void;
 } {
   const log: HostLog = { notifications: [], widgets: [], editorTexts: [] };
   let editorText = options.draft;
@@ -774,8 +791,8 @@ function createHost(options: { draft: string; cancel?: boolean }): {
   const ctx = {
     hasUI: true,
     mode: "tui",
-    cwd: hostCwd,
-    model: { provider: "test", id: "unreachable", api: "no-such-api-provider" },
+    cwd: options.cwd ?? hostCwd,
+    model: options.model ?? { provider: "test", id: "unreachable", api: "no-such-api-provider" },
     modelRegistry: {
       getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "test-key", headers: {} }),
     },
@@ -821,6 +838,9 @@ function createHost(options: { draft: string; cancel?: boolean }): {
     log,
     clearEditorLikeEnter: () => {
       editorText = "";
+    },
+    typeIntoEditor: (text: string) => {
+      editorText = text;
     },
   };
 }
@@ -1229,5 +1249,169 @@ describe("buildEnhancerUserMessage conventions section", () => {
     expect(out.indexOf("## Project conventions")).toBeLessThan(
       out.indexOf("## Files referenced in the prompt"),
     );
+  });
+});
+
+// ── Revert, end to end through the real runEnhancer ────────────────────
+//
+// Success needs a model that answers, and the project does not mock the LLM.
+// `registerFauxProvider` is pi-ai's own in-process provider: it registers a
+// real api implementation into the real api registry, so `complete()` dispatches
+// through the same path a network provider would and the extension is unaware
+// anything is unusual. Injected, not mocked — the scripted text is the only
+// thing supplied.
+
+describe("revert", () => {
+  const TYPED = "fix the tpyo in the readme";
+  let faux: ReturnType<typeof registerFauxProvider>;
+
+  beforeAll(() => {
+    faux = registerFauxProvider({ api: "faux-prompt-enhancer", provider: "faux-enhancer" });
+  });
+
+  afterAll(() => {
+    faux.unregister();
+  });
+
+  async function armed(): Promise<{
+    harness: ReturnType<typeof createHarness>;
+    ctx: ExtensionContext;
+    log: HostLog;
+    typeIntoEditor: (text: string) => void;
+  }> {
+    const harness = createHarness();
+    const host = createHost({ draft: TYPED, model: faux.getModel() });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    return { harness, ...host };
+  }
+
+  const enhance = (h: { harness: ReturnType<typeof createHarness>; ctx: ExtensionContext }) =>
+    h.harness.commands.get("prompt_enhance")?.("", h.ctx);
+
+  const revert = (h: { harness: ReturnType<typeof createHarness>; ctx: ExtensionContext }) =>
+    h.harness.commands.get("prompt_enhance_revert")?.("", h.ctx);
+
+  const shutdown = (h: { harness: ReturnType<typeof createHarness>; ctx: ExtensionContext }) =>
+    h.harness.events.get("session_shutdown")?.({}, h.ctx);
+
+  it("restores the typed original after a single enhance", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("Fix the typo in README.md.")]);
+
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("Fix the typo in README.md.");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  /**
+   * The reported defect, pinned.
+   *
+   * `lastOriginalPrompt` used to be assigned on every success, so the second
+   * enhance stored rewrite #1 as "the original". Ctrl+Shift+Z then put rewrite
+   * #1 back while the widget said "Reverted to your original prompt." — the
+   * false status being the sharper half: the user is told they have their draft
+   * when they are holding a machine rewrite of it.
+   */
+  it("restores the typed original, not the first rewrite, after enhancing twice", async () => {
+    const host = await armed();
+    faux.setResponses([
+      fauxAssistantMessage("REWRITE ONE: fix the typo in README.md."),
+      fauxAssistantMessage("REWRITE TWO: correct the misspelling in README.md."),
+    ]);
+
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("REWRITE ONE: fix the typo in README.md.");
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("REWRITE TWO: correct the misspelling in README.md.");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(host.ctx.ui.getEditorText()).not.toContain("REWRITE");
+    await shutdown(host);
+  });
+
+  it("does not drift after a third enhance either", async () => {
+    const host = await armed();
+    faux.setResponses([
+      fauxAssistantMessage("ONE"),
+      fauxAssistantMessage("TWO"),
+      fauxAssistantMessage("THREE"),
+    ]);
+
+    await enhance(host);
+    await enhance(host);
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("THREE");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  it("says it reverted only when it really did put the typed text back", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("ONE"), fauxAssistantMessage("TWO")]);
+
+    await enhance(host);
+    await enhance(host);
+    await revert(host);
+
+    // The claim and the editor are checked together: the status is only honest
+    // if the editor holds what it says it restored.
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  it("treats an edited rewrite as a new original rather than clinging to the old one", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("ONE"), fauxAssistantMessage("TWO")]);
+
+    await enhance(host);
+    // The user rewrites our output by hand. That text is theirs now, and it is
+    // what revert has to hand back.
+    host.typeIntoEditor("ONE, but with my own edits");
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("TWO");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe("ONE, but with my own edits");
+    await shutdown(host);
+  });
+
+  it("has nothing to revert once it has reverted, and says so", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("ONE")]);
+
+    await enhance(host);
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+
+    await revert(host);
+    // Not "reverted to your original prompt" a second time: the editor was not
+    // touched, and the status says exactly that.
+    expect(lastWidgetLine(host.log)).toContain("Nothing to revert.");
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  it("forgets the original once the user sends a prompt", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("ONE"), fauxAssistantMessage("TWO")]);
+
+    await enhance(host);
+    // Enter on a non-command prompt: the previous original stops being relevant.
+    await host.harness.events.get("input")?.(
+      { source: "interactive", text: "ONE", images: [] },
+      host.ctx,
+    );
+
+    await revert(host);
+    expect(lastWidgetLine(host.log)).toContain("Nothing to revert.");
+    expect(host.ctx.ui.getEditorText()).toBe("ONE");
+    await shutdown(host);
   });
 });
