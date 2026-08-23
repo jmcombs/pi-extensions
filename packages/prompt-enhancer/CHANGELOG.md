@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v3.0.0...prompt-enhancer/v3.0.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* **prompt-enhancer:** stop returning an announcement instead of a rewrite ([#220](https://github.com/jmcombs/pi-extensions/issues/220)) ([e56c3d1](https://github.com/jmcombs/pi-extensions/commit/e56c3d1a99a47955df5037923523b1250acf800e))
+
 ## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v2.0.2...prompt-enhancer/v3.0.0) (2026-08-18)
 
 
