@@ -1,0 +1,1 @@
+I need to work with you on this dependabot skill. Please review the open dependabot alerts to see if these resolve them. Next I need to know if this is a dev dependency or app dependency and if app dependency is it going to trigger a bunch of release please prs
