@@ -28,7 +28,21 @@ import { promisify } from "node:util";
 // Importing the compat subpath directly is the same module at runtime, but it
 // is the only specifier whose *types* match what Pi actually injects — the
 // package index does not export `complete`.
-import { type Api, complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
+//
+// `retryAssistantCall` is reached through the namespace rather than a named
+// import: a host that ships a subset shim of pi-ai would turn a static named
+// import of a missing symbol into a module-load error, taking the whole
+// extension with it. Off the namespace it simply degrades to a single attempt.
+import * as piAiCompat from "@earendil-works/pi-ai/compat";
+import {
+  type Api,
+  type AssistantMessage,
+  complete,
+  type Message,
+  type Model,
+  type RetryCallbacks,
+  type RetryPolicy,
+} from "@earendil-works/pi-ai/compat";
 import {
   BorderedLoader,
   DynamicBorder,
@@ -87,19 +101,34 @@ const GIT_LOG_LIMIT = 8;
 const FILE_MAX_LINES = 100;
 const FILE_MAX_REFERENCES = 3;
 
-export const SYSTEM_PROMPT = `You are a prompt rewriter for a coding agent. You do not answer the user's request. You do not solve, implement, explain, or carry out the work described in the prompt. Your only job is to rewrite the user's rough request into a better request that a *different* coding agent will execute later.
+/**
+ * Bounds on the conversation background sent with the rewrite.
+ *
+ * A mid-conversation prompt ("I need to work with you on this dependabot
+ * skill") cannot be rewritten from a project tree alone: "this" was named
+ * earlier in the session, and a model with no tools fills that gap by
+ * announcing what it would go and look at. A few recent turns close it.
+ *
+ * Deliberately small. The enhancer is one cheap completion before the real
+ * turn, not a second agent; the budget caps the section at roughly 300 tokens
+ * even in a long session.
+ */
+const HISTORY_MAX_TURNS = 4;
+const HISTORY_TURN_MAX_CHARS = 320;
+const HISTORY_MAX_CHARS = 1200;
 
-Given a user's rough prompt and live context from their working directory (project tree, git state, mentioned file contents), rewrite the prompt to be precise, actionable, and codebase-aware.
+export const SYSTEM_PROMPT = `You are a prompt rewriter for a coding agent. You do not answer the user's request. You do not solve, implement, or explain it. You rewrite their rough prompt into a better prompt for a *different* coding agent to execute later.
+
+No tools are attached and nothing you say retrieves anything: your entire output is consumed as text, and the user message holds all the context you will ever get. Never announce what you would inspect or do.
 
 Rules:
-- Preserve the user's intent exactly. Do not invent new requirements.
-- If the prompt references files or functions, anchor your rewrite to the actual paths and code present in the context.
-- Be concise. Output only the rewritten prompt — no preamble, no commentary, no markdown headings, no quoting of the original.
-- If the original is already precise, return it nearly verbatim with only minor clarifications.
-- Do not address the agent in the second person ("please ...") unless the original did. Match the tone of the original.
-- If you catch yourself answering the question, writing code, listing steps to do the work, or saying "here is the fix", stop. Output the rewritten *request* instead.
+- Preserve intent exactly. Invent nothing: no new requirements, and no path that is not in the context, which is partial and may be truncated.
+- Conversation background is there only to resolve what the prompt refers to. Never answer or continue it.
+- If the prompt is not about the codebase, rewrite it anyway: return it as it is, clarified only if ambiguous. Never refuse, never explain yourself, never address the user.
+- If the original is already precise, change little. Match its tone; no second person unless it used one.
+- If you catch yourself answering, writing code, or listing steps, stop and output the rewritten *request* instead.
 
-Return only the enhanced prompt as plain text.`;
+Output only the rewritten prompt as plain text: no preamble, no commentary, no markdown headings, no quoting of the original.`;
 
 // Status keys for ctx.ui.setStatus footer chips. Distinct keys so we can
 // independently set/clear them. Enhance is not advertised as an always-on
@@ -110,6 +139,64 @@ function revertHintText(): string {
   return autoEnhanceEnabled
     ? "Enter to send · Ctrl+Shift+Z to revert"
     : "Ctrl+Shift+Z to revert enhanced prompt";
+}
+
+/**
+ * Cap on the failure reason we quote back to the user.
+ *
+ * Provider error text is not written for a status line: it arrives multi-line,
+ * sentence-punctuated, and occasionally with a whole JSON body attached. The
+ * reason is a hint about *why*, not the payload, so it gets one line and a
+ * budget.
+ */
+const FAILURE_REASON_MAX_CHARS = 100;
+
+/**
+ * Reduce raw provider/transport error text to something quotable inline:
+ * first line only, no trailing period, capped. Returns `undefined` when there
+ * is nothing left worth showing, so callers can drop the parenthetical
+ * entirely rather than print an empty one.
+ */
+export function normalizeFailureReason(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const firstLine = raw.split("\n", 1)[0] ?? "";
+  const trimmed = firstLine.trim().replace(/\.$/, "").trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length > FAILURE_REASON_MAX_CHARS
+    ? `${trimmed.slice(0, FAILURE_REASON_MAX_CHARS)}…`
+    : trimmed;
+}
+
+/**
+ * The one thing a failed enhancement says, identical in every mode.
+ *
+ * The point of the wording is the second clause: whatever went wrong, the text
+ * the user typed is still theirs and still in the editor. Auto-enhance standing
+ * itself down is shown by the widget, not repeated here.
+ */
+export function formatEnhancementFailure(reason: string | undefined): string {
+  const normalized = normalizeFailureReason(reason);
+  return normalized === undefined
+    ? "prompt enhancement failed; your prompt is unchanged"
+    : `prompt enhancement failed (${normalized}); your prompt is unchanged`;
+}
+
+/**
+ * The loader line while a retry is pending.
+ *
+ * Naming the reason turns a 14-second wait into a decision: a user who can see
+ * `Connection error` at second 2 can press Esc instead of watching the whole
+ * budget drain. Without a reason it is the line pi's own retry indicator shows.
+ */
+export function formatRetryStatus(
+  attempt: number,
+  maxAttempts: number,
+  delayMs: number,
+  errorMessage?: string,
+): string {
+  const line = `Retrying (${attempt}/${maxAttempts}) in ${Math.ceil(delayMs / 1000)}s…`;
+  const reason = normalizeFailureReason(errorMessage);
+  return reason === undefined ? line : `${line} · ${reason}`;
 }
 
 // Widget rendered above the editor with persistent enhancer state.
@@ -163,6 +250,12 @@ export interface EnhancerContext {
   tree?: string;
   git?: string;
   mentionedFiles: { path: string; content: string }[];
+  /**
+   * Recent conversation turns, oldest first, already bounded by
+   * `buildRecentTurns`. Absent on the first turn of a session and on any host
+   * that does not expose `sessionManager.getBranch`.
+   */
+  history?: string;
 }
 
 // ── Helpers: directory tree ─────────────────────────────────────────────
@@ -357,6 +450,61 @@ export async function gatherEnhancerContext(
   return { cwd, tree, git, mentionedFiles };
 }
 
+/**
+ * The tail of a session as compact `User:` / `Agent:` lines, oldest first.
+ *
+ * Pure so it can be unit-tested without a host: it takes whatever
+ * `sessionManager.getBranch()` returns and tolerates both entry shapes pi has
+ * used (a bare message, or `{ message }`). Bounded three ways — turn count,
+ * per-turn characters, and a total character budget — so a long session costs
+ * the same as a short one. Whitespace is collapsed because the rewrite only
+ * needs the words, not the formatting.
+ *
+ * Returns `undefined` when there is nothing usable, which keeps the section
+ * out of the user message entirely on the first turn.
+ */
+export function buildRecentTurns(entries: readonly unknown[]): string | undefined {
+  const lines: string[] = [];
+  let budget = HISTORY_MAX_CHARS;
+
+  for (let i = entries.length - 1; i >= 0 && lines.length < HISTORY_MAX_TURNS; i -= 1) {
+    const entry = entries[i] as { role?: string; content?: unknown; message?: unknown } | undefined;
+    if (typeof entry !== "object" || entry === null) continue;
+    const message = (entry.message ?? entry) as { role?: string; content?: unknown };
+    if (message.role !== "user" && message.role !== "assistant") continue;
+
+    const text = extractMessageText(message.content).replace(/\s+/g, " ").trim();
+    if (text.length === 0) continue;
+
+    const clipped =
+      text.length > HISTORY_TURN_MAX_CHARS ? `${text.slice(0, HISTORY_TURN_MAX_CHARS)}…` : text;
+    const line = `${message.role === "user" ? "User" : "Agent"}: ${clipped}`;
+    // Stop at the budget rather than truncating mid-line: a half-sentence from
+    // the oldest turn is the least useful thing we could spend it on.
+    if (line.length > budget) break;
+    budget -= line.length;
+    lines.push(line);
+  }
+
+  return lines.length === 0 ? undefined : lines.reverse().join("\n");
+}
+
+/**
+ * Session history for the current run, or `undefined`.
+ *
+ * `sessionManager.getBranch` is feature-detected: oh-my-pi remaps
+ * `@earendil-works/pi-coding-agent` to a subset shim, and an enhancer that
+ * throws on a missing host API is worse than one with no history.
+ */
+function gatherSessionHistory(ctx: ExtensionContext): string | undefined {
+  try {
+    if (typeof ctx.sessionManager?.getBranch !== "function") return undefined;
+    return buildRecentTurns(ctx.sessionManager.getBranch());
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildEnhancerUserMessage(originalPrompt: string, context: EnhancerContext): string {
   const sections: string[] = [];
   sections.push(
@@ -369,6 +517,13 @@ export function buildEnhancerUserMessage(originalPrompt: string, context: Enhanc
   if (context.mentionedFiles.length > 0) {
     const blocks = context.mentionedFiles.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``);
     sections.push(`## Files referenced in the prompt\n\n${blocks.join("\n\n")}`);
+  }
+  // Labelled as background, twice: a model handed raw dialogue will otherwise
+  // answer the last thing it sees instead of rewriting the prompt below.
+  if (context.history) {
+    sections.push(
+      `## Recent conversation (background only — do not answer or continue it)\n${context.history}`,
+    );
   }
   sections.push(`## Original prompt\n${originalPrompt}`);
   return sections.join("\n\n");
@@ -535,12 +690,164 @@ function showTransientStatus(ctx: ExtensionContext, status: string): void {
 
 // ── Main flow ───────────────────────────────────────────────────────────
 
+type EnhancementOutcome =
+  | { ok: true; enhanced: string }
+  | { ok: false; reason: "cancelled" | "error"; message?: string };
+
+/**
+ * Retry budget for the enhancer's LLM call.
+ *
+ * Mirrors pi's own `settings.retry` defaults (enabled, 3 retries, 2000 ms base)
+ * so a transient provider or transport failure behaves here the way it does in
+ * a normal pi turn: 4 attempts total, backing off 2000 / 4000 / 8000 ms, giving
+ * up after ~14 s. Extensions do not run through the agent session, so nothing
+ * applies this for us — a bare `complete()` fails on the first hiccup.
+ */
+export const ENHANCER_RETRY_POLICY: RetryPolicy = {
+  enabled: true,
+  maxRetries: 3,
+  baseDelayMs: 2000,
+};
+
+/**
+ * Run one assistant call under pi's own retry policy and classifier.
+ *
+ * `retryAssistantCall` is pi's shared helper: it returns success and `aborted`
+ * immediately (an abort is the user pressing Esc and must never be retried),
+ * fails fast on errors its `isRetryableAssistantError` classifier rejects, and
+ * otherwise backs off between attempts while honouring `signal` — an abort
+ * during the backoff sleep comes back as an `aborted` message rather than an
+ * error, so Esc is felt at once instead of after the remaining delay.
+ *
+ * If the host does not expose the helper, this degrades to a single attempt.
+ */
+export async function completeWithRetry(
+  produce: () => Promise<AssistantMessage>,
+  signal: AbortSignal | undefined,
+  policy: RetryPolicy = ENHANCER_RETRY_POLICY,
+  callbacks?: RetryCallbacks,
+): Promise<AssistantMessage> {
+  const retryAssistantCall = piAiCompat.retryAssistantCall as
+    | typeof piAiCompat.retryAssistantCall
+    | undefined;
+  if (typeof retryAssistantCall !== "function") return produce();
+  return retryAssistantCall(produce, policy, signal, callbacks);
+}
+
+/** The successful half of `ModelRegistry.getApiKeyAndHeaders`'s result. */
+type ResolvedEnhancerAuth = Extract<
+  Awaited<ReturnType<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>>,
+  { ok: true }
+>;
+
+/**
+ * The enhancement itself: gather context, call the model, extract the rewrite.
+ *
+ * Shared by the interactive path (cancellation driven by BorderedLoader's
+ * signal) and the headless path (driven by a local AbortController), so the
+ * LLM call exists exactly once.
+ */
+async function performEnhancement(
+  params: {
+    cwd: string;
+    model: Model<Api>;
+    auth: ResolvedEnhancerAuth;
+    originalPrompt: string;
+    /** Bounded conversation background; read from the host before this runs. */
+    history: string | undefined;
+    /**
+     * Optional retry progress hooks. The interactive path passes these so the
+     * loader can say it is retrying instead of sitting silent for the whole
+     * backoff; the headless path leaves them out and nothing is reported.
+     */
+    retryCallbacks?: RetryCallbacks;
+  },
+  signal: AbortSignal,
+): Promise<EnhancementOutcome> {
+  const { cwd, model, auth, originalPrompt, history, retryCallbacks } = params;
+
+  const context = await gatherEnhancerContext(originalPrompt, cwd, signal);
+  if (signal.aborted) return { ok: false, reason: "cancelled" };
+
+  const userMessage: Message = {
+    role: "user",
+    content: [
+      { type: "text", text: buildEnhancerUserMessage(originalPrompt, { ...context, history }) },
+    ],
+    timestamp: Date.now(),
+  };
+
+  const response = await completeWithRetry(
+    () =>
+      complete(
+        model,
+        { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+        { apiKey: auth.apiKey, headers: auth.headers, signal },
+      ),
+    signal,
+    // Left undefined so the ENHANCER_RETRY_POLICY default binding applies —
+    // the only production call site, and what the default-binding test pins.
+    undefined,
+    retryCallbacks,
+  );
+
+  if (response.stopReason === "aborted") return { ok: false, reason: "cancelled" };
+  if (response.stopReason === "error") {
+    return {
+      ok: false,
+      reason: "error",
+      message: response.errorMessage ?? "Unknown LLM error",
+    };
+  }
+
+  const enhanced = response.content
+    .filter((c): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text)
+    .join("\n")
+    .trim();
+
+  if (!enhanced) {
+    return { ok: false, reason: "error", message: "Model returned an empty response." };
+  }
+
+  return { ok: true, enhanced };
+}
+
+/** Anything exposing pi-tui's `Loader.setMessage`. */
+type MessageSettable = { setMessage: (message: string) => void };
+
+function isMessageSettable(value: unknown): value is MessageSettable {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { setMessage?: unknown }).setMessage === "function"
+  );
+}
+
+/**
+ * Update the text a `BorderedLoader` is showing.
+ *
+ * `BorderedLoader` wraps a pi-tui `Loader` (which owns `setMessage`) without
+ * re-exposing it, so this feature-detects the wrapper first — in case a later
+ * pi surfaces the method — then the wrapped loader. If neither is there the
+ * message simply stays as it was: retry feedback is additive and must never
+ * become a failure path of its own.
+ */
+function setLoaderMessage(loader: BorderedLoader, message: string): void {
+  if (isMessageSettable(loader)) {
+    loader.setMessage(message);
+    return;
+  }
+  const inner = (loader as unknown as { loader?: unknown }).loader;
+  if (isMessageSettable(inner)) inner.setMessage(message);
+}
+
 async function runEnhancer(ctx: ExtensionContext, providedText: string | undefined): Promise<void> {
-  // The enhancer needs an interactive editor (to read/write prompt text) and
-  // a TUI overlay (for the BorderedLoader). In print mode and JSON mode
-  // ctx.hasUI is false and ctx.ui.custom is a no-op that returns undefined,
-  // so the flow can't work — fail fast with a clear notification instead of
-  // crashing on the undefined result.
+  // The enhancer needs an interactive editor (to read/write prompt text). In
+  // print mode and JSON mode ctx.hasUI is false and there is no editor to read
+  // from or write to, so the flow can't work — fail fast with a clear
+  // notification. RPC mode keeps hasUI true but has no custom-component host;
+  // that case runs headlessly below.
   if (!ctx.hasUI) {
     ctx.ui.notify(
       "Prompt Enhancer requires interactive mode (it reads and writes the editor).",
@@ -573,7 +880,17 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     return;
   }
 
-  const editorBeforeReplace = editorText;
+  /**
+   * What goes back in the editor if this run does not produce a rewrite.
+   *
+   * Normally that is whatever was there before we touched it. On the
+   * auto-enhance path it cannot be: pi clears the editor before it fires the
+   * `input` event, so the snapshot is empty and restoring it would delete the
+   * very draft a cancel or a failure promises to leave alone. Falling back to
+   * the prompt itself puts back exactly what the user typed.
+   */
+  const editorRestoreText = editorText.trim().length > 0 ? editorText : originalPrompt;
+
   // Replace the editor with the original (in case the user typed it via
   // /prompt_enhance "..." rather than into the editor) so a Ctrl+Z after success
   // takes them back to what they typed before invoking the enhancer.
@@ -583,66 +900,80 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // below if this run does not produce a new successful enhance.
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
 
-  const result = await ctx.ui.custom<
-    { ok: true; enhanced: string } | { ok: false; reason: "cancelled" | "error"; message?: string }
-  >((tui, theme, _kb, done) => {
-    const loader = new BorderedLoader(tui, theme, `Enhancing prompt via ${modelLabel(model)}…`, {
-      cancellable: true,
-    });
-    loader.onAbort = () => {
-      done({ ok: false, reason: "cancelled" });
-    };
+  // Custom components are terminal-only. pi's own JSDoc on ExtensionContext.mode
+  // says to guard them on "tui"; RPC keeps hasUI true but implements custom()
+  // as `async custom() { return undefined; }`, which used to crash this flow.
+  // Allowlist, not a denylist, so a future mode degrades to headless instead of
+  // crashing. `mode` may be absent on a host that ships a subset shim of
+  // @earendil-works/pi-coding-agent, hence the typeof check.
+  const wantsCustomUI = typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI;
 
-    const work = async (): Promise<
-      | { ok: true; enhanced: string }
-      | { ok: false; reason: "cancelled" | "error"; message?: string }
-    > => {
-      const context = await gatherEnhancerContext(originalPrompt, ctx.cwd, loader.signal);
-      if (loader.signal.aborted) return { ok: false, reason: "cancelled" };
+  const enhanceParams = {
+    cwd: ctx.cwd,
+    model,
+    auth,
+    originalPrompt,
+    history: gatherSessionHistory(ctx),
+  };
+  let result: EnhancementOutcome | undefined;
 
-      const userMessage: Message = {
-        role: "user",
-        content: [{ type: "text", text: buildEnhancerUserMessage(originalPrompt, context) }],
-        timestamp: Date.now(),
+  if (wantsCustomUI) {
+    // Fallback for a host that reports "tui" but never invokes the factory:
+    // without this we would consume whatever custom() resolved to.
+    //
+    // Edge case, unreachable on pi and knowingly left alone: a host that *does*
+    // run the factory but still resolves `undefined` (rather than the value
+    // passed to `done`) leaves `result` unset, and the headless branch below
+    // then re-runs performEnhancement — a second billed LLM call for one
+    // /prompt_enhance. Guarding it would mean distinguishing "done() never
+    // fired" from "done(undefined)", which the ExtensionUIContext.custom
+    // contract gives us no way to do, and pi's TUI mode always resolves with
+    // the done() value. Recorded here so a future host quirk is diagnosable.
+    let factoryRan = false;
+    const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
+      factoryRan = true;
+      const workingMessage = `Enhancing prompt via ${modelLabel(model)}…`;
+      const loader = new BorderedLoader(tui, theme, workingMessage, {
+        cancellable: true,
+      });
+      loader.onAbort = () => {
+        done({ ok: false, reason: "cancelled" });
       };
 
-      const response = await complete(
-        model,
-        { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-        { apiKey: auth.apiKey, headers: auth.headers, signal: loader.signal },
-      );
+      // Without this the loader sits on "Enhancing prompt via …" for the whole
+      // ~14 s retry budget with nothing to show the call is being retried.
+      // Wording follows pi's own retry status indicator, plus the reason the
+      // last attempt gave — that is what lets the user decide to Esc early.
+      const retryCallbacks: RetryCallbacks = {
+        onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
+          setLoaderMessage(loader, formatRetryStatus(attempt, maxAttempts, delayMs, errorMessage));
+        },
+        onRetryAttemptStart: () => setLoaderMessage(loader, workingMessage),
+      };
 
-      if (response.stopReason === "aborted") return { ok: false, reason: "cancelled" };
-      if (response.stopReason === "error") {
-        return {
-          ok: false,
-          reason: "error",
-          message: response.errorMessage ?? "Unknown LLM error",
-        };
-      }
+      performEnhancement({ ...enhanceParams, retryCallbacks }, loader.signal)
+        .then(done)
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          done({ ok: false, reason: "error", message });
+        });
 
-      const enhanced = response.content
-        .filter((c): c is { type: "text"; text: string } => c.type === "text")
-        .map((c) => c.text)
-        .join("\n")
-        .trim();
+      return loader;
+    });
+    if (factoryRan) result = customResult;
+  }
 
-      if (!enhanced) {
-        return { ok: false, reason: "error", message: "Model returned an empty response." };
-      }
-
-      return { ok: true, enhanced };
-    };
-
-    work()
-      .then(done)
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : String(err);
-        done({ ok: false, reason: "error", message });
-      });
-
-    return loader;
-  });
+  if (!result) {
+    // Headless: same work, no BorderedLoader. Nothing can cancel it from the
+    // UI, so the controller exists only to satisfy performEnhancement.
+    const controller = new AbortController();
+    try {
+      result = await performEnhancement(enhanceParams, controller.signal);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      result = { ok: false, reason: "error", message };
+    }
+  }
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
@@ -657,17 +988,34 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     return;
   }
 
-  // Restore whatever was in the editor before we touched it.
-  ctx.ui.setEditorText(editorBeforeReplace);
+  // Neither outcome may cost the user their text.
+  ctx.ui.setEditorText(editorRestoreText);
+
+  if (result.reason === "cancelled") {
+    // Esc is a decision, not a breakage: nothing stands down, nothing changes
+    // except that this run stopped.
+    if (lastOriginalPrompt !== undefined) {
+      ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
+    }
+    showTransientStatus(ctx, "Cancelled.");
+    return;
+  }
+
+  // A failure stands auto-enhance down for the rest of the session (session
+  // state only — nothing is written to config). pi already spent four attempts
+  // over ~14 s before calling it a failure, so one is enough evidence that the
+  // next Enter should just send rather than walk into the same wait again.
+  //
+  // The message is said once; the widget losing its green `auto` block is what
+  // keeps the new state on screen afterwards.
+  autoEnhanceEnabled = false;
+  clearTransientStatusTimer();
   if (lastOriginalPrompt !== undefined) {
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
   }
-  if (result.reason === "cancelled") {
-    showTransientStatus(ctx, "Cancelled.");
-  } else {
-    // Hard failures stay as notifications — the user needs to see them loud.
-    ctx.ui.notify(`Prompt enhancement failed: ${result.message ?? "unknown error"}`, "error");
-  }
+  updateWidget(ctx);
+  // Hard failures stay as notifications — the user needs to see them loud.
+  ctx.ui.notify(formatEnhancementFailure(result.message), "error");
 }
 
 function runRevert(ctx: ExtensionContext): void {
