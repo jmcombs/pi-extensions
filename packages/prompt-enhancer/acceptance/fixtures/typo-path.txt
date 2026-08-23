@@ -1,0 +1,1 @@
+teh auto chip in the prompt enhancer widgit renderrs in the wrong colour when auto-enhance is armed — fix it in packages/prompt-enhncer/widget.ts and updaet the tets

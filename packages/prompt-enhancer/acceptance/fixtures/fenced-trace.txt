@@ -1,0 +1,13 @@
+this started failing on CI after the last release and I can't tell if the bound is wrong or the code is:
+
+```
+FAIL  packages/prompt-enhancer/index.test.ts > buildRecentTurns > clips a long turn and marks it
+AssertionError: expected 607 to be less than 360
+ ❯ packages/prompt-enhancer/index.test.ts:348:32
+    346|     const out = buildRecentTurns([turn("user", "x".repeat(1000))]);
+    347|     expect(out?.endsWith("…")).toBe(true);
+    348|     expect((out ?? "").length).toBeLessThan(360);
+       |                                ^
+```
+
+work out which one to change and why

@@ -27,6 +27,17 @@ export interface ClassifyInput {
 export interface ClassifyResult {
   verdict: "good" | "bad";
   codes: string[];
+  /**
+   * Observations that are *not* verdicts.
+   *
+   * Some behaviour is worth seeing in the artifact without being scoreable.
+   * Whether a rewrite carried a misspelled path forward or corrected it is the
+   * motivating case: both are defensible — "invent no path that is not in the
+   * context" argues for carrying it, and "fix misspellings including in paths"
+   * argues for correcting it — so turning either into `bad` would encode a
+   * preference this harness has no evidence for. Signals never touch `verdict`.
+   */
+  signals: string[];
 }
 
 /**
@@ -256,6 +267,119 @@ function findFabricatedPaths(input: ClassifyInput): string[] {
 }
 
 /**
+ * Fenced blocks in the *original*, as the text between the fences.
+ *
+ * Pasting a stack trace, a diff or a failing test into a draft is ordinary, and
+ * a reworded trace is worse than no rewrite: the line numbers and identifiers
+ * are the whole payload. The system prompt tells the model to carry these
+ * through unchanged, so the harness checks that it did.
+ *
+ * Only the block *body* is captured. The fence markers themselves, the info
+ * string, and where the block sits in the rewrite are all free to move.
+ */
+const FENCED_BLOCK_RE = /```[^\n]*\n([\s\S]*?)```/g;
+
+function fencedBlockBodies(text: string): string[] {
+  const bodies: string[] = [];
+  FENCED_BLOCK_RE.lastIndex = 0;
+  for (let m = FENCED_BLOCK_RE.exec(text); m; m = FENCED_BLOCK_RE.exec(text)) {
+    const body = (m[1] ?? "").replace(/\s+$/, "");
+    if (body.length > 0) bodies.push(body);
+  }
+  return bodies;
+}
+
+/**
+ * Line endings and trailing whitespace are normalised before comparison.
+ *
+ * Those are transport and editor artifacts, not the model rewording anything —
+ * failing a cell on a stripped trailing space would be a measurement of the RPC
+ * stream. Everything else, including every space *inside* a line, must match:
+ * a trace whose indentation moved is a trace that was retyped.
+ */
+function normalizeBlock(text: string): string {
+  return text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+$/, ""))
+    .join("\n")
+    .trim();
+}
+
+/**
+ * Fenced bodies from the original that do not survive into the rewrite.
+ *
+ * Returns `[]` when the original has no fenced block, so this rule is inert on
+ * every prompt that does not carry a sample — including all six fixtures the
+ * recorded baseline was measured on.
+ */
+function findMangledBlocks(original: string, enhanced: string): string[] {
+  const haystack = normalizeBlock(enhanced);
+  return fencedBlockBodies(original)
+    .map(normalizeBlock)
+    .filter((body) => body.length > 0 && !haystack.includes(body));
+}
+
+/** Levenshtein distance, abandoned as soon as it is known to exceed `max`. */
+function withinEditDistance(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false;
+  if (a === b) return true;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const value = Math.min(
+        (current[j - 1] ?? 0) + 1,
+        (previous[j] ?? 0) + 1,
+        (previous[j - 1] ?? 0) + cost,
+      );
+      current[j] = value;
+      if (value < best) best = value;
+    }
+    if (best > max) return false;
+    previous = current;
+  }
+  return (previous[b.length] ?? max + 1) <= max;
+}
+
+/** How far off a path may be and still read as a misspelling of a real one. */
+const PATH_TYPO_MAX_DISTANCE = 2;
+
+/**
+ * File-shaped tokens in the *original* that are one or two edits away from a
+ * path that really exists — a misspelled path, in other words.
+ *
+ * Fixture-agnostic: it derives the near-miss from `knownPaths`, so it needs no
+ * list of expected typos and fires on any prompt that misspells a real path.
+ * Model-agnostic per D14: nothing here can see the provider, model or api.
+ */
+function findMisspelledPaths(
+  original: string,
+  knownPaths: readonly string[],
+): { typo: string; actual: string }[] {
+  const found: { typo: string; actual: string }[] = [];
+  const seen = new Set<string>();
+
+  PATH_TOKEN_RE.lastIndex = 0;
+  for (let match = PATH_TOKEN_RE.exec(original); match; match = PATH_TOKEN_RE.exec(original)) {
+    const token = stripWrappers(match[0]);
+    if (!token.includes("/") || seen.has(token)) continue;
+    seen.add(token);
+    if (token.startsWith("@")) continue;
+    if (!hasFileExtension(token)) continue;
+    if (isKnownPath(token, knownPaths)) continue;
+
+    const actual = knownPaths.find((known) =>
+      withinEditDistance(token, known, PATH_TYPO_MAX_DISTANCE),
+    );
+    if (actual !== undefined) found.push({ typo: token, actual });
+  }
+  return found;
+}
+
+/**
  * Score one enhancement. `verdict` is `"bad"` whenever any code fires.
  *
  * `echo` keys on the transport only (`setEditorTextCount === 1`, i.e. no
@@ -265,6 +389,7 @@ function findFabricatedPaths(input: ClassifyInput): string[] {
  */
 export function classifyEnhancement(input: ClassifyInput): ClassifyResult {
   const codes: string[] = [];
+  const signals: string[] = [];
   const enhanced = normalize(input.enhanced);
   const trimmed = enhanced.trim();
 
@@ -285,8 +410,19 @@ export function classifyEnhancement(input: ClassifyInput): ClassifyResult {
   if (findFabricatedPaths({ ...input, enhanced }).length > 0) {
     codes.push("fabricated_path");
   }
+  // Compared against the *raw* original and rewrite: `normalize` rewrites
+  // quotes, and a trace's quotes are part of the payload.
+  if (findMangledBlocks(input.original, input.enhanced).length > 0) {
+    codes.push("code_block_mangled");
+  }
 
-  return { verdict: codes.length > 0 ? "bad" : "good", codes };
+  for (const { typo, actual } of findMisspelledPaths(input.original, input.knownPaths)) {
+    if (input.enhanced.includes(typo)) signals.push("typo_path_carried");
+    else if (input.enhanced.includes(actual)) signals.push("typo_path_corrected");
+    else signals.push("typo_path_dropped");
+  }
+
+  return { verdict: codes.length > 0 ? "bad" : "good", codes, signals };
 }
 
 /**

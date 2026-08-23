@@ -156,6 +156,11 @@ const FIXTURES = [
   "out-of-scope",
   "control-token",
   "self-referential",
+  // Added after the 216-call pass, for the rules that pass could not cover:
+  // a pasted failing test (fenced sample preservation) and a draft full of
+  // misspellings including one in a real repo path.
+  "fenced-trace",
+  "typo-path",
 ] as const;
 
 const DEFAULT_N = 12;
@@ -241,6 +246,11 @@ interface CallRecord {
    */
   verdict: "good" | "bad" | "host_error";
   codes: string[];
+  /**
+   * Non-verdict observations from the classifier. Reported and recorded, never
+   * counted against a cell. See `ClassifyResult.signals`.
+   */
+  signals: string[];
 }
 
 interface CliOptions {
@@ -568,6 +578,7 @@ async function runCell(
 
   let verdict: "good" | "bad" | "host_error";
   let codes: string[];
+  let signals: string[] = [];
   if (outcome.spawnError !== undefined) {
     // `pi` never started. That is the host failing, not the enhancer.
     verdict = "host_error";
@@ -599,6 +610,7 @@ async function runCell(
     });
     verdict = classified.verdict;
     codes = classified.codes;
+    signals = classified.signals;
   }
 
   return {
@@ -626,6 +638,7 @@ async function runCell(
     exitCode: outcome.exitCode,
     verdict,
     codes,
+    signals,
   };
 }
 
@@ -673,6 +686,22 @@ function printSummary(records: CallRecord[], models: MatrixModel[], fixtures: st
   for (const record of scored) {
     for (const code of record.codes) codeCounts.set(code, (codeCounts.get(code) ?? 0) + 1);
   }
+
+  // Signals are printed next to the codes and counted nowhere else: they exist
+  // to be read, not to decide anything.
+  const signalCounts = new Map<string, number>();
+  for (const record of scored) {
+    for (const signal of record.signals) {
+      signalCounts.set(signal, (signalCounts.get(signal) ?? 0) + 1);
+    }
+  }
+  const signalSummary =
+    signalCounts.size === 0
+      ? "none"
+      : [...signalCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([signal, count]) => `${signal}=${count}`)
+          .join(", ");
   const codeSummary =
     codeCounts.size === 0
       ? "none"
@@ -706,6 +735,7 @@ function printSummary(records: CallRecord[], models: MatrixModel[], fixtures: st
 
   progress("");
   progress(`bad codes:                       ${codeSummary}`);
+  progress(`signals (not verdicts):          ${signalSummary}`);
   progress(`host errors (not measurements):  ${hostErrorSummary}`);
   progress(`max enhanced.length:             ${maxEnhancedLength}`);
   progress(`context gathering p95 (local):   ${contextP95} ms`);

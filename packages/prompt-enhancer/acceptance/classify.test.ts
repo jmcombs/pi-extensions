@@ -472,3 +472,132 @@ describe("looksLikeHostFailure", () => {
     );
   });
 });
+
+// ── Fenced samples and misspelled paths ────────────────────────────────
+
+const TRACE = [
+  "FAIL  packages/prompt-enhancer/index.test.ts > buildRecentTurns > clips a long turn",
+  "AssertionError: expected 607 to be less than 360",
+  " ❯ packages/prompt-enhancer/index.test.ts:348:32",
+  '    348|     expect((out ?? "").length).toBeLessThan(360);',
+].join("\n");
+
+const FENCED_ORIGINAL = `this keeps failing and I can't tell why:\n\n\`\`\`\n${TRACE}\n\`\`\`\n\nwork out which one to change`;
+
+describe("classifyEnhancement — fenced samples", () => {
+  it("passes a rewrite that reproduces the block byte for byte", () => {
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced: `Determine whether the assertion bound or the implementation is wrong, given this failure:\n\n\`\`\`\n${TRACE}\n\`\`\``,
+    });
+    expect(result.verdict).toBe("good");
+    expect(result.codes).toEqual([]);
+  });
+
+  it("flags a rewrite that dropped the block entirely", () => {
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced:
+        "Determine whether the assertion bound or the implementation is wrong for the failing buildRecentTurns test.",
+    });
+    expect(result.verdict).toBe("bad");
+    expect(result.codes).toContain("code_block_mangled");
+  });
+
+  it("flags a rewrite that retyped the trace instead of carrying it", () => {
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      // One number changed. That is exactly the damage the rule exists for:
+      // the payload of a trace is its numbers and identifiers.
+      enhanced: `Work out which to change:\n\n\`\`\`\n${TRACE.replace("607", "600")}\n\`\`\``,
+    });
+    expect(result.verdict).toBe("bad");
+    expect(result.codes).toContain("code_block_mangled");
+  });
+
+  it("tolerates line-ending and trailing-whitespace differences", () => {
+    // Transport artifacts, not the model rewording anything.
+    const roughed = `${TRACE.replace(/\n/g, "  \r\n")}   `;
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced: `Work out which to change:\n\n\`\`\`\n${roughed}\n\`\`\``,
+    });
+    expect(result.codes).not.toContain("code_block_mangled");
+  });
+
+  it("accepts the block re-fenced with a language tag or moved in the rewrite", () => {
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced: `\`\`\`text\n${TRACE}\n\`\`\`\n\nWork out whether the bound or the code is wrong.`,
+    });
+    expect(result.codes).not.toContain("code_block_mangled");
+  });
+
+  it("is inert on a prompt with no fenced block at all", () => {
+    // Every fixture the recorded 216-call baseline was measured on is in this
+    // shape, so the rule cannot retroactively change any of those verdicts.
+    const result = classify({ enhanced: "Fix the typo in README.md." });
+    expect(result.codes).not.toContain("code_block_mangled");
+  });
+});
+
+describe("classifyEnhancement — misspelled paths", () => {
+  const TYPO_ORIGINAL =
+    "fix the widgit colour in packages/prompt-enhncer/index.ts and updaet the tets";
+
+  it("records that the rewrite carried the misspelled path forward", () => {
+    const result = classify({
+      original: TYPO_ORIGINAL,
+      enhanced: "Fix the widget colour in packages/prompt-enhncer/index.ts and update the tests.",
+    });
+    expect(result.signals).toContain("typo_path_carried");
+    // A signal, never a verdict: both behaviours are defensible.
+    expect(result.verdict).toBe("good");
+    expect(result.codes).toEqual([]);
+  });
+
+  it("records that the rewrite corrected it", () => {
+    const result = classify({
+      original: TYPO_ORIGINAL,
+      enhanced: "Fix the widget colour in packages/prompt-enhancer/index.ts and update the tests.",
+    });
+    expect(result.signals).toContain("typo_path_corrected");
+    expect(result.verdict).toBe("good");
+  });
+
+  it("records that the rewrite lost the path altogether", () => {
+    const result = classify({
+      original: TYPO_ORIGINAL,
+      enhanced: "Fix the widget colour in the prompt enhancer and update the tests.",
+    });
+    expect(result.signals).toContain("typo_path_dropped");
+  });
+
+  it("does not treat a path that really exists as a misspelling", () => {
+    const result = classify({
+      original: "look at packages/prompt-enhancer/index.ts",
+      enhanced: "Explain what packages/prompt-enhancer/index.ts does.",
+    });
+    expect(result.signals).toEqual([]);
+  });
+
+  it("does not invent a near miss for a path nothing resembles", () => {
+    const result = classify({
+      original: "open vendor/thirdparty/zzzz.ts",
+      enhanced: "Open vendor/thirdparty/zzzz.ts.",
+    });
+    expect(result.signals).toEqual([]);
+  });
+
+  it("leaves signals empty for every fixture shape the baseline used", () => {
+    for (const original of [
+      "fix the typo in the readme",
+      "explain the difference between a semaphore and a mutex",
+      "where does release-please decide which packages get their own release PR in this repo",
+      "check packages/steward/core/__fixtures__/llama/slots-busy.json and tell me why",
+    ]) {
+      const result = classify({ original, enhanced: "Some rewrite." });
+      expect(result.signals, original).toEqual([]);
+    }
+  });
+});

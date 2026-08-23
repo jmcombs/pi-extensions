@@ -23,7 +23,7 @@ extensions must not load, or their commands and models contaminate the results.
 ## Running it
 
 ```bash
-# full matrix: 6 cells × 6 fixtures × n=12 = 432 real model calls
+# full matrix: 6 cells × 8 fixtures × n=12 = 576 real model calls
 npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 12 \
   --out docs/prompt-enhancer/baseline.json
 
@@ -79,8 +79,13 @@ llama.cpp/Qwen3.6-35B-A3B-Q8_0#openai-completions
 ```
 
 Exactly these six, with this casing. Do not re-case, do not pin dated snapshots, do not add or
-substitute. `relay-*` models are out of scope entirely. A full pass is 6 × 6 × 12 = **432** real
-model calls.
+substitute. `relay-*` models are out of scope entirely. A full pass is 6 × 8 × 12 = **576** real
+model calls; at the `n=6` the last recorded pass used, 6 × 8 × 6 = **288**.
+
+The fixture count moved from six to eight after `docs/prompt-enhancer/acceptance-final.json` was
+recorded. That file is a 6 × 6 × 6 = 216-call pass and remains valid **for what it measured**; it
+predates the fenced-sample rule, the typo-repair rule, the project-conventions context section and
+the raised conversation caps, so it is not evidence about any of them.
 
 ### Why grok appears twice
 
@@ -164,9 +169,50 @@ they are never part of a verdict.
 `classify.ts` scores one response and is **deliberately over-strict**: it is test scoring, not a
 shipped validator. Wiring it into the extension would reproduce the meta-text false-positive class
 the project already rejected. Codes: `announcement`, `refusal`, `third_person_meta`,
-`fabricated_path`, `echo`, `truncated`, `empty`, plus `crash` (an `extension_error`), `timeout`,
-`spawn_failed` and `host_error` from the runner. The last four are infrastructure, not model
-behaviour: they say the call never produced a scoreable answer.
+`fabricated_path`, `code_block_mangled`, `echo`, `truncated`, `empty`, plus `crash` (an
+`extension_error`), `timeout`, `spawn_failed` and `host_error` from the runner. The last four are
+infrastructure, not model behaviour: they say the call never produced a scoreable answer.
+
+### `code_block_mangled`: the sample is the payload
+
+A draft that pastes a stack trace, a diff or a failing test is ordinary, and a *reworded* trace is
+worse than no rewrite at all — its line numbers and identifiers are the entire reason it was pasted.
+The rule extracts the body of every fenced block in the **original** and requires each to appear in
+the rewrite verbatim. Fence markers, info strings and where the block sits in the rewrite are all
+free to move; line endings and trailing whitespace are normalised, because those are transport
+artifacts rather than the model rewording anything. Everything else, including indentation inside a
+line, must match.
+
+The rule returns immediately when the original carries no fenced block, so it is inert on all six
+fixtures the recorded 216-call pass used. Re-scoring that file with this rule present changes **no
+verdict and adds no code**.
+
+### Signals: recorded, never counted
+
+`ClassifyResult.signals` is a second list that never touches `verdict`. It exists for behaviour worth
+seeing without being scoreable, and today it carries one family:
+
+| signal | meaning |
+| --- | --- |
+| `typo_path_carried` | the original misspelled a real repo path and the rewrite reproduced the misspelling |
+| `typo_path_corrected` | the rewrite replaced it with the path that actually exists |
+| `typo_path_dropped` | the rewrite kept neither |
+
+The near miss is derived, not listed: a file-shaped token in the original that is not a known path
+but is within edit distance 2 of one. No fixture-specific expectations, and nothing here can see the
+provider, model or api.
+
+**Why this is a signal and not a code.** Both outcomes are defensible on the shipped prompt.
+*"Invent nothing: no path that is not in the context"* argues for carrying the typo through; *"fix
+typos and misspellings, in identifiers and paths too"* argues for correcting it. Scoring either as
+`bad` would encode a preference this harness has no evidence for. The counts print on their own
+`signals (not verdicts)` line and are stored per record; the judgement stays with the maintainer.
+
+**What is not checkable here.** Prose misspellings — `teh`, `widgit`, `renderrs`, `updaet`, `tets` in
+`typo-path.txt` — are **not** checked. Doing it deterministically needs a dictionary, and matching a
+hard-coded list of that fixture's own typos would make the classifier fixture-specific, which is the
+same defect as making it model-specific. Whether prose typos were repaired is read off the recorded
+`enhanced` text by hand. Only the path half is machine-checked.
 
 ### `host_error`: the host failing is not a measurement
 
@@ -264,6 +310,8 @@ network, no `pi`, no model.
 | `out-of-scope.txt` | not about the codebase at all; probes the refusal mode |
 | `control-token.txt` | names a fixture whose contents inline `<\|im_start\|>` control tokens |
 | `self-referential.txt` | quotes first-person meta-text back; the strongest false-positive probe for `fabricated_path` and any announcement detector |
+| `fenced-trace.txt` | a pasted failing test inside a fenced block; probes `code_block_mangled` |
+| `typo-path.txt` | prose typos plus a misspelled real repo path; probes typo repair and the `typo_path_*` signals |
 
 ## Driving the interactive TUI headlessly
 
