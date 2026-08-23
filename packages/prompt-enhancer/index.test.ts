@@ -8,13 +8,16 @@
  * exercised manually with `pi -e ./packages/prompt-enhancer`.
  */
 
+import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import factory, {
   buildEnhancerUserMessage,
   buildRecentTurns,
+  completeWithRetry,
   computePickerMaxVisible,
   createEnhancerModelSelector,
+  ENHANCER_RETRY_POLICY,
   type EnhancerContext,
   filterPickerItems,
   SYSTEM_PROMPT,
@@ -396,5 +399,185 @@ describe("buildEnhancerUserMessage section order", () => {
     // Each label must appear, and the array must already be in ascending order.
     expect(order.every((idx) => idx >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+});
+
+describe("completeWithRetry", () => {
+  // The real policy waits 2000/4000/8000 ms; tests use the same shape with a
+  // 1 ms base so the retry *count* and ordering are exercised without the wait.
+  const fastPolicy = { ...ENHANCER_RETRY_POLICY, baseDelayMs: 1 };
+
+  /** Minimal but complete `AssistantMessage` scaffolding for the fixtures below. */
+  const assistantBase: AssistantMessage = {
+    role: "assistant",
+    content: [],
+    api: "openai-completions",
+    provider: "llama.cpp",
+    model: "test-model",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "error",
+    timestamp: 0,
+  };
+
+  const errorMessage = (text: string): AssistantMessage => ({
+    ...assistantBase,
+    stopReason: "error",
+    errorMessage: text,
+  });
+
+  it("uses pi's own retry budget: enabled, 3 retries, 2000 ms base", () => {
+    expect(ENHANCER_RETRY_POLICY).toEqual({ enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+  });
+
+  it("retries a transient transport error 3 times, then returns the last error", async () => {
+    let calls = 0;
+    const result = await completeWithRetry(
+      async () => {
+        calls++;
+        return errorMessage("Connection error.");
+      },
+      undefined,
+      fastPolicy,
+    );
+    expect(calls).toBe(4);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("Connection error.");
+  });
+
+  it("does not retry an error pi's classifier calls non-transient", async () => {
+    let calls = 0;
+    const result = await completeWithRetry(
+      async () => {
+        calls++;
+        return errorMessage("401 Unauthorized: invalid api key");
+      },
+      undefined,
+      fastPolicy,
+    );
+    expect(calls).toBe(1);
+    expect(result.stopReason).toBe("error");
+  });
+
+  it("never retries an aborted response", async () => {
+    let calls = 0;
+    const result = await completeWithRetry(
+      async () => {
+        calls++;
+        return { ...assistantBase, stopReason: "aborted", errorMessage: undefined };
+      },
+      undefined,
+      fastPolicy,
+    );
+    expect(calls).toBe(1);
+    expect(result.stopReason).toBe("aborted");
+  });
+
+  it("returns without retrying when the first attempt succeeds", async () => {
+    let calls = 0;
+    const result = await completeWithRetry(
+      async () => {
+        calls++;
+        return {
+          ...assistantBase,
+          content: [{ type: "text", text: "ok" }],
+          stopReason: "stop",
+        };
+      },
+      undefined,
+      fastPolicy,
+    );
+    expect(calls).toBe(1);
+    expect(result.stopReason).toBe("stop");
+  });
+
+  it("applies the enhancer policy by default, with no policy argument", async () => {
+    // Pins the *default binding* production relies on, not the exported
+    // constant: called with two arguments, a retryable error must go into the
+    // (2000 ms) backoff, so an abort 10 ms in comes back "aborted". If the
+    // default were dropped or disabled the call would return "error" at once.
+    const controller = new AbortController();
+    let calls = 0;
+    const pending = completeWithRetry(async () => {
+      calls++;
+      return errorMessage("fetch failed");
+    }, controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    const result = await pending;
+    expect(calls).toBe(1);
+    expect(result.stopReason).toBe("aborted");
+  });
+
+  it("forwards retry callbacks, and omitting them is harmless", async () => {
+    const onePolicy = { ...fastPolicy, maxRetries: 1 };
+    const scheduled: Array<[number, number, number, string]> = [];
+    let attemptStarts = 0;
+    let finished: { success: boolean; attempt: number } | undefined;
+
+    const result = await completeWithRetry(
+      async () => errorMessage("Connection error."),
+      undefined,
+      onePolicy,
+      {
+        onRetryScheduled: (attempt, maxAttempts, delayMs, message) => {
+          scheduled.push([attempt, maxAttempts, delayMs, message]);
+        },
+        onRetryAttemptStart: () => {
+          attemptStarts++;
+        },
+        onRetryFinished: (success, attempt) => {
+          finished = { success, attempt };
+        },
+      },
+    );
+
+    expect(scheduled).toEqual([[1, 1, 1, "Connection error."]]);
+    expect(attemptStarts).toBe(1);
+    expect(finished).toEqual({ success: false, attempt: 1 });
+    expect(result.stopReason).toBe("error");
+
+    // Same call without callbacks: retries all the same and never throws.
+    let calls = 0;
+    const bare = await completeWithRetry(
+      async () => {
+        calls++;
+        return errorMessage("Connection error.");
+      },
+      undefined,
+      onePolicy,
+    );
+    expect(calls).toBe(2);
+    expect(bare.stopReason).toBe("error");
+  });
+
+  it("aborting during the backoff sleep cancels at once and reports 'aborted'", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const started = Date.now();
+    // Full 2000 ms base: if the abort were not honoured mid-sleep this would
+    // take seconds rather than milliseconds.
+    const pending = completeWithRetry(
+      async () => {
+        calls++;
+        return errorMessage("fetch failed");
+      },
+      controller.signal,
+      ENHANCER_RETRY_POLICY,
+    );
+    // Let the first attempt fail and the backoff sleep begin.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    const result = await pending;
+    expect(calls).toBe(1);
+    expect(result.stopReason).toBe("aborted");
+    expect(result.errorMessage).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });

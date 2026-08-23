@@ -28,7 +28,21 @@ import { promisify } from "node:util";
 // Importing the compat subpath directly is the same module at runtime, but it
 // is the only specifier whose *types* match what Pi actually injects — the
 // package index does not export `complete`.
-import { type Api, complete, type Message, type Model } from "@earendil-works/pi-ai/compat";
+//
+// `retryAssistantCall` is reached through the namespace rather than a named
+// import: a host that ships a subset shim of pi-ai would turn a static named
+// import of a missing symbol into a module-load error, taking the whole
+// extension with it. Off the namespace it simply degrades to a single attempt.
+import * as piAiCompat from "@earendil-works/pi-ai/compat";
+import {
+  type Api,
+  type AssistantMessage,
+  complete,
+  type Message,
+  type Model,
+  type RetryCallbacks,
+  type RetryPolicy,
+} from "@earendil-works/pi-ai/compat";
 import {
   BorderedLoader,
   DynamicBorder,
@@ -622,6 +636,46 @@ type EnhancementOutcome =
   | { ok: true; enhanced: string }
   | { ok: false; reason: "cancelled" | "error"; message?: string };
 
+/**
+ * Retry budget for the enhancer's LLM call.
+ *
+ * Mirrors pi's own `settings.retry` defaults (enabled, 3 retries, 2000 ms base)
+ * so a transient provider or transport failure behaves here the way it does in
+ * a normal pi turn: 4 attempts total, backing off 2000 / 4000 / 8000 ms, giving
+ * up after ~14 s. Extensions do not run through the agent session, so nothing
+ * applies this for us — a bare `complete()` fails on the first hiccup.
+ */
+export const ENHANCER_RETRY_POLICY: RetryPolicy = {
+  enabled: true,
+  maxRetries: 3,
+  baseDelayMs: 2000,
+};
+
+/**
+ * Run one assistant call under pi's own retry policy and classifier.
+ *
+ * `retryAssistantCall` is pi's shared helper: it returns success and `aborted`
+ * immediately (an abort is the user pressing Esc and must never be retried),
+ * fails fast on errors its `isRetryableAssistantError` classifier rejects, and
+ * otherwise backs off between attempts while honouring `signal` — an abort
+ * during the backoff sleep comes back as an `aborted` message rather than an
+ * error, so Esc is felt at once instead of after the remaining delay.
+ *
+ * If the host does not expose the helper, this degrades to a single attempt.
+ */
+export async function completeWithRetry(
+  produce: () => Promise<AssistantMessage>,
+  signal: AbortSignal | undefined,
+  policy: RetryPolicy = ENHANCER_RETRY_POLICY,
+  callbacks?: RetryCallbacks,
+): Promise<AssistantMessage> {
+  const retryAssistantCall = piAiCompat.retryAssistantCall as
+    | typeof piAiCompat.retryAssistantCall
+    | undefined;
+  if (typeof retryAssistantCall !== "function") return produce();
+  return retryAssistantCall(produce, policy, signal, callbacks);
+}
+
 /** The successful half of `ModelRegistry.getApiKeyAndHeaders`'s result. */
 type ResolvedEnhancerAuth = Extract<
   Awaited<ReturnType<ExtensionContext["modelRegistry"]["getApiKeyAndHeaders"]>>,
@@ -659,10 +713,14 @@ async function performEnhancement(
     timestamp: Date.now(),
   };
 
-  const response = await complete(
-    model,
-    { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-    { apiKey: auth.apiKey, headers: auth.headers, signal },
+  const response = await completeWithRetry(
+    () =>
+      complete(
+        model,
+        { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+        { apiKey: auth.apiKey, headers: auth.headers, signal },
+      ),
+    signal,
   );
 
   if (response.stopReason === "aborted") return { ok: false, reason: "cancelled" };
