@@ -20,6 +20,8 @@ import factory, {
   ENHANCER_RETRY_POLICY,
   type EnhancerContext,
   filterPickerItems,
+  formatRetryStatus,
+  normalizeFailureReason,
   SYSTEM_PROMPT,
 } from "./index.js";
 
@@ -579,5 +581,51 @@ describe("completeWithRetry", () => {
     expect(result.stopReason).toBe("aborted");
     expect(result.errorMessage).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("normalizeFailureReason", () => {
+  it("returns the reason as-is when it is already one clean line", () => {
+    expect(normalizeFailureReason("Connection error")).toBe("Connection error");
+  });
+
+  it("drops a trailing period so it does not collide with the message punctuation", () => {
+    expect(normalizeFailureReason("Connection error.")).toBe("Connection error");
+  });
+
+  it("keeps only the first line of a multi-line provider error", () => {
+    expect(normalizeFailureReason("Connection error.\n  at fetch (node:internal)\n  at run")).toBe(
+      "Connection error",
+    );
+  });
+
+  it("caps an over-long reason with an ellipsis", () => {
+    const long = `${"x".repeat(250)}.`;
+    const out = normalizeFailureReason(long);
+    expect(out).toBe(`${"x".repeat(100)}…`);
+    expect(out).toHaveLength(101);
+  });
+
+  it("treats absent, empty, and whitespace-only reasons as no reason at all", () => {
+    expect(normalizeFailureReason(undefined)).toBeUndefined();
+    expect(normalizeFailureReason("")).toBeUndefined();
+    expect(normalizeFailureReason("   \n  ")).toBeUndefined();
+    expect(normalizeFailureReason(".")).toBeUndefined();
+  });
+});
+
+describe("formatRetryStatus", () => {
+  it("names the reason the last attempt gave, so Esc is an informed choice", () => {
+    expect(formatRetryStatus(1, 3, 2000, "Connection error.")).toBe(
+      "Retrying (1/3) in 2s… · Connection error",
+    );
+    expect(formatRetryStatus(3, 3, 8000, "503 Service Unavailable")).toBe(
+      "Retrying (3/3) in 8s… · 503 Service Unavailable",
+    );
+  });
+
+  it("falls back to pi's own wording when no reason came through", () => {
+    expect(formatRetryStatus(2, 3, 4000)).toBe("Retrying (2/3) in 4s…");
+    expect(formatRetryStatus(2, 3, 4000, "")).toBe("Retrying (2/3) in 4s…");
   });
 });

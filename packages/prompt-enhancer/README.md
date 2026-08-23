@@ -61,6 +61,15 @@ After an enhance, the footer reminds you how to revert. With auto-enhance on it
 also says `Enter to send`. Press **Esc** to cancel an enhance that is still
 running.
 
+## When an enhance does not work
+
+A slow or unreachable model is retried a few times first, and the loader names
+the reason so you can decide to wait or press Esc:
+
+```text
+Retrying (1/3) in 2s… · Connection error
+```
+
 ## The status bar
 
 Prompt Enhancer displays in the Pi status bar with the enhancer model, when

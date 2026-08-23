@@ -141,6 +141,50 @@ function revertHintText(): string {
     : "Ctrl+Shift+Z to revert enhanced prompt";
 }
 
+/**
+ * Cap on the failure reason we quote back to the user.
+ *
+ * Provider error text is not written for a status line: it arrives multi-line,
+ * sentence-punctuated, and occasionally with a whole JSON body attached. The
+ * reason is a hint about *why*, not the payload, so it gets one line and a
+ * budget.
+ */
+const FAILURE_REASON_MAX_CHARS = 100;
+
+/**
+ * Reduce raw provider/transport error text to something quotable inline:
+ * first line only, no trailing period, capped. Returns `undefined` when there
+ * is nothing left worth showing, so callers can drop the parenthetical
+ * entirely rather than print an empty one.
+ */
+export function normalizeFailureReason(raw: string | undefined): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const firstLine = raw.split("\n", 1)[0] ?? "";
+  const trimmed = firstLine.trim().replace(/\.$/, "").trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length > FAILURE_REASON_MAX_CHARS
+    ? `${trimmed.slice(0, FAILURE_REASON_MAX_CHARS)}…`
+    : trimmed;
+}
+
+/**
+ * The loader line while a retry is pending.
+ *
+ * Naming the reason turns a 14-second wait into a decision: a user who can see
+ * `Connection error` at second 2 can press Esc instead of watching the whole
+ * budget drain. Without a reason it is the line pi's own retry indicator shows.
+ */
+export function formatRetryStatus(
+  attempt: number,
+  maxAttempts: number,
+  delayMs: number,
+  errorMessage?: string,
+): string {
+  const line = `Retrying (${attempt}/${maxAttempts}) in ${Math.ceil(delayMs / 1000)}s…`;
+  const reason = normalizeFailureReason(errorMessage);
+  return reason === undefined ? line : `${line} · ${reason}`;
+}
+
 // Widget rendered above the editor with persistent enhancer state.
 const WIDGET_KEY = "prompt-enhancer";
 const TRANSIENT_STATUS_MS = 4000;
@@ -697,10 +741,16 @@ async function performEnhancement(
     originalPrompt: string;
     /** Bounded conversation background; read from the host before this runs. */
     history: string | undefined;
+    /**
+     * Optional retry progress hooks. The interactive path passes these so the
+     * loader can say it is retrying instead of sitting silent for the whole
+     * backoff; the headless path leaves them out and nothing is reported.
+     */
+    retryCallbacks?: RetryCallbacks;
   },
   signal: AbortSignal,
 ): Promise<EnhancementOutcome> {
-  const { cwd, model, auth, originalPrompt, history } = params;
+  const { cwd, model, auth, originalPrompt, history, retryCallbacks } = params;
 
   const context = await gatherEnhancerContext(originalPrompt, cwd, signal);
   if (signal.aborted) return { ok: false, reason: "cancelled" };
@@ -721,6 +771,10 @@ async function performEnhancement(
         { apiKey: auth.apiKey, headers: auth.headers, signal },
       ),
     signal,
+    // Left undefined so the ENHANCER_RETRY_POLICY default binding applies —
+    // the only production call site, and what the default-binding test pins.
+    undefined,
+    retryCallbacks,
   );
 
   if (response.stopReason === "aborted") return { ok: false, reason: "cancelled" };
@@ -743,6 +797,35 @@ async function performEnhancement(
   }
 
   return { ok: true, enhanced };
+}
+
+/** Anything exposing pi-tui's `Loader.setMessage`. */
+type MessageSettable = { setMessage: (message: string) => void };
+
+function isMessageSettable(value: unknown): value is MessageSettable {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { setMessage?: unknown }).setMessage === "function"
+  );
+}
+
+/**
+ * Update the text a `BorderedLoader` is showing.
+ *
+ * `BorderedLoader` wraps a pi-tui `Loader` (which owns `setMessage`) without
+ * re-exposing it, so this feature-detects the wrapper first — in case a later
+ * pi surfaces the method — then the wrapped loader. If neither is there the
+ * message simply stays as it was: retry feedback is additive and must never
+ * become a failure path of its own.
+ */
+function setLoaderMessage(loader: BorderedLoader, message: string): void {
+  if (isMessageSettable(loader)) {
+    loader.setMessage(message);
+    return;
+  }
+  const inner = (loader as unknown as { loader?: unknown }).loader;
+  if (isMessageSettable(inner)) inner.setMessage(message);
 }
 
 async function runEnhancer(ctx: ExtensionContext, providedText: string | undefined): Promise<void> {
@@ -825,14 +908,26 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     let factoryRan = false;
     const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
       factoryRan = true;
-      const loader = new BorderedLoader(tui, theme, `Enhancing prompt via ${modelLabel(model)}…`, {
+      const workingMessage = `Enhancing prompt via ${modelLabel(model)}…`;
+      const loader = new BorderedLoader(tui, theme, workingMessage, {
         cancellable: true,
       });
       loader.onAbort = () => {
         done({ ok: false, reason: "cancelled" });
       };
 
-      performEnhancement(enhanceParams, loader.signal)
+      // Without this the loader sits on "Enhancing prompt via …" for the whole
+      // ~14 s retry budget with nothing to show the call is being retried.
+      // Wording follows pi's own retry status indicator, plus the reason the
+      // last attempt gave — that is what lets the user decide to Esc early.
+      const retryCallbacks: RetryCallbacks = {
+        onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
+          setLoaderMessage(loader, formatRetryStatus(attempt, maxAttempts, delayMs, errorMessage));
+        },
+        onRetryAttemptStart: () => setLoaderMessage(loader, workingMessage),
+      };
+
+      performEnhancement({ ...enhanceParams, retryCallbacks }, loader.signal)
         .then(done)
         .catch((err: unknown) => {
           const message = err instanceof Error ? err.message : String(err);
