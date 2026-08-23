@@ -100,6 +100,16 @@ const GIT_LOG_LIMIT = 8;
 
 const FILE_MAX_LINES = 100;
 const FILE_MAX_REFERENCES = 3;
+const FILE_MAX_BYTES = 1_000_000;
+
+/**
+ * Probe window for the binary guard, in decoded characters. Long enough to
+ * cover a header plus a useful slice of payload, short enough that scanning it
+ * costs nothing next to the read itself.
+ */
+const BINARY_PROBE_CHARS = 8192;
+/** Share of control/replacement characters in the probe that reads as binary. */
+const BINARY_SUSPICIOUS_RATIO = 0.02;
 
 /**
  * Bounds on the conversation background sent with the rewrite.
@@ -387,9 +397,44 @@ function extractFileMentions(prompt: string): string[] {
   return out;
 }
 
-async function readMentionedFile(
+/**
+ * Does this decoded text look like something that was never text?
+ *
+ * The size cap does not cover it: a 4 KB `.ico` or a small `.wasm` is well
+ * inside the budget and decodes to mojibake that costs tokens and teaches the
+ * model nothing. `extractFileMentions` matches any token holding a `/`, so
+ * "why does assets/logo.png look wrong" is enough to name one. Reading as UTF-8
+ * turns undecodable bytes into U+FFFD, so the probe counts those alongside NUL
+ * and the other C0 controls (tab, LF, CR excepted). A NUL is decisive on its
+ * own — no text file has one.
+ */
+function looksBinary(raw: string): boolean {
+  const probe = raw.slice(0, BINARY_PROBE_CHARS);
+  if (probe.length === 0) return false;
+  let suspicious = 0;
+  for (let i = 0; i < probe.length; i += 1) {
+    const code = probe.charCodeAt(i);
+    if (code === 0) return true;
+    // U+FFFD REPLACEMENT CHARACTER, or a C0 control that is not \t \n \r.
+    if (code === 0xfffd || (code < 32 && code !== 9 && code !== 10 && code !== 13)) {
+      suspicious += 1;
+    }
+  }
+  return suspicious > probe.length * BINARY_SUSPICIOUS_RATIO;
+}
+
+/**
+ * Read one repo-relative file under a fixed set of guards, or give up.
+ *
+ * Every guard is a refusal, never a repair: a path that escapes the working
+ * directory, a directory, a symlink to somewhere else, an oversized file and a
+ * binary one all return `undefined` rather than a degraded value. Written as
+ * one function so there is exactly one containment check to audit.
+ */
+async function readBoundedFile(
   candidate: string,
   cwd: string,
+  maxLines: number,
 ): Promise<{ path: string; content: string } | undefined> {
   // Resolve, then ensure the resolved path stays within cwd to avoid the
   // extension reading arbitrary files via "../../etc/passwd"-style paths.
@@ -397,28 +442,52 @@ async function readMentionedFile(
   const rel = path.relative(cwd, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
 
+  // Then again on the *real* path. The check above compares strings, and a
+  // string cannot see a symlink: a repo shipping `notes.md` as a link to
+  // `~/.ssh/id_rsa` clears it and gets read. `cwd` is realpathed too — on macOS
+  // the temp directory is itself a symlink, so a real path compared against a
+  // nominal one would never match and every read would be refused.
+  let realResolved: string;
+  let realCwd: string;
+  try {
+    [realResolved, realCwd] = await Promise.all([fs.realpath(resolved), fs.realpath(cwd)]);
+  } catch {
+    return undefined;
+  }
+  const realRel = path.relative(realCwd, realResolved);
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) return undefined;
+
   let stat: Stats;
   try {
-    stat = await fs.stat(resolved);
+    stat = await fs.stat(realResolved);
   } catch {
     return undefined;
   }
   if (!stat.isFile()) return undefined;
-  if (stat.size > 1_000_000) return undefined;
+  if (stat.size > FILE_MAX_BYTES) return undefined;
 
   let raw: string;
   try {
-    raw = await fs.readFile(resolved, "utf-8");
+    raw = await fs.readFile(realResolved, "utf-8");
   } catch {
     return undefined;
   }
+  if (looksBinary(raw)) return undefined;
+
   const lines = raw.split("\n");
-  const truncated = lines.length > FILE_MAX_LINES;
-  const body = lines.slice(0, FILE_MAX_LINES).join("\n");
+  const truncated = lines.length > maxLines;
+  const body = lines.slice(0, maxLines).join("\n");
   const content = truncated
-    ? `${body}\n… (truncated at ${String(FILE_MAX_LINES)} lines, file has ${String(lines.length)} total)`
+    ? `${body}\n… (truncated at ${String(maxLines)} lines, file has ${String(lines.length)} total)`
     : body;
   return { path: rel, content };
+}
+
+async function readMentionedFile(
+  candidate: string,
+  cwd: string,
+): Promise<{ path: string; content: string } | undefined> {
+  return readBoundedFile(candidate, cwd, FILE_MAX_LINES);
 }
 
 async function buildMentionedFiles(

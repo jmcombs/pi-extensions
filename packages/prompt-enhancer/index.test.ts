@@ -30,6 +30,7 @@ import factory, {
   filterPickerItems,
   formatEnhancementFailure,
   formatRetryStatus,
+  gatherEnhancerContext,
   normalizeFailureReason,
   SYSTEM_PROMPT,
 } from "./index.js";
@@ -916,5 +917,90 @@ describe("enhancement failure", () => {
     expect(host.log.editorTexts.at(-1)).toBe(DRAFT);
 
     await shutdown(host.harness, host.ctx);
+  });
+});
+
+// ── File reading guards ────────────────────────────────────────────────
+
+/**
+ * The guards on files the *prompt* names, exercised through the shipped entry
+ * point. `extractFileMentions` matches any token holding a `/` or a known
+ * extension, so "why does logo.png look wrong" is enough to name a binary, and
+ * reading one as UTF-8 spends thousands of characters of the model call on
+ * mojibake. Real files in a real directory: these are filesystem behaviours and
+ * a stubbed `fs` would only test the stub.
+ */
+describe("mentioned-file guards", () => {
+  let cwd = "";
+
+  beforeAll(async () => {
+    cwd = await fs.mkdtemp(path.join(os.tmpdir(), "pi-prompt-enhancer-mentions-"));
+  });
+
+  afterAll(async () => {
+    if (cwd) await fs.rm(cwd, { recursive: true, force: true });
+  });
+
+  const gather = (prompt: string) =>
+    gatherEnhancerContext(prompt, cwd, new AbortController().signal);
+
+  it("still reads a plain text file the prompt names", async () => {
+    await fs.writeFile(path.join(cwd, "notes.md"), "# Notes\nkeep this");
+    const context = await gather("update notes.md please");
+    expect(context.mentionedFiles.map((f) => f.path)).toContain("notes.md");
+    expect(context.mentionedFiles.find((f) => f.path === "notes.md")?.content).toContain(
+      "keep this",
+    );
+  });
+
+  it("refuses a binary file rather than decoding it into the prompt", async () => {
+    // `assets/logo.png`, with the separator: `extractFileMentions` matches any
+    // token holding a `/`, so the extension list never gets a say. The bytes
+    // are a PNG signature, then values that are not valid UTF-8 and decode to
+    // U+FFFD, then NULs. Under the old reader all of that reached the model.
+    await fs.mkdir(path.join(cwd, "assets"), { recursive: true });
+    await fs.writeFile(
+      path.join(cwd, "assets", "logo.png"),
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.from(Array.from({ length: 4096 }, (_, i) => 128 + (i % 128))),
+        Buffer.alloc(4096),
+      ]),
+    );
+    const context = await gather("why does assets/logo.png look wrong");
+    expect(context.mentionedFiles.map((f) => f.path)).not.toContain("assets/logo.png");
+    expect(JSON.stringify(context)).not.toContain("\uFFFD");
+  });
+
+  it("refuses a file past the size cap", async () => {
+    await fs.writeFile(path.join(cwd, "huge.md"), "x".repeat(1_000_001));
+    const context = await gather("summarise huge.md");
+    expect(context.mentionedFiles.map((f) => f.path)).not.toContain("huge.md");
+  });
+
+  it("refuses a path that escapes the working directory", async () => {
+    const outside = path.join(path.dirname(cwd), "escaped-secret.md");
+    await fs.writeFile(outside, "TOP SECRET");
+    try {
+      const context = await gather("read ../escaped-secret.md and fix it");
+      expect(context.mentionedFiles).toEqual([]);
+      expect(JSON.stringify(context)).not.toContain("TOP SECRET");
+    } finally {
+      await fs.rm(outside, { force: true });
+    }
+  });
+
+  it("refuses a symlink that points out of the working directory", async () => {
+    const outside = path.join(path.dirname(cwd), "linked-secret.md");
+    await fs.writeFile(outside, "TOP SECRET");
+    await fs.symlink(outside, path.join(cwd, "innocent.md"));
+    try {
+      const context = await gather("check innocent.md");
+      expect(context.mentionedFiles.map((f) => f.path)).not.toContain("innocent.md");
+      expect(JSON.stringify(context)).not.toContain("TOP SECRET");
+    } finally {
+      await fs.rm(outside, { force: true });
+      await fs.rm(path.join(cwd, "innocent.md"), { force: true });
+    }
   });
 });
