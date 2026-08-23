@@ -239,6 +239,34 @@ describe("SYSTEM_PROMPT", () => {
     expect(SYSTEM_PROMPT).toMatch(/do not solve, implement/i);
     expect(SYSTEM_PROMPT).toContain("rewritten *request*");
   });
+
+  it("states that nothing can be retrieved and announcements are not the output", () => {
+    expect(SYSTEM_PROMPT).toContain("No tools are attached");
+    expect(SYSTEM_PROMPT).toMatch(/never announce what you would inspect/i);
+  });
+
+  it("marks the context as partial so a missing path is not invented", () => {
+    expect(SYSTEM_PROMPT).toContain("may be truncated");
+    expect(SYSTEM_PROMPT).toMatch(/no path that is not in the context/i);
+  });
+
+  it("rewrites non-codebase prompts instead of refusing or answering them", () => {
+    expect(SYSTEM_PROMPT).toContain("not about the codebase");
+    expect(SYSTEM_PROMPT).toContain("Never refuse, never explain yourself, never address the user");
+  });
+
+  it("keeps conversation background as background", () => {
+    expect(SYSTEM_PROMPT).toMatch(/never answer or continue it/i);
+  });
+
+  /**
+   * A regression bound, not an aesthetic one. This prompt is paid on every
+   * enhance; the fix for a failing model is shorter and clearer wording plus
+   * better context, never more instructions. 1244 is what shipped before.
+   */
+  it("is no longer than the prompt it replaced", () => {
+    expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(1244);
+  });
 });
 
 describe("filterPickerItems", () => {
