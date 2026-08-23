@@ -87,6 +87,22 @@ const GIT_LOG_LIMIT = 8;
 const FILE_MAX_LINES = 100;
 const FILE_MAX_REFERENCES = 3;
 
+/**
+ * Bounds on the conversation background sent with the rewrite.
+ *
+ * A mid-conversation prompt ("I need to work with you on this dependabot
+ * skill") cannot be rewritten from a project tree alone: "this" was named
+ * earlier in the session, and a model with no tools fills that gap by
+ * announcing what it would go and look at. A few recent turns close it.
+ *
+ * Deliberately small. The enhancer is one cheap completion before the real
+ * turn, not a second agent; the budget caps the section at roughly 300 tokens
+ * even in a long session.
+ */
+const HISTORY_MAX_TURNS = 4;
+const HISTORY_TURN_MAX_CHARS = 320;
+const HISTORY_MAX_CHARS = 1200;
+
 export const SYSTEM_PROMPT = `You are a prompt rewriter for a coding agent. You do not answer the user's request. You do not solve, implement, or explain it. You rewrite their rough prompt into a better prompt for a *different* coding agent to execute later.
 
 No tools are attached and nothing you say retrieves anything: your entire output is consumed as text, and the user message holds all the context you will ever get. Never announce what you would inspect or do.
@@ -162,6 +178,12 @@ export interface EnhancerContext {
   tree?: string;
   git?: string;
   mentionedFiles: { path: string; content: string }[];
+  /**
+   * Recent conversation turns, oldest first, already bounded by
+   * `buildRecentTurns`. Absent on the first turn of a session and on any host
+   * that does not expose `sessionManager.getBranch`.
+   */
+  history?: string;
 }
 
 // ── Helpers: directory tree ─────────────────────────────────────────────
@@ -356,6 +378,61 @@ export async function gatherEnhancerContext(
   return { cwd, tree, git, mentionedFiles };
 }
 
+/**
+ * The tail of a session as compact `User:` / `Agent:` lines, oldest first.
+ *
+ * Pure so it can be unit-tested without a host: it takes whatever
+ * `sessionManager.getBranch()` returns and tolerates both entry shapes pi has
+ * used (a bare message, or `{ message }`). Bounded three ways — turn count,
+ * per-turn characters, and a total character budget — so a long session costs
+ * the same as a short one. Whitespace is collapsed because the rewrite only
+ * needs the words, not the formatting.
+ *
+ * Returns `undefined` when there is nothing usable, which keeps the section
+ * out of the user message entirely on the first turn.
+ */
+export function buildRecentTurns(entries: readonly unknown[]): string | undefined {
+  const lines: string[] = [];
+  let budget = HISTORY_MAX_CHARS;
+
+  for (let i = entries.length - 1; i >= 0 && lines.length < HISTORY_MAX_TURNS; i -= 1) {
+    const entry = entries[i] as { role?: string; content?: unknown; message?: unknown } | undefined;
+    if (typeof entry !== "object" || entry === null) continue;
+    const message = (entry.message ?? entry) as { role?: string; content?: unknown };
+    if (message.role !== "user" && message.role !== "assistant") continue;
+
+    const text = extractMessageText(message.content).replace(/\s+/g, " ").trim();
+    if (text.length === 0) continue;
+
+    const clipped =
+      text.length > HISTORY_TURN_MAX_CHARS ? `${text.slice(0, HISTORY_TURN_MAX_CHARS)}…` : text;
+    const line = `${message.role === "user" ? "User" : "Agent"}: ${clipped}`;
+    // Stop at the budget rather than truncating mid-line: a half-sentence from
+    // the oldest turn is the least useful thing we could spend it on.
+    if (line.length > budget) break;
+    budget -= line.length;
+    lines.push(line);
+  }
+
+  return lines.length === 0 ? undefined : lines.reverse().join("\n");
+}
+
+/**
+ * Session history for the current run, or `undefined`.
+ *
+ * `sessionManager.getBranch` is feature-detected: oh-my-pi remaps
+ * `@earendil-works/pi-coding-agent` to a subset shim, and an enhancer that
+ * throws on a missing host API is worse than one with no history.
+ */
+function gatherSessionHistory(ctx: ExtensionContext): string | undefined {
+  try {
+    if (typeof ctx.sessionManager?.getBranch !== "function") return undefined;
+    return buildRecentTurns(ctx.sessionManager.getBranch());
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildEnhancerUserMessage(originalPrompt: string, context: EnhancerContext): string {
   const sections: string[] = [];
   sections.push(
@@ -368,6 +445,13 @@ export function buildEnhancerUserMessage(originalPrompt: string, context: Enhanc
   if (context.mentionedFiles.length > 0) {
     const blocks = context.mentionedFiles.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``);
     sections.push(`## Files referenced in the prompt\n\n${blocks.join("\n\n")}`);
+  }
+  // Labelled as background, twice: a model handed raw dialogue will otherwise
+  // answer the last thing it sees instead of rewriting the prompt below.
+  if (context.history) {
+    sections.push(
+      `## Recent conversation (background only — do not answer or continue it)\n${context.history}`,
+    );
   }
   sections.push(`## Original prompt\n${originalPrompt}`);
   return sections.join("\n\n");
@@ -557,17 +641,21 @@ async function performEnhancement(
     model: Model<Api>;
     auth: ResolvedEnhancerAuth;
     originalPrompt: string;
+    /** Bounded conversation background; read from the host before this runs. */
+    history: string | undefined;
   },
   signal: AbortSignal,
 ): Promise<EnhancementOutcome> {
-  const { cwd, model, auth, originalPrompt } = params;
+  const { cwd, model, auth, originalPrompt, history } = params;
 
   const context = await gatherEnhancerContext(originalPrompt, cwd, signal);
   if (signal.aborted) return { ok: false, reason: "cancelled" };
 
   const userMessage: Message = {
     role: "user",
-    content: [{ type: "text", text: buildEnhancerUserMessage(originalPrompt, context) }],
+    content: [
+      { type: "text", text: buildEnhancerUserMessage(originalPrompt, { ...context, history }) },
+    ],
     timestamp: Date.now(),
   };
 
@@ -660,6 +748,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     model,
     auth,
     originalPrompt,
+    history: gatherSessionHistory(ctx),
   };
   let result: EnhancementOutcome | undefined;
 

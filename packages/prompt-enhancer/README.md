@@ -15,9 +15,14 @@
 > It turns a rough request into a precise one, then puts that rewrite back in
 > the editor for you to review. Nothing is submitted until you say so.
 
-The enhancer looks at your project tree, git status, and any files the draft
-names, then **rewrites the request** instead of answering it. The original
-stays one keystroke away.
+The enhancer looks at your project tree, git status, any files the draft names,
+and the last few turns of the conversation, then **rewrites the request**
+instead of answering it. The original stays one keystroke away.
+
+That last part is what makes a follow-up work: "help me with this skill" can be
+rewritten because the enhancer can see what "this" was. Only a small, capped
+slice of the conversation is sent, and it is sent to the enhancer model — the
+one shown on the status bar, which may not be the model running your session.
 
 ## Install
 

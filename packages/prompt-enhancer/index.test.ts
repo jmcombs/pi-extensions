@@ -12,6 +12,7 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import factory, {
   buildEnhancerUserMessage,
+  buildRecentTurns,
   computePickerMaxVisible,
   createEnhancerModelSelector,
   type EnhancerContext,
@@ -141,6 +142,23 @@ describe("buildEnhancerUserMessage", () => {
     expect(out).toContain("## Git\nbranch: main\nstatus: clean");
   });
 
+  it("omits the conversation section when there is no history", () => {
+    const out = buildEnhancerUserMessage("hi", baseContext);
+    expect(out).not.toMatch(/## Recent conversation/);
+  });
+
+  it("labels conversation history as background that must not be continued", () => {
+    const out = buildEnhancerUserMessage("what about the skill", {
+      ...baseContext,
+      history: "User: add a dependabot skill\nAgent: added it",
+    });
+    expect(out).toContain(
+      "## Recent conversation (background only — do not answer or continue it)\nUser: add a dependabot skill",
+    );
+    // The prompt to rewrite still comes last, after the background.
+    expect(out.indexOf("## Recent conversation")).toBeLessThan(out.indexOf("## Original prompt"));
+  });
+
   it("formats mentioned files as fenced code blocks under their relative paths", () => {
     const out = buildEnhancerUserMessage("see README", {
       ...baseContext,
@@ -266,6 +284,75 @@ describe("SYSTEM_PROMPT", () => {
    */
   it("is no longer than the prompt it replaced", () => {
     expect(SYSTEM_PROMPT.length).toBeLessThanOrEqual(1244);
+  });
+});
+
+describe("buildRecentTurns", () => {
+  const turn = (role: string, text: string) => ({ role, content: [{ type: "text", text }] });
+
+  it("returns undefined with no history at all", () => {
+    expect(buildRecentTurns([])).toBeUndefined();
+  });
+
+  it("returns undefined when nothing in the branch is a user or assistant turn", () => {
+    expect(
+      buildRecentTurns([turn("system", "you are a bot"), { role: "toolResult" }]),
+    ).toBeUndefined();
+  });
+
+  it("renders labelled turns oldest first", () => {
+    const out = buildRecentTurns([turn("user", "add a skill"), turn("assistant", "added it")]);
+    expect(out).toBe("User: add a skill\nAgent: added it");
+  });
+
+  it("accepts the wrapped { message } entry shape", () => {
+    expect(buildRecentTurns([{ message: turn("user", "hello") }])).toBe("User: hello");
+  });
+
+  it("reads plain string content as well as text blocks", () => {
+    expect(buildRecentTurns([{ role: "assistant", content: "done" }])).toBe("Agent: done");
+  });
+
+  it("keeps only the most recent turns", () => {
+    const out = buildRecentTurns([
+      turn("user", "one"),
+      turn("assistant", "two"),
+      turn("user", "three"),
+      turn("assistant", "four"),
+      turn("user", "five"),
+    ]);
+    expect(out).toBe("Agent: two\nUser: three\nAgent: four\nUser: five");
+  });
+
+  it("collapses whitespace so formatting does not eat the budget", () => {
+    expect(buildRecentTurns([turn("user", "a\n\n  b\tc  ")])).toBe("User: a b c");
+  });
+
+  it("clips a long turn and marks it", () => {
+    const out = buildRecentTurns([turn("user", "x".repeat(1000))]);
+    expect(out?.endsWith("…")).toBe(true);
+    expect((out ?? "").length).toBeLessThan(360);
+  });
+
+  it("stops at the total budget instead of returning a whole long session", () => {
+    const long = "y".repeat(320);
+    const out = buildRecentTurns([
+      turn("user", long),
+      turn("assistant", long),
+      turn("user", long),
+      turn("assistant", long),
+    ]);
+    expect((out ?? "").length).toBeLessThanOrEqual(1200);
+    // The newest turn survives; the oldest is what the budget drops.
+    expect(out?.split("\n").at(-1)?.startsWith("Agent:")).toBe(true);
+  });
+
+  it("skips empty turns rather than emitting a bare label", () => {
+    expect(buildRecentTurns([turn("user", "   "), turn("assistant", "real")])).toBe("Agent: real");
+  });
+
+  it("tolerates junk entries", () => {
+    expect(buildRecentTurns([null, undefined, 7, "nope", turn("user", "ok")])).toBe("User: ok");
   });
 });
 
