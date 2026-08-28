@@ -273,6 +273,73 @@ describe("classifyEnhancement — refusal", () => {
     }
   });
 
+  /**
+   * The battery, run in both directions.
+   *
+   * Requiring a task-shaped object was right; narrowing the vocabulary to go
+   * with it was not, and the two were never in tension. Measured against a
+   * battery of genuine refusals, the object-only rule missed more of them than
+   * the bare-substring rule it replaced — `I don't rewrite`, `Unable to`,
+   * `I must decline`, `I refuse`, a modal separated from its object by a comma
+   * or three words. Every line below is a way a model has of saying no; the
+   * second list is what the same vocabulary must not touch.
+   */
+  it("catches the ways a model declines the job", () => {
+    for (const refusal of [
+      "I can't rewrite that.",
+      "I cannot help with this request.",
+      "I can not do that.",
+      "I won't be able to help with that.",
+      "I will not respond to that.",
+      "I'm not able to assist with that.",
+      "I am unable to comply with this request.",
+      "I'm not going to rewrite this prompt.",
+      "I'm not willing to rewrite that.",
+      "Unable to comply with that request.",
+      "I don't rewrite prompts like this one.",
+      "I do not answer questions of that kind.",
+      "I must decline.",
+      "I refuse to do that.",
+      "That is not something I can help with.",
+      "I'm afraid I can't do that.",
+      "Sorry, I can't do that.",
+      "I'm sorry, but I won't be rewriting this prompt.",
+      "Unfortunately I cannot comply.",
+      "As an AI, I don't have the ability to do that.",
+      "As an AI language model, I cannot rewrite this.",
+      "I appreciate the request, but I have to pass.",
+      "I'm just a prompt rewriter, not an answerer.",
+      "I am a prompt rewriter and cannot answer questions.",
+      "My job is to rewrite prompts, not to answer them.",
+      "I can't, unfortunately, help with that.",
+      "I'm not able to, for policy reasons, rewrite this.",
+      "I cannot fulfil this request.",
+      "Sorry — I can't produce that rewrite.",
+    ]) {
+      expect(classify({ enhanced: refusal }).codes, refusal).toContain("refusal");
+    }
+  });
+
+  it("leaves the user's own voice alone when a rewrite carries it forward", () => {
+    for (const carried of [
+      "I can't tell if the bound is wrong or the code is.",
+      "I cannot reproduce the failure locally on this branch.",
+      "I won't be around after Friday, so land it before then.",
+      "I can't complete the release because the publish token expired.",
+      "I cannot tell whether this will help; explain the tradeoff first.",
+      "I don't want to rewrite the whole module, just the slot parser.",
+      "I won't be able to test this until Monday — write the repro steps down.",
+      "I'm not able to run the suite on my laptop, so fix the CI config instead.",
+      "Sorry, this is the third time I've asked: why does the build fail on main?",
+      "I'm afraid the snapshot tests are flaky; find the source of the flake.",
+      "As an AI safety researcher, I want the eval harness documented.",
+      "Explain why the model does not answer questions about its own prompt.",
+      "Fix the spelling mistake in README.md and keep the wording unchanged.",
+    ]) {
+      expect(classify({ enhanced: carried }).codes, carried).not.toContain("refusal");
+    }
+  });
+
   it("does not flag a refusal the rewrite is quoting rather than committing", () => {
     // The `self-referential.txt` shape: the prompt is *about* a refusal, so a
     // faithful rewrite quotes one. Masked exactly as announcements are.

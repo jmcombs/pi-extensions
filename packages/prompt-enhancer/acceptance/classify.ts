@@ -132,49 +132,109 @@ function looksLikeAnnouncement(trimmed: string): boolean {
 /**
  * Phrases that mean "the model addressed the user instead of rewriting".
  *
- * These are self-descriptions of the rewriter's role. None of them is something
- * a user's own prompt says, so they need no object to disambiguate them.
+ * These are self-descriptions of the rewriter's role, or flat statements of
+ * declining. None of them is something a user's own prompt says, so they need
+ * no object to disambiguate them. Compared case-insensitively — `"My job is
+ * to"` at the start of a sentence used to slip past a case-sensitive
+ * `includes`.
  */
 const REFUSAL_PHRASES = [
-  "I appreciate",
-  "I'm a prompt rewriter",
-  "I am a prompt rewriter",
+  "i appreciate",
+  "i'm a prompt rewriter",
+  "i am a prompt rewriter",
   "not an answerer",
   "my job is to",
+  "i refuse",
+  "must decline",
+  "not something i can",
 ];
+
+/**
+ * Openers that only mean refusal in company.
+ *
+ * `"Sorry,"`, `"I'm afraid"` and `"Unfortunately"` are the standard preface to
+ * a decline, but each is also ordinary first-person text a rewrite may carry
+ * forward — "Sorry, this is the third time I've asked" is a user's voice, not a
+ * model's. So they count only at position 0 *and* only when the same window
+ * carries an inability modal. An apology plus an inability, in the opening of
+ * something that was asked to return a rewritten prompt, is a refusal.
+ *
+ * `"Unable to"` is the exception that counts alone: as an opener it is a status
+ * line, and no rewritten *request* begins with one.
+ */
+const REFUSAL_SOFT_OPENERS = [
+  "sorry",
+  "i'm sorry",
+  "i am sorry",
+  "i'm afraid",
+  "i am afraid",
+  "unfortunately",
+];
+const REFUSAL_HARD_OPENER_RE = /^unable to\b/i;
+
+/**
+ * The `"As an AI, I …"` frame, which only exists to preface a decline.
+ *
+ * The comma is load-bearing: it separates the self-description from a prompt
+ * that legitimately talks about AI ("As an AI safety researcher, I want …"),
+ * where the noun phrase runs on instead.
+ */
+const REFUSAL_AI_SELF_RE = /\bas an ai(?:\s+language\s+model)?\s*,/i;
 
 /**
  * A refusal proper: an inability phrase with a *task* as its object.
  *
- * The bare phrase list used to carry `"I can't"`, `"I cannot"`, `"I won't"` and
- * `"I'm not able to"`, matched unmasked over the whole response. That scored
- * the harness's own `fenced-trace.txt` fixture as a refusal: the user's draft
- * opens `"… and I can't tell if the bound is wrong or the code is"`, and
- * `SYSTEM_PROMPT` tells the model to match the prompt's tone, so a faithful
- * rewrite carries that first person forward verbatim. With `CELL_BAD_THRESHOLD`
- * at 0, one such rewrite failed a whole cell on the classifier's own reading of
- * a fixture it ships.
+ * The object is what keeps a user's own voice out of the count. `"I can't tell
+ * if …"` is the user describing their problem; `"I can't rewrite that"` is the
+ * model declining the job. The harness's own `fenced-trace.txt` draft opens
+ * "… and I can't tell if the bound is wrong or the code is", and `SYSTEM_PROMPT`
+ * asks the model to match the prompt's tone, so a faithful rewrite carries that
+ * first person forward verbatim; scoring the bare modal made the fixture fail
+ * against itself.
  *
- * The object is what separates the two. `"I can't tell if …"` is the user
- * describing their problem; `"I can't rewrite that"` is the model declining the
- * job. Only verbs that name *this* job count, so a rewrite may say `"I can't
- * reproduce it locally"` and stay good.
+ * Requiring an object is not a reason to keep the vocabulary small, which is
+ * where the previous revision went wrong: against a battery of genuine refusals
+ * it missed more than the bare-substring rule it replaced. The modal list is
+ * therefore as wide as the ways a model says no, and the gap between modal and
+ * object allows punctuation and up to three words, so `"I won't be able to
+ * help"` and `"I can't, unfortunately, rewrite this"` both land.
  */
-const REFUSAL_MODAL =
-  "(?:I can't|I cannot|I can not|I won't|I will not|I'm not able to|I am not able to|I'm unable to|I am unable to)";
+const REFUSAL_STRONG_MODAL =
+  "(?:I can't|I cannot|I can not|I won't|I will not|I'm not able to|I am not able to|I'm unable to|I am unable to|I'm not going to|I am not going to|I'm not willing to|I am not willing to)";
 
 /**
- * The object half: the verbs a rewriter uses when it declines *this* job.
+ * The weak modals — `don't` / `doesn't` — take no gap at all.
  *
- * Kept to the refusal vocabulary and no wider. Generic verbs a user's own
- * sentence reaches for — "I can't complete the release", "I can't process this
- * file" — are deliberately absent, because carrying the user's voice forward is
- * what `SYSTEM_PROMPT` asks for and must not be scored as a refusal.
+ * `"I don't rewrite prompts like this"` is a refusal; `"I don't want to rewrite
+ * the whole module"` is a user's own sentence, and three words of slack is all
+ * that separates them. So the object has to sit immediately after the modal.
+ */
+const REFUSAL_WEAK_MODAL =
+  "(?:I don't|I do not|(?:I|it|that|this) doesn't|(?:I|it|that|this) does not)";
+
+/**
+ * The object half: what a rewriter names when it declines *this* job.
+ *
+ * Still bounded to the job. Generic verbs a user's own sentence reaches for —
+ * "I can't complete the release", "I can't process this file" — stay out,
+ * because carrying the user's voice forward is what `SYSTEM_PROMPT` asks for
+ * and must not be scored as a refusal.
  */
 const REFUSAL_OBJECT =
-  "(?:rewrit(?:e|ing)|rephras(?:e|ing)|rewor(?:d|ding)|compl(?:y|ying)|assist(?:ing)?|help(?:ing)?|fulfil{1,2}(?:ing)?|answer(?:ing)?|respond(?:ing)?|do (?:that|this|it|so))";
+  "(?:rewrit(?:e|ing)|rephras(?:e|ing)|rewor(?:d|ding)|compl(?:y|ying)|assist(?:ing)?|help(?:ing)?|fulfil{1,2}(?:ing)?|answer(?:ing)?|respond(?:ing)?|declin(?:e|ing)|refus(?:e|ing)|do (?:that|this|it|so)|with (?:that|this|your request))";
 
-const REFUSAL_RE = new RegExp(`\\b${REFUSAL_MODAL}\\s+(?:\\w+\\s+){0,2}${REFUSAL_OBJECT}\\b`, "i");
+/** Up to three intervening words, punctuation free. */
+const REFUSAL_GAP = "(?:[^\\w\\n]+\\w+){0,3}[^\\w\\n]+";
+
+const REFUSAL_STRONG_RE = new RegExp(
+  `\\b${REFUSAL_STRONG_MODAL}${REFUSAL_GAP}${REFUSAL_OBJECT}\\b`,
+  "i",
+);
+const REFUSAL_WEAK_RE = new RegExp(`\\b${REFUSAL_WEAK_MODAL}[^\\w\\n]+${REFUSAL_OBJECT}\\b`, "i");
+const REFUSAL_ANY_MODAL_RE = new RegExp(
+  `\\b(?:${REFUSAL_STRONG_MODAL}|${REFUSAL_WEAK_MODAL})\\b`,
+  "i",
+);
 
 /**
  * Refusals are bounded and masked exactly as announcements are.
@@ -182,13 +242,28 @@ const REFUSAL_RE = new RegExp(`\\b${REFUSAL_MODAL}\\s+(?:\\w+\\s+){0,2}${REFUSAL
  * Same two reasons: a refusal is an opening move, not something that surfaces in
  * paragraph four of a rewrite; and a rewrite that *quotes* a refusal (the
  * `self-referential.txt` probe asks about a model that produces one) is citing
- * the failure mode, not committing it.
+ * the failure mode, not committing it. Both rules apply to the bare phrase list
+ * as well, which the previous revision changed without saying so.
+ *
+ * The two costs are accepted rather than hidden: a refusal a model chooses to
+ * put inside quotes, and one that starts past character 400, are not counted.
+ * Neither has been observed; a quoted refusal that *is* the whole response would
+ * still be scored `echo` or `empty`.
  */
 const REFUSAL_WINDOW = 400;
 
 function looksLikeRefusal(trimmed: string): boolean {
   const head = maskQuotedSpans(trimmed).slice(0, REFUSAL_WINDOW);
-  return REFUSAL_PHRASES.some((phrase) => head.includes(phrase)) || REFUSAL_RE.test(head);
+  const lowered = head.toLowerCase();
+  if (REFUSAL_PHRASES.some((phrase) => lowered.includes(phrase))) return true;
+  if (REFUSAL_HARD_OPENER_RE.test(head) || REFUSAL_AI_SELF_RE.test(head)) return true;
+  if (
+    REFUSAL_SOFT_OPENERS.some((opener) => lowered.startsWith(opener)) &&
+    REFUSAL_ANY_MODAL_RE.test(head)
+  ) {
+    return true;
+  }
+  return REFUSAL_STRONG_RE.test(head) || REFUSAL_WEAK_RE.test(head);
 }
 
 /** Phrases that mean "the model described the request rather than restating it". */
