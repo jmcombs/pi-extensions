@@ -119,15 +119,45 @@ const BINARY_SUSPICIOUS_RATIO = 0.02;
  * then has to be corrected. These three names cover the conventions this
  * ecosystem actually writes down; they are probed at the working-directory root
  * only, never walked.
- *
- * Bounded harder than mentioned files. Mentioned files were asked for by the
- * prompt; these are sent on every enhance whether they help or not, so they get
- * a shorter per-file line cap and one character budget shared across all of
- * them — the budget is what is left, not what each file would like.
  */
 const CONVENTION_FILES = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"] as const;
-const CONVENTIONS_MAX_LINES = 80;
-const CONVENTIONS_MAX_CHARS = 4000;
+
+/**
+ * How much of one instruction file may be sent.
+ *
+ * These files are the *rules the rewrite has to hold to*, and a rule that
+ * arrives cut in half is worse than no rule at all: this repo's own `AGENTS.md`
+ * is ~6 KB of branch-protection and CODEOWNERS behaviour, and the previous
+ * 4,000-character shared budget clipped it mid-sentence inside an inline-code
+ * span. 16 KB carries a normal `AGENTS.md` or `CLAUDE.md` whole with room to
+ * spare, which is the property that matters — the cap exists to stop a
+ * pathological 3,000-line file, not to ration a normal one.
+ */
+export const CONVENTIONS_FILE_MAX_CHARS = 16_384;
+
+/**
+ * Ceiling on the whole conventions section.
+ *
+ * Deliberately larger than two full per-file caps, so the common repo (one or
+ * two instruction files) never sees it at all. When it does bind, the budget is
+ * shared by equal-share water-filling rather than first-come-first-served:
+ * every file that is present is represented, a file that wants less than its
+ * share frees the remainder for the others, and nobody can take the whole
+ * budget and leave the rest with nothing. That is the fix for the old
+ * winner-take-all spend, under which this repo sent `AGENTS.md` truncated and
+ * dropped `CONTRIBUTING.md` entirely without saying so.
+ */
+export const CONVENTIONS_TOTAL_MAX_CHARS = 32_768;
+
+/**
+ * Smallest allowance worth spending on a file.
+ *
+ * The old loop tested its budget *before* slicing, so a file could be admitted
+ * as ten characters of content plus a fourteen-character "truncated" marker — a
+ * sliver that costs tokens and teaches the model nothing. Below this, the file
+ * is omitted cleanly instead.
+ */
+export const CONVENTIONS_MIN_USEFUL_CHARS = 400;
 
 /**
  * Bounds on the conversation background sent with the rewrite.
@@ -537,13 +567,13 @@ function looksBinary(raw: string): boolean {
  * Every guard is a refusal, never a repair: a path that escapes the working
  * directory, a directory, a symlink to somewhere else, an oversized file and a
  * binary one all return `undefined` rather than a degraded value. Written as
- * one function so there is exactly one containment check to audit.
+ * one function so there is exactly one containment check to audit. Clipping is
+ * the caller's job — the callers bound the same bytes by different rules.
  */
-async function readBoundedFile(
+async function readGuardedFile(
   candidate: string,
   cwd: string,
-  maxLines: number,
-): Promise<{ path: string; content: string } | undefined> {
+): Promise<{ path: string; raw: string } | undefined> {
   // Resolve, then ensure the resolved path stays within cwd to avoid the
   // extension reading arbitrary files via "../../etc/passwd"-style paths.
   const resolved = path.resolve(cwd, candidate);
@@ -582,20 +612,52 @@ async function readBoundedFile(
   }
   if (looksBinary(raw)) return undefined;
 
-  const lines = raw.split("\n");
-  const truncated = lines.length > maxLines;
-  const body = lines.slice(0, maxLines).join("\n");
-  const content = truncated
-    ? `${body}\n… (truncated at ${String(maxLines)} lines, file has ${String(lines.length)} total)`
-    : body;
-  return { path: rel, content };
+  return { path: rel, raw };
 }
 
-async function readMentionedFile(
-  candidate: string,
-  cwd: string,
-): Promise<{ path: string; content: string } | undefined> {
-  return readBoundedFile(candidate, cwd, FILE_MAX_LINES);
+/**
+ * Clip to `maxLines`, with the existing marker.
+ *
+ * Line-bounded from the start, so nothing here changes: a mentioned file is
+ * bounded by how much of it is worth reading, not by a character budget.
+ */
+function clipToLineCount(raw: string, maxLines: number): string {
+  const lines = raw.split("\n");
+  if (lines.length <= maxLines) return raw;
+  const body = lines.slice(0, maxLines).join("\n");
+  return `${body}\n… (truncated at ${String(maxLines)} lines, file has ${String(lines.length)} total)`;
+}
+
+/**
+ * Clip to `maxChars`, always on a line boundary, or give up.
+ *
+ * A character budget applied with `slice` cuts wherever it lands: this repo's
+ * `AGENTS.md` came back ending inside an inline-code span, which reads to the
+ * model as a malformed rule rather than a truncated one. Whole lines only, and
+ * the marker says exactly how much was left behind rather than the bare
+ * "(truncated)" it used to.
+ *
+ * Returns `undefined` when not even the first line fits. That is the honest
+ * answer for a file whose first line alone exceeds the budget: there is no
+ * line-boundary prefix to send, and half a token is worse than nothing.
+ */
+function clipToCharBudget(raw: string, maxChars: number): string | undefined {
+  if (raw.length <= maxChars) return raw;
+
+  const lines = raw.split("\n");
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    // Every line after the first costs its own length plus the "\n" that
+    // rejoins it, so `used` is exactly the length of `kept.join("\n")`.
+    const cost = kept.length === 0 ? line.length : line.length + 1;
+    if (used + cost > maxChars) break;
+    kept.push(line);
+    used += cost;
+  }
+  if (kept.length === 0) return undefined;
+
+  return `${kept.join("\n")}\n… (truncated: sent ${String(kept.length)} of ${String(lines.length)} lines, ${String(used)} of ${String(raw.length)} characters)`;
 }
 
 async function buildMentionedFiles(
@@ -603,22 +665,72 @@ async function buildMentionedFiles(
   cwd: string,
 ): Promise<{ path: string; content: string }[]> {
   const candidates = extractFileMentions(prompt).slice(0, FILE_MAX_REFERENCES * 4);
-  const results: { path: string; content: string }[] = [];
+  const files: { path: string; content: string }[] = [];
   for (const candidate of candidates) {
-    if (results.length >= FILE_MAX_REFERENCES) break;
-    const file = await readMentionedFile(candidate, cwd);
-    if (file) results.push(file);
+    if (files.length >= FILE_MAX_REFERENCES) break;
+    const read = await readGuardedFile(candidate, cwd);
+    if (read) files.push({ path: read.path, content: clipToLineCount(read.raw, FILE_MAX_LINES) });
   }
-  return results;
+  return files;
+}
+
+/**
+ * Split a total character budget across the instruction files that are present.
+ *
+ * Equal-share water-filling: everyone is offered `total / n`; whoever wants less
+ * than their share takes what they want and frees the difference, and the round
+ * repeats until nothing changes. That is what makes "all present files are
+ * represented" true by construction — the old first-come spend gave file #1
+ * everything it could hold and left the rest with nothing, silently.
+ *
+ * `sizes` are raw file lengths; the returned allowance for each is at most
+ * `perFile`. An allowance of `0` means "omit this file", which happens only when
+ * the share is too small to carry a meaningful part of it — a sliver of content
+ * plus a truncation marker is not a cheaper version of the file, it is noise.
+ *
+ * Exported for the budget tests; nothing outside this module needs it.
+ */
+export function allocateConventionsBudget(
+  sizes: readonly number[],
+  total: number = CONVENTIONS_TOTAL_MAX_CHARS,
+  perFile: number = CONVENTIONS_FILE_MAX_CHARS,
+  minUseful: number = CONVENTIONS_MIN_USEFUL_CHARS,
+): number[] {
+  const want = sizes.map((size) => Math.min(Math.max(size, 0), perFile));
+  const allowance = want.slice();
+
+  let remaining = Math.max(total, 0);
+  const pending = new Set(want.map((_, index) => index));
+  while (pending.size > 0) {
+    const share = Math.floor(remaining / pending.size);
+    const satisfied = [...pending].filter((index) => (want[index] ?? 0) <= share);
+    if (satisfied.length === 0) {
+      for (const index of pending) allowance[index] = share;
+      break;
+    }
+    for (const index of satisfied) {
+      const taken = want[index] ?? 0;
+      allowance[index] = taken;
+      remaining -= taken;
+      pending.delete(index);
+    }
+  }
+
+  return allowance.map((granted, index) => {
+    const wanted = want[index] ?? 0;
+    if (granted >= wanted) return wanted;
+    return granted >= minUseful ? granted : 0;
+  });
 }
 
 /**
  * The project's instruction files: what the repo already says about how work in
  * it should be done.
  *
- * Probed at the working-directory root only. The whole set shares one character
- * budget, spent in `CONVENTION_FILES` order, so a repo with a 3,000-line
- * `CLAUDE.md` cannot crowd the rest of the message out.
+ * Probed at the working-directory root only. Each file gets up to
+ * `CONVENTIONS_FILE_MAX_CHARS`, the set gets up to `CONVENTIONS_TOTAL_MAX_CHARS`
+ * shared by water-filling, and anything clipped is clipped on a line boundary
+ * with a marker that says how much was left behind.
  *
  * Returns `[]` when the repo has none, which keeps the section out of the user
  * message entirely rather than sending an empty heading.
@@ -626,23 +738,19 @@ async function buildMentionedFiles(
 export async function buildProjectConventions(
   cwd: string,
 ): Promise<{ path: string; content: string }[]> {
-  const files = await Promise.all(
-    CONVENTION_FILES.map((name) => readBoundedFile(name, cwd, CONVENTIONS_MAX_LINES)),
-  );
+  const reads = await Promise.all(CONVENTION_FILES.map((name) => readGuardedFile(name, cwd)));
+  const present = reads.filter((read) => read !== undefined);
 
-  const out: { path: string; content: string }[] = [];
-  let budget = CONVENTIONS_MAX_CHARS;
-  for (const file of files) {
-    if (!file) continue;
-    if (budget <= 0) break;
-    const content =
-      file.content.length > budget
-        ? `${file.content.slice(0, budget)}\n… (truncated)`
-        : file.content;
-    budget -= Math.min(file.content.length, budget);
-    out.push({ path: file.path, content });
+  const allowances = allocateConventionsBudget(present.map((file) => file.raw.length));
+  const files: { path: string; content: string }[] = [];
+  for (const [index, file] of present.entries()) {
+    const allowance = allowances[index] ?? 0;
+    if (allowance <= 0) continue;
+    const content = clipToCharBudget(file.raw, allowance);
+    if (content === undefined) continue;
+    files.push({ path: file.path, content });
   }
-  return out;
+  return files;
 }
 
 // ── Context assembly ────────────────────────────────────────────────────

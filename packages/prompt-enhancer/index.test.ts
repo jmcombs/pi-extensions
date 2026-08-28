@@ -24,9 +24,12 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import factory, {
+  allocateConventionsBudget,
   buildEnhancerUserMessage,
   buildProjectConventions,
   buildRecentTurns,
+  CONVENTIONS_FILE_MAX_CHARS,
+  CONVENTIONS_TOTAL_MAX_CHARS,
   completeWithRetry,
   computePickerMaxVisible,
   createEnhancerModelSelector,
@@ -1193,15 +1196,59 @@ describe("buildProjectConventions", () => {
     expect(await buildProjectConventions(cwd)).toEqual([]);
   });
 
-  it("caps each file at 80 lines and says that it truncated", async () => {
-    const cwd = await dir("long-file");
-    const body = Array.from({ length: 500 }, (_, i) => `line ${String(i)}`).join("\n");
+  /**
+   * The motivating measurement: this repo's own `AGENTS.md` is 6,033 bytes of
+   * ordinary instruction content, and the old 4,000-character shared budget cut
+   * it mid-sentence inside an inline-code span. A rule that arrives in halves is
+   * worse than no rule, so a file this size must arrive whole.
+   */
+  it("sends a 6 KB instruction file whole, with no truncation marker", async () => {
+    const cwd = await dir("six-kb");
+    const paragraph = "Branch protection requires a PR; CODEOWNERS review is mandatory.";
+    const body = Array.from({ length: 80 }, (_, i) => `- rule ${String(i)}: ${paragraph}`).join(
+      "\n",
+    );
+    // Sized on this repo's own AGENTS.md (6,033 bytes), which is what the old
+    // 4,000-character budget cut in half.
+    expect(body.length).toBeGreaterThan(6000);
+    expect(body.length).toBeLessThan(7000);
     await fs.writeFile(path.join(cwd, "AGENTS.md"), body);
 
+    const out = await buildProjectConventions(cwd);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.content).toBe(body);
+    expect(out[0]?.content).not.toContain("truncated");
+  });
+
+  it("truncates on a line boundary and says how much it left behind", async () => {
+    const cwd = await dir("over-the-file-cap");
+    // 400 lines of 200 characters: past the 16 KB per-file cap, so it is
+    // clipped — but only ever between lines.
+    const lines = Array.from({ length: 400 }, (_, i) => `${String(i)} ${"x".repeat(196)}`);
+    await fs.writeFile(path.join(cwd, "AGENTS.md"), lines.join("\n"));
+
     const content = (await buildProjectConventions(cwd))[0]?.content ?? "";
-    expect(content).toContain("line 79");
-    expect(content).not.toContain("line 80\n");
-    expect(content).toContain("truncated at 80 lines, file has 500 total");
+    expect(content.split("\n").at(-1)).toMatch(
+      /^… \(truncated: sent \d+ of 400 lines, \d+ of \d+ characters\)$/,
+    );
+
+    // Every line that survived is a whole line from the file: nothing was cut
+    // mid-token.
+    const body = content.split("\n").slice(0, -1);
+    expect(body.length).toBeGreaterThan(0);
+    for (const [index, line] of body.entries()) expect(line).toBe(lines[index]);
+    expect(body.join("\n").length).toBeLessThanOrEqual(CONVENTIONS_FILE_MAX_CHARS);
+  });
+
+  it("omits a file whose first line alone will not fit rather than cutting mid-token", async () => {
+    const cwd = await dir("one-huge-line");
+    // A single line larger than the per-file cap: there is no line-boundary
+    // prefix to send, so nothing is sent. Half a token is worse than nothing.
+    await fs.writeFile(path.join(cwd, "AGENTS.md"), "x".repeat(CONVENTIONS_FILE_MAX_CHARS + 1));
+    await fs.writeFile(path.join(cwd, "CLAUDE.md"), "short and important");
+
+    const out = await buildProjectConventions(cwd);
+    expect(out.map((f) => f.path)).toEqual(["CLAUDE.md"]);
   });
 
   it("refuses a file past the size cap outright", async () => {
@@ -1235,21 +1282,90 @@ describe("buildProjectConventions", () => {
     expect(JSON.stringify(out)).not.toContain("secret");
   });
 
-  it("spends one shared character budget so a huge file cannot crowd out the rest", async () => {
-    const cwd = await dir("budget");
-    // 80 lines of 200 characters each: inside the line cap, past the budget.
-    const fat = Array.from({ length: 80 }, () => "a".repeat(200)).join("\n");
-    await fs.writeFile(path.join(cwd, "AGENTS.md"), fat);
-    await fs.writeFile(path.join(cwd, "CLAUDE.md"), "short and important");
+  /**
+   * The old spend was winner-take-all: the budget was walked in
+   * `CONVENTION_FILES` order and whatever was left went to the next file, so on
+   * this repo `AGENTS.md` came back truncated and `CONTRIBUTING.md` was dropped
+   * with no marker at all. Every file that is present must now be represented.
+   */
+  it("represents every instruction file that is present, not just the first", async () => {
+    const cwd = await dir("all-three-large");
+    const fat = (label: string, lines: number) =>
+      Array.from({ length: lines }, (_, i) => `${label} ${String(i)} ${"y".repeat(180)}`).join(
+        "\n",
+      );
+    await fs.writeFile(path.join(cwd, "AGENTS.md"), fat("agents", 400));
+    await fs.writeFile(path.join(cwd, "CLAUDE.md"), fat("claude", 400));
+    await fs.writeFile(path.join(cwd, "CONTRIBUTING.md"), fat("contributing", 400));
 
     const out = await buildProjectConventions(cwd);
+    expect(out.map((f) => f.path)).toEqual(["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"]);
+    expect(out[0]?.content).toContain("agents 0");
+    expect(out[1]?.content).toContain("claude 0");
+    expect(out[2]?.content).toContain("contributing 0");
+
     const total = out.reduce((n, f) => n + f.content.length, 0);
-    // 4,000 for the content plus the one "\n… (truncated)" marker.
-    expect(total).toBeLessThanOrEqual(4000 + "\n… (truncated)".length);
-    expect(out[0]?.content.endsWith("\n… (truncated)")).toBe(true);
-    // The budget is exhausted by the first file, so the second is dropped
-    // whole rather than being sent as an empty block.
-    expect(out.map((f) => f.path)).toEqual(["AGENTS.md"]);
+    // Content stays inside the total; the three markers ride on top of it.
+    expect(total).toBeLessThanOrEqual(CONVENTIONS_TOTAL_MAX_CHARS + 3 * 120);
+  });
+
+  it("gives a small file all of itself and spends the remainder on the large one", async () => {
+    const cwd = await dir("uneven");
+    await fs.writeFile(path.join(cwd, "AGENTS.md"), "tiny but load-bearing");
+    const big = Array.from({ length: 400 }, (_, i) => `${String(i)} ${"z".repeat(180)}`).join("\n");
+    await fs.writeFile(path.join(cwd, "CLAUDE.md"), big);
+
+    const out = await buildProjectConventions(cwd);
+    expect(out.map((f) => f.path)).toEqual(["AGENTS.md", "CLAUDE.md"]);
+    // The small file is whole — an equal split would have wasted most of its
+    // half, so water-filling hands the surplus to the file that wants it.
+    expect(out[0]?.content).toBe("tiny but load-bearing");
+    expect(out[1]?.content.length).toBeGreaterThan(CONVENTIONS_FILE_MAX_CHARS - 200);
+  });
+});
+
+/**
+ * The budget split on its own, where the degenerate cases are reachable.
+ *
+ * The production constants are generous enough that a sliver cannot occur with
+ * three files, which is exactly why the sliver rule is pinned here with small
+ * numbers instead: the old loop tested `budget <= 0` *before* slicing, so a
+ * file could be admitted as ~10 characters plus a 14-character marker.
+ */
+describe("allocateConventionsBudget", () => {
+  it("gives everyone what they want when the total covers it", () => {
+    expect(allocateConventionsBudget([100, 200, 300], 10_000, 5_000, 50)).toEqual([100, 200, 300]);
+  });
+
+  it("caps any single file at the per-file limit", () => {
+    expect(allocateConventionsBudget([9_000, 100], 100_000, 5_000, 50)).toEqual([5_000, 100]);
+  });
+
+  it("splits a tight total evenly rather than first-come-first-served", () => {
+    expect(allocateConventionsBudget([5_000, 5_000, 5_000], 900, 5_000, 100)).toEqual([
+      300, 300, 300,
+    ]);
+  });
+
+  it("redistributes what a small file does not need", () => {
+    // 1,000 across two: an even split would give the 50-char file 500 and waste
+    // 450 of it. It takes 50; the other takes the remaining 950.
+    expect(allocateConventionsBudget([50, 5_000], 1_000, 5_000, 10)).toEqual([50, 950]);
+  });
+
+  it("omits a file rather than admitting it as a sliver", () => {
+    // 30 characters each is not a shorter version of the file, it is noise.
+    expect(allocateConventionsBudget([5_000, 5_000], 60, 5_000, 400)).toEqual([0, 0]);
+  });
+
+  it("keeps a file that is genuinely smaller than the sliver floor", () => {
+    // The floor gates *partial* files. A 12-character file that fits whole is
+    // whole, not a sliver.
+    expect(allocateConventionsBudget([12, 5_000], 10_000, 5_000, 400)).toEqual([12, 5_000]);
+  });
+
+  it("handles no files at all", () => {
+    expect(allocateConventionsBudget([])).toEqual([]);
   });
 });
 
