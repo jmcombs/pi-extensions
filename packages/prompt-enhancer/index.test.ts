@@ -22,6 +22,7 @@ import {
   initTheme,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
+import { Editor } from "@earendil-works/pi-tui";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import factory, {
   allocateConventionsBudget,
@@ -35,6 +36,7 @@ import factory, {
   createEnhancerModelSelector,
   ENHANCER_RETRY_POLICY,
   type EnhancerContext,
+  editorHoldsOurText,
   filterPickerItems,
   formatEnhancementFailure,
   formatRetryStatus,
@@ -46,6 +48,7 @@ import factory, {
   normalizeFailureReason,
   revertStatusText,
   SYSTEM_PROMPT,
+  toEditorText,
 } from "./index.js";
 
 interface RegistrationLog {
@@ -900,13 +903,26 @@ function createHost(options: {
   typeIntoEditor: (text: string) => void;
 } {
   const log: HostLog = { notifications: [], widgets: [], editorTexts: [] };
-  let editorText = options.draft;
 
   const tuiStub = { requestRender: () => {}, terminal: { rows: 24, columns: 80 } };
   const themeStub = {
     fg: (_name: string, text: string) => text,
     bold: (text: string) => text,
   };
+
+  /**
+   * The real pi-tui editor, not a string.
+   *
+   * The host's job is to behave like pi, and pi's editor rewrites text on the
+   * way in — CRLF/CR to LF, TAB to four spaces. A `let editorText = text` stub
+   * silently round-trips everything unchanged, which is precisely the
+   * assumption that let the tab mismatch through. Driving the real component
+   * means these tests see what a user's terminal sees.
+   */
+  const editor = new Editor(tuiStub as never, { borderColor: (s: string) => s } as never);
+  editor.setText(options.draft);
+  // pi's own ExtensionUIContext.getEditorText, verbatim.
+  const readEditor = () => editor.getExpandedText?.() ?? editor.getText();
 
   const ctx = {
     hasUI: true,
@@ -918,9 +934,11 @@ function createHost(options: {
     },
     sessionManager: { getBranch: () => [] },
     ui: {
-      getEditorText: () => editorText,
+      getEditorText: readEditor,
       setEditorText: (text: string) => {
-        editorText = text;
+        editor.setText(text);
+        // What the extension asked for, before pi normalises it — the log is
+        // about the extension's intent, the editor about the user's reality.
         log.editorTexts.push(text);
       },
       setStatus: () => {},
@@ -957,10 +975,10 @@ function createHost(options: {
     ctx,
     log,
     clearEditorLikeEnter: () => {
-      editorText = "";
+      editor.setText("");
     },
     typeIntoEditor: (text: string) => {
-      editorText = text;
+      editor.setText(text);
     },
   };
 }
@@ -1622,6 +1640,85 @@ describe("buildEnhancerUserMessage conventions section", () => {
   });
 });
 
+// ── The editor's representation ─────────────────────────────────────────
+//
+// `editorHoldsOurText` decides two things: whether an enhance is a re-roll of
+// the stored original, and whether revert may claim nothing was typed over. Both
+// answers are wrong if our idea of what the editor does to text differs from
+// what it actually does, so the shapes below are checked against a real pi-tui
+// `Editor` rather than against a description of one.
+
+/** What `ui.setEditorText(x)` then `ui.getEditorText()` really returns. */
+function editorRoundTrip(text: string): string {
+  const editor = new Editor(
+    { requestRender: () => {}, terminal: { rows: 24, columns: 80 } } as never,
+    { borderColor: (s: string) => s } as never,
+  );
+  editor.setText(text);
+  return editor.getExpandedText?.() ?? editor.getText();
+}
+
+/**
+ * The shapes a rewrite arrives in. The last two are the reported defect: a tab
+ * survives our `setEditorText` call as four spaces, so the string we stored was
+ * never the string the editor held, and every read-back looked hand-edited.
+ */
+const REWRITE_SHAPES: ReadonlyArray<{ name: string; text: string }> = [
+  { name: "plain", text: "Fix the typo in README.md." },
+  { name: "multi-line", text: "Fix the typo in README.md.\nThen run the tests." },
+  { name: "trailing spaces", text: "Fix the typo in README.md.   \nRun the tests.  " },
+  { name: "blank lines", text: "Fix the typo.\n\n\nThen run the tests." },
+  { name: "unicode punctuation", text: "Rename the flag — it’s “wrong” in the docs." },
+  { name: "long soft-wrapped line", text: `Rewrite ${"the settings screen ".repeat(9)}carefully.` },
+  {
+    name: "space-indented fenced block",
+    text: "Update the snippet:\n\n```ts\n    const a = 1;\n```\n",
+  },
+  { name: "tab", text: "Fix the typo in\tREADME.md." },
+  {
+    name: "tab-indented fenced block",
+    text: "Update the snippet:\n\n```ts\n\tconst a = 1;\n```\n",
+  },
+];
+
+describe("the editor's representation of our text", () => {
+  /**
+   * The pin. If pi ever expands a tab to something other than four spaces, or
+   * stops expanding it, this fails by name instead of `toEditorText` quietly
+   * disagreeing with the editor again.
+   */
+  it("expands a tab to exactly four spaces and collapses CRLF and CR to LF", () => {
+    expect(editorRoundTrip("a\tb")).toBe("a    b");
+    expect(editorRoundTrip("a\r\nb")).toBe("a\nb");
+    expect(editorRoundTrip("a\rb")).toBe("a\nb");
+  });
+
+  it.each(REWRITE_SHAPES)("normalises $name the same way the editor does", ({ text }) => {
+    expect(toEditorText(text)).toBe(editorRoundTrip(text));
+  });
+
+  it.each(REWRITE_SHAPES)("recognises $name coming back untouched", ({ text }) => {
+    expect(editorHoldsOurText(editorRoundTrip(text), text)).toBe(true);
+  });
+
+  it.each([
+    { name: "CRLF", text: "Fix the typo.\r\nRun the tests." },
+    { name: "CR", text: "Fix the typo.\rRun the tests." },
+  ])("recognises $name coming back untouched", ({ text }) => {
+    expect(editorHoldsOurText(editorRoundTrip(text), text)).toBe(true);
+  });
+
+  it("is provenance, not resemblance: one edited word is not our text", () => {
+    const ours = "Fix the typo in\tREADME.md and leave the wording unchanged.";
+    const edited = editorRoundTrip(ours).replace("unchanged", "alone");
+    expect(editorHoldsOurText(edited, ours)).toBe(false);
+  });
+
+  it("has nothing to hold when we have written nothing", () => {
+    expect(editorHoldsOurText("anything at all", undefined)).toBe(false);
+  });
+});
+
 // ── Revert, end to end through the real runEnhancer ────────────────────
 //
 // Success needs a model that answers, and the project does not mock the LLM.
@@ -1732,6 +1829,32 @@ describe("revert", () => {
     // The claim and the editor are checked together: the status is only honest
     // if the editor holds what it says it restored.
     expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  /**
+   * The same claim, for a rewrite the editor does not store verbatim.
+   *
+   * Nobody touched the editor between the two enhances, so the strong sentence
+   * is the true one. Before the comparison was made in the editor's own
+   * representation, the tab in this rewrite came back as four spaces, the
+   * enhancer concluded someone had typed over it, and the user was warned that
+   * edits they never made had been lost.
+   */
+  it("does not accuse the user of editing a rewrite that merely contains a tab", async () => {
+    const host = await armed();
+    faux.setResponses([
+      fauxAssistantMessage("Fix the typo in README.md:\n\n```ts\n\tconst a = 1;\n```"),
+      fauxAssistantMessage("SECOND REWRITE"),
+    ]);
+
+    await enhance(host);
+    await enhance(host);
+    await revert(host);
+
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    expect(lastWidgetLine(host.log)).not.toContain("later edits lost");
     expect(host.ctx.ui.getEditorText()).toBe(TYPED);
     await shutdown(host);
   });

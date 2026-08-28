@@ -331,6 +331,48 @@ let lastOriginalPrompt: string | undefined;
 let lastEnhancedText: string | undefined;
 
 /**
+ * The editor's own representation of a string we hand it.
+ *
+ * `ui.setEditorText` is pi-tui `Editor.setText`, which normalises before it
+ * stores (`Editor.normalizeText`): CRLF and CR collapse to LF, and every TAB
+ * becomes four spaces. So what comes back out of `getEditorText` is not what we
+ * put in — a rewrite containing a single tab reads back four spaces wider and
+ * never compares equal to the string we sent.
+ *
+ * Applying the same transform to our stored copy puts both sides in the
+ * editor's representation, which is the only representation the comparison can
+ * honestly be made in. Same three replacements, same order, mirroring pi.
+ * `editorRoundTrip` in the tests pins this against the real `Editor`, so a
+ * change in pi's expansion fails loudly rather than quietly reintroducing the
+ * mismatch.
+ */
+export function toEditorText(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\t/g, "    ");
+}
+
+/**
+ * Is the editor still holding the exact text this extension last wrote?
+ *
+ * Provenance, not resemblance. It answers one question — "did our own output
+ * come back untouched?" — by byte-comparing, in the editor's representation,
+ * what the editor now holds against what we sent it. There is deliberately no
+ * threshold, no token overlap, no notion of "close enough": a similarity rule
+ * lived here once and moved the stored original whenever a user trimmed a
+ * verbose rewrite, which is exactly when they most needed it left alone.
+ *
+ * Both sides are trimmed because every read of the editor in this extension is
+ * trimmed; normalise first, then trim, so a leading or trailing tab is expanded
+ * before the trim decides whether it is whitespace.
+ *
+ * What rides on the answer: whether the revert status line may claim nothing was
+ * typed over the chain.
+ */
+export function editorHoldsOurText(editorText: string, ourText: string | undefined): boolean {
+  if (ourText === undefined) return false;
+  return editorText.trim() === toEditorText(ourText).trim();
+}
+
+/**
  * Has anything in this chain been typed rather than written by us?
  *
  * Set when an enhance reads editor text that is not byte-equal to our last
@@ -1492,10 +1534,12 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     if (lastOriginalPrompt === undefined || providedText !== undefined) {
       lastOriginalPrompt = originalPrompt;
       chainLeftOurText = false;
-    } else if (originalPrompt !== lastEnhancedText?.trim()) {
+    } else if (!editorHoldsOurText(originalPrompt, lastEnhancedText)) {
       // Byte-inequality is the only signal available here, and it is one-way:
       // it proves someone else wrote the editor, without saying whether they
       // edited our rewrite or replaced it. The status line hedges from here on.
+      // Compared in the editor's representation, or a rewrite carrying a tab
+      // would look edited on every read-back and hedge a chain nobody touched.
       chainLeftOurText = true;
     }
     lastEnhancedText = result.enhanced;
