@@ -1304,9 +1304,34 @@ describe("buildProjectConventions", () => {
     expect(out[0]?.content).not.toContain("truncated");
   });
 
+  /**
+   * The same measurement one size up, and the reason the ceiling moved. This
+   * repo's own `CONTRIBUTING.md` is 20,528 bytes / 20,394 characters, and the
+   * 16 KB per-file ceiling that preceded this one sent 16,358 of them — the
+   * feature failing at its job to save tokens nobody asked to save. The ceiling
+   * is a safety valve against a generated multi-megabyte dump, so a real
+   * instruction file of this size has to arrive whole.
+   */
+  it("sends a 20 KB instruction file whole, with no truncation marker", async () => {
+    const cwd = await dir("twenty-kb");
+    const paragraph =
+      "Every PR is squash-merged, commitlint runs over the whole range, and release-please owns the bump.";
+    const body = Array.from({ length: 210 }, (_, i) => `- rule ${String(i)}: ${paragraph}`).join(
+      "\n",
+    );
+    // Sized past this repo's own CONTRIBUTING.md, which the previous ceiling cut.
+    expect(body.length).toBeGreaterThan(20_394);
+    await fs.writeFile(path.join(cwd, "CONTRIBUTING.md"), body);
+
+    const out = await buildProjectConventions(cwd);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.content).toBe(body);
+    expect(out[0]?.content).not.toContain("truncated");
+  });
+
   it("truncates on a line boundary and says how much it left behind", async () => {
     const cwd = await dir("over-the-file-cap");
-    // 400 lines of 200 characters: past the 16 KB per-file cap, so it is
+    // 400 lines of 200 characters: past the 64 KB per-file ceiling, so it is
     // clipped — but only ever between lines.
     const lines = Array.from({ length: 400 }, (_, i) => `${String(i)} ${"x".repeat(196)}`);
     await fs.writeFile(path.join(cwd, "AGENTS.md"), lines.join("\n"));
@@ -1326,7 +1351,7 @@ describe("buildProjectConventions", () => {
 
   it("omits a file whose first line alone will not fit rather than cutting mid-token", async () => {
     const cwd = await dir("one-huge-line");
-    // A single line larger than the per-file cap: there is no line-boundary
+    // A single line larger than the per-file ceiling: there is no line-boundary
     // prefix to send, so nothing is sent. Half a token is worse than nothing.
     await fs.writeFile(path.join(cwd, "AGENTS.md"), "x".repeat(CONVENTIONS_FILE_MAX_CHARS + 1));
     await fs.writeFile(path.join(cwd, "CLAUDE.md"), "short and important");

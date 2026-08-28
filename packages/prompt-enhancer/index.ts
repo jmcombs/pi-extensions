@@ -129,29 +129,35 @@ const CONVENTION_FILES = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"] as const;
 /**
  * How much of one instruction file may be sent.
  *
- * These files are the *rules the rewrite has to hold to*, and a rule that
- * arrives cut in half is worse than no rule at all: this repo's own `AGENTS.md`
- * is ~6 KB of branch-protection and CODEOWNERS behaviour, and the previous
- * 4,000-character shared budget clipped it mid-sentence inside an inline-code
- * span. 16 KB carries a normal `AGENTS.md` or `CLAUDE.md` whole with room to
- * spare, which is the property that matters — the cap exists to stop a
- * pathological 3,000-line file, not to ration a normal one.
+ * This is a safety valve against pathological input, **not** a token budget.
+ * These files are the *rules the rewrite has to hold to*, and nobody enhances a
+ * prompt to save tokens — they do it so the work is done against a properly
+ * written prompt. A ceiling that clips a project's real instruction file makes
+ * the feature fail at its job to save money nobody asked to save, so the
+ * ceiling is set where no real file can reach it: 64 KB is three times this
+ * repo's largest instruction file (`CONTRIBUTING.md`, 20,528 characters) and an
+ * order of magnitude past a normal `AGENTS.md` or `CLAUDE.md`. What it still
+ * stops is a generated multi-megabyte markdown dump landing under one of these
+ * names. The 1 MB read guard in `readGuardedFile` is a separate, lower-level
+ * protection and is unaffected by this number.
  */
-export const CONVENTIONS_FILE_MAX_CHARS = 16_384;
+export const CONVENTIONS_FILE_MAX_CHARS = 65_536;
 
 /**
  * Ceiling on the whole conventions section.
  *
- * Deliberately larger than two full per-file caps, so the common repo (one or
- * two instruction files) never sees it at all. When it does bind, the budget is
- * shared by equal-share water-filling rather than first-come-first-served:
+ * The same safety valve, applied to the set. Twice the per-file ceiling, so a
+ * repo with two full-size instruction files never sees it and a real repo never
+ * sees it at all; it exists only so that three pathological files cannot
+ * multiply into a section that destroys the call. When it does bind, the budget
+ * is shared by equal-share water-filling rather than first-come-first-served:
  * every file that is present is represented, a file that wants less than its
  * share frees the remainder for the others, and nobody can take the whole
  * budget and leave the rest with nothing. That is the fix for the old
  * winner-take-all spend, under which this repo sent `AGENTS.md` truncated and
  * dropped `CONTRIBUTING.md` entirely without saying so.
  */
-export const CONVENTIONS_TOTAL_MAX_CHARS = 32_768;
+export const CONVENTIONS_TOTAL_MAX_CHARS = 131_072;
 
 /**
  * Smallest allowance worth spending on a file.
