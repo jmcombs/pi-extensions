@@ -38,6 +38,7 @@ import factory, {
   filterPickerItems,
   formatEnhancementFailure,
   formatRetryStatus,
+  formatSkippedFiles,
   gatherEnhancerContext,
   HISTORY_MAX_CHARS,
   HISTORY_MAX_TURNS,
@@ -712,6 +713,29 @@ describe("isRefinementOf", () => {
   });
 });
 
+describe("formatSkippedFiles", () => {
+  it("says nothing when nothing was refused", () => {
+    expect(formatSkippedFiles(undefined)).toBeUndefined();
+    expect(formatSkippedFiles([])).toBeUndefined();
+  });
+
+  it("names the file and why it was refused", () => {
+    expect(formatSkippedFiles([{ path: "assets/logo.png", why: "not text" }])).toBe(
+      "Skipped assets/logo.png (not text).",
+    );
+  });
+
+  it("falls back to a count past two files", () => {
+    expect(
+      formatSkippedFiles([
+        { path: "a.png", why: "not text" },
+        { path: "b.md", why: "too large" },
+        { path: "c.bin", why: "not text" },
+      ]),
+    ).toBe("Skipped a.png (not text), b.md (too large) +1 more.");
+  });
+});
+
 describe("normalizeFailureReason", () => {
   it("returns the reason as-is when it is already one clean line", () => {
     expect(normalizeFailureReason("Connection error")).toBe("Connection error");
@@ -1106,10 +1130,70 @@ describe("mentioned-file guards", () => {
     expect(JSON.stringify(context)).not.toContain("\uFFFD");
   });
 
+  /**
+   * The false positive the control-ratio rule used to have.
+   *
+   * A saved terminal log is ordinary text — it is exactly the artefact the
+   * `fenced-trace` fixture models a user pasting — but every SGR sequence in it
+   * carries an ESC, and ESC is a C0 control. At two colour changes per line the
+   * log ran past the 2% threshold and was refused without a word.
+   */
+  it("accepts a saved ANSI-coloured CI log, which is text with colour in it", async () => {
+    const line = "\u001b[32mPASS\u001b[0m packages/prompt-enhancer/index.test.ts\n";
+    await fs.mkdir(path.join(cwd, "logs"), { recursive: true });
+    await fs.writeFile(path.join(cwd, "logs", "ci.log"), line.repeat(200));
+
+    const context = await gather("this is what CI printed, see logs/ci.log");
+    const file = context.mentionedFiles.find((f) => f.path === "logs/ci.log");
+    expect(file?.content).toContain("PASS");
+    // The colour codes survive: they are part of the text, not noise to strip.
+    expect(file?.content).toContain("\u001b[32m");
+    expect(context.skippedFiles ?? []).toEqual([]);
+  });
+
+  /**
+   * The false negative the NUL rule used to have.
+   *
+   * `BINARY_PROBE_CHARS` is 8,192, and the NUL check lived inside that window.
+   * A file that read as text for 9,000 characters and then carried a NUL cleared
+   * the probe and was delivered: content 9,101 characters long, `includes("\0")`
+   * true. The NUL rule is now unwindowed.
+   */
+  it("refuses a file whose first NUL sits past the probe window", async () => {
+    await fs.mkdir(path.join(cwd, "tmp"), { recursive: true });
+    await fs.writeFile(
+      path.join(cwd, "tmp", "late-nul.bin"),
+      Buffer.concat([
+        Buffer.from("a".repeat(9_000)),
+        Buffer.alloc(1),
+        Buffer.from("b".repeat(100)),
+      ]),
+    );
+
+    const context = await gather("what is in tmp/late-nul.bin");
+    expect(context.mentionedFiles.map((f) => f.path)).not.toContain("tmp/late-nul.bin");
+    expect(JSON.stringify(context.mentionedFiles)).not.toContain("\u0000");
+    expect(context.skippedFiles).toContainEqual({ path: "tmp/late-nul.bin", why: "not text" });
+  });
+
   it("refuses a file past the size cap", async () => {
     await fs.writeFile(path.join(cwd, "huge.md"), "x".repeat(1_000_001));
     const context = await gather("summarise huge.md");
     expect(context.mentionedFiles.map((f) => f.path)).not.toContain("huge.md");
+    expect(context.skippedFiles).toContainEqual({ path: "huge.md", why: "too large" });
+  });
+
+  it("names a refused file instead of dropping it in silence", async () => {
+    await fs.mkdir(path.join(cwd, "img"), { recursive: true });
+    await fs.writeFile(
+      path.join(cwd, "img", "icon.ico"),
+      Buffer.concat([Buffer.from([0x00, 0x00, 0x01, 0x00]), Buffer.alloc(2048)]),
+    );
+
+    const context = await gather("why does img/icon.ico look wrong");
+    expect(context.skippedFiles).toContainEqual({ path: "img/icon.ico", why: "not text" });
+    // And the note the user actually sees says so.
+    expect(formatSkippedFiles(context.skippedFiles)).toBe("Skipped img/icon.ico (not text).");
   });
 
   it("refuses a path that escapes the working directory", async () => {

@@ -103,9 +103,13 @@ const FILE_MAX_REFERENCES = 3;
 const FILE_MAX_BYTES = 1_000_000;
 
 /**
- * Probe window for the binary guard, in decoded characters. Long enough to
- * cover a header plus a useful slice of payload, short enough that scanning it
- * costs nothing next to the read itself.
+ * Probe window for the *ratio* half of the binary guard, in decoded characters.
+ * Long enough to cover a header plus a useful slice of payload, short enough
+ * that scanning it costs nothing next to the read itself.
+ *
+ * The NUL half of the guard is deliberately **not** windowed — see
+ * `looksBinary`. A window is a sampling decision for a statistic; it is not a
+ * sound basis for a rule that says "no text file contains this byte".
  */
 const BINARY_PROBE_CHARS = 8192;
 /** Share of control/replacement characters in the probe that reads as binary. */
@@ -399,6 +403,13 @@ export interface EnhancerContext {
    */
   conventions?: { path: string; content: string }[];
   /**
+   * Files that exist and were *refused* by the read guards — binary, oversized,
+   * or outside the project. Never sent to the model; surfaced to the user so a
+   * refusal is a statement rather than a silence. Files that simply are not
+   * there never appear here.
+   */
+  skippedFiles?: SkippedFile[];
+  /**
    * Recent conversation turns, oldest first, already bounded by
    * `buildRecentTurns`. Absent on the first turn of a session and on any host
    * that does not expose `sessionManager.getBranch`.
@@ -535,6 +546,28 @@ function extractFileMentions(prompt: string): string[] {
   return out;
 }
 
+/** ESC, the byte every ANSI escape sequence starts with. */
+const ESC_CODE = 0x1b;
+
+/**
+ * Is the character at `index` an ESC that introduces an ANSI escape sequence?
+ *
+ * An escape sequence is ESC followed by an *introducer*: a byte in `@`–`_`
+ * (0x40–0x5F, which covers CSI `[` and OSC `]`) for the two-byte Fe forms, or
+ * `(` / `)` for the character-set designators. Everything after the introducer
+ * — the parameters, the intermediates and the final byte — is printable ASCII,
+ * so the ESC itself is the only character in `\x1b[32m` the C0 counter can
+ * see. Testing the introducer rather than exempting ESC outright keeps a real
+ * binary honest: a 0x1B in random payload has roughly a one-in-eight chance of
+ * being followed by an introducer byte, so a file full of them still trips the
+ * ratio.
+ */
+function startsAnsiSequence(text: string, index: number): boolean {
+  const next = text.charCodeAt(index + 1);
+  if (Number.isNaN(next)) return false;
+  return (next >= 0x40 && next <= 0x5f) || next === 0x28 || next === 0x29;
+}
+
 /**
  * Does this decoded text look like something that was never text?
  *
@@ -542,17 +575,31 @@ function extractFileMentions(prompt: string): string[] {
  * inside the budget and decodes to mojibake that costs tokens and teaches the
  * model nothing. `extractFileMentions` matches any token holding a `/`, so
  * "why does assets/logo.png look wrong" is enough to name one. Reading as UTF-8
- * turns undecodable bytes into U+FFFD, so the probe counts those alongside NUL
- * and the other C0 controls (tab, LF, CR excepted). A NUL is decisive on its
- * own — no text file has one.
+ * turns undecodable bytes into U+FFFD, so the probe counts those alongside the
+ * C0 controls (tab, LF, CR excepted).
+ *
+ * Two rules, with deliberately different scopes:
+ *
+ * 1. **NUL, unwindowed.** No text file contains one, so this is decisive — and
+ *    it is checked across the entire decoded file rather than the probe window.
+ *    A window here was a real hole: a file that read as text for 9,000
+ *    characters and then carried a NUL cleared an 8,192-character probe and was
+ *    delivered to the model with the NUL still in it.
+ * 2. **Control ratio, windowed.** A statistic, so sampling the head is fine.
+ *    ANSI escape sequences are excluded from it: a saved CI log
+ *    (`\x1b[32mPASS\x1b[0m …`) is ordinary text a user pastes or names, and
+ *    counting its colour codes as control noise pushed it past the threshold
+ *    and had it silently refused.
  */
 function looksBinary(raw: string): boolean {
+  if (raw.includes("\0")) return true;
+
   const probe = raw.slice(0, BINARY_PROBE_CHARS);
   if (probe.length === 0) return false;
   let suspicious = 0;
   for (let i = 0; i < probe.length; i += 1) {
     const code = probe.charCodeAt(i);
-    if (code === 0) return true;
+    if (code === ESC_CODE && startsAnsiSequence(probe, i)) continue;
     // U+FFFD REPLACEMENT CHARACTER, or a C0 control that is not \t \n \r.
     if (code === 0xfffd || (code < 32 && code !== 9 && code !== 10 && code !== 13)) {
       suspicious += 1;
@@ -562,23 +609,42 @@ function looksBinary(raw: string): boolean {
 }
 
 /**
+ * Why a file the extension was willing to consider did not make it into the
+ * prompt. Surfaced to the user; see `formatSkippedFiles`.
+ */
+export interface SkippedFile {
+  path: string;
+  why: string;
+}
+
+/**
+ * The outcome of one guarded read.
+ *
+ * `refused` is the distinction that matters to the UI: a file that simply is
+ * not there is the ordinary case and says nothing, while a file that exists and
+ * was *rejected* is something the user asked for and did not get. The second
+ * used to be as silent as the first.
+ */
+type GuardedRead = { ok: true; path: string; raw: string } | { ok: false; refusal?: SkippedFile };
+
+/**
  * Read one repo-relative file under a fixed set of guards, or give up.
  *
  * Every guard is a refusal, never a repair: a path that escapes the working
  * directory, a directory, a symlink to somewhere else, an oversized file and a
- * binary one all return `undefined` rather than a degraded value. Written as
- * one function so there is exactly one containment check to audit. Clipping is
- * the caller's job — the callers bound the same bytes by different rules.
+ * binary one all decline to return content rather than returning a degraded
+ * value. Written as one function so there is exactly one containment check to
+ * audit. Clipping is the caller's job — the callers bound the same bytes by
+ * different rules.
  */
-async function readGuardedFile(
-  candidate: string,
-  cwd: string,
-): Promise<{ path: string; raw: string } | undefined> {
+async function readGuardedFile(candidate: string, cwd: string): Promise<GuardedRead> {
   // Resolve, then ensure the resolved path stays within cwd to avoid the
   // extension reading arbitrary files via "../../etc/passwd"-style paths.
   const resolved = path.resolve(cwd, candidate);
   const rel = path.relative(cwd, resolved);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    return { ok: false, refusal: { path: candidate, why: "outside the project" } };
+  }
 
   // Then again on the *real* path. The check above compares strings, and a
   // string cannot see a symlink: a repo shipping `notes.md` as a link to
@@ -590,29 +656,35 @@ async function readGuardedFile(
   try {
     [realResolved, realCwd] = await Promise.all([fs.realpath(resolved), fs.realpath(cwd)]);
   } catch {
-    return undefined;
+    return { ok: false };
   }
   const realRel = path.relative(realCwd, realResolved);
-  if (realRel.startsWith("..") || path.isAbsolute(realRel)) return undefined;
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
+    return { ok: false, refusal: { path: rel, why: "outside the project" } };
+  }
 
   let stat: Stats;
   try {
     stat = await fs.stat(realResolved);
   } catch {
-    return undefined;
+    return { ok: false };
   }
-  if (!stat.isFile()) return undefined;
-  if (stat.size > FILE_MAX_BYTES) return undefined;
+  if (!stat.isFile()) return { ok: false };
+  if (stat.size > FILE_MAX_BYTES) {
+    return { ok: false, refusal: { path: rel, why: "too large" } };
+  }
 
   let raw: string;
   try {
     raw = await fs.readFile(realResolved, "utf-8");
   } catch {
-    return undefined;
+    return { ok: false, refusal: { path: rel, why: "unreadable" } };
   }
-  if (looksBinary(raw)) return undefined;
+  if (looksBinary(raw)) {
+    return { ok: false, refusal: { path: rel, why: "not text" } };
+  }
 
-  return { path: rel, raw };
+  return { ok: true, path: rel, raw };
 }
 
 /**
@@ -663,15 +735,18 @@ function clipToCharBudget(raw: string, maxChars: number): string | undefined {
 async function buildMentionedFiles(
   prompt: string,
   cwd: string,
-): Promise<{ path: string; content: string }[]> {
+): Promise<{ files: { path: string; content: string }[]; skipped: SkippedFile[] }> {
   const candidates = extractFileMentions(prompt).slice(0, FILE_MAX_REFERENCES * 4);
   const files: { path: string; content: string }[] = [];
+  const skipped: SkippedFile[] = [];
   for (const candidate of candidates) {
     if (files.length >= FILE_MAX_REFERENCES) break;
     const read = await readGuardedFile(candidate, cwd);
-    if (read) files.push({ path: read.path, content: clipToLineCount(read.raw, FILE_MAX_LINES) });
+    if (read.ok)
+      files.push({ path: read.path, content: clipToLineCount(read.raw, FILE_MAX_LINES) });
+    else if (read.refusal) skipped.push(read.refusal);
   }
-  return files;
+  return { files, skipped };
 }
 
 /**
@@ -725,21 +800,20 @@ export function allocateConventionsBudget(
 
 /**
  * The project's instruction files: what the repo already says about how work in
- * it should be done.
+ * it should be done, plus any that were refused.
  *
  * Probed at the working-directory root only. Each file gets up to
  * `CONVENTIONS_FILE_MAX_CHARS`, the set gets up to `CONVENTIONS_TOTAL_MAX_CHARS`
  * shared by water-filling, and anything clipped is clipped on a line boundary
  * with a marker that says how much was left behind.
- *
- * Returns `[]` when the repo has none, which keeps the section out of the user
- * message entirely rather than sending an empty heading.
  */
-export async function buildProjectConventions(
+async function collectProjectConventions(
   cwd: string,
-): Promise<{ path: string; content: string }[]> {
+): Promise<{ files: { path: string; content: string }[]; skipped: SkippedFile[] }> {
   const reads = await Promise.all(CONVENTION_FILES.map((name) => readGuardedFile(name, cwd)));
-  const present = reads.filter((read) => read !== undefined);
+
+  const present = reads.filter((read): read is Extract<GuardedRead, { ok: true }> => read.ok);
+  const skipped = reads.flatMap((read) => (!read.ok && read.refusal ? [read.refusal] : []));
 
   const allowances = allocateConventionsBudget(present.map((file) => file.raw.length));
   const files: { path: string; content: string }[] = [];
@@ -750,7 +824,19 @@ export async function buildProjectConventions(
     if (content === undefined) continue;
     files.push({ path: file.path, content });
   }
-  return files;
+  return { files, skipped };
+}
+
+/**
+ * The conventions the enhancer would send for `cwd`.
+ *
+ * Returns `[]` when the repo has none, which keeps the section out of the user
+ * message entirely rather than sending an empty heading.
+ */
+export async function buildProjectConventions(
+  cwd: string,
+): Promise<{ path: string; content: string }[]> {
+  return (await collectProjectConventions(cwd)).files;
 }
 
 // ── Context assembly ────────────────────────────────────────────────────
@@ -760,13 +846,20 @@ export async function gatherEnhancerContext(
   cwd: string,
   signal: AbortSignal,
 ): Promise<EnhancerContext> {
-  const [tree, git, mentionedFiles, conventions] = await Promise.all([
+  const [tree, git, mentioned, conventions] = await Promise.all([
     buildProjectTree(cwd, signal),
     buildGitContext(cwd, signal),
     buildMentionedFiles(prompt, cwd),
-    buildProjectConventions(cwd),
+    collectProjectConventions(cwd),
   ]);
-  return { cwd, tree, git, mentionedFiles, conventions };
+  return {
+    cwd,
+    tree,
+    git,
+    mentionedFiles: mentioned.files,
+    conventions: conventions.files,
+    skippedFiles: [...mentioned.skipped, ...conventions.skipped],
+  };
 }
 
 /**
@@ -1019,8 +1112,31 @@ function showTransientStatus(ctx: ExtensionContext, status: string): void {
 // ── Main flow ───────────────────────────────────────────────────────────
 
 type EnhancementOutcome =
-  | { ok: true; enhanced: string }
+  | { ok: true; enhanced: string; skippedFiles?: SkippedFile[] }
   | { ok: false; reason: "cancelled" | "error"; message?: string };
+
+/** How many refused files are named before the note falls back to a count. */
+const SKIPPED_FILES_SHOWN = 2;
+
+/**
+ * One clause naming the files the guards refused, or `undefined`.
+ *
+ * A refusal used to be invisible: name a saved terminal log or a `.png` in the
+ * prompt, and the rewrite came back built on context that quietly excluded it.
+ * The reason travels with the name because the reasons are actionable in
+ * different ways — "too large" is a different problem from "not text".
+ */
+export function formatSkippedFiles(
+  skipped: readonly SkippedFile[] | undefined,
+): string | undefined {
+  if (skipped === undefined || skipped.length === 0) return undefined;
+  const named = skipped
+    .slice(0, SKIPPED_FILES_SHOWN)
+    .map((file) => `${file.path} (${file.why})`)
+    .join(", ");
+  const rest = skipped.length - SKIPPED_FILES_SHOWN;
+  return rest > 0 ? `Skipped ${named} +${String(rest)} more.` : `Skipped ${named}.`;
+}
 
 /**
  * Retry budget for the enhancer's LLM call.
@@ -1138,7 +1254,7 @@ async function performEnhancement(
     return { ok: false, reason: "error", message: "Model returned an empty response." };
   }
 
-  return { ok: true, enhanced };
+  return { ok: true, enhanced, skippedFiles: context.skippedFiles };
 }
 
 /** Anything exposing pi-tui's `Loader.setMessage`. */
@@ -1316,12 +1432,11 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     if (!refiningOurOwnOutput) lastOriginalPrompt = originalPrompt;
     lastEnhancedText = result.enhanced;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
-    showTransientStatus(
-      ctx,
-      autoEnhanceEnabled
-        ? "Prompt enhanced — Enter to send."
-        : "Prompt enhanced — Ctrl+Shift+Z to revert.",
-    );
+    const enhanced = autoEnhanceEnabled
+      ? "Prompt enhanced — Enter to send."
+      : "Prompt enhanced — Ctrl+Shift+Z to revert.";
+    const skipped = formatSkippedFiles(result.skippedFiles);
+    showTransientStatus(ctx, skipped === undefined ? enhanced : `${enhanced} ${skipped}`);
     return;
   }
 
