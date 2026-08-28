@@ -7,8 +7,14 @@
  * its original because the system prompt asked for exactly that.
  */
 
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { classifyEnhancement, looksLikeHostFailure } from "./classify.js";
+
+/** The fixtures the acceptance matrix actually sends, read from disk. */
+const FIXTURE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
 
 const KNOWN_PATHS = [
   "packages/prompt-enhancer/index.ts",
@@ -223,6 +229,66 @@ describe("classifyEnhancement — refusal", () => {
     });
     expect(result.verdict).toBe("good");
     expect(result.codes).toEqual([]);
+  });
+
+  /**
+   * The classifier scoring its own corpus as a failure.
+   *
+   * `fenced-trace.txt` opens "… and I can't tell if the bound is wrong or the
+   * code is". The old rule matched the bare substring `"I can't"` anywhere in
+   * the response, so the fixture classified against itself came back
+   * `verdict=bad codes=[refusal]` — and since `SYSTEM_PROMPT` asks the model to
+   * match the prompt's tone, a *faithful* rewrite carrying that first person
+   * forward scored the same way. With `CELL_BAD_THRESHOLD` at 0 that failed a
+   * whole cell on the harness's own reading of a file it ships.
+   *
+   * Read from disk rather than inlined: the point is the real fixture text, and
+   * a copy in this file could drift away from the one the matrix sends.
+   */
+  it("does not flag the fenced-trace fixture, which is where the false positive was", async () => {
+    const fixture = await fs.readFile(path.join(FIXTURE_DIR, "fenced-trace.txt"), "utf8");
+    expect(fixture).toContain("I can't tell if the bound is wrong");
+
+    const result = classify({ original: fixture, enhanced: fixture, knownPaths: [] });
+    expect(result.codes).not.toContain("refusal");
+    expect(result.verdict).toBe("good");
+  });
+
+  it("keeps a user's own inability out of the refusal rule, and a rewriter's in", () => {
+    // First person the user wrote and a faithful rewrite carries forward.
+    for (const carried of [
+      "I can't tell if the bound is wrong or the code is.",
+      "I cannot reproduce the failure locally on this branch.",
+      "I won't be around after Friday, so land it before then.",
+    ]) {
+      expect(classify({ enhanced: carried }).codes, carried).not.toContain("refusal");
+    }
+    // The rewriter declining the job it was given.
+    for (const refused of [
+      "I can't rewrite that for you.",
+      "I cannot comply with this request.",
+      "I'm not able to assist with that.",
+    ]) {
+      expect(classify({ enhanced: refused }).codes, refused).toContain("refusal");
+    }
+  });
+
+  it("does not flag a refusal the rewrite is quoting rather than committing", () => {
+    // The `self-referential.txt` shape: the prompt is *about* a refusal, so a
+    // faithful rewrite quotes one. Masked exactly as announcements are.
+    const result = classify({
+      enhanced:
+        'Explain why the enhancer sometimes answers with "I can\'t rewrite that" instead of returning a rewritten prompt.',
+    });
+    expect(result.codes).not.toContain("refusal");
+  });
+
+  it("ignores a refusal phrase past the window, as the announcement rule does", () => {
+    const filler =
+      "Update the typo in README.md so the install command matches the published name. ";
+    const enhanced = `${filler.repeat(6)}I cannot comply with this request.`;
+    expect(enhanced.indexOf("I cannot comply")).toBeGreaterThan(400);
+    expect(classify({ enhanced }).codes).not.toContain("refusal");
   });
 });
 

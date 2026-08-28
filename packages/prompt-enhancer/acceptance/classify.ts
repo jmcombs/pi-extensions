@@ -129,18 +129,67 @@ function looksLikeAnnouncement(trimmed: string): boolean {
   return GERUND_OPENER_RE.test(head) || NARRATION_RE.test(head) || UNMET_CONTEXT_RE.test(head);
 }
 
-/** Phrases that mean "the model addressed the user instead of rewriting". */
+/**
+ * Phrases that mean "the model addressed the user instead of rewriting".
+ *
+ * These are self-descriptions of the rewriter's role. None of them is something
+ * a user's own prompt says, so they need no object to disambiguate them.
+ */
 const REFUSAL_PHRASES = [
   "I appreciate",
   "I'm a prompt rewriter",
   "I am a prompt rewriter",
   "not an answerer",
-  "I can't",
-  "I cannot",
-  "I won't",
-  "I'm not able to",
   "my job is to",
 ];
+
+/**
+ * A refusal proper: an inability phrase with a *task* as its object.
+ *
+ * The bare phrase list used to carry `"I can't"`, `"I cannot"`, `"I won't"` and
+ * `"I'm not able to"`, matched unmasked over the whole response. That scored
+ * the harness's own `fenced-trace.txt` fixture as a refusal: the user's draft
+ * opens `"… and I can't tell if the bound is wrong or the code is"`, and
+ * `SYSTEM_PROMPT` tells the model to match the prompt's tone, so a faithful
+ * rewrite carries that first person forward verbatim. With `CELL_BAD_THRESHOLD`
+ * at 0, one such rewrite failed a whole cell on the classifier's own reading of
+ * a fixture it ships.
+ *
+ * The object is what separates the two. `"I can't tell if …"` is the user
+ * describing their problem; `"I can't rewrite that"` is the model declining the
+ * job. Only verbs that name *this* job count, so a rewrite may say `"I can't
+ * reproduce it locally"` and stay good.
+ */
+const REFUSAL_MODAL =
+  "(?:I can't|I cannot|I can not|I won't|I will not|I'm not able to|I am not able to|I'm unable to|I am unable to)";
+
+/**
+ * The object half: the verbs a rewriter uses when it declines *this* job.
+ *
+ * Kept to the refusal vocabulary and no wider. Generic verbs a user's own
+ * sentence reaches for — "I can't complete the release", "I can't process this
+ * file" — are deliberately absent, because carrying the user's voice forward is
+ * what `SYSTEM_PROMPT` asks for and must not be scored as a refusal.
+ */
+const REFUSAL_OBJECT =
+  "(?:rewrit(?:e|ing)|rephras(?:e|ing)|rewor(?:d|ding)|compl(?:y|ying)|assist(?:ing)?|help(?:ing)?|fulfil{1,2}(?:ing)?|answer(?:ing)?|respond(?:ing)?|do (?:that|this|it|so))";
+
+const REFUSAL_RE = new RegExp(`\\b${REFUSAL_MODAL}\\s+(?:\\w+\\s+){0,2}${REFUSAL_OBJECT}\\b`, "i");
+
+/**
+ * Refusals are bounded and masked exactly as announcements are.
+ *
+ * Same two reasons: a refusal is an opening move, not something that surfaces in
+ * paragraph four of a rewrite; and a rewrite that *quotes* a refusal (the
+ * `self-referential.txt` probe asks about a model that produces one) is citing
+ * the failure mode, not committing it.
+ */
+const REFUSAL_WINDOW = 400;
+
+function looksLikeRefusal(trimmed: string): boolean {
+  const head = maskQuotedSpans(trimmed).slice(0, REFUSAL_WINDOW);
+  return REFUSAL_PHRASES.some((phrase) => head.includes(phrase)) || REFUSAL_RE.test(head);
+}
 
 /** Phrases that mean "the model described the request rather than restating it". */
 const THIRD_PERSON_META_PHRASES = [
@@ -400,7 +449,7 @@ export function classifyEnhancement(input: ClassifyInput): ClassifyResult {
   if (looksLikeAnnouncement(trimmed)) {
     codes.push("announcement");
   }
-  if (REFUSAL_PHRASES.some((phrase) => trimmed.includes(phrase))) {
+  if (looksLikeRefusal(trimmed)) {
     codes.push("refusal");
   }
   const head = trimmed.slice(0, THIRD_PERSON_META_WINDOW);
