@@ -39,6 +39,7 @@ import factory, {
   HISTORY_MAX_CHARS,
   HISTORY_MAX_TURNS,
   HISTORY_TURN_MAX_CHARS,
+  isRefinementOf,
   normalizeFailureReason,
   SYSTEM_PROMPT,
 } from "./index.js";
@@ -662,6 +663,49 @@ describe("completeWithRetry", () => {
     expect(result.stopReason).toBe("aborted");
     expect(result.errorMessage).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("isRefinementOf", () => {
+  const rewrite =
+    "Fix the misspelling in README.md so the install command matches the published package name, and leave the surrounding wording unchanged.";
+
+  it("recognises our own output handed straight back", () => {
+    expect(isRefinementOf(rewrite, rewrite)).toBe(true);
+    expect(isRefinementOf(`  ${rewrite}  `, rewrite)).toBe(true);
+  });
+
+  it("recognises our output after a hand-edit", () => {
+    for (const edited of [
+      rewrite.replace("wording unchanged", "wording alone"),
+      `${rewrite} Do not touch the changelog.`,
+      rewrite.replace("README.md", "docs/README.md"),
+      rewrite.split(", and leave")[0] ?? "",
+    ]) {
+      expect(isRefinementOf(edited, rewrite), edited).toBe(true);
+    }
+  });
+
+  it("does not recognise a draft typed over the top of it", () => {
+    for (const fresh of [
+      "actually, add a changelog entry for the 3.0 release instead",
+      "why is the release workflow failing on main",
+      "ONE, but with my own edits",
+    ]) {
+      expect(isRefinementOf(fresh, rewrite), fresh).toBe(false);
+    }
+  });
+
+  it("cannot be fooled by a short draft made of words the rewrite happens to use", () => {
+    // Coverage alone would call this a refinement; the overlap is symmetric so
+    // the novelty half of the question is asked too.
+    expect(isRefinementOf("fix the README.md wording", rewrite)).toBe(false);
+  });
+
+  it("treats empty or wordless text as a new original", () => {
+    expect(isRefinementOf("", rewrite)).toBe(false);
+    expect(isRefinementOf(rewrite, "")).toBe(false);
+    expect(isRefinementOf("!!!", "???")).toBe(false);
   });
 });
 
@@ -1403,19 +1447,91 @@ describe("revert", () => {
     await shutdown(host);
   });
 
-  it("treats an edited rewrite as a new original rather than clinging to the old one", async () => {
+  /**
+   * The second half of the same defect, found through a real terminal.
+   *
+   * Enhance, hand-edit the rewrite, enhance again, revert: the equality test
+   * that decided "is this still our output" saw the edit, called the edited
+   * rewrite a fresh original, and Ctrl+Shift+Z put *that* in the editor under
+   * the status "Reverted to your original prompt." The typed draft was gone and
+   * unreachable, and the status said the opposite. `isRefinementOf` recognises
+   * the edited rewrite as still ours, so the chain — and the typed draft at the
+   * bottom of it — survives.
+   */
+  it("keeps the typed original when the user hand-edits the rewrite before enhancing again", async () => {
     const host = await armed();
-    faux.setResponses([fauxAssistantMessage("ONE"), fauxAssistantMessage("TWO")]);
+    const rewrite =
+      "Fix the misspelling in README.md so the install command matches the published package name, and leave the surrounding wording unchanged.";
+    faux.setResponses([
+      fauxAssistantMessage(rewrite),
+      fauxAssistantMessage("Correct the misspelled package name in README.md's install command."),
+    ]);
 
     await enhance(host);
-    // The user rewrites our output by hand. That text is theirs now, and it is
-    // what revert has to hand back.
-    host.typeIntoEditor("ONE, but with my own edits");
+    expect(host.ctx.ui.getEditorText()).toBe(rewrite);
+
+    // The user tightens our rewrite by hand — still our rewrite, with an edit.
+    host.typeIntoEditor(rewrite.replace("wording unchanged", "wording alone"));
     await enhance(host);
-    expect(host.ctx.ui.getEditorText()).toBe("TWO");
+    expect(host.ctx.ui.getEditorText()).toBe(
+      "Correct the misspelled package name in README.md's install command.",
+    );
 
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe("ONE, but with my own edits");
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    await shutdown(host);
+  });
+
+  /** The same sequence, entered through auto-enhance rather than the command. */
+  it("keeps the typed original across a hand-edit on the auto-enhance path", async () => {
+    const host = await armed();
+    const rewrite =
+      "Fix the misspelling in README.md so the install command matches the published package name, and leave the surrounding wording unchanged.";
+    faux.setResponses([fauxAssistantMessage(rewrite), fauxAssistantMessage("SECOND REWRITE")]);
+
+    await host.harness.commands.get("prompt_enhance_auto")?.("", host.ctx);
+    // Enter: pi empties the editor before it fires the input event.
+    host.typeIntoEditor("");
+    await host.harness.events.get("input")?.(
+      { source: "interactive", text: TYPED, images: [] },
+      host.ctx,
+    );
+    expect(host.ctx.ui.getEditorText()).toBe(rewrite);
+
+    host.typeIntoEditor(rewrite.replace("wording unchanged", "wording alone"));
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("SECOND REWRITE");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    await shutdown(host);
+  });
+
+  /**
+   * The other side of the same rule, and the reason it is a similarity test
+   * rather than "the chain runs until you submit": a draft the user typed over
+   * the top of our rewrite is theirs, and revert has to hand *that* back.
+   */
+  it("treats a draft typed over the rewrite as a new original", async () => {
+    const host = await armed();
+    const retyped = "actually, add a changelog entry for the 3.0 release instead";
+    faux.setResponses([
+      fauxAssistantMessage(
+        "Fix the misspelling in README.md so the install command matches the published package name.",
+      ),
+      fauxAssistantMessage("Add a CHANGELOG.md entry for the 3.0 release."),
+    ]);
+
+    await enhance(host);
+    host.typeIntoEditor(retyped);
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("Add a CHANGELOG.md entry for the 3.0 release.");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(retyped);
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
     await shutdown(host);
   });
 

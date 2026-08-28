@@ -268,12 +268,11 @@ let enhancerModelOverride: Model<Api> | undefined;
 let lastOriginalPrompt: string | undefined;
 
 /**
- * The exact rewrite this extension last put in the editor.
+ * The rewrite this extension last put in the editor.
  *
- * Enhancing again while the editor still holds it means the user is refining
- * our output, not starting over, so `lastOriginalPrompt` must not move. If the
- * text differs — they edited it, retyped it, or it came from somewhere else —
- * that is a new original and the slot is replaced.
+ * Enhancing again on text that came out of this rewrite means the user is
+ * refining our output, not starting over, so `lastOriginalPrompt` must not
+ * move. Only a genuinely new draft replaces it.
  *
  * One value rather than a stack, on purpose: revert is a single labelled
  * promise ("your original prompt"), and the honest thing to hand back is the
@@ -282,6 +281,59 @@ let lastOriginalPrompt: string | undefined;
  * keeps unbounded.
  */
 let lastEnhancedText: string | undefined;
+
+/**
+ * How much of our last rewrite must still be recognisable in the editor for the
+ * next enhance to count as a refinement of it rather than a fresh draft.
+ *
+ * Measured as Jaccard overlap of word tokens, which is symmetric on purpose:
+ * both "how much of our rewrite survived" and "how much of this text is new"
+ * have to be answered, and either one alone is wrong. Coverage alone would call
+ * a two-word rewrite the parent of any sentence containing those two words;
+ * novelty alone would call an appended clause a new draft.
+ *
+ * At 0.5 a typical hand-edit — fixing a word, adding or cutting a clause in a
+ * paragraph-length rewrite — stays well above the line, while a draft the user
+ * typed over the top of it sits far below.
+ */
+export const REFINEMENT_MIN_SIMILARITY = 0.5;
+
+const WORD_TOKEN_RE = /[\p{L}\p{N}_]+/gu;
+
+function wordTokens(text: string): Set<string> {
+  return new Set(text.toLowerCase().match(WORD_TOKEN_RE) ?? []);
+}
+
+/**
+ * Is `current` this extension's own `produced` rewrite, edited?
+ *
+ * Strict equality was the whole of this test until it was found to be too
+ * strict to keep its own promise. Enhance, hand-edit the rewrite, enhance
+ * again, revert: the hand-edit made `current !== produced`, the second enhance
+ * therefore recorded the *edited rewrite* as "the original", and Ctrl+Shift+Z
+ * left a machine draft in the editor under the status "Reverted to your
+ * original prompt." The typed draft was gone and unreachable, and the status
+ * said otherwise — a status line that lies is worse than the lost text.
+ *
+ * A stack would not have fixed it: revert has one destination, the text the
+ * user actually wrote, so the question was never "which draft" but "is this
+ * still the same chain". Overlap answers that without needing history.
+ */
+export function isRefinementOf(current: string, produced: string): boolean {
+  const a = current.trim();
+  const b = produced.trim();
+  if (a.length === 0 || b.length === 0) return false;
+  if (a === b) return true;
+
+  const currentTokens = wordTokens(a);
+  const producedTokens = wordTokens(b);
+  if (currentTokens.size === 0 || producedTokens.size === 0) return false;
+
+  let shared = 0;
+  for (const token of currentTokens) if (producedTokens.has(token)) shared += 1;
+  const union = currentTokens.size + producedTokens.size - shared;
+  return union > 0 && shared / union >= REFINEMENT_MIN_SIMILARITY;
+}
 
 /** Session-scoped. Off by default. Enter enhances, Enter again sends. */
 let autoEnhanceEnabled = false;
@@ -1145,13 +1197,14 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
-    // Re-enhancing our own output keeps the original the user typed. Anything
-    // else — a fresh draft, or one they edited after the last enhance — is a
-    // new original, and the revert promise now points at that.
+    // Re-enhancing our own output — including our own output after the user has
+    // edited it by hand — keeps the original the user typed. Only a draft that
+    // is no longer recognisable as our rewrite is a new original, and the revert
+    // promise then points at that.
     const refiningOurOwnOutput =
       lastOriginalPrompt !== undefined &&
       lastEnhancedText !== undefined &&
-      originalPrompt === lastEnhancedText.trim();
+      isRefinementOf(originalPrompt, lastEnhancedText);
     if (!refiningOurOwnOutput) lastOriginalPrompt = originalPrompt;
     lastEnhancedText = result.enhanced;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
