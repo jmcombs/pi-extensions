@@ -43,8 +43,8 @@ import factory, {
   HISTORY_MAX_CHARS,
   HISTORY_MAX_TURNS,
   HISTORY_TURN_MAX_CHARS,
-  isRefinementOf,
   normalizeFailureReason,
+  revertStatusText,
   SYSTEM_PROMPT,
 } from "./index.js";
 
@@ -670,46 +670,16 @@ describe("completeWithRetry", () => {
   });
 });
 
-describe("isRefinementOf", () => {
-  const rewrite =
-    "Fix the misspelling in README.md so the install command matches the published package name, and leave the surrounding wording unchanged.";
-
-  it("recognises our own output handed straight back", () => {
-    expect(isRefinementOf(rewrite, rewrite)).toBe(true);
-    expect(isRefinementOf(`  ${rewrite}  `, rewrite)).toBe(true);
+describe("revertStatusText", () => {
+  it("claims the user's own prompt only when nothing else wrote the editor", () => {
+    expect(revertStatusText(false)).toBe("Reverted to your original prompt.");
   });
 
-  it("recognises our output after a hand-edit", () => {
-    for (const edited of [
-      rewrite.replace("wording unchanged", "wording alone"),
-      `${rewrite} Do not touch the changelog.`,
-      rewrite.replace("README.md", "docs/README.md"),
-      rewrite.split(", and leave")[0] ?? "",
-    ]) {
-      expect(isRefinementOf(edited, rewrite), edited).toBe(true);
-    }
-  });
-
-  it("does not recognise a draft typed over the top of it", () => {
-    for (const fresh of [
-      "actually, add a changelog entry for the 3.0 release instead",
-      "why is the release workflow failing on main",
-      "ONE, but with my own edits",
-    ]) {
-      expect(isRefinementOf(fresh, rewrite), fresh).toBe(false);
-    }
-  });
-
-  it("cannot be fooled by a short draft made of words the rewrite happens to use", () => {
-    // Coverage alone would call this a refinement; the overlap is symmetric so
-    // the novelty half of the question is asked too.
-    expect(isRefinementOf("fix the README.md wording", rewrite)).toBe(false);
-  });
-
-  it("treats empty or wordless text as a new original", () => {
-    expect(isRefinementOf("", rewrite)).toBe(false);
-    expect(isRefinementOf(rewrite, "")).toBe(false);
-    expect(isRefinementOf("!!!", "???")).toBe(false);
+  it("says what it restored, not whose it is, once the chain left our text", () => {
+    const hedged = revertStatusText(true);
+    expect(hedged).not.toContain("your original prompt");
+    expect(hedged).toContain("before the first enhance");
+    expect(hedged).toContain("later edits are not in it");
   });
 });
 
@@ -1679,9 +1649,10 @@ describe("revert", () => {
    * that decided "is this still our output" saw the edit, called the edited
    * rewrite a fresh original, and Ctrl+Shift+Z put *that* in the editor under
    * the status "Reverted to your original prompt." The typed draft was gone and
-   * unreachable, and the status said the opposite. `isRefinementOf` recognises
-   * the edited rewrite as still ours, so the chain — and the typed draft at the
-   * bottom of it — survives.
+   * unreachable, and the status said the opposite.
+   *
+   * The chain now runs from its first enhance to the next submit, so no amount
+   * of editing in between can move the stored original.
    */
   it("keeps the typed original when the user hand-edits the rewrite before enhancing again", async () => {
     const host = await armed();
@@ -1704,7 +1675,62 @@ describe("revert", () => {
 
     await revert(host);
     expect(host.ctx.ui.getEditorText()).toBe(TYPED);
-    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    await shutdown(host);
+  });
+
+  /**
+   * The edit that broke the similarity rule: most of the rewrite deleted.
+   *
+   * A user who finds the rewrite too verbose cuts it down and enhances again.
+   * Word-token overlap read that as a fresh draft — 82 characters removed from a
+   * short rewrite falls below any threshold — and revert then handed back a line
+   * that was half machine text under the status "Reverted to your original
+   * prompt." The typed draft was unreachable.
+   */
+  it("keeps the typed original when the user cuts most of the rewrite away", async () => {
+    const host = await armed();
+    const rewrite =
+      "Fix the widget colour and the spacing on the settings screen without breaking the snapshot tests.";
+    faux.setResponses([fauxAssistantMessage(rewrite), fauxAssistantMessage("SECOND REWRITE")]);
+
+    await enhance(host);
+    host.typeIntoEditor("Fix the widget padding.");
+    await enhance(host);
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(host.ctx.ui.getEditorText()).not.toContain("widget");
+    await shutdown(host);
+  });
+
+  /**
+   * The accepted cost, held to its own promise.
+   *
+   * Clearing the editor and typing a different task without submitting leaves
+   * the chain open, so revert restores the older original and the newly typed
+   * draft is not what comes back. Nothing in pi's extension API distinguishes
+   * that from a hand-edit — no editor-change event, no observation between our
+   * own writes — so the extension does not guess. It stops claiming the
+   * restored text is the user's own.
+   */
+  it("does not call the restored text the user's own once the chain left our rewrite", async () => {
+    const host = await armed();
+    const retyped = "Fix the chip spacing issue.";
+    faux.setResponses([
+      fauxAssistantMessage("Fix the chip colour issue."),
+      fauxAssistantMessage("Correct the spacing of the chip component."),
+    ]);
+
+    await enhance(host);
+    host.typeIntoEditor(retyped);
+    await enhance(host);
+    expect(host.ctx.ui.getEditorText()).toBe("Correct the spacing of the chip component.");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    const status = lastWidgetLine(host.log);
+    expect(status).not.toContain("your original prompt");
+    expect(status).toContain("before the first enhance");
     await shutdown(host);
   });
 
@@ -1730,32 +1756,24 @@ describe("revert", () => {
 
     await revert(host);
     expect(host.ctx.ui.getEditorText()).toBe(TYPED);
-    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
     await shutdown(host);
   });
 
   /**
-   * The other side of the same rule, and the reason it is a similarity test
-   * rather than "the chain runs until you submit": a draft the user typed over
-   * the top of our rewrite is theirs, and revert has to hand *that* back.
+   * A command argument is text the user typed, and that is knowable rather than
+   * inferred: this extension never writes a slash-command argument. So it opens
+   * a new chain even mid-chain, and revert points at it.
    */
-  it("treats a draft typed over the rewrite as a new original", async () => {
+  it("starts a new chain when the text arrives as a command argument", async () => {
     const host = await armed();
-    const retyped = "actually, add a changelog entry for the 3.0 release instead";
-    faux.setResponses([
-      fauxAssistantMessage(
-        "Fix the misspelling in README.md so the install command matches the published package name.",
-      ),
-      fauxAssistantMessage("Add a CHANGELOG.md entry for the 3.0 release."),
-    ]);
+    faux.setResponses([fauxAssistantMessage("ONE"), fauxAssistantMessage("TWO")]);
 
     await enhance(host);
-    host.typeIntoEditor(retyped);
-    await enhance(host);
-    expect(host.ctx.ui.getEditorText()).toBe("Add a CHANGELOG.md entry for the 3.0 release.");
+    await host.harness.commands.get("prompt_enhance")?.("add a changelog entry for 3.0", host.ctx);
+    expect(host.ctx.ui.getEditorText()).toBe("TWO");
 
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe(retyped);
+    expect(host.ctx.ui.getEditorText()).toBe("add a changelog entry for 3.0");
     expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
     await shutdown(host);
   });

@@ -49,7 +49,7 @@ you pick with `/prompt_enhance_model`.
 | --- | --- |
 | `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
 | `/prompt_enhance_model` | Pick the enhancer model for the current session. Resets when Pi restarts. |
-| `/prompt_enhance_revert` | Put the pre-enhance text back. Once only; also clears when you send a prompt. |
+| `/prompt_enhance_revert` | Put back the draft you typed before the first enhance. Once only; also clears when you send a prompt. |
 | `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
 **Shortcuts** (also listed in `/hotkeys`):
@@ -60,6 +60,13 @@ you pick with `/prompt_enhance_model`.
 After an enhance, the footer reminds you how to revert. With auto-enhance on it
 also says `Enter to send`. Press **Esc** to cancel an enhance that is still
 running.
+
+Revert always goes back to the draft you typed before the *first* enhance, not
+to the previous rewrite, and enhancing repeatedly never moves that target: a
+chain runs from the first enhance to the next thing you send. Stepping back
+through the drafts in between is the editor's own undo. If you clear the editor
+and type something new without sending it, revert still hands back the earlier
+draft — the status line says so rather than calling it your original.
 
 ## When an enhance does not work
 

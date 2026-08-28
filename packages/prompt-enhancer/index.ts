@@ -294,85 +294,74 @@ const PICKER_NO_MATCH = "  No matching models";
 let enhancerModelOverride: Model<Api> | undefined;
 
 /**
- * The text the *user* wrote, from before the first enhance in the current
- * chain. /prompt_enhance_revert restores this and clears the slot. Cleared also
- * when the user submits a non-command prompt (input event), since at that point
- * the previous "original" is no longer relevant.
+ * The text the user handed the enhancer at the *start* of the current chain.
  *
- * "From before the *first* enhance" is the whole point. This used to be
- * assigned unconditionally on every success, so enhancing twice overwrote the
- * typed draft with the first rewrite: Ctrl+Shift+Z then put rewrite #1 in the
- * editor while the status read "Reverted to your original prompt." — the status
- * lying being the sharper half of the bug. `lastEnhancedText` below closes it.
+ * Written once, when a chain opens, and then left alone until the chain ends —
+ * at `/prompt_enhance_revert`, at submit (the `input` event), or at
+ * `session_start`. Enhancing again inside an open chain never moves it, which
+ * is what makes Ctrl+Shift+Z reach past a whole run of rewrites to the draft
+ * the user actually typed.
+ *
+ * Two earlier rules were tried here and both failed the same way. Assigning it
+ * on every success overwrote the typed draft with rewrite #1. Assigning it
+ * whenever the editor text no longer looked like our last rewrite — word-token
+ * overlap against a threshold — moved it whenever the user cut more than about
+ * half the words, which is exactly what "the model was too verbose, let me trim
+ * it" looks like. Both left Ctrl+Shift+Z putting machine text in the editor
+ * under a status that said "your original prompt". No threshold sits in a safe
+ * place, so there is no threshold: a chain runs from its first enhance to the
+ * next submit.
+ *
+ * The cost is stated rather than detected. If the user clears the editor and
+ * types an unrelated draft *without* submitting, the chain is still open and
+ * revert hands back the older original. `chainLeftOurText` below is why the
+ * status line never calls that "your original prompt".
  */
 let lastOriginalPrompt: string | undefined;
 
 /**
- * The rewrite this extension last put in the editor.
+ * The exact string this extension last wrote into the editor.
  *
- * Enhancing again on text that came out of this rewrite means the user is
- * refining our output, not starting over, so `lastOriginalPrompt` must not
- * move. Only a genuinely new draft replaces it.
- *
- * One value rather than a stack, on purpose: revert is a single labelled
- * promise ("your original prompt"), and the honest thing to hand back is the
- * text the user actually wrote, not an intermediate machine draft they never
- * chose. Stepping through the drafts is the editor's own undo stack, which pi
- * keeps unbounded.
+ * Provenance, not resemblance: we `setEditorText` the rewrite ourselves, so a
+ * later read that is byte-equal to it is *certain* to be our own output coming
+ * back untouched. That certainty is all this value is used for. It answers one
+ * question — "has anything other than us written the editor since?" — and never
+ * decides which text revert restores.
  */
 let lastEnhancedText: string | undefined;
 
 /**
- * How much of our last rewrite must still be recognisable in the editor for the
- * next enhance to count as a refinement of it rather than a fresh draft.
+ * Has anything in this chain been typed rather than written by us?
  *
- * Measured as Jaccard overlap of word tokens, which is symmetric on purpose:
- * both "how much of our rewrite survived" and "how much of this text is new"
- * have to be answered, and either one alone is wrong. Coverage alone would call
- * a two-word rewrite the parent of any sentence containing those two words;
- * novelty alone would call an appended clause a new draft.
+ * Set when an enhance reads editor text that is not byte-equal to our last
+ * rewrite. The user edited our rewrite, or replaced it wholesale, and pi's
+ * extension API cannot tell those apart: there is no editor-change event, no
+ * way to observe the editor between our own writes, and nothing that reports
+ * who wrote the current text. (`ui.setEditorComponent` would see keystrokes,
+ * but it is a single exclusive slot — taking it means owning the whole editor
+ * for every other extension in the session, for a status-line nuance.)
  *
- * At 0.5 a typical hand-edit — fixing a word, adding or cutting a clause in a
- * paragraph-length rewrite — stays well above the line, while a draft the user
- * typed over the top of it sits far below.
+ * So the flag does not try to name what happened. It records that the stored
+ * original may not be the newest thing the user typed, and `revertStatusText`
+ * downgrades its claim accordingly. A hedged sentence for a hand-edit is a
+ * small cost; a confident sentence for a lost draft is not.
  */
-export const REFINEMENT_MIN_SIMILARITY = 0.5;
-
-const WORD_TOKEN_RE = /[\p{L}\p{N}_]+/gu;
-
-function wordTokens(text: string): Set<string> {
-  return new Set(text.toLowerCase().match(WORD_TOKEN_RE) ?? []);
-}
+let chainLeftOurText = false;
 
 /**
- * Is `current` this extension's own `produced` rewrite, edited?
+ * What `/prompt_enhance_revert` says it just did.
  *
- * Strict equality was the whole of this test until it was found to be too
- * strict to keep its own promise. Enhance, hand-edit the rewrite, enhance
- * again, revert: the hand-edit made `current !== produced`, the second enhance
- * therefore recorded the *edited rewrite* as "the original", and Ctrl+Shift+Z
- * left a machine draft in the editor under the status "Reverted to your
- * original prompt." The typed draft was gone and unreachable, and the status
- * said otherwise — a status line that lies is worse than the lost text.
- *
- * A stack would not have fixed it: revert has one destination, the text the
- * user actually wrote, so the question was never "which draft" but "is this
- * still the same chain". Overlap answers that without needing history.
+ * The strong form is only reachable when every enhance in the chain read back
+ * exactly the text we wrote, so the restored string is provably the draft the
+ * user typed and nothing has been typed over it since. Otherwise the message
+ * names the point in time it restored from and warns that later typing is not
+ * in it — true both when the user hand-edited our rewrite (their original does
+ * come back) and when they retyped over it (it does not).
  */
-export function isRefinementOf(current: string, produced: string): boolean {
-  const a = current.trim();
-  const b = produced.trim();
-  if (a.length === 0 || b.length === 0) return false;
-  if (a === b) return true;
-
-  const currentTokens = wordTokens(a);
-  const producedTokens = wordTokens(b);
-  if (currentTokens.size === 0 || producedTokens.size === 0) return false;
-
-  let shared = 0;
-  for (const token of currentTokens) if (producedTokens.has(token)) shared += 1;
-  const union = currentTokens.size + producedTokens.size - shared;
-  return union > 0 && shared / union >= REFINEMENT_MIN_SIMILARITY;
+export function revertStatusText(chainLeftOurTextValue: boolean): string {
+  return chainLeftOurTextValue
+    ? "Restored your prompt from before the first enhance — later edits are not in it."
+    : "Reverted to your original prompt.";
 }
 
 /** Session-scoped. Off by default. Enter enhances, Enter again sends. */
@@ -1427,15 +1416,20 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
-    // Re-enhancing our own output — including our own output after the user has
-    // edited it by hand — keeps the original the user typed. Only a draft that
-    // is no longer recognisable as our rewrite is a new original, and the revert
-    // promise then points at that.
-    const refiningOurOwnOutput =
-      lastOriginalPrompt !== undefined &&
-      lastEnhancedText !== undefined &&
-      isRefinementOf(originalPrompt, lastEnhancedText);
-    if (!refiningOurOwnOutput) lastOriginalPrompt = originalPrompt;
+
+    // A chain opens on the first enhance after a submit, a revert or a session
+    // start, and on any enhance given its text as a command argument — an
+    // argument is something the user typed, never something we wrote. Inside an
+    // open chain the stored original never moves.
+    if (lastOriginalPrompt === undefined || providedText !== undefined) {
+      lastOriginalPrompt = originalPrompt;
+      chainLeftOurText = false;
+    } else if (originalPrompt !== lastEnhancedText?.trim()) {
+      // Byte-inequality is the only signal available here, and it is one-way:
+      // it proves someone else wrote the editor, without saying whether they
+      // edited our rewrite or replaced it. The status line hedges from here on.
+      chainLeftOurText = true;
+    }
     lastEnhancedText = result.enhanced;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
     const enhanced = autoEnhanceEnabled
@@ -1486,11 +1480,13 @@ function runRevert(ctx: ExtensionContext): void {
     return;
   }
   const restored = lastOriginalPrompt;
+  const hedge = chainLeftOurText;
   lastOriginalPrompt = undefined;
   lastEnhancedText = undefined;
+  chainLeftOurText = false;
   ctx.ui.setEditorText(restored);
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
-  showTransientStatus(ctx, "Reverted to your original prompt.");
+  showTransientStatus(ctx, revertStatusText(hedge));
 }
 
 function extractMessageText(content: unknown): string {
@@ -1544,6 +1540,7 @@ export default function (pi: ExtensionAPI): void {
     activeCtx = ctx;
     lastOriginalPrompt = undefined;
     lastEnhancedText = undefined;
+    chainLeftOurText = false;
     autoEnhanceEnabled = false;
     clearTransientStatusTimer();
     if (!ctx.hasUI) return;
@@ -1575,6 +1572,7 @@ export default function (pi: ExtensionAPI): void {
       if (lastOriginalPrompt !== undefined) {
         lastOriginalPrompt = undefined;
         lastEnhancedText = undefined;
+        chainLeftOurText = false;
         if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
       }
       return { action: "continue" };
