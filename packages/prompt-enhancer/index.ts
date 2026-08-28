@@ -302,6 +302,11 @@ let enhancerModelOverride: Model<Api> | undefined;
  * is what makes Ctrl+Shift+Z reach past a whole run of rewrites to the draft
  * the user actually typed.
  *
+ * It is also what a repeat enhance re-runs. Pressing Ctrl+Shift+E again over an
+ * untouched rewrite rewrites *this*, not the rewrite on screen: the point of
+ * enhancing twice is a different approach to the same request, and a rewrite of
+ * a rewrite is not that.
+ *
  * Two earlier rules were tried here and both failed the same way. Assigning it
  * on every success overwrote the typed draft with rewrite #1. Assigning it
  * whenever the editor text no longer looked like our last rewrite — word-token
@@ -327,6 +332,10 @@ let lastOriginalPrompt: string | undefined;
  * back untouched. That certainty is all this value is used for. It answers one
  * question — "has anything other than us written the editor since?" — and never
  * decides which text revert restores.
+ *
+ * Two things turn on the answer: whether the status line may claim nothing was
+ * typed over the chain, and whether the next enhance re-rolls the stored
+ * original instead of rewriting the rewrite on screen.
  */
 let lastEnhancedText: string | undefined;
 
@@ -365,7 +374,9 @@ export function toEditorText(text: string): string {
  * before the trim decides whether it is whitespace.
  *
  * What rides on the answer: whether the revert status line may claim nothing was
- * typed over the chain.
+ * typed over the chain, and whether this enhance re-rolls the stored original
+ * rather than rewriting the rewrite. One comparison, so the two can never
+ * disagree about what the editor is holding.
  */
 export function editorHoldsOurText(editorText: string, ourText: string | undefined): boolean {
   if (ourText === undefined) return false;
@@ -404,6 +415,21 @@ export function revertStatusText(chainLeftOurTextValue: boolean): string {
   return chainLeftOurTextValue
     ? "Reverted to your original prompt; later edits lost."
     : "Reverted to your original prompt.";
+}
+
+/**
+ * What the status line says after a successful rewrite.
+ *
+ * The re-roll wording exists because a re-roll can otherwise look like nothing
+ * happened: the same prompt goes to the model a second time, and a model that
+ * answers much as it did the first time leaves the editor looking untouched.
+ * Naming what was enhanced — the original, not the rewrite on screen — is the
+ * whole of the difference, and it costs a sentence rather than a new command,
+ * shortcut or piece of state.
+ */
+export function enhancedStatusText(options: { rerolled: boolean; autoEnhance: boolean }): string {
+  const what = options.rerolled ? "Re-enhanced your original prompt" : "Prompt enhanced";
+  return options.autoEnhance ? `${what} — Enter to send.` : `${what} — Ctrl+Shift+Z to revert.`;
 }
 
 /** Session-scoped. Off by default. Enter enhances, Enter again sends. */
@@ -1406,7 +1432,35 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   }
 
   const editorText = ctx.ui.getEditorText();
-  const originalPrompt = (providedText ?? editorText).trim();
+  const typedPrompt = (providedText ?? editorText).trim();
+
+  /**
+   * Is the editor exactly as we left it?
+   *
+   * Command arguments are excluded on purpose: an argument is something the
+   * user typed, and typing one opens a fresh chain, so it can never be a
+   * re-roll of the previous one.
+   */
+  const editorHeldOurRewrite =
+    providedText === undefined && editorHoldsOurText(editorText, lastEnhancedText);
+
+  /**
+   * A second Ctrl+Shift+E over an untouched rewrite is a re-roll, not a second
+   * pass.
+   *
+   * Feeding rewrite #1 back to the model produced rewrite-of-a-rewrite: each
+   * press drifted further from what the user meant, and asking again for "a
+   * different approach" — the thing repeat-enhancing is *for* — instead
+   * compounded the last one. Re-running the stored original gives a genuine
+   * alternative from the same starting point.
+   *
+   * The exception is the whole point of the comparison: if the editor is not
+   * byte-for-byte what we wrote, the user changed it, and their change is the
+   * prompt.
+   */
+  const storedOriginal = lastOriginalPrompt;
+  const rerollingOriginal = storedOriginal !== undefined && editorHeldOurRewrite;
+  const originalPrompt = rerollingOriginal ? storedOriginal : typedPrompt;
 
   if (!originalPrompt) {
     showTransientStatus(ctx, "Nothing to enhance (editor is empty).");
@@ -1534,19 +1588,20 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
     if (lastOriginalPrompt === undefined || providedText !== undefined) {
       lastOriginalPrompt = originalPrompt;
       chainLeftOurText = false;
-    } else if (!editorHoldsOurText(originalPrompt, lastEnhancedText)) {
+    } else if (!editorHeldOurRewrite) {
       // Byte-inequality is the only signal available here, and it is one-way:
       // it proves someone else wrote the editor, without saying whether they
       // edited our rewrite or replaced it. The status line hedges from here on.
-      // Compared in the editor's representation, or a rewrite carrying a tab
-      // would look edited on every read-back and hedge a chain nobody touched.
+      // The same answer that chose this run's prompt: one comparison, two
+      // consequences, so the status can never disagree with what was enhanced.
       chainLeftOurText = true;
     }
     lastEnhancedText = result.enhanced;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
-    const enhanced = autoEnhanceEnabled
-      ? "Prompt enhanced — Enter to send."
-      : "Prompt enhanced — Ctrl+Shift+Z to revert.";
+    const enhanced = enhancedStatusText({
+      rerolled: rerollingOriginal,
+      autoEnhance: autoEnhanceEnabled,
+    });
     const skipped = formatSkippedFiles(result.skippedFiles);
     showTransientStatus(ctx, skipped === undefined ? enhanced : `${enhanced} ${skipped}`);
     return;

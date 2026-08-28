@@ -37,6 +37,7 @@ import factory, {
   ENHANCER_RETRY_POLICY,
   type EnhancerContext,
   editorHoldsOurText,
+  enhancedStatusText,
   filterPickerItems,
   formatEnhancementFailure,
   formatRetryStatus,
@@ -2026,5 +2027,194 @@ describe("revert", () => {
     expect(lastWidgetLine(host.log)).toContain("Nothing to revert.");
     expect(host.ctx.ui.getEditorText()).toBe("ONE");
     await shutdown(host);
+  });
+});
+
+// ── Repeat enhance, end to end through the real runEnhancer ─────────────
+//
+// What reaches the model is the whole question here, so these tests read the
+// prompt out of the request the faux provider actually receives rather than
+// inferring it from what came back.
+
+describe("repeat enhance", () => {
+  const TYPED = "fix the tpyo in the readme";
+  let faux: ReturnType<typeof registerFauxProvider>;
+
+  beforeAll(() => {
+    faux = registerFauxProvider({ api: "faux-reroll", provider: "faux-reroll" });
+  });
+
+  afterAll(() => {
+    faux.unregister();
+  });
+
+  /** The text under the user message's "## Original prompt" heading. */
+  function originalPromptOf(context: { messages: readonly unknown[] }): string {
+    const message = context.messages.at(-1) as { content?: unknown };
+    const content = message.content;
+    const text =
+      typeof content === "string"
+        ? content
+        : (content as { type: string; text?: string }[])
+            .filter((block) => block.type === "text")
+            .map((block) => block.text ?? "")
+            .join("");
+    const heading = "## Original prompt\n";
+    return text.slice(text.indexOf(heading) + heading.length);
+  }
+
+  /** Script the replies, recording the prompt each call was given. */
+  function script(replies: readonly string[]): string[] {
+    const seen: string[] = [];
+    faux.setResponses(
+      replies.map((reply) => (context: { messages: readonly unknown[] }) => {
+        seen.push(originalPromptOf(context));
+        return fauxAssistantMessage(reply);
+      }),
+    );
+    return seen;
+  }
+
+  async function armed(): Promise<{
+    harness: ReturnType<typeof createHarness>;
+    ctx: ExtensionContext;
+    log: HostLog;
+    typeIntoEditor: (text: string) => void;
+  }> {
+    const harness = createHarness();
+    const host = createHost({ draft: TYPED, model: faux.getModel() });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    return { harness, ...host };
+  }
+
+  const enhance = (
+    h: { harness: ReturnType<typeof createHarness>; ctx: ExtensionContext },
+    args = "",
+  ) => h.harness.commands.get("prompt_enhance")?.(args, h.ctx);
+
+  const revert = (h: { harness: ReturnType<typeof createHarness>; ctx: ExtensionContext }) =>
+    h.harness.commands.get("prompt_enhance_revert")?.("", h.ctx);
+
+  const shutdown = (h: { harness: ReturnType<typeof createHarness>; ctx: ExtensionContext }) =>
+    h.harness.events.get("session_shutdown")?.({}, h.ctx);
+
+  /**
+   * The reported defect: pressing Ctrl+Shift+E twice used to hand rewrite #1
+   * back to the model, so each press drifted further from the request instead
+   * of offering another approach to it.
+   */
+  it("re-rolls the stored original instead of rewriting its own rewrite", async () => {
+    const host = await armed();
+    const seen = script(["REWRITE ONE", "REWRITE TWO"]);
+
+    await enhance(host);
+    await enhance(host);
+
+    expect(seen).toEqual([TYPED, TYPED]);
+    expect(host.ctx.ui.getEditorText()).toBe("REWRITE TWO");
+
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  it("keeps re-rolling the original on a third press", async () => {
+    const host = await armed();
+    const seen = script(["ONE", "TWO", "THREE"]);
+
+    await enhance(host);
+    await enhance(host);
+    await enhance(host);
+
+    expect(seen).toEqual([TYPED, TYPED, TYPED]);
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  /**
+   * The exception, and the reason the comparison has to be exact: an edit is
+   * the user saying something, so it is what gets enhanced.
+   */
+  it("enhances the edited text when the user changed the rewrite", async () => {
+    const host = await armed();
+    const seen = script(["Fix the misspelling in README.md.", "SECOND REWRITE"]);
+
+    await enhance(host);
+    const edited = "Fix the misspelling in README.md, and leave the wording alone.";
+    host.typeIntoEditor(edited);
+    await enhance(host);
+
+    expect(seen).toEqual([TYPED, edited]);
+
+    // The chain is unmoved by the edit: revert still reaches the typed draft.
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    await shutdown(host);
+  });
+
+  /**
+   * Change 1 and Change 2 in one case. A tab in the rewrite comes back as four
+   * spaces; if the comparison did not account for that, the enhancer would read
+   * its own untouched output as a hand edit and rewrite the rewrite.
+   */
+  it("still re-rolls when the rewrite contains a tab the editor expanded", async () => {
+    const host = await armed();
+    const seen = script(["Fix the typo:\n\n```ts\n\tconst a = 1;\n```", "SECOND REWRITE"]);
+
+    await enhance(host);
+    await enhance(host);
+
+    expect(seen).toEqual([TYPED, TYPED]);
+    await shutdown(host);
+  });
+
+  it("enhances a command argument rather than re-rolling", async () => {
+    const host = await armed();
+    const seen = script(["REWRITE ONE", "REWRITE TWO"]);
+
+    await enhance(host);
+    // An argument is something the user typed, so it opens a fresh chain.
+    await enhance(host, "add a changelog entry for 3.0");
+
+    expect(seen).toEqual([TYPED, "add a changelog entry for 3.0"]);
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe("add a changelog entry for 3.0");
+    await shutdown(host);
+  });
+
+  it("says which prompt it re-enhanced, so a similar rewrite is not mistaken for a no-op", async () => {
+    const host = await armed();
+    script(["REWRITE ONE", "REWRITE ONE"]);
+
+    await enhance(host);
+    expect(lastWidgetLine(host.log)).toContain("Prompt enhanced");
+
+    await enhance(host);
+    expect(lastWidgetLine(host.log)).toContain("Re-enhanced your original prompt");
+    await shutdown(host);
+  });
+});
+
+describe("enhancedStatusText", () => {
+  it("names the revert shortcut when Enter still sends", () => {
+    expect(enhancedStatusText({ rerolled: false, autoEnhance: false })).toBe(
+      "Prompt enhanced — Ctrl+Shift+Z to revert.",
+    );
+  });
+
+  it("points at Enter when auto-enhance armed this rewrite", () => {
+    expect(enhancedStatusText({ rerolled: false, autoEnhance: true })).toBe(
+      "Prompt enhanced — Enter to send.",
+    );
+  });
+
+  it("names the original as the input on a re-roll", () => {
+    expect(enhancedStatusText({ rerolled: true, autoEnhance: false })).toBe(
+      "Re-enhanced your original prompt — Ctrl+Shift+Z to revert.",
+    );
+    expect(enhancedStatusText({ rerolled: true, autoEnhance: true })).toBe(
+      "Re-enhanced your original prompt — Enter to send.",
+    );
   });
 });

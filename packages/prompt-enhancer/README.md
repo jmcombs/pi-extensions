@@ -61,6 +61,14 @@ After an enhance, the footer reminds you how to revert. With auto-enhance on it
 also says `Enter to send`. Press **Esc** to cancel an enhance that is still
 running.
 
+Press `Ctrl+Shift+E` again on a rewrite you have not touched and you get another
+rewrite of your *original* prompt, not a rewrite of the rewrite — press it a few
+times to see different approaches to the same request. The footer says
+`Re-enhanced your original prompt` when that is what happened, since a second
+rewrite can read much like the first. Edit the rewrite first and enhancing takes
+your edited text instead: an edit is you saying something, so it is what gets
+rewritten.
+
 Revert always goes back to the draft you typed before the *first* enhance, not
 to the previous rewrite, and enhancing repeatedly never moves that target: a
 chain runs from the first enhance to the next thing you send. Stepping back
