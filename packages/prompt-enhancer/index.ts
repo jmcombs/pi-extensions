@@ -398,10 +398,14 @@ export interface EnhancerContext {
    */
   conventions?: { path: string; content: string }[];
   /**
-   * Files that exist and were *refused* by the read guards — binary, oversized,
-   * or outside the project. Never sent to the model; surfaced to the user so a
-   * refusal is a statement rather than a silence. Files that simply are not
-   * there never appear here.
+   * Files inside the project that were `stat`ed successfully and then *refused*
+   * by a read guard — oversized, unreadable, or not text. Never sent to the
+   * model; surfaced to the user by repo-relative path so a refusal is a
+   * statement rather than a silence.
+   *
+   * A path that is not there, and a path that escapes the working directory,
+   * are both absent from this list: the first is the ordinary case, and the
+   * second has no repo-relative name to show.
    */
   skippedFiles?: SkippedFile[];
   /**
@@ -544,6 +548,22 @@ function extractFileMentions(prompt: string): string[] {
 /** ESC, the byte every ANSI escape sequence starts with. */
 const ESC_CODE = 0x1b;
 
+/** `]`, the introducer that makes an escape sequence an OSC. */
+const OSC_INTRODUCER = 0x5d;
+
+/**
+ * BEL, the other way an OSC ends.
+ *
+ * Exempting ESC alone was half the fix. An OSC — a hyperlink, a window title —
+ * is `ESC ] … ST`, and `ST` is spelled either `ESC \` or a bare BEL. `gh` and
+ * `cargo` write OSC-8 hyperlinks into their output, so a saved log of either is
+ * ordinary text carrying one BEL per link: 2.98% controls on a measured
+ * capture, refused as "not text" by a 2% threshold. The `ESC \` spelling was
+ * already exempt, which made the refusal depend on which spelling the tool
+ * happened to use.
+ */
+const BEL_CODE = 0x07;
+
 /**
  * Is the character at `index` an ESC that introduces an ANSI escape sequence?
  *
@@ -592,9 +612,18 @@ function looksBinary(raw: string): boolean {
   const probe = raw.slice(0, BINARY_PROBE_CHARS);
   if (probe.length === 0) return false;
   let suspicious = 0;
+  // Inside an OSC — opened by `ESC ]`, closed by BEL or by ST (`ESC \`).
+  let inOsc = false;
   for (let i = 0; i < probe.length; i += 1) {
     const code = probe.charCodeAt(i);
-    if (code === ESC_CODE && startsAnsiSequence(probe, i)) continue;
+    if (code === ESC_CODE && startsAnsiSequence(probe, i)) {
+      inOsc = probe.charCodeAt(i + 1) === OSC_INTRODUCER;
+      continue;
+    }
+    if (code === BEL_CODE && inOsc) {
+      inOsc = false;
+      continue;
+    }
     // U+FFFD REPLACEMENT CHARACTER, or a C0 control that is not \t \n \r.
     if (code === 0xfffd || (code < 32 && code !== 9 && code !== 10 && code !== 13)) {
       suspicious += 1;
@@ -606,6 +635,12 @@ function looksBinary(raw: string): boolean {
 /**
  * Why a file the extension was willing to consider did not make it into the
  * prompt. Surfaced to the user; see `formatSkippedFiles`.
+ *
+ * `path` is always repo-relative and always a path that was `stat`ed
+ * successfully. It is never the token the user typed: the extractor takes
+ * `~/.ssh/id_rsa` apart into `/.ssh/id_rsa`, and a note built from raw tokens
+ * put strings like that — and, for a real absolute path, the absolute path
+ * itself — in the status bar.
  */
 export interface SkippedFile {
   path: string;
@@ -615,10 +650,12 @@ export interface SkippedFile {
 /**
  * The outcome of one guarded read.
  *
- * `refused` is the distinction that matters to the UI: a file that simply is
- * not there is the ordinary case and says nothing, while a file that exists and
- * was *rejected* is something the user asked for and did not get. The second
- * used to be as silent as the first.
+ * `refusal` is the distinction that matters to the UI, and it is narrower than
+ * "a guard said no". It is set only for a file that resolves inside the project
+ * and exists — the user named something real and did not get it. Everything
+ * else is silent: a path that is not there, and a path that escapes the working
+ * directory, which has no repo-relative name to show and whose existence is not
+ * the status bar's to report.
  */
 type GuardedRead = { ok: true; path: string; raw: string } | { ok: false; refusal?: SkippedFile };
 
@@ -638,7 +675,12 @@ async function readGuardedFile(candidate: string, cwd: string): Promise<GuardedR
   const resolved = path.resolve(cwd, candidate);
   const rel = path.relative(cwd, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
-    return { ok: false, refusal: { path: candidate, why: "outside the project" } };
+    // Silent, and deliberately so. There is no repo-relative name for a path
+    // that escapes the project, and `candidate` is the raw token — naming it
+    // rendered `/Users/…/Library/Keychains/login.keychain-db` in the status
+    // bar, and `~/.ssh/id_rsa` as the `/.ssh/id_rsa` the extractor made of it,
+    // for files that had not even been `stat`ed.
+    return { ok: false };
   }
 
   // Then again on the *real* path. The check above compares strings, and a
@@ -654,9 +696,7 @@ async function readGuardedFile(candidate: string, cwd: string): Promise<GuardedR
     return { ok: false };
   }
   const realRel = path.relative(realCwd, realResolved);
-  if (realRel.startsWith("..") || path.isAbsolute(realRel)) {
-    return { ok: false, refusal: { path: rel, why: "outside the project" } };
-  }
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) return { ok: false };
 
   let stat: Stats;
   try {
@@ -1114,23 +1154,51 @@ type EnhancementOutcome =
 const SKIPPED_FILES_SHOWN = 2;
 
 /**
+ * Budget for the whole note, and for one path inside it.
+ *
+ * The note is appended to a status line in a single-line widget that does not
+ * wrap or truncate, so an unbounded note pushes the rest of the line off the
+ * terminal. Two refused files nested a few directories deep measured 243
+ * characters. A deep path keeps its tail — the basename is the half that
+ * identifies the file — behind a leading ellipsis.
+ */
+const SKIPPED_NOTE_MAX_CHARS = 120;
+const SKIPPED_PATH_MAX_CHARS = 40;
+
+function shortenSkippedPath(filePath: string): string {
+  if (filePath.length <= SKIPPED_PATH_MAX_CHARS) return filePath;
+  return `…${filePath.slice(filePath.length - (SKIPPED_PATH_MAX_CHARS - 1))}`;
+}
+
+/**
  * One clause naming the files the guards refused, or `undefined`.
  *
  * A refusal used to be invisible: name a saved terminal log or a `.png` in the
  * prompt, and the rewrite came back built on context that quietly excluded it.
  * The reason travels with the name because the reasons are actionable in
  * different ways — "too large" is a different problem from "not text".
+ *
+ * Every path here is repo-relative and belongs to a file that exists; see
+ * `SkippedFile`. The note names as many as fit the budget and then gives up on
+ * names rather than on the budget: a bare count still tells the user that
+ * something was left out.
  */
 export function formatSkippedFiles(
   skipped: readonly SkippedFile[] | undefined,
 ): string | undefined {
   if (skipped === undefined || skipped.length === 0) return undefined;
-  const named = skipped
-    .slice(0, SKIPPED_FILES_SHOWN)
-    .map((file) => `${file.path} (${file.why})`)
-    .join(", ");
-  const rest = skipped.length - SKIPPED_FILES_SHOWN;
-  return rest > 0 ? `Skipped ${named} +${String(rest)} more.` : `Skipped ${named}.`;
+
+  for (let shown = SKIPPED_FILES_SHOWN; shown >= 1; shown -= 1) {
+    const named = skipped
+      .slice(0, shown)
+      .map((file) => `${shortenSkippedPath(file.path)} (${file.why})`)
+      .join(", ");
+    const rest = skipped.length - shown;
+    const note = rest > 0 ? `Skipped ${named} +${String(rest)} more.` : `Skipped ${named}.`;
+    if (note.length <= SKIPPED_NOTE_MAX_CHARS) return note;
+  }
+
+  return skipped.length === 1 ? "Skipped 1 file." : `Skipped ${String(skipped.length)} files.`;
 }
 
 /**

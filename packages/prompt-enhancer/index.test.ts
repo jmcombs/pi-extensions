@@ -704,6 +704,48 @@ describe("formatSkippedFiles", () => {
       ]),
     ).toBe("Skipped a.png (not text), b.md (too large) +1 more.");
   });
+
+  /**
+   * The note rides a single-line widget that neither wraps nor truncates, so an
+   * unbounded note pushes the rest of the status off the terminal. Two refused
+   * files a few directories deep measured 243 characters.
+   */
+  it("keeps the note inside its budget however deep the paths are", () => {
+    const deep = (name: string) => `packages/prompt-enhancer/acceptance/fixtures/generated/${name}`;
+    for (const skipped of [
+      [{ path: deep("one-with-a-long-name.bin"), why: "not text" }],
+      [
+        { path: deep("one-with-a-long-name.bin"), why: "not text" },
+        { path: deep("another-long-name.log"), why: "too large" },
+      ],
+      [
+        { path: deep("one-with-a-long-name.bin"), why: "not text" },
+        { path: deep("another-long-name.log"), why: "too large" },
+        { path: deep("a-third.ico"), why: "not text" },
+      ],
+    ]) {
+      const note = formatSkippedFiles(skipped);
+      expect(note, JSON.stringify(skipped)).toBeDefined();
+      expect((note ?? "").length, note).toBeLessThanOrEqual(120);
+    }
+  });
+
+  it("keeps the tail of a long path, which is the half that names the file", () => {
+    const note = formatSkippedFiles([
+      { path: "packages/prompt-enhancer/acceptance/fixtures/icon.ico", why: "not text" },
+    ]);
+    expect(note).toContain("icon.ico");
+    expect(note).toContain("…");
+    expect((note ?? "").length).toBeLessThanOrEqual(120);
+  });
+
+  it("gives up on names before it gives up on the budget", () => {
+    const note = formatSkippedFiles([
+      { path: "a".repeat(200), why: "not text" },
+      { path: "b".repeat(200), why: "too large" },
+    ]);
+    expect((note ?? "").length).toBeLessThanOrEqual(120);
+  });
 });
 
 describe("normalizeFailureReason", () => {
@@ -1176,6 +1218,58 @@ describe("mentioned-file guards", () => {
     } finally {
       await fs.rm(outside, { force: true });
     }
+  });
+
+  /**
+   * What the status bar is allowed to say about a path it never read.
+   *
+   * The containment check returned the raw token as a `SkippedFile` before any
+   * `stat`, so `"read /Users/…/Library/Keychains/login.keychain-db"` rendered
+   * that absolute path verbatim in the widget, and `"check ~/.ssh/id_rsa"`
+   * rendered `/.ssh/id_rsa` — a path the user never typed, because the token
+   * extractor drops the tilde. Neither file had been looked at. A path outside
+   * the project has no repo-relative name and is now silent.
+   */
+  it("says nothing about a path outside the project, read or not", async () => {
+    for (const prompt of [
+      "read /Users/someone/Library/Keychains/login.keychain-db",
+      "check ~/.ssh/id_rsa",
+      "look at /var/db/no-such-thing/nope.md",
+      "read ../escaped-secret.md and fix it",
+    ]) {
+      const context = await gather(prompt);
+      expect(context.skippedFiles ?? [], prompt).toEqual([]);
+      expect(JSON.stringify(context), prompt).not.toContain("Keychains");
+      expect(JSON.stringify(context), prompt).not.toContain("id_rsa");
+    }
+  });
+
+  it("says nothing about a file inside the project that is not there", async () => {
+    const context = await gather("fix the typo in docs/not-a-real-file.md");
+    expect(context.skippedFiles ?? []).toEqual([]);
+  });
+
+  /**
+   * The other spelling of an OSC terminator.
+   *
+   * ESC was exempt from the control ratio and BEL was not, so an OSC-8
+   * hyperlinked log — what `gh` and `cargo` write — scored 2.98% controls and
+   * was refused as "not text", while the same log written with the `ESC \\`
+   * terminator was accepted. The refusal depended on which spelling the tool
+   * chose.
+   */
+  it("accepts a log whose hyperlinks and titles end with BEL", async () => {
+    const link = "\u001b]8;;https://example.com/run/1\u0007view run\u001b]8;;\u0007";
+    const title = "\u001b]0;build: package 12/40\u0007";
+    await fs.mkdir(path.join(cwd, "logs"), { recursive: true });
+    await fs.writeFile(
+      path.join(cwd, "logs", "osc8.log"),
+      `${title}${`${link} PASS packages/prompt-enhancer\n`.repeat(60)}`,
+    );
+
+    const context = await gather("this is what CI printed, see logs/osc8.log");
+    expect(context.mentionedFiles.map((f) => f.path)).toContain("logs/osc8.log");
+    expect(context.skippedFiles ?? []).toEqual([]);
   });
 
   it("refuses a symlink that points out of the working directory", async () => {
