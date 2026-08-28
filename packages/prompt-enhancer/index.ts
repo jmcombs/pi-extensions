@@ -353,14 +353,14 @@ let chainLeftOurText = false;
  *
  * The strong form is only reachable when every enhance in the chain read back
  * exactly the text we wrote, so the restored string is provably the draft the
- * user typed and nothing has been typed over it since. Otherwise the message
- * names the point in time it restored from and warns that later typing is not
- * in it — true both when the user hand-edited our rewrite (their original does
+ * user typed and nothing has been typed over it since. Otherwise the same
+ * sentence carries a warning that anything typed after the first enhance is
+ * gone. That is true when the user hand-edited our rewrite (their original does
  * come back) and when they retyped over it (it does not).
  */
 export function revertStatusText(chainLeftOurTextValue: boolean): string {
   return chainLeftOurTextValue
-    ? "Restored your prompt from before the first enhance — later edits are not in it."
+    ? "Reverted to your original prompt; later edits lost."
     : "Reverted to your original prompt.";
 }
 

@@ -675,11 +675,11 @@ describe("revertStatusText", () => {
     expect(revertStatusText(false)).toBe("Reverted to your original prompt.");
   });
 
-  it("says what it restored, not whose it is, once the chain left our text", () => {
+  it("keeps the same sentence and warns about later edits once the chain left our text", () => {
     const hedged = revertStatusText(true);
-    expect(hedged).not.toContain("your original prompt");
-    expect(hedged).toContain("before the first enhance");
-    expect(hedged).toContain("later edits are not in it");
+    expect(hedged).toBe("Reverted to your original prompt; later edits lost.");
+    // Same opening as the clean path: one sentence the user learns once.
+    expect(hedged.startsWith("Reverted to your original prompt")).toBe(true);
   });
 });
 
@@ -1823,8 +1823,8 @@ describe("revert", () => {
     await revert(host);
     expect(host.ctx.ui.getEditorText()).toBe(TYPED);
     const status = lastWidgetLine(host.log);
-    expect(status).not.toContain("your original prompt");
-    expect(status).toContain("before the first enhance");
+    expect(status).toContain("Reverted to your original prompt");
+    expect(status).toContain("later edits lost");
     await shutdown(host);
   });
 
