@@ -1246,6 +1246,11 @@ function updateWidget(ctx: ExtensionContext, transientStatus?: string): void {
  *
  * Inert without a UI: `updateWidget` is a no-op when `ctx.hasUI` is false, so
  * the headless path sets a boolean nobody reads.
+ *
+ * The assignment comes first so that a throw out of the repaint still leaves
+ * the flag at its new value. The main flow enters the state without this
+ * helper, for the same reason spelled out where it does so: it needs the
+ * assignment outside its `try` and the repaint inside.
  */
 function setEnhancing(ctx: ExtensionContext, active: boolean): void {
   enhancingInFlight = active;
@@ -1602,14 +1607,21 @@ async function runEnhancer(
   // that changes while the call is out. Whatever the last transient message
   // was, its window is over the moment new work starts.
   clearTransientStatusTimer();
-  setEnhancing(ctx, true);
 
-  // Nothing between the line above and this `try`. Everything that decides how
-  // to run — reading `ctx.mode`, gathering session history — is inside it,
-  // because a throw out there would leave the widget lit with no path back:
-  // the shortcut handler swallows it, pi logs `Shortcut handler error`, and
-  // `enhancing…` stays on screen until the next session_start.
+  // Entering the enhancing state is two steps, and only the second can throw:
+  // the flag is ours and assigning it cannot fail, while the repaint that shows
+  // it ends in `ctx.ui.setWidget` — pi's code, free to throw on any paint. So
+  // the flag is set here, bare, and the paint happens inside the `try` below,
+  // together with everything else that decides how to run (reading `ctx.mode`,
+  // gathering session history). That is the guarantee: every statement from
+  // here on that can throw is inside the block `finally` covers, so there is no
+  // way to reach a throw with the flag set and no path back — which is what
+  // would leave `enhancing…` lit until the next session_start, the shortcut
+  // handler having swallowed the error and pi logged `Shortcut handler error`.
+  enhancingInFlight = true;
   try {
+    updateWidget(ctx);
+
     // Custom components are terminal-only. pi's own JSDoc on
     // ExtensionContext.mode says to guard them on "tui"; RPC keeps hasUI true
     // but implements custom() as `async custom() { return undefined; }`, which

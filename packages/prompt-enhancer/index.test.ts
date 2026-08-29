@@ -916,6 +916,11 @@ function createHost(options: {
    */
   model?: unknown;
   cwd?: string;
+  /**
+   * Throw out of `setWidget` on the first paint that carries the enhancing
+   * chip — pi's own repaint failing at the exact moment the state is entered.
+   */
+  explodeOnEnhancingPaint?: boolean;
 }): {
   ctx: ExtensionContext;
   log: HostLog;
@@ -925,6 +930,9 @@ function createHost(options: {
   typeIntoEditor: (text: string) => void;
 } {
   const log: HostLog = { notifications: [], widgets: [], editorTexts: [], authLookups: 0 };
+  // One explosion only: every later repaint, including the one `finally`
+  // fires, must get through for the test to see where the state ended up.
+  let exploded = false;
 
   const tuiStub = { requestRender: () => {}, terminal: { rows: 24, columns: 80 } };
   const themeStub = {
@@ -973,7 +981,17 @@ function createHost(options: {
       },
       setStatus: () => {},
       setWidget: (_key: string, lines: string[]) => {
+        // Logged before the throw, so the log holds what the user's widget was
+        // left showing — the same thing a real host would have on screen.
         log.widgets.push(lines);
+        if (
+          options.explodeOnEnhancingPaint === true &&
+          !exploded &&
+          hasEnhancingChip(lines[0] ?? "")
+        ) {
+          exploded = true;
+          throw new Error("host exploded painting the widget");
+        }
       },
       notify: (message: string, level: string) => {
         log.notifications.push({ message, level });
@@ -1392,6 +1410,43 @@ describe("the enhancing state", () => {
 
     expect(host.log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
     expect(hasEnhancingChip(lastWidgetLine(host.log))).toBe(false);
+    await harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  /**
+   * The same defect, one statement earlier.
+   *
+   * Entering the state is an assignment *and* a repaint, and the repaint ends
+   * in `ctx.ui.setWidget` — pi's function, not ours, free to throw. While both
+   * halves sat outside the `try`, a host that threw on that first paint left
+   * the flag true with no `finally` to clear it: the widget stayed lit and only
+   * a session_start put it back. The assignment now happens outside the block
+   * and the paint inside it, so the same throw unwinds through `finally`.
+   */
+  it("clears when the host throws painting the enhancing state itself", async () => {
+    const harness = createHarness();
+    const host = createHost({
+      draft: DRAFT,
+      model: faux.getModel(),
+      explodeOnEnhancingPaint: true,
+    });
+    await harness.events.get("session_start")?.({}, host.ctx);
+
+    await expect(harness.commands.get("prompt_enhance")?.("", host.ctx)).rejects.toThrow(
+      "host exploded painting the widget",
+    );
+
+    // The paint that threw is in the log, so the run really did reach it.
+    expect(host.log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(host.log))).toBe(false);
+
+    // And the state is clear, not merely unpainted: the next repaint of the
+    // session — toggling auto, which paints its own chip — comes back without
+    // the enhancing one.
+    await harness.commands.get("prompt_enhance_auto")?.("", host.ctx);
+    expect(hasAutoChip(lastWidgetLine(host.log))).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(host.log))).toBe(false);
+
     await harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 
