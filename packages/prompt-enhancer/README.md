@@ -140,29 +140,18 @@ flowchart TD
 ```
 
 Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
-are skipped. `Ctrl+Shift+E` enhances a skipped reply anyway — unless there is
-nothing there to work with. A draft has to be short both ways — under three
-words *and* under eight characters — before it is too short to rewrite into
-anything, and only then is it refused before any call is made:
+are skipped: on those turns you did not ask for a rewrite, so auto-enhance
+stands aside without a word. Naming a file is enough to count as a task, so
+`fix foo.ts` is not skipped.
+
+`Ctrl+Shift+E` and `/prompt_enhance` enhance a skipped reply anyway. Pressing
+the key is asking for the call, and it is always made — whatever the draft says
+and however short it is. The one thing that stops it is an empty editor, which
+has nothing to send:
 
 ```text
-Too short to enhance. Add a few more words.
+Nothing to enhance (editor is empty).
 ```
-
-Naming a file is enough on its own: `fix foo.ts` is a task, and it enhances.
-Two measures rather than one because words are counted by splitting on spaces,
-and not every language writes them: `implement OAuth2` and `memory leak` are
-two words each and both enhance, and so does a Chinese or Japanese request long
-enough to clear the character floor — `重写这个函数以支持异步并添加错误处理` counts
-as one word and eighteen characters.
-
-The floor is calibrated to how much an English draft says in eight characters,
-so a short *complete* request in a denser language is still refused: `优化性能`
-(optimize performance), `添加错误处理` (add error handling), `重构代码` (refactor
-the code) and `リファクタして` (refactor it) are all under it. Korean is hit
-hardest, because it writes spaces and is compact, so both measures catch it:
-`코드 리팩터링` (refactor the code) is two words and six characters. Adding a few
-more words is what gets one of these through.
 
 ## Requirements
 

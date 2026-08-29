@@ -59,10 +59,10 @@ import {
   SelectList,
   Text,
 } from "@earendil-works/pi-tui";
-import { shouldSkipAutoEnhance, tooShortToEnhance } from "./auto.js";
+import { shouldSkipAutoEnhance } from "./auto.js";
 import { formatStatusWidget } from "./widget.js";
 
-export { shouldSkipAutoEnhance, tooShortToEnhance } from "./auto.js";
+export { shouldSkipAutoEnhance } from "./auto.js";
 
 // `execFile` (not `exec`) avoids passing args through a shell, so we don't
 // need to escape user-derived `cwd` paths.
@@ -1504,20 +1504,7 @@ function setLoaderMessage(loader: BorderedLoader, message: string): void {
   if (isMessageSettable(inner)) inner.setMessage(message);
 }
 
-/**
- * What set a run off. The user's own key press may be told the draft is too
- * short; auto-enhance stands down without a word.
- */
-type EnhanceTrigger = "explicit" | "auto";
-
-/** What a draft with nothing in it to work with is told. */
-export const TOO_SHORT_MESSAGE = "Too short to enhance. Add a few more words.";
-
-async function runEnhancer(
-  ctx: ExtensionContext,
-  providedText: string | undefined,
-  trigger: EnhanceTrigger,
-): Promise<void> {
+async function runEnhancer(ctx: ExtensionContext, providedText: string | undefined): Promise<void> {
   // The enhancer needs an interactive editor (to read/write prompt text). In
   // print mode and JSON mode ctx.hasUI is false and there is no editor to read
   // from or write to, so the flow can't work — fail fast with a clear
@@ -1565,16 +1552,6 @@ async function runEnhancer(
 
   if (!originalPrompt) {
     showTransientStatus(ctx, "Nothing to enhance (editor is empty).");
-    return;
-  }
-
-  // Before credentials, before context gathering, before the call: two
-  // characters must never buy an 8k-token round trip. Auto-enhance is exempt
-  // because it already stood down for this shape of draft in the input
-  // handler, and it does that silently — saying this on every short turn would
-  // be the extension explaining itself for something the user did not ask for.
-  if (trigger === "explicit" && tooShortToEnhance(originalPrompt)) {
-    showTransientStatus(ctx, TOO_SHORT_MESSAGE);
     return;
   }
 
@@ -1911,13 +1888,13 @@ export default function (pi: ExtensionAPI): void {
       return sendThrough();
     }
 
-    await runEnhancer(ctx, draft, "auto");
+    await runEnhancer(ctx, draft);
     return { action: "handled" };
   });
 
   const handleEnhance = async (args: string, ctx: ExtensionContext): Promise<void> => {
     const provided = args.trim();
-    await runEnhancer(ctx, provided.length > 0 ? provided : undefined, "explicit");
+    await runEnhancer(ctx, provided.length > 0 ? provided : undefined);
   };
 
   pi.registerCommand("prompt_enhance", {
@@ -2019,7 +1996,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerShortcut("ctrl+shift+e", {
     description: "Prompt Enhancer: enhance the editor prompt in place.",
     handler: async (ctx) => {
-      await runEnhancer(ctx, undefined, "explicit");
+      await runEnhancer(ctx, undefined);
     },
   });
 

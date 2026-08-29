@@ -49,7 +49,6 @@ import factory, {
   normalizeFailureReason,
   revertStatusText,
   SYSTEM_PROMPT,
-  TOO_SHORT_MESSAGE,
   TRANSIENT_FAILURE_STATUS_MS,
   TRANSIENT_STATUS_MS,
   toEditorText,
@@ -1472,21 +1471,22 @@ describe("the enhancing state", () => {
   });
 });
 
-// ── Too short to enhance ───────────────────────────────────────────────
+// ── Short drafts ───────────────────────────────────────────────────────
 
 /**
- * `ok` is not a prompt.
+ * A short draft is still a draft.
  *
- * Ctrl+Shift+E on two characters used to gather a file tree, a git summary,
- * the project's instruction files and the recent turns — thousands of tokens
- * of context — to rewrite a word. The refusal has to land before any of that,
- * which means before credentials are even resolved.
+ * There used to be a character-and-token floor here that refused the explicit
+ * shortcut outright. It could not tell `add CORS` from `sounds good` — same
+ * length — and it refused whole requests in languages that write compactly or
+ * without spaces. Pressing the key is the user asking for the call; the only
+ * thing that stops it now is an editor with nothing in it.
  */
-describe("a draft too short to enhance", () => {
+describe("a short draft", () => {
   let faux: ReturnType<typeof registerFauxProvider>;
 
   beforeAll(() => {
-    faux = registerFauxProvider({ api: "faux-too-short", provider: "faux-short" });
+    faux = registerFauxProvider({ api: "faux-short-draft", provider: "faux-short" });
   });
 
   afterAll(() => {
@@ -1504,44 +1504,50 @@ describe("a draft too short to enhance", () => {
     return { harness, ctx: host.ctx, log: host.log };
   }
 
-  it("costs nothing: no auth lookup, no call, no context gathering", async () => {
+  it("makes the call for two characters, and the rewrite lands in the editor", async () => {
     const host = await armed("ok");
+    faux.setResponses([fauxAssistantMessage("Confirm the plan and proceed with it.")]);
     await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
 
-    expect(host.log.authLookups).toBe(0);
-    expect(lastWidgetLine(host.log)).toContain(TOO_SHORT_MESSAGE);
-    // The draft is untouched — nothing was written to the editor at all.
-    expect(host.log.editorTexts).toEqual([]);
-    expect(host.ctx.ui.getEditorText()).toBe("ok");
-    // It is guidance, not a failure: nothing in the notification area.
-    expect(host.log.notifications).toEqual([]);
+    expect(host.log.authLookups).toBe(1);
+    expect(host.ctx.ui.getEditorText()).toBe("Confirm the plan and proceed with it.");
     await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 
-  it("says the same thing from the shortcut", async () => {
-    const host = await armed("ship it");
+  it("does the same from the shortcut", async () => {
+    const host = await armed("ok");
+    faux.setResponses([fauxAssistantMessage("Confirm the plan and proceed with it.")]);
     await host.harness.shortcuts.get("ctrl+shift+e")?.(host.ctx);
 
-    expect(host.log.authLookups).toBe(0);
-    expect(lastWidgetLine(host.log)).toContain(TOO_SHORT_MESSAGE);
+    expect(host.log.authLookups).toBe(1);
+    expect(host.ctx.ui.getEditorText()).toBe("Confirm the plan and proceed with it.");
     await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 
-  it("and from a command argument, which never touches the editor", async () => {
+  it("and from a command argument", async () => {
     const host = await armed("");
+    faux.setResponses([fauxAssistantMessage("Ship the change once the checks are green.")]);
     await host.harness.commands.get("prompt_enhance")?.("ship it", host.ctx);
 
-    expect(host.log.authLookups).toBe(0);
-    expect(lastWidgetLine(host.log)).toContain(TOO_SHORT_MESSAGE);
+    expect(host.log.authLookups).toBe(1);
+    expect(host.ctx.ui.getEditorText()).toBe("Ship the change once the checks are green.");
     await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 
-  it("never paints the enhancing state, because no call is made", async () => {
-    const host = await armed("ok");
-    await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
+  /**
+   * The measured failure of the floor it replaces: these are complete requests
+   * that a character count read as chatter.
+   */
+  it("enhances a complete request written without spaces", async () => {
+    for (const draft of ["优化性能", "重构代码", "코드 리팩터링", "اصلح هذا"]) {
+      const host = await armed(draft);
+      faux.setResponses([fauxAssistantMessage(`rewritten: ${draft}`)]);
+      await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
 
-    expect(host.log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(false);
-    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+      expect(host.log.authLookups).toBe(1);
+      expect(host.ctx.ui.getEditorText()).toBe(`rewritten: ${draft}`);
+      await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+    }
   });
 
   it("enhances a short draft that names a file", async () => {
@@ -1551,11 +1557,27 @@ describe("a draft too short to enhance", () => {
 
     expect(host.log.authLookups).toBe(1);
     expect(host.ctx.ui.getEditorText()).toBe("Fix the failing behaviour in foo.ts.");
-    expect(lastWidgetLine(host.log)).not.toContain(TOO_SHORT_MESSAGE);
     await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 
-  it("stays out of auto-enhance's way, which stands down without a word", async () => {
+  /**
+   * The one thing still refused before any call: there is nothing to send.
+   */
+  it("says so when the editor is empty, and spends nothing", async () => {
+    const host = await armed("   ");
+    await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
+
+    expect(host.log.authLookups).toBe(0);
+    expect(lastWidgetLine(host.log)).toContain("Nothing to enhance (editor is empty).");
+    expect(host.log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(false);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  /**
+   * Unchanged, and on different grounds: the user did not ask to enhance this
+   * turn, so auto-enhance stands aside — silently, and without a call.
+   */
+  it("is left alone by auto-enhance, which stands down without a word", async () => {
     const host = await armed("ok");
     await host.harness.commands.get("prompt_enhance_auto")?.("", host.ctx);
 
@@ -1565,10 +1587,10 @@ describe("a draft too short to enhance", () => {
       host.ctx,
     );
 
-    // The draft went to the agent, and the widget said nothing about it.
+    // The draft went to the agent untouched, and nothing was spent on it.
     expect(outcome).toEqual({ action: "continue" });
-    expect(host.log.widgets.map((w) => w[0] ?? "").join("")).not.toContain(TOO_SHORT_MESSAGE);
     expect(host.log.authLookups).toBe(0);
+    expect(host.log.editorTexts).toEqual([]);
     await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 });
