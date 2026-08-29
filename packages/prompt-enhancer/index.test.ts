@@ -51,6 +51,7 @@ import factory, {
   SYSTEM_PROMPT,
   TOO_SHORT_MESSAGE,
   toEditorText,
+  WIDGET_FAILURE_REASON_MAX_CHARS,
 } from "./index.js";
 import { ENHANCING_SEGMENT } from "./widget.js";
 
@@ -806,6 +807,27 @@ describe("formatEnhancementFailure", () => {
     expect(formatEnhancementFailure("")).toBe(expected);
     expect(formatEnhancementFailure("   ")).toBe(expected);
   });
+
+  /**
+   * The status line does not wrap — a terminal cuts it at the edge, and the
+   * clause that matters is at the end. Measured in a real terminal: with a
+   * 100-character reason the sentence needs close to 200 columns before "your
+   * prompt is unchanged" is on screen. The reason has to give way first.
+   */
+  it("takes a tighter budget for the sentence that has to fit on the widget", () => {
+    const long = "upstream gateway refused the request after exhausting every route";
+    const onWidget = formatEnhancementFailure(long, WIDGET_FAILURE_REASON_MAX_CHARS);
+
+    expect(onWidget).toBe(
+      `prompt enhancement failed (${long.slice(0, WIDGET_FAILURE_REASON_MAX_CHARS)}…); your prompt is unchanged`,
+    );
+    expect(onWidget.endsWith("your prompt is unchanged")).toBe(true);
+    expect(onWidget.length).toBeLessThan(formatEnhancementFailure(long).length);
+    // A short reason is untouched by the tighter budget.
+    expect(formatEnhancementFailure("Connection error", WIDGET_FAILURE_REASON_MAX_CHARS)).toBe(
+      formatEnhancementFailure("Connection error"),
+    );
+  });
 });
 
 describe("formatRetryStatus", () => {
@@ -1095,7 +1117,10 @@ describe("enhancement failure", () => {
     const said = lastWidgetLine(log);
     expect(said).toMatch(/prompt enhancement failed \(.+\); your prompt is unchanged/);
     expect(said).toContain(
-      formatEnhancementFailure("No API provider registered for api: no-such-api-provider"),
+      formatEnhancementFailure(
+        "No API provider registered for api: no-such-api-provider",
+        WIDGET_FAILURE_REASON_MAX_CHARS,
+      ),
     );
 
     await shutdown(host.harness, host.ctx);
@@ -1164,7 +1189,10 @@ describe("enhancement failure", () => {
 
     expect(log.notifications).toEqual([]);
     expect(lastWidgetLine(log)).toContain(
-      formatEnhancementFailure("No API provider registered for api: no-such-api-provider"),
+      formatEnhancementFailure(
+        "No API provider registered for api: no-such-api-provider",
+        WIDGET_FAILURE_REASON_MAX_CHARS,
+      ),
     );
     expect(hasAutoChip(lastWidgetLine(log))).toBe(false);
     expect(log.editorTexts.at(-1)).toBe(DRAFT);
