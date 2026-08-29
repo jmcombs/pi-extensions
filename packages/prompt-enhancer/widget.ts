@@ -14,6 +14,9 @@ const ARROW_RIGHT = "\u{E0B0}";
 /** Brand mark: `nf-cod-chevron-right` + `nf-cod-sparkle`. */
 export const PROMPT_ENHANCER_GLYPH = "\u{EAB6}\u{EC10}";
 
+/** The in-flight block's text. Exported so tests assert one spelling. */
+export const ENHANCING_SEGMENT = "enhancing\u2026";
+
 const WIDGET_COLORS = {
   fg: "#eff1f5",
   ink: "#1e1e2e",
@@ -22,6 +25,7 @@ const WIDGET_COLORS = {
   missing: "#d20f39", // red — no model
   auto: "#2f7d20", // green — auto-enhance on Enter is armed
   status: "#179299", // teal — transient feedback
+  enhancing: "#df8e1d", // yellow — a rewrite is in flight
 } as const;
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -64,6 +68,8 @@ function buildPowerline(segments: readonly WidgetSegment[]): string {
 }
 
 export interface WidgetState {
+  /** True while a rewrite is in flight. */
+  enhancing?: boolean;
   /** `provider/id` when a model is resolved, else undefined. */
   model?: string;
   /** When true, Enter will try to enhance before sending. */
@@ -75,6 +81,17 @@ export interface WidgetState {
 export function formatStatusWidget(state: WidgetState): string {
   const brand = `${PROMPT_ENHANCER_GLYPH} Prompt Enhancer`;
   const segments: WidgetSegment[] = [{ text: brand, bg: WIDGET_COLORS.brand }];
+
+  // Directly after the brand block, where nothing else can push it off the
+  // line: while a rewrite is in flight the widget must say so. `ink` rather
+  // than the usual light `fg` because the light one is unreadable on yellow.
+  if (state.enhancing === true) {
+    segments.push({
+      text: ENHANCING_SEGMENT,
+      bg: WIDGET_COLORS.enhancing,
+      fg: WIDGET_COLORS.ink,
+    });
+  }
 
   if (state.auto === true) {
     segments.push({ text: "auto", bg: WIDGET_COLORS.auto });

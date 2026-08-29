@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="242" viewBox="0 0 1040 242" role="img" aria-label="Prompt Enhancer status widget states">
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="298" viewBox="0 0 1040 298" role="img" aria-label="Prompt Enhancer status widget states">
   <metadata>Netservant design system — © 2026 Jeremy Combs. Artwork all rights reserved; surrounding source is MIT.</metadata>
   <title>Prompt Enhancer status bar — every state</title>
-  <rect x="0.5" y="0.5" width="1039" height="241" rx="12" fill="#1e1e2e" stroke="#313244"/>
+  <rect x="0.5" y="0.5" width="1039" height="297" rx="12" fill="#1e1e2e" stroke="#313244"/>
 
   <!-- mark + wordmark reused via groups -->
   <defs>
@@ -65,4 +65,17 @@
   <text x="471" y="210" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">anthropic/claude-sonnet-4</text>
   <text x="703" y="210" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Enter to send</text>
   <text x="878" y="209" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">rewrite in editor · not sent</text>
+  <!-- Enhancing -->
+  <text x="22" y="265" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#cdd6f4">Enhancing</text>
+  <rect x="154" y="246" width="214" height="30" fill="#3465a4"/>
+  <rect x="368" y="246" width="128" height="30" fill="#df8e1d"/>
+  <rect x="496" y="246" width="232" height="30" fill="#1e66f5"/>
+  <polygon points="368,246 382,261 368,276" fill="#3465a4"/>
+  <polygon points="496,246 510,261 496,276" fill="#df8e1d"/>
+  <polygon points="728,246 742,261 728,276" fill="#1e66f5"/>
+  <use href="#pe-mark" x="166" y="246"/>
+  <text x="198" y="266" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">Prompt Enhancer</text>
+  <text x="383" y="266" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#1e1e2e">enhancing…</text>
+  <text x="521" y="266" font-family="ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace" font-size="15" fill="#eff1f5">anthropic/claude-sonnet-4</text>
+  <text x="760" y="265" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" fill="#9399b2">the call is out · Esc cancels</text>
 </svg>

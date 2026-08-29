@@ -1,0 +1,1 @@
+the SYSTEM_PROMPT in packages/prompt-enhancer/index.ts says not to answer the request but the model still writes "I'll inspect the repo" — find where that instruction is contradicted

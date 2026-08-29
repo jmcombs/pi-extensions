@@ -201,6 +201,92 @@ is exact-set, an incomplete entry fails rather than silently passing on a subset
    work everywhere. This is why the table above marks `user_bash` as pi-only, and the
    harness asserts it **present on pi and absent on oh-my-pi**.
 
+## Changing `prompt-enhancer`: Acceptance Evidence
+
+`npm run check` cannot tell you whether a prompt change made rewrites better or worse. Only
+real model calls can. So some changes to `packages/prompt-enhancer` need an acceptance run
+attached to the PR. The harness that produces it is documented in
+[`packages/prompt-enhancer/acceptance/README.md`](packages/prompt-enhancer/acceptance/README.md).
+
+### When evidence is required
+
+Required when you change what the model sees or how the rewrite is produced:
+
+- `SYSTEM_PROMPT` or any other prompt text in `index.ts`
+- context assembly (`gatherEnhancerContext`, `buildEnhancerUserMessage`, the caps and limits
+  they use)
+- the enhance path itself: the `prompt_enhance` command, the auto-enhance path, model
+  selection, retry or failure handling
+
+Not required for docs, README edits, tests, type-only changes, another package, or a change
+to the acceptance harness that does not touch the extension.
+
+If you are unsure, run it. A run that shows nothing changed is still useful.
+
+### Running it
+
+```bash
+npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 6 \
+  --model anthropic/claude-haiku-4-5 \
+  --model xai/grok-4.6 \
+  --out docs/prompt-enhancer/acceptance-<your-branch>.json
+```
+
+Pass `--model` once per model, or comma-separate them. A value is `provider/id` as
+`pi -ne --list-models` prints it, with an optional `#api` label for readability. **Five
+models is the cap.** Each one multiplies the whole fixture set by `n` paid calls, and a
+table wider than five columns stops being read. Models are checked against your local `pi`
+catalog before the first call, so a typo costs a second and not a whole run.
+
+With no `--model` you get the maintainer's default five, which is almost certainly not what
+you want to pay for.
+
+### The baseline model
+
+**Every run should include `anthropic/claude-haiku-4-5`.** It is the one column that makes
+your artifact comparable with anyone else's, and it is the cheapest hosted model in the
+default set. Without a shared column, two contributors' results are two unrelated claims.
+
+If you have no Anthropic access, say so and the run still counts:
+
+```bash
+npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 6 \
+  --model xai/grok-4.6 \
+  --baseline-exempt "no Anthropic account; xAI credits only" \
+  --out docs/prompt-enhancer/acceptance-<your-branch>.json
+```
+
+The reason is written into the artifact. `PROMPT_ENHANCER_BASELINE_EXEMPTION` works as an
+environment variable if a flag is awkward. Skipping the baseline with no reason at all is
+the one thing that fails verification.
+
+### Attaching the artifact
+
+Commit the JSON file to `docs/prompt-enhancer/` in the same PR, named for your branch. Say
+in the PR description which models you ran, what `n` you used, and what changed compared
+with the numbers in the file already there. Do not commit the `.partial.jsonl` progress
+file; a successful run deletes it.
+
+### What the maintainer runs
+
+```bash
+npm run check:acceptance-artifact -- docs/prompt-enhancer/acceptance-<your-branch>.json
+```
+
+This re-scores every recorded rewrite with the committed classifier and checks that the
+stored verdicts match. It also checks the record counts, that no cell is missing, that the
+fixtures you ran were the committed ones, and that the baseline was present or exempted with
+a reason. It exits non-zero and prints why on any mismatch. Run it yourself before opening
+the PR.
+
+### Cost
+
+Be honest with yourself about this before you start. A full pass at `--n 6` over 5 models and
+8 fixtures is **240 real model calls at roughly 8,000 input tokens each**, so about 1.9M
+input tokens plus output. You pay for that. A smaller `n` is fine and is often enough:
+`--n 3` halves it, and a local model through `llama.cpp` costs nothing. Say what you ran in
+the PR and the numbers can be read for what they are.
+
 ## Adding a New Extension
 
 1. Skim this file and `VERSIONING.md` if you haven't.

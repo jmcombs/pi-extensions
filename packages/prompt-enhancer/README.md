@@ -49,7 +49,7 @@ you pick with `/prompt_enhance_model`.
 | --- | --- |
 | `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
 | `/prompt_enhance_model` | Pick the enhancer model for the current session. Resets when Pi restarts. |
-| `/prompt_enhance_revert` | Put the pre-enhance text back. Once only; also clears when you send a prompt. |
+| `/prompt_enhance_revert` | Put back the last prompt you wrote and enhanced. Once only; also clears when you send a prompt. |
 | `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
 **Shortcuts** (also listed in `/hotkeys`):
@@ -60,6 +60,24 @@ you pick with `/prompt_enhance_model`.
 After an enhance, the footer reminds you how to revert. With auto-enhance on it
 also says `Enter to send`. Press **Esc** to cancel an enhance that is still
 running.
+
+Press `Ctrl+Shift+E` again on a rewrite you have not touched and you get another
+rewrite of your *original* prompt, not a rewrite of the rewrite — press it a few
+times to see different approaches to the same request. The footer says
+`Re-enhanced your original prompt` when that is what happened, since a second
+rewrite can read much like the first. Edit the rewrite first and enhancing takes
+your edited text instead: an edit is you saying something, so it is what gets
+rewritten — and from then on it is what "again" means. Every further press
+re-rolls your edit, not the draft you started from, until you edit again.
+
+So `Ctrl+Shift+Z` hands back the last thing you wrote and enhanced: your typed
+draft if you never edited a rewrite, otherwise your most recent edit. Getting
+back to the draft behind an edit is the editor's own undo, not this. Revert is
+once per chain, and a chain ends when you send something.
+
+If you edit a rewrite and press `Ctrl+Shift+Z` without enhancing first, that
+edit is overwritten — the status line says `later edits lost` rather than
+claiming it gave you your own words back.
 
 ## When an enhance does not work
 
@@ -76,11 +94,17 @@ happen and nothing else:
 - your prompt goes back in the editor, exactly as you typed it;
 - auto-enhance turns itself off for the rest of the session, so the next Enter
   sends — turn it back on with `/prompt_enhance_auto`;
-- one message says so, and names the reason:
+- one message says so on the status bar, names the reason, and clears itself
+  after a few seconds:
 
 ```text
 prompt enhancement failed (Connection error); your prompt is unchanged
 ```
+
+Configuration problems are the exception. No active model, credentials that
+will not resolve, no API key for the model — those stay on screen as
+notifications, because pressing the key again cannot help until you have
+changed something.
 
 ## The status bar
 
@@ -91,6 +115,7 @@ the elements of the status bar:
 - **Ready**: a model is resolved. Enhance with `Ctrl+Shift+E`.
 - **Auto on**: `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
 - **No model**: pick one with `/model` or `/prompt_enhance_model`.
+- **Enhancing**: the call is out. Input is blocked until it lands; `Esc` cancels.
 - **Review**: a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
 
 <div align="center">
@@ -115,7 +140,18 @@ flowchart TD
 ```
 
 Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
-are skipped. To enhance those anyway, use `Ctrl+Shift+E`.
+are skipped: on those turns you did not ask for a rewrite, so auto-enhance
+stands aside without a word. Naming a file is enough to count as a task, so
+`fix foo.ts` is not skipped.
+
+`Ctrl+Shift+E` and `/prompt_enhance` enhance a skipped reply anyway. Pressing
+the key is asking for the call, and it is always made — whatever the draft says
+and however short it is. The one thing that stops it is an empty editor, which
+has nothing to send:
+
+```text
+Nothing to enhance (editor is empty).
+```
 
 ## Requirements
 

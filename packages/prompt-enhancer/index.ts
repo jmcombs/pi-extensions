@@ -100,6 +100,74 @@ const GIT_LOG_LIMIT = 8;
 
 const FILE_MAX_LINES = 100;
 const FILE_MAX_REFERENCES = 3;
+const FILE_MAX_BYTES = 1_000_000;
+
+/**
+ * Probe window for the *ratio* half of the binary guard, in decoded characters.
+ * Long enough to cover a header plus a useful slice of payload, short enough
+ * that scanning it costs nothing next to the read itself.
+ *
+ * The NUL half of the guard is deliberately **not** windowed — see
+ * `looksBinary`. A window is a sampling decision for a statistic; it is not a
+ * sound basis for a rule that says "no text file contains this byte".
+ */
+const BINARY_PROBE_CHARS = 8192;
+/** Share of control/replacement characters in the probe that reads as binary. */
+const BINARY_SUSPICIOUS_RATIO = 0.02;
+
+/**
+ * The project's own instruction files, sent as constraints on the rewrite.
+ *
+ * A rewrite that ignores what the repo already says about how work in it is
+ * done is a worse prompt than the draft it replaced: the agent that executes it
+ * then has to be corrected. These three names cover the conventions this
+ * ecosystem actually writes down; they are probed at the working-directory root
+ * only, never walked.
+ */
+const CONVENTION_FILES = ["AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"] as const;
+
+/**
+ * How much of one instruction file may be sent.
+ *
+ * This is a safety valve against pathological input, **not** a token budget.
+ * These files are the *rules the rewrite has to hold to*, and nobody enhances a
+ * prompt to save tokens — they do it so the work is done against a properly
+ * written prompt. A ceiling that clips a project's real instruction file makes
+ * the feature fail at its job to save money nobody asked to save, so the
+ * ceiling is set where no real file can reach it: 64 KB is three times this
+ * repo's largest instruction file (`CONTRIBUTING.md`, 20,528 characters) and an
+ * order of magnitude past a normal `AGENTS.md` or `CLAUDE.md`. What it still
+ * stops is a generated multi-megabyte markdown dump landing under one of these
+ * names. The 1 MB read guard in `readGuardedFile` is a separate, lower-level
+ * protection and is unaffected by this number.
+ */
+export const CONVENTIONS_FILE_MAX_CHARS = 65_536;
+
+/**
+ * Ceiling on the whole conventions section.
+ *
+ * The same safety valve, applied to the set. Twice the per-file ceiling, so a
+ * repo with two full-size instruction files never sees it and a real repo never
+ * sees it at all; it exists only so that three pathological files cannot
+ * multiply into a section that destroys the call. When it does bind, the budget
+ * is shared by equal-share water-filling rather than first-come-first-served:
+ * every file that is present is represented, a file that wants less than its
+ * share frees the remainder for the others, and nobody can take the whole
+ * budget and leave the rest with nothing. That is the fix for the old
+ * winner-take-all spend, under which this repo sent `AGENTS.md` truncated and
+ * dropped `CONTRIBUTING.md` entirely without saying so.
+ */
+export const CONVENTIONS_TOTAL_MAX_CHARS = 131_072;
+
+/**
+ * Smallest allowance worth spending on a file.
+ *
+ * The old loop tested its budget *before* slicing, so a file could be admitted
+ * as ten characters of content plus a fourteen-character "truncated" marker — a
+ * sliver that costs tokens and teaches the model nothing. Below this, the file
+ * is omitted cleanly instead.
+ */
+export const CONVENTIONS_MIN_USEFUL_CHARS = 400;
 
 /**
  * Bounds on the conversation background sent with the rewrite.
@@ -110,12 +178,19 @@ const FILE_MAX_REFERENCES = 3;
  * announcing what it would go and look at. A few recent turns close it.
  *
  * Deliberately small. The enhancer is one cheap completion before the real
- * turn, not a second agent; the budget caps the section at roughly 300 tokens
+ * turn, not a second agent; the budget caps the section at roughly 500 tokens
  * even in a long session.
+ *
+ * The per-turn cap is the one that had to move. At 320 characters an assistant
+ * turn was clipped mid-sentence — and the assistant turn is usually the one a
+ * follow-up prompt ("do that for the other package too") is pointing at, so the
+ * clip landed on exactly the text the rewrite needed. 600 carries a normal
+ * paragraph whole. Turn count stays at 4: the fix was depth per turn, not more
+ * turns.
  */
-const HISTORY_MAX_TURNS = 4;
-const HISTORY_TURN_MAX_CHARS = 320;
-const HISTORY_MAX_CHARS = 1200;
+export const HISTORY_MAX_TURNS = 4;
+export const HISTORY_TURN_MAX_CHARS = 600;
+export const HISTORY_MAX_CHARS = 2000;
 
 export const SYSTEM_PROMPT = `You are a prompt rewriter for a coding agent. You do not answer the user's request. You do not solve, implement, or explain it. You rewrite their rough prompt into a better prompt for a *different* coding agent to execute later.
 
@@ -123,12 +198,15 @@ No tools are attached and nothing you say retrieves anything: your entire output
 
 Rules:
 - Preserve intent exactly. Invent nothing: no new requirements, and no path that is not in the context, which is partial and may be truncated.
+- Fix typos and misspellings, in identifiers and paths too, without changing what is asked for.
+- Text in triple backticks (\`\`\`) is usually a verbatim sample — a trace, a diff, a test. Carry it through unchanged.
+- Project conventions constrain the rewrite; do not restate them.
 - Conversation background is there only to resolve what the prompt refers to. Never answer or continue it.
 - If the prompt is not about the codebase, rewrite it anyway: return it as it is, clarified only if ambiguous. Never refuse, never explain yourself, never address the user.
 - If the original is already precise, change little. Match its tone; no second person unless it used one.
 - If you catch yourself answering, writing code, or listing steps, stop and output the rewritten *request* instead.
 
-Output only the rewritten prompt as plain text: no preamble, no commentary, no markdown headings, no quoting of the original.`;
+Output only the rewritten prompt as plain text: no preamble, no commentary, no headings, no quoting of the original.`;
 
 // Status keys for ctx.ui.setStatus footer chips. Distinct keys so we can
 // independently set/clear them. Enhance is not advertised as an always-on
@@ -201,7 +279,49 @@ export function formatRetryStatus(
 
 // Widget rendered above the editor with persistent enhancer state.
 const WIDGET_KEY = "prompt-enhancer";
-const TRANSIENT_STATUS_MS = 4000;
+/**
+ * How long a soft message stays on the widget.
+ *
+ * Other enhancers clear theirs at around three seconds. Four is deliberate:
+ * it is the duration every transient message in this extension already has,
+ * and one consistent timing is worth more to a user than matching someone
+ * else's number.
+ */
+export const TRANSIENT_STATUS_MS = 4000;
+
+/**
+ * How long an operational failure stays, which is longer.
+ *
+ * A success or a cancel lands on a user who is watching: they pressed a key,
+ * something happened, four seconds is plenty. A transport failure is the
+ * opposite. It arrives only after the retry ladder has spent its whole
+ * budget — 2 s, 4 s and 8 s of backoff, plus however long each attempt itself
+ * takes to fail — and that is the stretch during which a user looks away.
+ * Measured in a pty, the message was on screen from t+14 to t+17 and gone by
+ * t+18; come back at t+20 and the widget is bare, the draft is untouched, and
+ * nothing anywhere records that a call was made and failed. With auto-enhance
+ * off there is no surviving evidence at all.
+ *
+ * Fifteen seconds is counted from the failure, not from the keypress, and it
+ * is not a number that outlasts the wait — the wait has no fixed length. Only
+ * the backoff is fixed; the attempts are not. Measured through a pty against a
+ * stub that hangs before erroring: attempts that fail instantly put the
+ * failure at 14 s and the message on screen from 14 s to 29 s; ten seconds of
+ * hang per attempt puts the failure at 54 s and the message from 54 s to 69 s;
+ * thirty seconds puts it at 134 s and 134 s to 149 s. Wherever the failure
+ * lands, the user has fifteen seconds from that moment to look back and see
+ * what happened, which is the grace period four seconds did not give them.
+ *
+ * That is enough because the wait before it is not blank: the widget reads
+ * `enhancing…` for as long as the call is out, and the loader names the retry
+ * it is on and the reason the last attempt gave. The window here is for
+ * someone who looked away, not for someone who never had anything to look at.
+ *
+ * It stays transient on purpose: an operational failure needs nothing from the
+ * user, and a notification that must be dismissed is the wrong shape for
+ * something a second press might fix.
+ */
+export const TRANSIENT_FAILURE_STATUS_MS = 15000;
 
 // Pattern 1 chrome around SelectList: top border, title, search Input, help,
 // bottom border, plus the (n/total) scrollInfo line when the list overflows.
@@ -216,13 +336,155 @@ const PICKER_NO_MATCH = "  No matching models";
 let enhancerModelOverride: Model<Api> | undefined;
 
 /**
- * The text that was in the editor (or supplied as args) immediately before
- * the most recent successful /prompt_enhance. /prompt_enhance_revert restores this and
- * clears the slot. Cleared also when the user submits a non-command prompt
- * (input event), since at that point the previous "original" is no longer
- * relevant.
+ * The last text the user actually wrote — the prompt this chain re-rolls.
+ *
+ * Assigned on every successful enhance to whatever that enhance was given, and
+ * cleared when the chain ends: at `/prompt_enhance_revert`, at submit (the
+ * `input` event), or at `session_start`.
+ *
+ * That assignment is a no-op on a re-roll and a re-seat on anything else, which
+ * is the whole rule. Pressing Ctrl+Shift+E over a rewrite we wrote and nobody
+ * touched enhances *this* again rather than the rewrite on screen — the point
+ * of enhancing twice is a different approach to the same request, and a rewrite
+ * of a rewrite is not that — so the stored string does not move. Pressing it
+ * over text the user typed or edited enhances that text, and that text becomes
+ * what the next press re-rolls: an edit is the user saying something, and what
+ * they last said is what "again" means.
+ *
+ * Two earlier rules were tried and both failed the same way. Assigning it on
+ * every success *including* re-rolls overwrote the typed draft with rewrite #1,
+ * because a re-roll's input is the rewrite when the input is read off the
+ * screen rather than out of this variable. Re-seating on resemblance —
+ * word-token overlap against a threshold — moved it whenever the user cut more
+ * than about half the words, which is exactly what "the model was too verbose,
+ * let me trim it" looks like. Both left Ctrl+Shift+Z putting machine text in the
+ * editor under a status that said "your original prompt". So the re-seat turns
+ * on provenance and nothing else: `editorHoldsOurText`, one byte comparison,
+ * no threshold.
+ *
+ * What Ctrl+Shift+Z restores is therefore the last thing the user wrote, not
+ * the first — an edit mid-chain replaces the draft it was made from, and that
+ * draft is gone (the editor's own undo is what steps back through the text in
+ * between). Whether the restore is lossless is not remembered: it is asked of
+ * the editor at revert time, so an edit made after the last enhance is warned
+ * about too.
  */
 let lastOriginalPrompt: string | undefined;
+
+/**
+ * The exact string this extension last wrote into the editor.
+ *
+ * Provenance, not resemblance: we `setEditorText` the rewrite ourselves, so a
+ * later read that is byte-equal to it is *certain* to be our own output coming
+ * back untouched. That certainty is all this value is used for. It answers one
+ * question — "has anything other than us written the editor since?" — and never
+ * decides which text revert restores.
+ *
+ * Two things turn on the answer: whether the status line may claim nothing was
+ * typed over the chain, and whether the next enhance re-rolls the stored
+ * original instead of rewriting the rewrite on screen.
+ */
+let lastEnhancedText: string | undefined;
+
+/**
+ * The editor's own representation of a string we hand it.
+ *
+ * `ui.setEditorText` is pi-tui `Editor.setText`, which normalises before it
+ * stores (`Editor.normalizeText`): CRLF and CR collapse to LF, and every TAB
+ * becomes four spaces. So what comes back out of `getEditorText` is not what we
+ * put in — a rewrite containing a single tab reads back four spaces wider and
+ * never compares equal to the string we sent.
+ *
+ * Applying the same transform to our stored copy puts both sides in the
+ * editor's representation, which is the only representation the comparison can
+ * honestly be made in. Same three replacements, same order, mirroring pi.
+ * `editorRoundTrip` in the tests pins this against the real `Editor`, so a
+ * change in pi's expansion fails loudly rather than quietly reintroducing the
+ * mismatch.
+ *
+ * `ui.setEditorComponent` can put a different component in that slot, and a
+ * component that stores text verbatim would make this transform an
+ * over-normalisation rather than a match. Nothing in the extension API reports
+ * which component is installed, so there is nothing to feature-detect; the
+ * guard is in `editorHoldsOurText`, which accepts either representation.
+ */
+export function toEditorText(text: string): string {
+  return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\t/g, "    ");
+}
+
+/**
+ * Is the editor still holding the exact text this extension last wrote?
+ *
+ * Provenance, not resemblance. It answers one question — "did our own output
+ * come back untouched?" — by byte-comparing, in the editor's representation,
+ * what the editor now holds against what we sent it. There is deliberately no
+ * threshold, no token overlap, no notion of "close enough": a similarity rule
+ * lived here once and moved the stored original whenever a user trimmed a
+ * verbose rewrite, which is exactly when they most needed it left alone.
+ *
+ * Both sides are trimmed because every read of the editor in this extension is
+ * trimmed; normalise first, then trim, so a leading or trailing tab is expanded
+ * before the trim decides whether it is whitespace.
+ *
+ * Our text is accepted in either representation — normalised, as pi-tui's
+ * `Editor` hands it back, or verbatim, as a component installed through
+ * `ui.setEditorComponent` may. Both arms are byte-exact, so widening costs no
+ * precision: under the real `Editor` the verbatim arm can only match when the
+ * two strings were already identical, and under a verbatim component the
+ * normalised arm can only match when normalising changed nothing. Without it a
+ * single tab in a rewrite would read as a hand edit on any host that does not
+ * expand tabs — the same defect `toEditorText` exists to fix, from the other
+ * side.
+ *
+ * What rides on the answer: whether the revert status line may claim nothing was
+ * typed over the chain, and whether this enhance re-rolls the stored original
+ * rather than rewriting the rewrite. One comparison, so the two can never
+ * disagree about what the editor is holding.
+ */
+export function editorHoldsOurText(editorText: string, ourText: string | undefined): boolean {
+  if (ourText === undefined) return false;
+  const held = editorText.trim();
+  return held === toEditorText(ourText).trim() || held === ourText.trim();
+}
+
+/**
+ * What `/prompt_enhance_revert` says it just did.
+ *
+ * Because an edit re-seats the chain, the string revert restores is always the
+ * last text the user wrote *and enhanced*, so the strong sentence is true
+ * whenever the editor still holds the rewrite that came back from that enhance.
+ *
+ * The one thing that can be lost is an edit made after it — the user tightened
+ * our rewrite and pressed Ctrl+Shift+Z instead of enhancing again — and that
+ * edit was never given to the model, so nothing recorded it. The editor is what
+ * knows, and it is asked at revert time rather than remembered: if it is not
+ * holding our last rewrite, someone typed since, and their typing is what the
+ * restore is about to overwrite. Hence "later edits", literally — edits later
+ * than the enhance whose input is coming back.
+ *
+ * A hedged sentence for an edit the user then chose to discard is a small cost;
+ * a confident sentence over text they wanted is not.
+ */
+export function revertStatusText(laterEditsLost: boolean): string {
+  return laterEditsLost
+    ? "Reverted to your original prompt; later edits lost."
+    : "Reverted to your original prompt.";
+}
+
+/**
+ * What the status line says after a successful rewrite.
+ *
+ * The re-roll wording exists because a re-roll can otherwise look like nothing
+ * happened: the same prompt goes to the model a second time, and a model that
+ * answers much as it did the first time leaves the editor looking untouched.
+ * Naming what was enhanced — the original, not the rewrite on screen — is the
+ * whole of the difference, and it costs a sentence rather than a new command,
+ * shortcut or piece of state.
+ */
+export function enhancedStatusText(options: { rerolled: boolean; autoEnhance: boolean }): string {
+  const what = options.rerolled ? "Re-enhanced your original prompt" : "Prompt enhanced";
+  return options.autoEnhance ? `${what} — Enter to send.` : `${what} — Ctrl+Shift+Z to revert.`;
+}
 
 /** Session-scoped. Off by default. Enter enhances, Enter again sends. */
 let autoEnhanceEnabled = false;
@@ -238,6 +500,15 @@ let activeCtx: ExtensionContext | undefined;
 /** Active auto-clear timer for the transient widget status line. */
 let transientStatusTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * True while a rewrite is in flight.
+ *
+ * Module-scoped rather than a parameter threaded through `updateWidget` so
+ * that *every* repaint carries it — including one fired by the transient
+ * status timer, which has no idea a call is running.
+ */
+let enhancingInFlight = false;
+
 // ── Public types ────────────────────────────────────────────────────────
 
 /**
@@ -250,6 +521,24 @@ export interface EnhancerContext {
   tree?: string;
   git?: string;
   mentionedFiles: { path: string; content: string }[];
+  /**
+   * The repo's own instruction files (`AGENTS.md`, `CLAUDE.md`,
+   * `CONTRIBUTING.md`) as constraints on the rewrite. Optional so an existing
+   * consumer constructing this type by hand keeps compiling; absent and empty
+   * mean the same thing to `buildEnhancerUserMessage`.
+   */
+  conventions?: { path: string; content: string }[];
+  /**
+   * Files inside the project that were `stat`ed successfully and then *refused*
+   * by a read guard — oversized, unreadable, or not text. Never sent to the
+   * model; surfaced to the user by repo-relative path so a refusal is a
+   * statement rather than a silence.
+   *
+   * A path that is not there, and a path that escapes the working directory,
+   * are both absent from this list: the first is the ordinary case, and the
+   * second has no repo-relative name to show.
+   */
+  skippedFiles?: SkippedFile[];
   /**
    * Recent conversation turns, oldest first, already bounded by
    * `buildRecentTurns`. Absent on the first turn of a session and on any host
@@ -387,52 +676,333 @@ function extractFileMentions(prompt: string): string[] {
   return out;
 }
 
-async function readMentionedFile(
-  candidate: string,
-  cwd: string,
-): Promise<{ path: string; content: string } | undefined> {
+/** ESC, the byte every ANSI escape sequence starts with. */
+const ESC_CODE = 0x1b;
+
+/** `]`, the introducer that makes an escape sequence an OSC. */
+const OSC_INTRODUCER = 0x5d;
+
+/**
+ * BEL, the other way an OSC ends.
+ *
+ * Exempting ESC alone was half the fix. An OSC — a hyperlink, a window title —
+ * is `ESC ] … ST`, and `ST` is spelled either `ESC \` or a bare BEL. `gh` and
+ * `cargo` write OSC-8 hyperlinks into their output, so a saved log of either is
+ * ordinary text carrying one BEL per link: 2.98% controls on a measured
+ * capture, refused as "not text" by a 2% threshold. The `ESC \` spelling was
+ * already exempt, which made the refusal depend on which spelling the tool
+ * happened to use.
+ */
+const BEL_CODE = 0x07;
+
+/**
+ * Is the character at `index` an ESC that introduces an ANSI escape sequence?
+ *
+ * An escape sequence is ESC followed by an *introducer*: a byte in `@`–`_`
+ * (0x40–0x5F, which covers CSI `[` and OSC `]`) for the two-byte Fe forms, or
+ * `(` / `)` for the character-set designators. Everything after the introducer
+ * — the parameters, the intermediates and the final byte — is printable ASCII,
+ * so the ESC itself is the only character in `\x1b[32m` the C0 counter can
+ * see. Testing the introducer rather than exempting ESC outright keeps a real
+ * binary honest: a 0x1B in random payload has roughly a one-in-eight chance of
+ * being followed by an introducer byte, so a file full of them still trips the
+ * ratio.
+ */
+function startsAnsiSequence(text: string, index: number): boolean {
+  const next = text.charCodeAt(index + 1);
+  if (Number.isNaN(next)) return false;
+  return (next >= 0x40 && next <= 0x5f) || next === 0x28 || next === 0x29;
+}
+
+/**
+ * Does this decoded text look like something that was never text?
+ *
+ * The size cap does not cover it: a 4 KB `.ico` or a small `.wasm` is well
+ * inside the budget and decodes to mojibake that costs tokens and teaches the
+ * model nothing. `extractFileMentions` matches any token holding a `/`, so
+ * "why does assets/logo.png look wrong" is enough to name one. Reading as UTF-8
+ * turns undecodable bytes into U+FFFD, so the probe counts those alongside the
+ * C0 controls (tab, LF, CR excepted).
+ *
+ * Two rules, with deliberately different scopes:
+ *
+ * 1. **NUL, unwindowed.** No text file contains one, so this is decisive — and
+ *    it is checked across the entire decoded file rather than the probe window.
+ *    A window here was a real hole: a file that read as text for 9,000
+ *    characters and then carried a NUL cleared an 8,192-character probe and was
+ *    delivered to the model with the NUL still in it.
+ * 2. **Control ratio, windowed.** A statistic, so sampling the head is fine.
+ *    ANSI escape sequences are excluded from it: a saved CI log
+ *    (`\x1b[32mPASS\x1b[0m …`) is ordinary text a user pastes or names, and
+ *    counting its colour codes as control noise pushed it past the threshold
+ *    and had it silently refused.
+ */
+function looksBinary(raw: string): boolean {
+  if (raw.includes("\0")) return true;
+
+  const probe = raw.slice(0, BINARY_PROBE_CHARS);
+  if (probe.length === 0) return false;
+  let suspicious = 0;
+  // Inside an OSC — opened by `ESC ]`, closed by BEL or by ST (`ESC \`).
+  let inOsc = false;
+  for (let i = 0; i < probe.length; i += 1) {
+    const code = probe.charCodeAt(i);
+    if (code === ESC_CODE && startsAnsiSequence(probe, i)) {
+      inOsc = probe.charCodeAt(i + 1) === OSC_INTRODUCER;
+      continue;
+    }
+    if (code === BEL_CODE && inOsc) {
+      inOsc = false;
+      continue;
+    }
+    // U+FFFD REPLACEMENT CHARACTER, or a C0 control that is not \t \n \r.
+    if (code === 0xfffd || (code < 32 && code !== 9 && code !== 10 && code !== 13)) {
+      suspicious += 1;
+    }
+  }
+  return suspicious > probe.length * BINARY_SUSPICIOUS_RATIO;
+}
+
+/**
+ * Why a file the extension was willing to consider did not make it into the
+ * prompt. Surfaced to the user; see `formatSkippedFiles`.
+ *
+ * `path` is always repo-relative and always a path that was `stat`ed
+ * successfully. It is never the token the user typed: the extractor takes
+ * `~/.ssh/id_rsa` apart into `/.ssh/id_rsa`, and a note built from raw tokens
+ * put strings like that — and, for a real absolute path, the absolute path
+ * itself — in the status bar.
+ */
+export interface SkippedFile {
+  path: string;
+  why: string;
+}
+
+/**
+ * The outcome of one guarded read.
+ *
+ * `refusal` is the distinction that matters to the UI, and it is narrower than
+ * "a guard said no". It is set only for a file that resolves inside the project
+ * and exists — the user named something real and did not get it. Everything
+ * else is silent: a path that is not there, and a path that escapes the working
+ * directory, which has no repo-relative name to show and whose existence is not
+ * the status bar's to report.
+ */
+type GuardedRead = { ok: true; path: string; raw: string } | { ok: false; refusal?: SkippedFile };
+
+/**
+ * Read one repo-relative file under a fixed set of guards, or give up.
+ *
+ * Every guard is a refusal, never a repair: a path that escapes the working
+ * directory, a directory, a symlink to somewhere else, an oversized file and a
+ * binary one all decline to return content rather than returning a degraded
+ * value. Written as one function so there is exactly one containment check to
+ * audit. Clipping is the caller's job — the callers bound the same bytes by
+ * different rules.
+ */
+async function readGuardedFile(candidate: string, cwd: string): Promise<GuardedRead> {
   // Resolve, then ensure the resolved path stays within cwd to avoid the
   // extension reading arbitrary files via "../../etc/passwd"-style paths.
   const resolved = path.resolve(cwd, candidate);
   const rel = path.relative(cwd, resolved);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return undefined;
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    // Silent, and deliberately so. There is no repo-relative name for a path
+    // that escapes the project, and `candidate` is the raw token — naming it
+    // rendered `/Users/…/Library/Keychains/login.keychain-db` in the status
+    // bar, and `~/.ssh/id_rsa` as the `/.ssh/id_rsa` the extractor made of it,
+    // for files that had not even been `stat`ed.
+    return { ok: false };
+  }
+
+  // Then again on the *real* path. The check above compares strings, and a
+  // string cannot see a symlink: a repo shipping `notes.md` as a link to
+  // `~/.ssh/id_rsa` clears it and gets read. `cwd` is realpathed too — on macOS
+  // the temp directory is itself a symlink, so a real path compared against a
+  // nominal one would never match and every read would be refused.
+  let realResolved: string;
+  let realCwd: string;
+  try {
+    [realResolved, realCwd] = await Promise.all([fs.realpath(resolved), fs.realpath(cwd)]);
+  } catch {
+    return { ok: false };
+  }
+  const realRel = path.relative(realCwd, realResolved);
+  if (realRel.startsWith("..") || path.isAbsolute(realRel)) return { ok: false };
 
   let stat: Stats;
   try {
-    stat = await fs.stat(resolved);
+    stat = await fs.stat(realResolved);
   } catch {
-    return undefined;
+    return { ok: false };
   }
-  if (!stat.isFile()) return undefined;
-  if (stat.size > 1_000_000) return undefined;
+  if (!stat.isFile()) return { ok: false };
+  if (stat.size > FILE_MAX_BYTES) {
+    return { ok: false, refusal: { path: rel, why: "too large" } };
+  }
 
   let raw: string;
   try {
-    raw = await fs.readFile(resolved, "utf-8");
+    raw = await fs.readFile(realResolved, "utf-8");
   } catch {
-    return undefined;
+    return { ok: false, refusal: { path: rel, why: "unreadable" } };
   }
+  if (looksBinary(raw)) {
+    return { ok: false, refusal: { path: rel, why: "not text" } };
+  }
+
+  return { ok: true, path: rel, raw };
+}
+
+/**
+ * Clip to `maxLines`, with the existing marker.
+ *
+ * Line-bounded from the start, so nothing here changes: a mentioned file is
+ * bounded by how much of it is worth reading, not by a character budget.
+ */
+function clipToLineCount(raw: string, maxLines: number): string {
   const lines = raw.split("\n");
-  const truncated = lines.length > FILE_MAX_LINES;
-  const body = lines.slice(0, FILE_MAX_LINES).join("\n");
-  const content = truncated
-    ? `${body}\n… (truncated at ${String(FILE_MAX_LINES)} lines, file has ${String(lines.length)} total)`
-    : body;
-  return { path: rel, content };
+  if (lines.length <= maxLines) return raw;
+  const body = lines.slice(0, maxLines).join("\n");
+  return `${body}\n… (truncated at ${String(maxLines)} lines, file has ${String(lines.length)} total)`;
+}
+
+/**
+ * Clip to `maxChars`, always on a line boundary, or give up.
+ *
+ * A character budget applied with `slice` cuts wherever it lands: this repo's
+ * `AGENTS.md` came back ending inside an inline-code span, which reads to the
+ * model as a malformed rule rather than a truncated one. Whole lines only, and
+ * the marker says exactly how much was left behind rather than the bare
+ * "(truncated)" it used to.
+ *
+ * Returns `undefined` when not even the first line fits. That is the honest
+ * answer for a file whose first line alone exceeds the budget: there is no
+ * line-boundary prefix to send, and half a token is worse than nothing.
+ */
+function clipToCharBudget(raw: string, maxChars: number): string | undefined {
+  if (raw.length <= maxChars) return raw;
+
+  const lines = raw.split("\n");
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    // Every line after the first costs its own length plus the "\n" that
+    // rejoins it, so `used` is exactly the length of `kept.join("\n")`.
+    const cost = kept.length === 0 ? line.length : line.length + 1;
+    if (used + cost > maxChars) break;
+    kept.push(line);
+    used += cost;
+  }
+  if (kept.length === 0) return undefined;
+
+  return `${kept.join("\n")}\n… (truncated: sent ${String(kept.length)} of ${String(lines.length)} lines, ${String(used)} of ${String(raw.length)} characters)`;
 }
 
 async function buildMentionedFiles(
   prompt: string,
   cwd: string,
-): Promise<{ path: string; content: string }[]> {
+): Promise<{ files: { path: string; content: string }[]; skipped: SkippedFile[] }> {
   const candidates = extractFileMentions(prompt).slice(0, FILE_MAX_REFERENCES * 4);
-  const results: { path: string; content: string }[] = [];
+  const files: { path: string; content: string }[] = [];
+  const skipped: SkippedFile[] = [];
   for (const candidate of candidates) {
-    if (results.length >= FILE_MAX_REFERENCES) break;
-    const file = await readMentionedFile(candidate, cwd);
-    if (file) results.push(file);
+    if (files.length >= FILE_MAX_REFERENCES) break;
+    const read = await readGuardedFile(candidate, cwd);
+    if (read.ok)
+      files.push({ path: read.path, content: clipToLineCount(read.raw, FILE_MAX_LINES) });
+    else if (read.refusal) skipped.push(read.refusal);
   }
-  return results;
+  return { files, skipped };
+}
+
+/**
+ * Split a total character budget across the instruction files that are present.
+ *
+ * Equal-share water-filling: everyone is offered `total / n`; whoever wants less
+ * than their share takes what they want and frees the difference, and the round
+ * repeats until nothing changes. That is what makes "all present files are
+ * represented" true by construction — the old first-come spend gave file #1
+ * everything it could hold and left the rest with nothing, silently.
+ *
+ * `sizes` are raw file lengths; the returned allowance for each is at most
+ * `perFile`. An allowance of `0` means "omit this file", which happens only when
+ * the share is too small to carry a meaningful part of it — a sliver of content
+ * plus a truncation marker is not a cheaper version of the file, it is noise.
+ *
+ * Exported for the budget tests; nothing outside this module needs it.
+ */
+export function allocateConventionsBudget(
+  sizes: readonly number[],
+  total: number = CONVENTIONS_TOTAL_MAX_CHARS,
+  perFile: number = CONVENTIONS_FILE_MAX_CHARS,
+  minUseful: number = CONVENTIONS_MIN_USEFUL_CHARS,
+): number[] {
+  const want = sizes.map((size) => Math.min(Math.max(size, 0), perFile));
+  const allowance = want.slice();
+
+  let remaining = Math.max(total, 0);
+  const pending = new Set(want.map((_, index) => index));
+  while (pending.size > 0) {
+    const share = Math.floor(remaining / pending.size);
+    const satisfied = [...pending].filter((index) => (want[index] ?? 0) <= share);
+    if (satisfied.length === 0) {
+      for (const index of pending) allowance[index] = share;
+      break;
+    }
+    for (const index of satisfied) {
+      const taken = want[index] ?? 0;
+      allowance[index] = taken;
+      remaining -= taken;
+      pending.delete(index);
+    }
+  }
+
+  return allowance.map((granted, index) => {
+    const wanted = want[index] ?? 0;
+    if (granted >= wanted) return wanted;
+    return granted >= minUseful ? granted : 0;
+  });
+}
+
+/**
+ * The project's instruction files: what the repo already says about how work in
+ * it should be done, plus any that were refused.
+ *
+ * Probed at the working-directory root only. Each file gets up to
+ * `CONVENTIONS_FILE_MAX_CHARS`, the set gets up to `CONVENTIONS_TOTAL_MAX_CHARS`
+ * shared by water-filling, and anything clipped is clipped on a line boundary
+ * with a marker that says how much was left behind.
+ */
+async function collectProjectConventions(
+  cwd: string,
+): Promise<{ files: { path: string; content: string }[]; skipped: SkippedFile[] }> {
+  const reads = await Promise.all(CONVENTION_FILES.map((name) => readGuardedFile(name, cwd)));
+
+  const present = reads.filter((read): read is Extract<GuardedRead, { ok: true }> => read.ok);
+  const skipped = reads.flatMap((read) => (!read.ok && read.refusal ? [read.refusal] : []));
+
+  const allowances = allocateConventionsBudget(present.map((file) => file.raw.length));
+  const files: { path: string; content: string }[] = [];
+  for (const [index, file] of present.entries()) {
+    const allowance = allowances[index] ?? 0;
+    if (allowance <= 0) continue;
+    const content = clipToCharBudget(file.raw, allowance);
+    if (content === undefined) continue;
+    files.push({ path: file.path, content });
+  }
+  return { files, skipped };
+}
+
+/**
+ * The conventions the enhancer would send for `cwd`.
+ *
+ * Returns `[]` when the repo has none, which keeps the section out of the user
+ * message entirely rather than sending an empty heading.
+ */
+export async function buildProjectConventions(
+  cwd: string,
+): Promise<{ path: string; content: string }[]> {
+  return (await collectProjectConventions(cwd)).files;
 }
 
 // ── Context assembly ────────────────────────────────────────────────────
@@ -442,12 +1012,20 @@ export async function gatherEnhancerContext(
   cwd: string,
   signal: AbortSignal,
 ): Promise<EnhancerContext> {
-  const [tree, git, mentionedFiles] = await Promise.all([
+  const [tree, git, mentioned, conventions] = await Promise.all([
     buildProjectTree(cwd, signal),
     buildGitContext(cwd, signal),
     buildMentionedFiles(prompt, cwd),
+    collectProjectConventions(cwd),
   ]);
-  return { cwd, tree, git, mentionedFiles };
+  return {
+    cwd,
+    tree,
+    git,
+    mentionedFiles: mentioned.files,
+    conventions: conventions.files,
+    skippedFiles: [...mentioned.skipped, ...conventions.skipped],
+  };
 }
 
 /**
@@ -514,6 +1092,15 @@ export function buildEnhancerUserMessage(originalPrompt: string, context: Enhanc
   if (context.tree)
     sections.push(`## Project tree (depth ${String(TREE_MAX_DEPTH)})\n${context.tree}`);
   if (context.git) sections.push(`## Git\n${context.git}`);
+  // Ahead of the prompt-specific files on purpose: these are the rules the
+  // rewrite has to hold to, and the heading says so, because a model handed a
+  // style guide will otherwise summarise it back as if that were the task.
+  if (context.conventions && context.conventions.length > 0) {
+    const blocks = context.conventions.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``);
+    sections.push(
+      `## Project conventions (constraints on the rewrite — do not restate them)\n\n${blocks.join("\n\n")}`,
+    );
+  }
   if (context.mentionedFiles.length > 0) {
     const blocks = context.mentionedFiles.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``);
     sections.push(`## Files referenced in the prompt\n\n${blocks.join("\n\n")}`);
@@ -653,6 +1240,7 @@ export function createEnhancerModelSelector(
 function renderWidgetLine(ctx: ExtensionContext, transientStatus?: string): string {
   const model = resolveEnhancerModel(ctx);
   return formatStatusWidget({
+    enhancing: enhancingInFlight,
     model: model ? modelLabel(model) : undefined,
     auto: autoEnhanceEnabled,
     status: transientStatus,
@@ -666,6 +1254,22 @@ function updateWidget(ctx: ExtensionContext, transientStatus?: string): void {
   });
 }
 
+/**
+ * Enter or leave the visible enhancing state, repainting the widget.
+ *
+ * Inert without a UI: `updateWidget` is a no-op when `ctx.hasUI` is false, so
+ * the headless path sets a boolean nobody reads.
+ *
+ * The assignment comes first so that a throw out of the repaint still leaves
+ * the flag at its new value. The main flow enters the state without this
+ * helper, for the same reason spelled out where it does so: it needs the
+ * assignment outside its `try` and the repaint inside.
+ */
+function setEnhancing(ctx: ExtensionContext, active: boolean): void {
+  enhancingInFlight = active;
+  updateWidget(ctx);
+}
+
 function clearTransientStatusTimer(): void {
   if (transientStatusTimer !== undefined) {
     clearTimeout(transientStatusTimer);
@@ -674,25 +1278,83 @@ function clearTransientStatusTimer(): void {
 }
 
 /**
- * Show a status line in the widget that auto-clears after TRANSIENT_STATUS_MS.
+ * Show a status line in the widget that auto-clears after `durationMs`.
  * Used in place of `ctx.ui.notify` for non-error feedback so messages don't
  * stack up in Pi's notification area.
  */
-function showTransientStatus(ctx: ExtensionContext, status: string): void {
+function showTransientStatus(
+  ctx: ExtensionContext,
+  status: string,
+  durationMs: number = TRANSIENT_STATUS_MS,
+): void {
   if (!ctx.hasUI) return;
   clearTransientStatusTimer();
   updateWidget(ctx, status);
   transientStatusTimer = setTimeout(() => {
     transientStatusTimer = undefined;
     if (activeCtx?.hasUI) updateWidget(activeCtx);
-  }, TRANSIENT_STATUS_MS);
+  }, durationMs);
 }
 
 // ── Main flow ───────────────────────────────────────────────────────────
 
 type EnhancementOutcome =
-  | { ok: true; enhanced: string }
+  | { ok: true; enhanced: string; skippedFiles?: SkippedFile[] }
   | { ok: false; reason: "cancelled" | "error"; message?: string };
+
+/** How many refused files are named before the note falls back to a count. */
+const SKIPPED_FILES_SHOWN = 2;
+
+/**
+ * Budget for the whole note, and for one path inside it.
+ *
+ * The note is appended to a status line the widget renders through pi-tui's
+ * `Text`, which wraps: nothing is lost off the right-hand edge, so the budget
+ * is not about truncation. What an unbounded note costs is height. The widget
+ * sits above the editor, and two refused files nested a few directories deep
+ * measured 243 characters — four wrapped rows at 80 columns, shoving the
+ * conversation up the screen to name files the user did not ask about. A deep
+ * path keeps its tail — the basename is the half that identifies the file —
+ * behind a leading ellipsis.
+ */
+const SKIPPED_NOTE_MAX_CHARS = 120;
+const SKIPPED_PATH_MAX_CHARS = 40;
+
+function shortenSkippedPath(filePath: string): string {
+  if (filePath.length <= SKIPPED_PATH_MAX_CHARS) return filePath;
+  return `…${filePath.slice(filePath.length - (SKIPPED_PATH_MAX_CHARS - 1))}`;
+}
+
+/**
+ * One clause naming the files the guards refused, or `undefined`.
+ *
+ * A refusal used to be invisible: name a saved terminal log or a `.png` in the
+ * prompt, and the rewrite came back built on context that quietly excluded it.
+ * The reason travels with the name because the reasons are actionable in
+ * different ways — "too large" is a different problem from "not text".
+ *
+ * Every path here is repo-relative and belongs to a file that exists; see
+ * `SkippedFile`. The note names as many as fit the budget and then gives up on
+ * names rather than on the budget: a bare count still tells the user that
+ * something was left out.
+ */
+export function formatSkippedFiles(
+  skipped: readonly SkippedFile[] | undefined,
+): string | undefined {
+  if (skipped === undefined || skipped.length === 0) return undefined;
+
+  for (let shown = SKIPPED_FILES_SHOWN; shown >= 1; shown -= 1) {
+    const named = skipped
+      .slice(0, shown)
+      .map((file) => `${shortenSkippedPath(file.path)} (${file.why})`)
+      .join(", ");
+    const rest = skipped.length - shown;
+    const note = rest > 0 ? `Skipped ${named} +${String(rest)} more.` : `Skipped ${named}.`;
+    if (note.length <= SKIPPED_NOTE_MAX_CHARS) return note;
+  }
+
+  return skipped.length === 1 ? "Skipped 1 file." : `Skipped ${String(skipped.length)} files.`;
+}
 
 /**
  * Retry budget for the enhancer's LLM call.
@@ -810,7 +1472,7 @@ async function performEnhancement(
     return { ok: false, reason: "error", message: "Model returned an empty response." };
   }
 
-  return { ok: true, enhanced };
+  return { ok: true, enhanced, skippedFiles: context.skippedFiles };
 }
 
 /** Anything exposing pi-tui's `Loader.setMessage`. */
@@ -857,7 +1519,36 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   }
 
   const editorText = ctx.ui.getEditorText();
-  const originalPrompt = (providedText ?? editorText).trim();
+  const typedPrompt = (providedText ?? editorText).trim();
+
+  /**
+   * Is the editor exactly as we left it?
+   *
+   * Command arguments are excluded on purpose: an argument is something the
+   * user typed, and typing one opens a fresh chain, so it can never be a
+   * re-roll of the previous one.
+   */
+  const editorHeldOurRewrite =
+    providedText === undefined && editorHoldsOurText(editorText, lastEnhancedText);
+
+  /**
+   * A second Ctrl+Shift+E over an untouched rewrite is a re-roll, not a second
+   * pass.
+   *
+   * Feeding rewrite #1 back to the model produced rewrite-of-a-rewrite: each
+   * press drifted further from what the user meant, and asking again for "a
+   * different approach" — the thing repeat-enhancing is *for* — instead
+   * compounded the last one. Re-running the stored original gives a genuine
+   * alternative from the same starting point.
+   *
+   * The exception is the whole point of the comparison: if the editor is not
+   * byte-for-byte what we wrote, the user changed it, and their change is the
+   * prompt — and, once enhanced, the prompt every later press re-rolls, since
+   * "again" can only mean the last thing the user said.
+   */
+  const storedOriginal = lastOriginalPrompt;
+  const rerollingOriginal = storedOriginal !== undefined && editorHeldOurRewrite;
+  const originalPrompt = rerollingOriginal ? storedOriginal : typedPrompt;
 
   if (!originalPrompt) {
     showTransientStatus(ctx, "Nothing to enhance (editor is empty).");
@@ -900,91 +1591,132 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // below if this run does not produce a new successful enhance.
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
 
-  // Custom components are terminal-only. pi's own JSDoc on ExtensionContext.mode
-  // says to guard them on "tui"; RPC keeps hasUI true but implements custom()
-  // as `async custom() { return undefined; }`, which used to crash this flow.
-  // Allowlist, not a denylist, so a future mode degrades to headless instead of
-  // crashing. `mode` may be absent on a host that ships a subset shim of
-  // @earendil-works/pi-coding-agent, hence the typeof check.
-  const wantsCustomUI = typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI;
-
-  const enhanceParams = {
-    cwd: ctx.cwd,
-    model,
-    auth,
-    originalPrompt,
-    history: gatherSessionHistory(ctx),
-  };
   let result: EnhancementOutcome | undefined;
 
-  if (wantsCustomUI) {
-    // Fallback for a host that reports "tui" but never invokes the factory:
-    // without this we would consume whatever custom() resolved to.
-    //
-    // Edge case, unreachable on pi and knowingly left alone: a host that *does*
-    // run the factory but still resolves `undefined` (rather than the value
-    // passed to `done`) leaves `result` unset, and the headless branch below
-    // then re-runs performEnhancement — a second billed LLM call for one
-    // /prompt_enhance. Guarding it would mean distinguishing "done() never
-    // fired" from "done(undefined)", which the ExtensionUIContext.custom
-    // contract gives us no way to do, and pi's TUI mode always resolves with
-    // the done() value. Recorded here so a future host quirk is diagnosable.
-    let factoryRan = false;
-    const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
-      factoryRan = true;
-      const workingMessage = `Enhancing prompt via ${modelLabel(model)}…`;
-      const loader = new BorderedLoader(tui, theme, workingMessage, {
-        cancellable: true,
-      });
-      loader.onAbort = () => {
-        done({ ok: false, reason: "cancelled" });
-      };
+  // The loader blocks input; this is what tells the user *why* — a status bar
+  // that changes while the call is out. Whatever the last transient message
+  // was, its window is over the moment new work starts.
+  clearTransientStatusTimer();
 
-      // Without this the loader sits on "Enhancing prompt via …" for the whole
-      // ~14 s retry budget with nothing to show the call is being retried.
-      // Wording follows pi's own retry status indicator, plus the reason the
-      // last attempt gave — that is what lets the user decide to Esc early.
-      const retryCallbacks: RetryCallbacks = {
-        onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
-          setLoaderMessage(loader, formatRetryStatus(attempt, maxAttempts, delayMs, errorMessage));
-        },
-        onRetryAttemptStart: () => setLoaderMessage(loader, workingMessage),
-      };
+  // Entering the enhancing state is two steps, and only the second can throw:
+  // the flag is ours and assigning it cannot fail, while the repaint that shows
+  // it ends in `ctx.ui.setWidget` — pi's code, free to throw on any paint. So
+  // the flag is set here, bare, and the paint happens inside the `try` below,
+  // together with everything else that decides how to run (reading `ctx.mode`,
+  // gathering session history). That is the guarantee: every statement from
+  // here on that can throw is inside the block `finally` covers, so there is no
+  // way to reach a throw with the flag set and no path back — which is what
+  // would leave `enhancing…` lit until the next session_start, the shortcut
+  // handler having swallowed the error and pi logged `Shortcut handler error`.
+  enhancingInFlight = true;
+  try {
+    updateWidget(ctx);
 
-      performEnhancement({ ...enhanceParams, retryCallbacks }, loader.signal)
-        .then(done)
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          done({ ok: false, reason: "error", message });
+    // Custom components are terminal-only. pi's own JSDoc on
+    // ExtensionContext.mode says to guard them on "tui"; RPC keeps hasUI true
+    // but implements custom() as `async custom() { return undefined; }`, which
+    // used to crash this flow. Allowlist, not a denylist, so a future mode
+    // degrades to headless instead of crashing. `mode` may be absent on a host
+    // that ships a subset shim of @earendil-works/pi-coding-agent, hence the
+    // typeof check.
+    const wantsCustomUI = typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI;
+
+    const enhanceParams = {
+      cwd: ctx.cwd,
+      model,
+      auth,
+      originalPrompt,
+      history: gatherSessionHistory(ctx),
+    };
+
+    if (wantsCustomUI) {
+      // Fallback for a host that reports "tui" but never invokes the factory:
+      // without this we would consume whatever custom() resolved to.
+      //
+      // Edge case, unreachable on pi and knowingly left alone: a host that *does*
+      // run the factory but still resolves `undefined` (rather than the value
+      // passed to `done`) leaves `result` unset, and the headless branch below
+      // then re-runs performEnhancement — a second billed LLM call for one
+      // /prompt_enhance. Guarding it would mean distinguishing "done() never
+      // fired" from "done(undefined)", which the ExtensionUIContext.custom
+      // contract gives us no way to do, and pi's TUI mode always resolves with
+      // the done() value. Recorded here so a future host quirk is diagnosable.
+      let factoryRan = false;
+      const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
+        factoryRan = true;
+        const workingMessage = `Enhancing prompt via ${modelLabel(model)}…`;
+        const loader = new BorderedLoader(tui, theme, workingMessage, {
+          cancellable: true,
         });
+        loader.onAbort = () => {
+          done({ ok: false, reason: "cancelled" });
+        };
 
-      return loader;
-    });
-    if (factoryRan) result = customResult;
-  }
+        // Without this the loader sits on "Enhancing prompt via …" for the whole
+        // ~14 s retry budget with nothing to show the call is being retried.
+        // Wording follows pi's own retry status indicator, plus the reason the
+        // last attempt gave — that is what lets the user decide to Esc early.
+        const retryCallbacks: RetryCallbacks = {
+          onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
+            setLoaderMessage(
+              loader,
+              formatRetryStatus(attempt, maxAttempts, delayMs, errorMessage),
+            );
+          },
+          onRetryAttemptStart: () => setLoaderMessage(loader, workingMessage),
+        };
 
-  if (!result) {
-    // Headless: same work, no BorderedLoader. Nothing can cancel it from the
-    // UI, so the controller exists only to satisfy performEnhancement.
-    const controller = new AbortController();
-    try {
-      result = await performEnhancement(enhanceParams, controller.signal);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      result = { ok: false, reason: "error", message };
+        performEnhancement({ ...enhanceParams, retryCallbacks }, loader.signal)
+          .then(done)
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            done({ ok: false, reason: "error", message });
+          });
+
+        return loader;
+      });
+      if (factoryRan) result = customResult;
     }
+
+    if (!result) {
+      // Headless: same work, no BorderedLoader. Nothing can cancel it from the
+      // UI, so the controller exists only to satisfy performEnhancement.
+      const controller = new AbortController();
+      try {
+        result = await performEnhancement(enhanceParams, controller.signal);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        result = { ok: false, reason: "error", message };
+      }
+    }
+  } finally {
+    // Every exit from the block above — success, failure, cancel, or an
+    // exception nobody predicted — leaves the enhancing state behind. `finally`
+    // is the only construct that can promise that, and it can only promise it
+    // for what the block actually covers, which is why the block starts where
+    // it does. Each outcome below then repaints over a widget already at rest.
+    setEnhancing(ctx, false);
   }
 
   if (result.ok) {
     ctx.ui.setEditorText(result.enhanced);
+
+    // The chain original is whatever this enhance was given, because that is
+    // the last thing the user actually wrote. On a re-roll it is the stored
+    // original and this re-assigns the same string; on anything else — a first
+    // enhance, a command argument, a rewrite the user edited or replaced — it
+    // is the user's own words, and they become what the next press re-rolls and
+    // what Ctrl+Shift+Z restores. One assignment, no branch, so what was sent
+    // to the model and what revert hands back can never be different strings.
     lastOriginalPrompt = originalPrompt;
+    lastEnhancedText = result.enhanced;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
-    showTransientStatus(
-      ctx,
-      autoEnhanceEnabled
-        ? "Prompt enhanced — Enter to send."
-        : "Prompt enhanced — Ctrl+Shift+Z to revert.",
-    );
+    const enhanced = enhancedStatusText({
+      rerolled: rerollingOriginal,
+      autoEnhance: autoEnhanceEnabled,
+    });
+    const skipped = formatSkippedFiles(result.skippedFiles);
+    showTransientStatus(ctx, skipped === undefined ? enhanced : `${enhanced} ${skipped}`);
     return;
   }
 
@@ -1009,13 +1741,23 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // The message is said once; the widget losing its green `auto` block is what
   // keeps the new state on screen afterwards.
   autoEnhanceEnabled = false;
-  clearTransientStatusTimer();
   if (lastOriginalPrompt !== undefined) {
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
   }
-  updateWidget(ctx);
-  // Hard failures stay as notifications — the user needs to see them loud.
-  ctx.ui.notify(formatEnhancementFailure(result.message), "error");
+  // Everything that can fail here is operational — the network, the service,
+  // a timeout, an empty response, a model that errored — and none of it is
+  // something the user can fix before pressing the key again. So it clears
+  // itself like every other soft message instead of sitting on screen until
+  // the next redraw. The repaint is also what drops the green `auto` block.
+  //
+  // The three checks above — no active model, auth resolution, no API key —
+  // are the opposite case and stay as notifications: each one needs the user
+  // to change something before a retry can work, and a message that vanishes
+  // is the wrong shape for that.
+  //
+  // It gets a longer window than a success does, because the user spent the
+  // retry budget waiting and may well have looked away for it.
+  showTransientStatus(ctx, formatEnhancementFailure(result.message), TRANSIENT_FAILURE_STATUS_MS);
 }
 
 function runRevert(ctx: ExtensionContext): void {
@@ -1028,10 +1770,14 @@ function runRevert(ctx: ExtensionContext): void {
     return;
   }
   const restored = lastOriginalPrompt;
+  // Asked of the editor, not remembered: an edit made after the last enhance
+  // never reached the model, so this is the only place it can be noticed.
+  const laterEditsLost = !editorHoldsOurText(ctx.ui.getEditorText(), lastEnhancedText);
   lastOriginalPrompt = undefined;
+  lastEnhancedText = undefined;
   ctx.ui.setEditorText(restored);
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
-  showTransientStatus(ctx, "Reverted to your original prompt.");
+  showTransientStatus(ctx, revertStatusText(laterEditsLost));
 }
 
 function extractMessageText(content: unknown): string {
@@ -1084,7 +1830,9 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     activeCtx = ctx;
     lastOriginalPrompt = undefined;
+    lastEnhancedText = undefined;
     autoEnhanceEnabled = false;
+    enhancingInFlight = false;
     clearTransientStatusTimer();
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
@@ -1114,6 +1862,7 @@ export default function (pi: ExtensionAPI): void {
     const sendThrough = (): { action: "continue" } => {
       if (lastOriginalPrompt !== undefined) {
         lastOriginalPrompt = undefined;
+        lastEnhancedText = undefined;
         if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
       }
       return { action: "continue" };
