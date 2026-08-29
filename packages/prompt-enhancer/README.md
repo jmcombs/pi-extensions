@@ -109,6 +109,7 @@ the elements of the status bar:
 - **Ready**: a model is resolved. Enhance with `Ctrl+Shift+E`.
 - **Auto on**: `/prompt_enhance_auto` is armed. Enter rewrites; Enter again sends.
 - **No model**: pick one with `/model` or `/prompt_enhance_model`.
+- **Enhancing**: the call is out. Input is blocked until it lands; `Esc` cancels.
 - **Review**: a rewrite is in the editor and has not been sent. `Ctrl+Shift+Z` restores the original.
 
 <div align="center">

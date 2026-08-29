@@ -51,6 +51,7 @@ import factory, {
   SYSTEM_PROMPT,
   toEditorText,
 } from "./index.js";
+import { ENHANCING_SEGMENT } from "./widget.js";
 
 interface RegistrationLog {
   commands: string[];
@@ -887,6 +888,10 @@ function createHarness(): {
 function createHost(options: {
   draft: string;
   cancel?: boolean;
+  /** Defaults to "tui". "rpc" keeps a UI but gets no custom components. */
+  mode?: string;
+  /** Defaults to true. False is print/JSON mode: no editor, no widget. */
+  hasUI?: boolean;
   /**
    * Which model the host hands the enhancer. Defaults to one whose `api` no
    * provider is registered for, which is how the failure suite gets a genuine
@@ -926,8 +931,8 @@ function createHost(options: {
   const readEditor = () => editor.getExpandedText?.() ?? editor.getText();
 
   const ctx = {
-    hasUI: true,
-    mode: "tui",
+    hasUI: options.hasUI ?? true,
+    mode: options.mode ?? "tui",
     cwd: options.cwd ?? hostCwd,
     model: options.model ?? { provider: "test", id: "unreachable", api: "no-such-api-provider" },
     modelRegistry: {
@@ -1106,6 +1111,95 @@ describe("enhancement failure", () => {
     expect(host.log.editorTexts.at(-1)).toBe(DRAFT);
 
     await shutdown(host.harness, host.ctx);
+  });
+});
+
+// ── The visible enhancing state ────────────────────────────────────────
+
+/** The yellow in-flight block is a padded Powerline segment, like `auto`. */
+function hasEnhancingChip(line: string): boolean {
+  return line.includes(` ${ENHANCING_SEGMENT} `);
+}
+
+/**
+ * The widget says "enhancing" for exactly as long as the call is out.
+ *
+ * The BorderedLoader already blocks input, but it lives below the editor and
+ * says nothing once it is gone; the status bar above the editor is what a user
+ * reads to know the extension is working. What matters here is not that the
+ * state can be painted — widget.test.ts covers that — but that it is *cleared*
+ * on every way out of the run, including ones nobody thinks about.
+ */
+describe("the enhancing state", () => {
+  const DRAFT = "rework the enhancer widget so the segments collapse cleanly";
+  let faux: ReturnType<typeof registerFauxProvider>;
+
+  beforeAll(() => {
+    faux = registerFauxProvider({ api: "faux-enhancing-state", provider: "faux-state" });
+  });
+
+  afterAll(() => {
+    faux.unregister();
+  });
+
+  async function run(options: {
+    model?: unknown;
+    cancel?: boolean;
+    mode?: string;
+  }): Promise<HostLog> {
+    const harness = createHarness();
+    const host = createHost({ draft: DRAFT, ...options });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    await harness.commands.get("prompt_enhance")?.("", host.ctx);
+    await harness.events.get("session_shutdown")?.({}, host.ctx);
+    return host.log;
+  }
+
+  it("is on screen while the call is out, and gone after a success", async () => {
+    faux.setResponses([fauxAssistantMessage("Collapse the widget segments cleanly.")]);
+    const log = await run({ model: faux.getModel() });
+
+    expect(log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(log))).toBe(false);
+    expect(lastWidgetLine(log)).toContain("Prompt enhanced");
+  });
+
+  it("clears when the user cancels with Esc", async () => {
+    faux.setResponses([fauxAssistantMessage("never read — Esc lands first")]);
+    const log = await run({ model: faux.getModel(), cancel: true });
+
+    expect(log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(log))).toBe(false);
+    expect(lastWidgetLine(log)).toContain("Cancelled.");
+  });
+
+  it("clears when the call fails", async () => {
+    // Default host model: an api no provider is registered for.
+    const log = await run({});
+
+    expect(log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(log))).toBe(false);
+  });
+
+  it("clears on the headless call path, which has no loader to hide behind", async () => {
+    // RPC: hasUI is true, so the widget is painted, but ctx.ui.custom resolves
+    // undefined and the work runs with no BorderedLoader at all.
+    faux.setResponses([fauxAssistantMessage("Collapse the widget segments cleanly.")]);
+    const log = await run({ model: faux.getModel(), mode: "rpc" });
+
+    expect(log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(log))).toBe(false);
+  });
+
+  it("paints nothing at all without a UI", async () => {
+    const harness = createHarness();
+    const host = createHost({ draft: DRAFT, hasUI: false, mode: "print" });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    await harness.commands.get("prompt_enhance")?.("", host.ctx);
+
+    expect(host.log.widgets).toEqual([]);
+    expect(host.log.notifications.map((n) => n.level)).toEqual(["warning"]);
+    await harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 });
 

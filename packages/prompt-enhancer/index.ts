@@ -458,6 +458,15 @@ let activeCtx: ExtensionContext | undefined;
 /** Active auto-clear timer for the transient widget status line. */
 let transientStatusTimer: ReturnType<typeof setTimeout> | undefined;
 
+/**
+ * True while a rewrite is in flight.
+ *
+ * Module-scoped rather than a parameter threaded through `updateWidget` so
+ * that *every* repaint carries it — including one fired by the transient
+ * status timer, which has no idea a call is running.
+ */
+let enhancingInFlight = false;
+
 // ── Public types ────────────────────────────────────────────────────────
 
 /**
@@ -1189,6 +1198,7 @@ export function createEnhancerModelSelector(
 function renderWidgetLine(ctx: ExtensionContext, transientStatus?: string): string {
   const model = resolveEnhancerModel(ctx);
   return formatStatusWidget({
+    enhancing: enhancingInFlight,
     model: model ? modelLabel(model) : undefined,
     auto: autoEnhanceEnabled,
     status: transientStatus,
@@ -1200,6 +1210,17 @@ function updateWidget(ctx: ExtensionContext, transientStatus?: string): void {
   ctx.ui.setWidget(WIDGET_KEY, [renderWidgetLine(ctx, transientStatus)], {
     placement: "aboveEditor",
   });
+}
+
+/**
+ * Enter or leave the visible enhancing state, repainting the widget.
+ *
+ * Inert without a UI: `updateWidget` is a no-op when `ctx.hasUI` is false, so
+ * the headless path sets a boolean nobody reads.
+ */
+function setEnhancing(ctx: ExtensionContext, active: boolean): void {
+  enhancingInFlight = active;
+  updateWidget(ctx);
 }
 
 function clearTransientStatusTimer(): void {
@@ -1516,6 +1537,12 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // below if this run does not produce a new successful enhance.
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
 
+  // The loader blocks input; this is what tells the user *why* — a status bar
+  // that changes while the call is out. Whatever the last transient message
+  // was, its window is over the moment new work starts.
+  clearTransientStatusTimer();
+  setEnhancing(ctx, true);
+
   // Custom components are terminal-only. pi's own JSDoc on ExtensionContext.mode
   // says to guard them on "tui"; RPC keeps hasUI true but implements custom()
   // as `async custom() { return undefined; }`, which used to crash this flow.
@@ -1533,62 +1560,73 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   };
   let result: EnhancementOutcome | undefined;
 
-  if (wantsCustomUI) {
-    // Fallback for a host that reports "tui" but never invokes the factory:
-    // without this we would consume whatever custom() resolved to.
-    //
-    // Edge case, unreachable on pi and knowingly left alone: a host that *does*
-    // run the factory but still resolves `undefined` (rather than the value
-    // passed to `done`) leaves `result` unset, and the headless branch below
-    // then re-runs performEnhancement — a second billed LLM call for one
-    // /prompt_enhance. Guarding it would mean distinguishing "done() never
-    // fired" from "done(undefined)", which the ExtensionUIContext.custom
-    // contract gives us no way to do, and pi's TUI mode always resolves with
-    // the done() value. Recorded here so a future host quirk is diagnosable.
-    let factoryRan = false;
-    const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
-      factoryRan = true;
-      const workingMessage = `Enhancing prompt via ${modelLabel(model)}…`;
-      const loader = new BorderedLoader(tui, theme, workingMessage, {
-        cancellable: true,
-      });
-      loader.onAbort = () => {
-        done({ ok: false, reason: "cancelled" });
-      };
-
-      // Without this the loader sits on "Enhancing prompt via …" for the whole
-      // ~14 s retry budget with nothing to show the call is being retried.
-      // Wording follows pi's own retry status indicator, plus the reason the
-      // last attempt gave — that is what lets the user decide to Esc early.
-      const retryCallbacks: RetryCallbacks = {
-        onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
-          setLoaderMessage(loader, formatRetryStatus(attempt, maxAttempts, delayMs, errorMessage));
-        },
-        onRetryAttemptStart: () => setLoaderMessage(loader, workingMessage),
-      };
-
-      performEnhancement({ ...enhanceParams, retryCallbacks }, loader.signal)
-        .then(done)
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          done({ ok: false, reason: "error", message });
+  try {
+    if (wantsCustomUI) {
+      // Fallback for a host that reports "tui" but never invokes the factory:
+      // without this we would consume whatever custom() resolved to.
+      //
+      // Edge case, unreachable on pi and knowingly left alone: a host that *does*
+      // run the factory but still resolves `undefined` (rather than the value
+      // passed to `done`) leaves `result` unset, and the headless branch below
+      // then re-runs performEnhancement — a second billed LLM call for one
+      // /prompt_enhance. Guarding it would mean distinguishing "done() never
+      // fired" from "done(undefined)", which the ExtensionUIContext.custom
+      // contract gives us no way to do, and pi's TUI mode always resolves with
+      // the done() value. Recorded here so a future host quirk is diagnosable.
+      let factoryRan = false;
+      const customResult = await ctx.ui.custom<EnhancementOutcome>((tui, theme, _kb, done) => {
+        factoryRan = true;
+        const workingMessage = `Enhancing prompt via ${modelLabel(model)}…`;
+        const loader = new BorderedLoader(tui, theme, workingMessage, {
+          cancellable: true,
         });
+        loader.onAbort = () => {
+          done({ ok: false, reason: "cancelled" });
+        };
 
-      return loader;
-    });
-    if (factoryRan) result = customResult;
-  }
+        // Without this the loader sits on "Enhancing prompt via …" for the whole
+        // ~14 s retry budget with nothing to show the call is being retried.
+        // Wording follows pi's own retry status indicator, plus the reason the
+        // last attempt gave — that is what lets the user decide to Esc early.
+        const retryCallbacks: RetryCallbacks = {
+          onRetryScheduled: (attempt, maxAttempts, delayMs, errorMessage) => {
+            setLoaderMessage(
+              loader,
+              formatRetryStatus(attempt, maxAttempts, delayMs, errorMessage),
+            );
+          },
+          onRetryAttemptStart: () => setLoaderMessage(loader, workingMessage),
+        };
 
-  if (!result) {
-    // Headless: same work, no BorderedLoader. Nothing can cancel it from the
-    // UI, so the controller exists only to satisfy performEnhancement.
-    const controller = new AbortController();
-    try {
-      result = await performEnhancement(enhanceParams, controller.signal);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      result = { ok: false, reason: "error", message };
+        performEnhancement({ ...enhanceParams, retryCallbacks }, loader.signal)
+          .then(done)
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            done({ ok: false, reason: "error", message });
+          });
+
+        return loader;
+      });
+      if (factoryRan) result = customResult;
     }
+
+    if (!result) {
+      // Headless: same work, no BorderedLoader. Nothing can cancel it from the
+      // UI, so the controller exists only to satisfy performEnhancement.
+      const controller = new AbortController();
+      try {
+        result = await performEnhancement(enhanceParams, controller.signal);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        result = { ok: false, reason: "error", message };
+      }
+    }
+  } finally {
+    // Every exit from here on — success, failure, cancel, or an exception
+    // nobody predicted — leaves the enhancing state behind. `finally` is the
+    // only construct that can promise that; each outcome below then repaints
+    // over a widget that is already back to rest.
+    setEnhancing(ctx, false);
   }
 
   if (result.ok) {
@@ -1715,6 +1753,7 @@ export default function (pi: ExtensionAPI): void {
     lastOriginalPrompt = undefined;
     lastEnhancedText = undefined;
     autoEnhanceEnabled = false;
+    enhancingInFlight = false;
     clearTransientStatusTimer();
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
