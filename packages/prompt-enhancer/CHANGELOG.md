@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v3.0.1...prompt-enhancer/v4.0.0) (2026-08-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **prompt-enhancer:** `tooShortToEnhance` and `TOO_SHORT_MESSAGE` are no longer exported. Nothing outside this package's own tests imported them, and the extension is consumed through its default export, but the symbols are gone from the public surface.
+
+### Features
+
+* **prompt-enhancer:** close the Augment parity gaps and fix what the work uncovered ([#227](https://github.com/jmcombs/pi-extensions/issues/227)) ([9339351](https://github.com/jmcombs/pi-extensions/commit/933935113a64757f7149806e55a8fec44b464399))
+
 ## [3.0.1](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v3.0.0...prompt-enhancer/v3.0.1) (2026-08-23)
 
 
