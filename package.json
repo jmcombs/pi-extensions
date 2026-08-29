@@ -40,7 +40,8 @@
     "validate:extension-load": "bash scripts/validate-extension-load.sh",
     "dev:steward": "tsx packages/steward/scripts/dev.ts",
     "prepare": "husky",
-    "check:dependabot": "node scripts/check-dependabot-ignores.mjs"
+    "check:dependabot": "node scripts/check-dependabot-ignores.mjs",
+    "check:acceptance-artifact": "tsx scripts/check-acceptance-artifact.mjs"
   },
   "engines": {
     "node": ">=22.19.0"

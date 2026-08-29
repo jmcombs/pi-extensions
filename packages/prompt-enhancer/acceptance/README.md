@@ -20,24 +20,91 @@ pi --mode rpc --no-session --offline -ne -e ./packages/prompt-enhancer \
 `-ne` (`--no-extensions`) plus `-e ./packages/prompt-enhancer` is deliberate: globally installed
 extensions must not load, or their commands and models contaminate the results.
 
+## Who runs it
+
+Both the maintainer and contributors. A change to the prompt, to context assembly or to the enhance
+path is a change `npm run check` cannot judge, so the PR carries an acceptance artifact and the
+maintainer verifies it with `scripts/check-acceptance-artifact.mjs`. `CONTRIBUTING.md` has the short
+version, including when evidence is required and what a pass costs; this file is the long version.
+
+Contributors pick their own models within a cap, so a single-provider setup is enough to produce a
+run worth reading. A bare run still measures the maintainer's default five, so his workflow is
+unchanged.
+
 ## Running it
 
 ```bash
-# full matrix: 6 cells × 8 fixtures × n=12 = 576 real model calls
+# default matrix: 5 cells × 8 fixtures × n=12 = 480 real model calls
 npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 12 \
   --out docs/prompt-enhancer/baseline.json
+
+# a contributor's run: two models of their own, the required baseline first
+npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 6 \
+  --model anthropic/claude-haiku-4-5 --model xai/grok-4.6 \
+  --out docs/prompt-enhancer/acceptance-my-change.json
 
 # a single cell
 npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 3 \
   --model anthropic/claude-haiku-4-5 --fixture out-of-scope --out /tmp/one-cell.json
 ```
 
-Flags: `--n <count>`, `--model <cell key or provider/id>` (repeatable), `--fixture <name>`
-(repeatable), `--out <path>`, `--timeout-ms <ms>` (default 120000), `--concurrency <n>` (default 3).
+Flags: `--n <count>`, `--model <spec>` (repeatable, also comma-separable, aliased `--models`),
+`--fixture <name>` (repeatable), `--out <path>`, `--timeout-ms <ms>` (default 120000),
+`--concurrency <n>` (default 3), `--baseline-exempt <reason>`.
 
-`--model` takes either a full cell key (`xai/grok-4.6#openai-responses`) or a `provider/id` when
-that is unambiguous. Grok appears twice, under different providers and ids, so `provider/id` still
-resolves: `xai/grok-4.6`.
+### `--model`: choosing the cells
+
+A spec is `provider/id`, exactly as `pi -ne --list-models` prints the two columns, with an optional
+`#api` label appended. The provider is split on the **first** `/`, so an openrouter id that is itself
+a path works: `openrouter/z-ai/glm-5`.
+
+The api label is decoration for the artifact, not something the runner acts on. `pi -ne
+--list-models` does not report an api, so a selection cannot invent one: a spec without `#api` is
+keyed on `provider/id` alone. The five default cells keep their `#api` keys, so an artifact from a
+bare run is byte-identical in its cell keys to every recorded one.
+
+A spec that names a default cell, by full key or by `provider/id`, resolves to that cell and keeps
+its api label. Everything else is taken at face value and checked against the catalog.
+
+**The cap is five models.** Two reasons, both practical: each cell is another full fixture set times
+`n` of real paid calls, and an artifact wider than five columns stops fitting on a screen, which
+means it stops being reviewed. Selecting more fails before anything is spawned, with the count and
+the list.
+
+**Models are validated before the run, not during it.** The runner reads `pi -ne --list-models` once
+and fails on anything it cannot find, naming the misses. `-ne` matches how a call is actually
+spawned: with discovery off, a globally installed extension's providers are not there, so validating
+against the full catalog would green-light a model that every call then fails on. Without this
+check, a mistyped id is indistinguishable from a broken enhancer at the end of a paid run: every
+call in the cell returns `host_error` and the cell reads as unmeasured.
+
+### The baseline model
+
+`anthropic/claude-haiku-4-5` is the one cell every run is expected to carry. It is the cheapest
+hosted model in the default set, which is why it is the one asked for rather than a stronger one.
+Its purpose is comparability: without a shared column, "my change is fine on my two models" and "it
+is fine on my two other models" are two unrelated claims, and neither can be read against the
+recorded baseline.
+
+It is **policy, not scoring**. Nothing in `classify.ts` or in `scoreCall` may branch on a provider,
+model id or api when deciding a verdict (**D14**). The baseline requirement lives in the runner's
+reporting and in the check script, and it changes no verdict anywhere.
+
+A run without it is not blocked. The runner prints a warning, records
+`baseline: { model, present: false, exemptionReason }` in the artifact, and completes. The exemption
+is the documented path for a contributor with no Anthropic access:
+
+```bash
+npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 6 \
+  --model xai/grok-4.6 \
+  --baseline-exempt "no Anthropic account; xAI credits only" \
+  --out docs/prompt-enhancer/acceptance-my-change.json
+```
+
+`PROMPT_ENHANCER_BASELINE_EXEMPTION` is the environment-variable equivalent. Silence is the one
+thing that fails: an artifact with no baseline **and** no recorded reason is rejected by the check
+script. A reason turns it into a judgement the maintainer makes with the facts in front of him,
+which is the point.
 
 Records stream to `<out>.partial.jsonl` as each call finishes and are rewritten as a single JSON
 document at `<out>` when the run completes; the partial is removed on success. That file is the way
@@ -64,10 +131,85 @@ single worker. Running three `anthropic` models at once made concurrent credenti
 with `Prompt Enhancer: no API key configured for anthropic/…`, which scores as a `bad` call that has
 nothing to do with the enhancer.
 
-## The model matrix (locked)
+## What the artifact records
 
-Six cells. A cell is keyed on **(provider, model, api)**, not on the model id: the same `grok-4.6`
-is exercised over two different api paths and the two must never collide in the output.
+Alongside `startedAt`, `finishedAt`, `transport`, `models`, `fixtures`, `n`, `cellBadThreshold` and
+`records`, a run writes four things that exist so the file can be checked by someone who did not
+watch it happen:
+
+| field | why it is there |
+| --- | --- |
+| `baseline` | `{ model, present, exemptionReason }`. Whether the required column was run, and the reason if not. |
+| `knownPaths` | The repo file list the run scored against. Without it a re-score cannot reproduce `fabricated_path`, because every file the PR adds would read as invented. |
+| `fixtureDigests` | `sha256` of each fixture file as it was on disk for the run. |
+| `harness` | `sha256` of `run-matrix.ts` and `classify.ts` as they were on disk for the run. |
+
+`fixtureDigests` and `harness` are **self-attested**, so they are orientation, not proof: a
+fabricated file would carry the right digests. They earn their place by explaining an honest
+mismatch, which is usually a harness that moved under a recorded run.
+
+## Verifying an artifact
+
+```bash
+npm run check:acceptance-artifact -- docs/prompt-enhancer/acceptance-my-change.json
+```
+
+`scripts/check-acceptance-artifact.mjs` takes a supplied artifact, not the repo, so it is
+deliberately **not** part of `npm run check`.
+
+**The load-bearing check is the re-score.** Reading a run's summary table proves nothing: the
+numbers are whatever the file says they are. Every record carries the `enhanced` text the model
+produced and every input a verdict is allowed to depend on, so the check feeds those back through
+the committed scorer and reproduces the verdict, the codes and the signals. It imports `scoreCall`
+from `run-matrix.ts` rather than reimplementing the ladder, so the re-score and the run cannot
+drift; a re-score that drifts from the runner proves nothing either. One pass catches three
+different things:
+
+- **a fabricated artifact** — invented `enhanced` text scored `good` by hand does not survive being
+  scored by the real classifier;
+- **a stale artifact** — recorded before a classifier change, so its verdicts are the old rules'
+  answers;
+- **a locally edited harness** — a relaxed rule, a widened threshold or a deleted branch shows up as
+  a record the committed code disagrees with.
+
+Around it:
+
+- **Shape and counts.** `records` must equal models × fixtures × `n`, every cell must hold every
+  iteration exactly once, and a selection wider than the five-model cap could not have come from the
+  committed runner.
+- **Fixtures byte-for-byte.** A weakened fixture is the quiet way to make a run green: soften the
+  prompt that provokes the failure and every cell passes honestly. Fixture text is therefore never
+  taken from the artifact. Each record's `original` is compared with the committed file as the
+  runner would have read it, and `fixtureDigests` with the file's raw bytes.
+- **Host errors are not measurements.** A cell whose every record is a `host_error` was not
+  measured, and reading it as green is the same false pass the runner refuses to produce, so the
+  check refuses to accept one.
+- **The baseline.** Present, or absent with a recorded reason, or rejected.
+
+Exit codes: `0` verified, `1` something did not check out (with a readable summary), `2` the
+artifact could not be read at all.
+
+### What it cannot detect
+
+**Nothing here proves the calls were ever made.** A contributor who runs the real matrix and then
+hand-edits `enhanced` texts into ones that genuinely score `good` produces a file that passes. The
+check proves the *scoring* is honest and current, not the *sampling*. What raises the cost of that
+attack is that the forged text has to survive the real classifier on every fixture, which is close
+to the work of making the change actually good.
+
+Two smaller gaps, both reported rather than hidden:
+
+- **`knownPaths` padding.** The list is recorded by the run, so a `fabricated_path` could be hidden
+  by adding the invented path to it. The check counts recorded paths that do not exist in the
+  verifier's checkout and prints the number. Some are expected, since the PR adds files; a large
+  count is worth reading.
+- **Timings and token counts** are locally measured diagnostics and are not re-derivable. They are
+  never part of a verdict.
+
+## The default model matrix
+
+Five cells. A cell is keyed on **(provider, model, api)**, not on the model id: the same `grok-4.6`
+can be exercised over two different api paths and the two must never collide in the output.
 
 ```
 xai/grok-4.6#openai-responses
@@ -77,9 +219,13 @@ anthropic/claude-opus-5#anthropic-messages
 llama.cpp/Qwen3.6-35B-A3B-Q8_0#openai-completions
 ```
 
-Exactly these six, with this casing. Do not re-case, do not pin dated snapshots, do not add or
-substitute. `relay-*` models are out of scope entirely. A full pass is 6 × 8 × 12 = **576** real
-model calls; at the `n=6` the last recorded pass used, 6 × 8 × 6 = **288**.
+This is what a run with no `--model` measures, with this casing. Do not re-case and do not pin dated
+snapshots. `relay-*` models are out of scope entirely. A full pass is 5 × 8 × 12 = **480** real model
+calls; at the `n=6` the last recorded pass used, 5 × 8 × 6 = **240**.
+
+These five are the maintainer's set, not a floor for anyone else. A contributor replaces the whole
+list with `--model`; only `anthropic/claude-haiku-4-5` is asked for, and even that has an exemption
+path.
 
 The fixture count moved from six to eight after `docs/prompt-enhancer/acceptance-final.json` was
 recorded. That file is a 6 × 6 × 6 = 216-call pass and remains valid **for what it measured**; it

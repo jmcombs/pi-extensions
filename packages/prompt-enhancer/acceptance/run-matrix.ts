@@ -48,12 +48,37 @@
  * no child process fails the call immediately with `spawn_failed` instead of
  * blocking the run.
  *
+ * Model selection is open to contributors. With no `--model` the run uses the
+ * maintainer's five default cells. `--model` (repeatable, comma-separable)
+ * replaces that list with anything in the local `pi` catalog, capped at
+ * `MAX_MODELS`. Every selected model is validated against `pi -ne
+ * --list-models` before the first call, so a typo costs a second rather than
+ * forty wasted requests.
+ *
+ * `BASELINE_MODEL` is the one column every run is expected to carry, so two
+ * artifacts from two contributors have something in common. It is policy, not
+ * scoring: nothing here or in `classify.ts` may branch on a provider, model id
+ * or api when deciding a verdict (**D14**). A run without it still completes
+ * and still writes an artifact; the artifact simply records that the baseline
+ * was absent, plus the `--baseline-exempt` reason if one was given, and
+ * `scripts/check-acceptance-artifact.mjs` surfaces both.
+ *
  * Usage:
  *   npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 12 \
  *     --out docs/prompt-enhancer/baseline.json
+ *
+ *   npx tsx packages/prompt-enhancer/acceptance/run-matrix.ts --n 6 \
+ *     --model anthropic/claude-haiku-4-5 --model xai/grok-4.6 \
+ *     --out docs/prompt-enhancer/my-change.json
+ *
+ * This module is also imported by `scripts/check-acceptance-artifact.mjs` for
+ * `scoreCall`, so that the re-score and the run share one decision tree rather
+ * than two that can drift. `main()` therefore runs only when this file is the
+ * process entry point.
  */
 
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promises as fs, writeSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -67,14 +92,18 @@ const execFileAsync = promisify(execFile);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, "..", "..", "..");
-const FIXTURE_DIR = path.join(HERE, "fixtures");
+export const FIXTURE_DIR = path.join(HERE, "fixtures");
 const EXTENSION_PATH = "./packages/prompt-enhancer";
 
-interface MatrixModel {
+export interface MatrixModel {
   /**
    * Unique cell key. One model id can be served over two different api paths
    * (`xai/grok-4.6` exists as both `openai-responses` and `openai-completions`),
    * so the key carries the api and the two cells can never collide.
+   *
+   * A cell whose api was not named is keyed on `provider/id` alone. The api is
+   * a label for reading the artifact; `pi -ne --list-models` does not report
+   * one, so a contributor's selection cannot invent it.
    */
   key: string;
   provider: string;
@@ -83,8 +112,16 @@ interface MatrixModel {
 }
 
 /**
- * The locked model matrix. Exactly these five cells, with this casing — do not
- * re-case, do not pin dated snapshots, do not add or substitute.
+ * The api label used when a `--model` spec named no api. Kept out of the cell
+ * key so the default cells keep the keys every recorded artifact already uses.
+ */
+const UNSPECIFIED_API = "unspecified";
+
+/**
+ * The maintainer's default matrix: the five cells a bare run measures, with
+ * this casing. Do not re-case, do not pin dated snapshots. Contributors
+ * override the whole list with `--model`; these stay the default so the
+ * maintainer's own workflow is unchanged by that.
  *
  * Grok runs on `xai/grok-4.6` over `openai-responses`, which is the maintainer's
  * own account and is covered by his xAI credits. An `openrouter/x-ai/grok-4.6`
@@ -93,7 +130,7 @@ interface MatrixModel {
  * The failure this harness was built for was a prompt problem that appeared on
  * every model and every api path, so the api shape is not the variable.
  */
-const MODELS: readonly MatrixModel[] = [
+const DEFAULT_MODELS: readonly MatrixModel[] = [
   {
     key: "xai/grok-4.6#openai-responses",
     provider: "xai",
@@ -126,25 +163,155 @@ const MODELS: readonly MatrixModel[] = [
   },
 ];
 
-/** Resolve a `--model` value: either a full cell key or an unambiguous `provider/id`. */
-function resolveModelArg(value: string): MatrixModel {
-  const matches = MODELS.filter(
+/**
+ * The one model every acceptance run is expected to include.
+ *
+ * A shared column is the only thing that makes two contributors' artifacts
+ * comparable: without it, "my change is fine on my two models" and "it is fine
+ * on my two other models" are two unrelated claims. `claude-haiku-4-5` is the
+ * cheapest hosted cell in the default matrix, which is why it is the one asked
+ * for rather than a stronger model.
+ *
+ * It is a *policy* requirement checked here and in
+ * `scripts/check-acceptance-artifact.mjs` — never a scoring rule. Missing it
+ * does not stop a run and does not change a single verdict.
+ */
+export const BASELINE_MODEL = "anthropic/claude-haiku-4-5";
+
+/**
+ * Ceiling on `--model` selections.
+ *
+ * Two reasons, both practical. Each cell multiplies the whole fixture set by
+ * `n` real paid calls, and the artifact is meant to be read: a table wider than
+ * five columns stops fitting on a screen and stops being reviewed. Five is what
+ * the maintainer's own matrix uses, so it is a cap contributors are not
+ * disadvantaged by.
+ */
+export const MAX_MODELS = 5;
+
+/** Env fallback for `--baseline-exempt`, for CI or a shell profile. */
+const BASELINE_EXEMPTION_ENV = "PROMPT_ENHANCER_BASELINE_EXEMPTION";
+
+/**
+ * Resolve one `--model` value.
+ *
+ * A value naming a default cell (by full key or by `provider/id`) resolves to
+ * that cell, so its api label and key survive verbatim. Anything else is parsed
+ * as `provider/id` with an optional `#api` label. Provider is split on the
+ * FIRST `/`: an openrouter id is itself a path (`openrouter/z-ai/glm-5`).
+ */
+function parseModelSpec(value: string): MatrixModel {
+  const matches = DEFAULT_MODELS.filter(
     (model) => model.key === value || `${model.provider}/${model.id}` === value,
   );
   if (matches.length === 1) return matches[0] as MatrixModel;
-  if (matches.length === 0) {
+  if (matches.length > 1) {
     throw new Error(
-      `--model ${value} is not in the locked matrix:\n  ${MODELS.map((m) => m.key).join("\n  ")}`,
+      `--model ${value} is ambiguous (same id on two api paths); use one of:\n  ${matches
+        .map((m) => m.key)
+        .join("\n  ")}`,
     );
   }
+
+  const hash = value.indexOf("#");
+  const spec = hash >= 0 ? value.slice(0, hash) : value;
+  const api = hash >= 0 ? value.slice(hash + 1) : UNSPECIFIED_API;
+  const slash = spec.indexOf("/");
+  if (slash <= 0 || slash === spec.length - 1 || api.length === 0) {
+    throw new Error(
+      `--model ${value} is not a model spec. Use provider/id, optionally with an\n` +
+        "api label: anthropic/claude-haiku-4-5, openrouter/z-ai/glm-5,\n" +
+        "xai/grok-4.6#openai-responses. Run `pi -ne --list-models <search>` to see ids.",
+    );
+  }
+  const provider = spec.slice(0, slash);
+  const id = spec.slice(slash + 1);
+  return {
+    key: api === UNSPECIFIED_API ? `${provider}/${id}` : `${provider}/${id}#${api}`,
+    provider,
+    id,
+    api,
+  };
+}
+
+/**
+ * Every `provider\tid` pair the local `pi` can actually reach.
+ *
+ * `-ne` matches how the runner spawns `pi` for a call: with discovery off, a
+ * globally installed extension's providers are not there, so validating
+ * against the full catalog would green-light a model that every call then
+ * fails on.
+ */
+async function loadModelCatalog(): Promise<Set<string>> {
+  const { stdout } = await execFileAsync("pi", ["-ne", "--list-models"], {
+    maxBuffer: 32 * 1024 * 1024,
+  });
+  const catalog = new Set<string>();
+  for (const line of stdout.split("\n")) {
+    const match = line.match(/^(\S+)\s+(\S+)(?:\s|$)/);
+    if (match === null) continue;
+    const [, provider, id] = match;
+    if (provider === undefined || id === undefined) continue;
+    // The table header, not a model.
+    if (provider === "provider" && id === "model") continue;
+    catalog.add(`${provider}\t${id}`);
+  }
+  return catalog;
+}
+
+/**
+ * Fail before the first call, not after forty.
+ *
+ * A mistyped id is otherwise indistinguishable from a broken enhancer at the
+ * end of a paid run: every call in that cell comes back `host_error` and the
+ * cell reads as unmeasured.
+ */
+async function validateAgainstCatalog(models: readonly MatrixModel[]): Promise<void> {
+  let catalog: Set<string>;
+  try {
+    catalog = await loadModelCatalog();
+  } catch (error) {
+    throw new Error(
+      "Could not read the model catalog with `pi -ne --list-models`, so the\n" +
+        "selection cannot be checked before the run. Fix `pi` first: every call\n" +
+        `depends on it.\n  ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const missing = models.filter((model) => !catalog.has(`${model.provider}\t${model.id}`));
+  if (missing.length === 0) return;
   throw new Error(
-    `--model ${value} is ambiguous (same id on two api paths); use one of:\n  ${matches
-      .map((m) => m.key)
-      .join("\n  ")}`,
+    `${missing.length} selected model(s) are not in this machine's pi catalog:\n` +
+      `${missing.map((m) => `  ${m.provider}/${m.id}`).join("\n")}\n` +
+      "Run `pi -ne --list-models <search>` to see the exact provider and id, and\n" +
+      "check the provider's credential is configured. Nothing was called.",
   );
 }
 
-const FIXTURES = [
+/** What the run recorded about the required baseline column. */
+interface BaselinePolicy {
+  /** The `provider/id` every run is expected to include. */
+  model: string;
+  present: boolean;
+  /** Why the baseline was skipped, when it was. `null` means no reason given. */
+  exemptionReason: string | null;
+}
+
+function resolveBaselinePolicy(
+  models: readonly MatrixModel[],
+  exemptFlag: string | undefined,
+): BaselinePolicy {
+  const present = models.some((model) => `${model.provider}/${model.id}` === BASELINE_MODEL);
+  if (present) return { model: BASELINE_MODEL, present: true, exemptionReason: null };
+  const raw = exemptFlag ?? process.env[BASELINE_EXEMPTION_ENV] ?? "";
+  const reason = raw.trim();
+  return {
+    model: BASELINE_MODEL,
+    present: false,
+    exemptionReason: reason.length > 0 ? reason : null,
+  };
+}
+
+export const FIXTURES = [
   "dependabot",
   "repo-question",
   "trivial",
@@ -255,6 +422,8 @@ interface CliOptions {
   out: string;
   timeoutMs: number;
   concurrency: number;
+  /** Recorded reason for running without `BASELINE_MODEL`; undefined when none. */
+  baselineExempt: string | undefined;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -265,6 +434,7 @@ function parseArgs(argv: string[]): CliOptions {
     out: path.join("docs", "prompt-enhancer", "acceptance.json"),
     timeoutMs: DEFAULT_TIMEOUT_MS,
     concurrency: DEFAULT_CONCURRENCY,
+    baselineExempt: undefined,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -280,7 +450,14 @@ function parseArgs(argv: string[]): CliOptions {
         options.n = Number.parseInt(requireValue(), 10);
         break;
       case "--model":
-        options.models.push(resolveModelArg(requireValue()));
+      case "--models":
+        for (const spec of requireValue().split(",")) {
+          const trimmed = spec.trim();
+          if (trimmed.length > 0) options.models.push(parseModelSpec(trimmed));
+        }
+        break;
+      case "--baseline-exempt":
+        options.baselineExempt = requireValue();
         break;
       case "--fixture":
         options.fixtures.push(requireValue());
@@ -306,7 +483,51 @@ function parseArgs(argv: string[]): CliOptions {
       throw new Error(`--fixture ${fixture} is unknown: ${FIXTURES.join(", ")}`);
     }
   }
+
+  // Repeating a spec is a typo, not a request for two identical columns.
+  const seen = new Map<string, MatrixModel>();
+  for (const model of options.models) seen.set(model.key, model);
+  options.models = [...seen.values()];
+  if (options.models.length > MAX_MODELS) {
+    throw new Error(
+      `${options.models.length} models selected; the cap is ${MAX_MODELS}.\n` +
+        "  Every cell is a full fixture set × n of real paid calls, and an artifact\n" +
+        "  wider than five columns stops being readable, so it stops being reviewed.\n" +
+        `  Selected:\n${options.models.map((m) => `    ${m.key}`).join("\n")}`,
+    );
+  }
   return options;
+}
+
+/** `sha256:<hex>` over a file's raw bytes. */
+async function hashFile(filePath: string): Promise<string> {
+  const bytes = await fs.readFile(filePath);
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+/**
+ * Digest of each fixture file **as it was on disk for this run**, so a run
+ * against a locally weakened fixture is visible in the artifact. Records also
+ * carry `original`, which is the same file trimmed; the check script compares
+ * both against the committed files, and that comparison is the authoritative
+ * one because it does not trust the artifact.
+ */
+async function hashFixtureFiles(names: readonly string[]): Promise<Record<string, string>> {
+  const digests: Record<string, string> = {};
+  for (const name of names) {
+    digests[name] = await hashFile(path.join(FIXTURE_DIR, `${name}.txt`));
+  }
+  return digests;
+}
+
+/** Digests of the two files that decide a verdict, for reader orientation. */
+async function hashHarnessFiles(): Promise<Record<string, string>> {
+  const files = ["run-matrix.ts", "classify.ts"];
+  const digests: Record<string, string> = {};
+  for (const file of files) {
+    digests[`acceptance/${file}`] = await hashFile(path.join(HERE, file));
+  }
+  return digests;
 }
 
 async function readFixtures(names: readonly string[]): Promise<Map<string, string>> {
@@ -529,6 +750,71 @@ function driveOneCall(
   });
 }
 
+/**
+ * Everything a verdict is allowed to depend on. Deliberately carries no
+ * provider, model id or api (**D14**): the same rules score every cell.
+ */
+export interface ScoreInput {
+  original: string;
+  enhanced: string;
+  stopReason: string;
+  knownPaths: readonly string[];
+  setEditorTextCount: number;
+  extensionError?: string;
+  spawnError?: string;
+  stderrTail?: string;
+  timedOut: boolean;
+  exitCode: number | null;
+}
+
+export interface ScoreOutput {
+  verdict: "good" | "bad" | "host_error";
+  codes: string[];
+  signals: string[];
+}
+
+/**
+ * The whole verdict decision for one call: the infrastructure branches the
+ * runner owns, then `classifyEnhancement` for anything that actually reached
+ * the enhancer.
+ *
+ * It is exported and pure so that `scripts/check-acceptance-artifact.mjs` can
+ * re-derive a stored record's verdict from the record's own fields. Two copies
+ * of this ladder would drift, and a re-score that drifts from the runner proves
+ * nothing.
+ */
+export function scoreCall(input: ScoreInput): ScoreOutput {
+  if (input.spawnError !== undefined) {
+    // `pi` never started. That is the host failing, not the enhancer.
+    return { verdict: "host_error", codes: ["spawn_failed"], signals: [] };
+  }
+  if (input.extensionError !== undefined) {
+    return { verdict: "bad", codes: ["crash"], signals: [] };
+  }
+  if (input.timedOut) {
+    return { verdict: "bad", codes: ["timeout"], signals: [] };
+  }
+  if (
+    looksLikeHostFailure({
+      exitCode: input.exitCode,
+      setEditorTextCount: input.setEditorTextCount,
+      stderrTail: input.stderrTail ?? "",
+    })
+  ) {
+    // `pi` died before the extension emitted even its pre-replace echo, so no
+    // enhancer code ran. Not scoreable in either direction.
+    return { verdict: "host_error", codes: ["host_error"], signals: [] };
+  }
+  const classified = classifyEnhancement({
+    original: input.original,
+    enhanced: input.enhanced,
+    stopReason: input.stopReason,
+    knownPaths: input.knownPaths,
+    setEditorTextCount: input.setEditorTextCount,
+  });
+  return { verdict: classified.verdict, codes: classified.codes, signals: classified.signals };
+}
+
 async function runCell(
   model: MatrixModel,
   fixture: string,
@@ -571,42 +857,18 @@ async function runCell(
   const enhanced = texts.length > 1 ? (texts[texts.length - 1] ?? "") : (texts[0] ?? "");
   const stopReason = "unknown";
 
-  let verdict: "good" | "bad" | "host_error";
-  let codes: string[];
-  let signals: string[] = [];
-  if (outcome.spawnError !== undefined) {
-    // `pi` never started. That is the host failing, not the enhancer.
-    verdict = "host_error";
-    codes = ["spawn_failed"];
-  } else if (outcome.extensionError !== undefined) {
-    verdict = "bad";
-    codes = ["crash"];
-  } else if (outcome.timedOut) {
-    verdict = "bad";
-    codes = ["timeout"];
-  } else if (
-    looksLikeHostFailure({
-      exitCode: outcome.exitCode,
-      setEditorTextCount: texts.length,
-      stderrTail: outcome.stderrTail,
-    })
-  ) {
-    // `pi` died before the extension emitted even its pre-replace echo, so no
-    // enhancer code ran. Not scoreable in either direction.
-    verdict = "host_error";
-    codes = ["host_error"];
-  } else {
-    const classified = classifyEnhancement({
-      original: fixtureText,
-      enhanced,
-      stopReason,
-      knownPaths,
-      setEditorTextCount: texts.length,
-    });
-    verdict = classified.verdict;
-    codes = classified.codes;
-    signals = classified.signals;
-  }
+  const { verdict, codes, signals } = scoreCall({
+    original: fixtureText,
+    enhanced,
+    stopReason,
+    knownPaths,
+    setEditorTextCount: texts.length,
+    ...(outcome.extensionError !== undefined ? { extensionError: outcome.extensionError } : {}),
+    ...(outcome.spawnError !== undefined ? { spawnError: outcome.spawnError } : {}),
+    stderrTail: outcome.stderrTail,
+    timedOut: outcome.timedOut,
+    exitCode: outcome.exitCode,
+  });
 
   return {
     model: model.key,
@@ -753,9 +1015,28 @@ function printSummary(records: CallRecord[], models: MatrixModel[], fixtures: st
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const models = options.models.length > 0 ? options.models : [...MODELS];
+  const models = options.models.length > 0 ? options.models : [...DEFAULT_MODELS];
   const fixtureNames = options.fixtures.length > 0 ? options.fixtures : [...FIXTURES];
   const fixtures = await readFixtures(fixtureNames);
+
+  // Before anything is spawned or paid for.
+  await validateAgainstCatalog(models);
+
+  const baseline = resolveBaselinePolicy(models, options.baselineExempt);
+  if (!baseline.present) {
+    // Loud, and in the artifact, but never a block: a contributor with one
+    // provider still has a run worth reading.
+    progress("");
+    progress(`WARNING: the baseline model ${baseline.model} is not in this run.`);
+    progress(
+      baseline.exemptionReason === null
+        ? '  No exemption reason recorded. Pass --baseline-exempt "<why>" so the artifact\n' +
+            "  says why, or the maintainer has to ask."
+        : `  Recorded exemption: ${baseline.exemptionReason}`,
+    );
+    progress("  This run's numbers are not directly comparable with other contributors'.");
+    progress("");
+  }
 
   const outPath = path.resolve(REPO_ROOT, options.out);
   // Crash-safe, and the only progress a redirected run can be watched through:
@@ -828,6 +1109,18 @@ async function main(): Promise<void> {
         fixtures: fixtureNames,
         n: options.n,
         cellBadThreshold: CELL_BAD_THRESHOLD,
+        baseline,
+        // Self-attested, so informational only: a fabricated artifact would
+        // simply carry the right digests. They tell a maintainer at a glance
+        // which harness produced a *good-faith* run. The re-score in
+        // `scripts/check-acceptance-artifact.mjs` is what actually proves it.
+        harness: await hashHarnessFiles(),
+        // Recorded so the re-score reproduces `fabricated_path` exactly. It is
+        // repo state, not model output: without it the maintainer scores
+        // against his own working tree and every path the contributor added
+        // reads as fabricated.
+        knownPaths,
+        fixtureDigests: await hashFixtureFiles(fixtureNames),
         records,
       },
       null,
@@ -836,11 +1129,27 @@ async function main(): Promise<void> {
   );
   await fs.rm(partialPath, { force: true });
   progress(`\nWrote ${records.length} records to ${outPath}`);
+  progress(
+    baseline.present
+      ? `baseline ${baseline.model}: present`
+      : `baseline ${baseline.model}: ABSENT (${baseline.exemptionReason ?? "no reason recorded"})`,
+  );
+  progress(`Verify with: npm run check:acceptance-artifact -- ${options.out}`);
 
   process.exitCode = overThreshold ? 1 : 0;
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.stack : String(error));
-  process.exitCode = 1;
-});
+/**
+ * Run only as the process entry point. `scripts/check-acceptance-artifact.mjs`
+ * imports `scoreCall` from here, and importing a module must not start a
+ * 240-call paid run.
+ */
+const INVOKED_DIRECTLY =
+  process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (INVOKED_DIRECTLY) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.stack : String(error));
+    process.exitCode = 1;
+  });
+}
