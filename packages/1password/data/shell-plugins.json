@@ -355,6 +355,20 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/ngrok"
   },
   {
+    "name": "npm",
+    "slug": "npm",
+    "envVars": ["NPM_CONFIG_USERCONFIG"],
+    "primaryEnvVar": "NPM_CONFIG_USERCONFIG",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/npm"
+  },
+  {
+    "name": "Octopus Deploy",
+    "slug": "octopus",
+    "envVars": ["OCTOPUS_API_KEY", "OCTOPUS_SPACE", "OCTOPUS_URL"],
+    "primaryEnvVar": "OCTOPUS_API_KEY",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/octopus"
+  },
+  {
     "name": "Oh Dear",
     "slug": "ohdear",
     "envVars": ["OHDEAR_CONFIG_FILE_PATH"],
