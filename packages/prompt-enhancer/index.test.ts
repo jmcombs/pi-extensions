@@ -860,6 +860,8 @@ interface HostLog {
   notifications: { message: string; level: string }[];
   widgets: string[][];
   editorTexts: string[];
+  /** How many times the enhancer asked the registry to resolve credentials. */
+  authLookups: number;
 }
 
 /** Registered handlers, so tests can drive commands and events like pi does. */
@@ -892,6 +894,10 @@ function createHost(options: {
   mode?: string;
   /** Defaults to true. False is print/JSON mode: no editor, no widget. */
   hasUI?: boolean;
+  /** True when the host has no session model at all. */
+  noModel?: boolean;
+  /** What the registry answers when asked for credentials. */
+  auth?: { ok: boolean; error?: string; apiKey?: string };
   /**
    * Which model the host hands the enhancer. Defaults to one whose `api` no
    * provider is registered for, which is how the failure suite gets a genuine
@@ -908,7 +914,7 @@ function createHost(options: {
   /** Type over the editor the way the user would. */
   typeIntoEditor: (text: string) => void;
 } {
-  const log: HostLog = { notifications: [], widgets: [], editorTexts: [] };
+  const log: HostLog = { notifications: [], widgets: [], editorTexts: [], authLookups: 0 };
 
   const tuiStub = { requestRender: () => {}, terminal: { rows: 24, columns: 80 } };
   const themeStub = {
@@ -934,9 +940,17 @@ function createHost(options: {
     hasUI: options.hasUI ?? true,
     mode: options.mode ?? "tui",
     cwd: options.cwd ?? hostCwd,
-    model: options.model ?? { provider: "test", id: "unreachable", api: "no-such-api-provider" },
+    model: options.noModel
+      ? undefined
+      : (options.model ?? { provider: "test", id: "unreachable", api: "no-such-api-provider" }),
     modelRegistry: {
-      getApiKeyAndHeaders: () => Promise.resolve({ ok: true, apiKey: "test-key", headers: {} }),
+      getApiKeyAndHeaders: () => {
+        log.authLookups += 1;
+        return Promise.resolve({
+          headers: {},
+          ...(options.auth ?? { ok: true, apiKey: "test-key" }),
+        });
+      },
     },
     sessionManager: { getBranch: () => [] },
     ui: {
@@ -1049,7 +1063,6 @@ describe("enhancement failure", () => {
     // Auto is genuinely off, not merely unpainted: the same Enter now passes
     // the draft straight through to the agent.
     expect(await submit(host)).toEqual({ action: "continue" });
-    expect(host.log.notifications).toHaveLength(1);
 
     await shutdown(host.harness, host.ctx);
   });
@@ -1071,14 +1084,63 @@ describe("enhancement failure", () => {
     await submit(host);
 
     const log = host.log;
-    expect(log.notifications).toHaveLength(1);
-    const only = log.notifications[0];
-    expect(only?.message).toMatch(/^prompt enhancement failed \(.+\); your prompt is unchanged$/);
-    expect(only?.message).toBe(
+    const said = lastWidgetLine(log);
+    expect(said).toMatch(/prompt enhancement failed \(.+\); your prompt is unchanged/);
+    expect(said).toContain(
       formatEnhancementFailure("No API provider registered for api: no-such-api-provider"),
     );
 
     await shutdown(host.harness, host.ctx);
+  });
+
+  /**
+   * The split.
+   *
+   * A call that failed on the way out — the network, the service, a timeout,
+   * an empty response — leaves nothing for the user to do but press the key
+   * again, so it rides the transient status and clears itself. A missing
+   * model or a missing key is the opposite: nothing the user does at the
+   * keyboard will help until they configure something, and a message that
+   * disappears is the wrong shape for that.
+   */
+  it("clears itself instead of sitting in the notification area", async () => {
+    const host = await armed();
+    await submit(host);
+
+    expect(host.log.notifications).toEqual([]);
+    expect(lastWidgetLine(host.log)).toContain("prompt enhancement failed");
+
+    await shutdown(host.harness, host.ctx);
+  });
+
+  it.each([
+    {
+      what: "no active model",
+      host: { noModel: true },
+      expected: "Prompt Enhancer: no active model. Pick one with /model first.",
+    },
+    {
+      what: "auth resolution failed",
+      host: { auth: { ok: false, error: "keychain locked" } },
+      expected: "Prompt Enhancer: keychain locked",
+    },
+    {
+      what: "no API key configured",
+      host: { auth: { ok: true, apiKey: "" } },
+      expected: "Prompt Enhancer: no API key configured for test/unreachable.",
+    },
+  ])("keeps $what as a notification the user has to read", async ({ host, expected }) => {
+    const harness = createHarness();
+    const target = createHost({ draft: DRAFT, ...host });
+    await harness.events.get("session_start")?.({}, target.ctx);
+    await harness.commands.get("prompt_enhance")?.("", target.ctx);
+
+    expect(target.log.notifications).toEqual([{ message: expected, level: "error" }]);
+    // Nothing transient was said, and no rewrite was attempted.
+    expect(lastWidgetLine(target.log)).not.toContain("failed");
+    expect(target.log.editorTexts).toEqual([]);
+
+    await shutdown(harness, target.ctx);
   });
 
   it("says exactly the same thing on the manual path", async () => {
@@ -1092,8 +1154,10 @@ describe("enhancement failure", () => {
     await harness.events.get("session_start")?.({}, ctx);
     await harness.commands.get("prompt_enhance")?.("", ctx);
 
-    expect(log.notifications).toHaveLength(1);
-    expect(log.notifications[0]?.message).toBe(auto.log.notifications[0]?.message);
+    expect(log.notifications).toEqual([]);
+    expect(lastWidgetLine(log)).toContain(
+      formatEnhancementFailure("No API provider registered for api: no-such-api-provider"),
+    );
     expect(hasAutoChip(lastWidgetLine(log))).toBe(false);
     expect(log.editorTexts.at(-1)).toBe(DRAFT);
 

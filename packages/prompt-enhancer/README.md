@@ -94,11 +94,17 @@ happen and nothing else:
 - your prompt goes back in the editor, exactly as you typed it;
 - auto-enhance turns itself off for the rest of the session, so the next Enter
   sends — turn it back on with `/prompt_enhance_auto`;
-- one message says so, and names the reason:
+- one message says so on the status bar, names the reason, and clears itself
+  after a few seconds:
 
 ```text
 prompt enhancement failed (Connection error); your prompt is unchanged
 ```
+
+Configuration problems are the exception. No active model, credentials that
+will not resolve, no API key for the model — those stay on screen as
+notifications, because pressing the key again cannot help until you have
+changed something.
 
 ## The status bar
 

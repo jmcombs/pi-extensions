@@ -279,6 +279,14 @@ export function formatRetryStatus(
 
 // Widget rendered above the editor with persistent enhancer state.
 const WIDGET_KEY = "prompt-enhancer";
+/**
+ * How long a soft message stays on the widget.
+ *
+ * Other enhancers clear theirs at around three seconds. Four is deliberate:
+ * it is the duration every transient message in this extension already has,
+ * and one consistent timing is worth more to a user than matching someone
+ * else's number.
+ */
 const TRANSIENT_STATUS_MS = 4000;
 
 // Pattern 1 chrome around SelectList: top border, title, search Input, help,
@@ -1672,13 +1680,20 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
   // The message is said once; the widget losing its green `auto` block is what
   // keeps the new state on screen afterwards.
   autoEnhanceEnabled = false;
-  clearTransientStatusTimer();
   if (lastOriginalPrompt !== undefined) {
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, revertHintText());
   }
-  updateWidget(ctx);
-  // Hard failures stay as notifications — the user needs to see them loud.
-  ctx.ui.notify(formatEnhancementFailure(result.message), "error");
+  // Everything that can fail here is operational — the network, the service,
+  // a timeout, an empty response, a model that errored — and none of it is
+  // something the user can fix before pressing the key again. So it clears
+  // itself like every other soft message instead of sitting on screen until
+  // the next redraw. The repaint is also what drops the green `auto` block.
+  //
+  // The three checks above — no active model, auth resolution, no API key —
+  // are the opposite case and stay as notifications: each one needs the user
+  // to change something before a retry can work, and a message that vanishes
+  // is the wrong shape for that.
+  showTransientStatus(ctx, formatEnhancementFailure(result.message));
 }
 
 function runRevert(ctx: ExtensionContext): void {
