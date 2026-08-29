@@ -141,14 +141,19 @@ flowchart TD
 
 Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
 are skipped. `Ctrl+Shift+E` enhances a skipped reply anyway — unless there is
-nothing there to work with. A draft under three words that names no file is
-too short to rewrite into anything, so it is refused before any call is made:
+nothing there to work with. A draft has to be short both ways — under three
+words *and* under eight characters — before it is too short to rewrite into
+anything, and only then is it refused before any call is made:
 
 ```text
 Too short to enhance. Add a few more words.
 ```
 
 Naming a file is enough on its own: `fix foo.ts` is a task, and it enhances.
+Two measures rather than one because words are counted by splitting on spaces,
+and not every language writes them: `implement OAuth2`, `memory leak` and a
+whole request written in Chinese or Japanese are all requests, and all of them
+enhance.
 
 ## Requirements
 
