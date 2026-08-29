@@ -23,7 +23,7 @@ import {
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import { Editor } from "@earendil-works/pi-tui";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import factory, {
   allocateConventionsBudget,
   buildEnhancerUserMessage,
@@ -50,6 +50,8 @@ import factory, {
   revertStatusText,
   SYSTEM_PROMPT,
   TOO_SHORT_MESSAGE,
+  TRANSIENT_FAILURE_STATUS_MS,
+  TRANSIENT_STATUS_MS,
   toEditorText,
 } from "./index.js";
 import { ENHANCING_SEGMENT } from "./widget.js";
@@ -1183,6 +1185,116 @@ describe("enhancement failure", () => {
     expect(host.log.editorTexts.at(-1)).toBe(DRAFT);
 
     await shutdown(host.harness, host.ctx);
+  });
+});
+
+// ── How long a transient message stays ─────────────────────────────────
+
+/**
+ * Every soft message clears itself, but not all of them meet the same user.
+ *
+ * A success or a cancel lands on someone watching the screen — they pressed a
+ * key and something happened. A transport failure lands on someone who has
+ * been waiting out the retry ladder, about fourteen seconds, which is exactly
+ * long enough to look away. Four seconds after that wait is a message nobody
+ * reads: the widget goes bare, the draft is untouched, and with auto-enhance
+ * off nothing anywhere records that a call was made and failed.
+ */
+describe("how long a transient message stays", () => {
+  const DRAFT = "rework the widget rendering so the segments collapse cleanly";
+  let faux: ReturnType<typeof registerFauxProvider>;
+
+  beforeAll(() => {
+    faux = registerFauxProvider({ api: "faux-durations", provider: "faux-durations" });
+  });
+
+  afterAll(() => {
+    faux.unregister();
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function run(options: { model?: unknown; cancel?: boolean } = {}): Promise<{
+    harness: ReturnType<typeof createHarness>;
+    ctx: ExtensionContext;
+    log: HostLog;
+  }> {
+    const harness = createHarness();
+    const host = createHost({ draft: DRAFT, ...options });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    await harness.commands.get("prompt_enhance")?.("", host.ctx);
+    return { harness, ctx: host.ctx, log: host.log };
+  }
+
+  /** The window has to outlast the wait that produced the failure. */
+  it("is set from the retry budget a failure has already spent", () => {
+    const { baseDelayMs, maxRetries } = ENHANCER_RETRY_POLICY;
+    let ladder = 0;
+    for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+      ladder += baseDelayMs * 2 ** attempt;
+    }
+
+    expect(ladder).toBe(14_000);
+    expect(TRANSIENT_FAILURE_STATUS_MS).toBeGreaterThan(ladder);
+    expect(TRANSIENT_FAILURE_STATUS_MS).toBeGreaterThan(TRANSIENT_STATUS_MS);
+  });
+
+  it("holds an operational failure past the point a success would be gone", async () => {
+    // Default host model: an api no provider is registered for.
+    const host = await run();
+    const failure = formatEnhancementFailure(
+      "No API provider registered for api: no-such-api-provider",
+    );
+    expect(lastWidgetLine(host.log)).toContain(failure);
+
+    // The moment a success or a cancel would have cleared.
+    vi.advanceTimersByTime(TRANSIENT_STATUS_MS);
+    expect(lastWidgetLine(host.log)).toContain(failure);
+
+    // Still up a whole retry ladder later, for the user who looked away.
+    vi.advanceTimersByTime(TRANSIENT_FAILURE_STATUS_MS - TRANSIENT_STATUS_MS - 1);
+    expect(lastWidgetLine(host.log)).toContain(failure);
+
+    // And then it goes, like every other soft message. Nothing to dismiss.
+    vi.advanceTimersByTime(1);
+    expect(lastWidgetLine(host.log)).not.toContain(failure);
+    expect(lastWidgetLine(host.log)).not.toContain("prompt enhancement failed");
+
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("still clears a success at the shared four seconds", async () => {
+    faux.setResponses([fauxAssistantMessage("Collapse the widget segments cleanly.")]);
+    const host = await run({ model: faux.getModel() });
+    expect(lastWidgetLine(host.log)).toContain("Prompt enhanced");
+
+    vi.advanceTimersByTime(TRANSIENT_STATUS_MS - 1);
+    expect(lastWidgetLine(host.log)).toContain("Prompt enhanced");
+
+    vi.advanceTimersByTime(1);
+    expect(lastWidgetLine(host.log)).not.toContain("Prompt enhanced");
+
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("still clears a cancel at the shared four seconds", async () => {
+    faux.setResponses([fauxAssistantMessage("never read — Esc lands first")]);
+    const host = await run({ model: faux.getModel(), cancel: true });
+    expect(lastWidgetLine(host.log)).toContain("Cancelled.");
+
+    vi.advanceTimersByTime(TRANSIENT_STATUS_MS - 1);
+    expect(lastWidgetLine(host.log)).toContain("Cancelled.");
+
+    vi.advanceTimersByTime(1);
+    expect(lastWidgetLine(host.log)).not.toContain("Cancelled.");
+
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 });
 

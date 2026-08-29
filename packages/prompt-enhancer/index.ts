@@ -287,7 +287,28 @@ const WIDGET_KEY = "prompt-enhancer";
  * and one consistent timing is worth more to a user than matching someone
  * else's number.
  */
-const TRANSIENT_STATUS_MS = 4000;
+export const TRANSIENT_STATUS_MS = 4000;
+
+/**
+ * How long an operational failure stays, which is longer.
+ *
+ * A success or a cancel lands on a user who is watching: they pressed a key,
+ * something happened, four seconds is plenty. A transport failure is the
+ * opposite. It arrives only after the retry ladder has spent its whole
+ * budget — 2 s, 4 s and 8 s of backoff, about fourteen seconds — and that is
+ * exactly the wait during which a user looks away. Measured in a pty, the
+ * message was on screen from t+14 to t+17 and gone by t+18; come back at t+20
+ * and the widget is bare, the draft is untouched, and nothing anywhere records
+ * that a call was made and failed. With auto-enhance off there is no surviving
+ * evidence at all.
+ *
+ * Fifteen seconds is the first round number past that ladder, so a user who
+ * looked away for the entire wait their failure paid for still finds the
+ * message when they look back. It stays transient on purpose: an operational
+ * failure needs nothing from the user, and a notification that must be
+ * dismissed is the wrong shape for something a second press might fix.
+ */
+export const TRANSIENT_FAILURE_STATUS_MS = 15000;
 
 // Pattern 1 chrome around SelectList: top border, title, search Input, help,
 // bottom border, plus the (n/total) scrollInfo line when the list overflows.
@@ -1239,18 +1260,22 @@ function clearTransientStatusTimer(): void {
 }
 
 /**
- * Show a status line in the widget that auto-clears after TRANSIENT_STATUS_MS.
+ * Show a status line in the widget that auto-clears after `durationMs`.
  * Used in place of `ctx.ui.notify` for non-error feedback so messages don't
  * stack up in Pi's notification area.
  */
-function showTransientStatus(ctx: ExtensionContext, status: string): void {
+function showTransientStatus(
+  ctx: ExtensionContext,
+  status: string,
+  durationMs: number = TRANSIENT_STATUS_MS,
+): void {
   if (!ctx.hasUI) return;
   clearTransientStatusTimer();
   updateWidget(ctx, status);
   transientStatusTimer = setTimeout(() => {
     transientStatusTimer = undefined;
     if (activeCtx?.hasUI) updateWidget(activeCtx);
-  }, TRANSIENT_STATUS_MS);
+  }, durationMs);
 }
 
 // ── Main flow ───────────────────────────────────────────────────────────
@@ -1727,7 +1752,10 @@ async function runEnhancer(
   // are the opposite case and stay as notifications: each one needs the user
   // to change something before a retry can work, and a message that vanishes
   // is the wrong shape for that.
-  showTransientStatus(ctx, formatEnhancementFailure(result.message));
+  //
+  // It gets a longer window than a success does, because the user spent the
+  // retry budget waiting and may well have looked away for it.
+  showTransientStatus(ctx, formatEnhancementFailure(result.message), TRANSIENT_FAILURE_STATUS_MS);
 }
 
 function runRevert(ctx: ExtensionContext): void {
