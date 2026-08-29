@@ -1571,30 +1571,37 @@ async function runEnhancer(
   // below if this run does not produce a new successful enhance.
   ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
 
+  let result: EnhancementOutcome | undefined;
+
   // The loader blocks input; this is what tells the user *why* — a status bar
   // that changes while the call is out. Whatever the last transient message
   // was, its window is over the moment new work starts.
   clearTransientStatusTimer();
   setEnhancing(ctx, true);
 
-  // Custom components are terminal-only. pi's own JSDoc on ExtensionContext.mode
-  // says to guard them on "tui"; RPC keeps hasUI true but implements custom()
-  // as `async custom() { return undefined; }`, which used to crash this flow.
-  // Allowlist, not a denylist, so a future mode degrades to headless instead of
-  // crashing. `mode` may be absent on a host that ships a subset shim of
-  // @earendil-works/pi-coding-agent, hence the typeof check.
-  const wantsCustomUI = typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI;
-
-  const enhanceParams = {
-    cwd: ctx.cwd,
-    model,
-    auth,
-    originalPrompt,
-    history: gatherSessionHistory(ctx),
-  };
-  let result: EnhancementOutcome | undefined;
-
+  // Nothing between the line above and this `try`. Everything that decides how
+  // to run — reading `ctx.mode`, gathering session history — is inside it,
+  // because a throw out there would leave the widget lit with no path back:
+  // the shortcut handler swallows it, pi logs `Shortcut handler error`, and
+  // `enhancing…` stays on screen until the next session_start.
   try {
+    // Custom components are terminal-only. pi's own JSDoc on
+    // ExtensionContext.mode says to guard them on "tui"; RPC keeps hasUI true
+    // but implements custom() as `async custom() { return undefined; }`, which
+    // used to crash this flow. Allowlist, not a denylist, so a future mode
+    // degrades to headless instead of crashing. `mode` may be absent on a host
+    // that ships a subset shim of @earendil-works/pi-coding-agent, hence the
+    // typeof check.
+    const wantsCustomUI = typeof ctx.mode === "string" ? ctx.mode === "tui" : ctx.hasUI;
+
+    const enhanceParams = {
+      cwd: ctx.cwd,
+      model,
+      auth,
+      originalPrompt,
+      history: gatherSessionHistory(ctx),
+    };
+
     if (wantsCustomUI) {
       // Fallback for a host that reports "tui" but never invokes the factory:
       // without this we would consume whatever custom() resolved to.
@@ -1656,10 +1663,11 @@ async function runEnhancer(
       }
     }
   } finally {
-    // Every exit from here on — success, failure, cancel, or an exception
-    // nobody predicted — leaves the enhancing state behind. `finally` is the
-    // only construct that can promise that; each outcome below then repaints
-    // over a widget that is already back to rest.
+    // Every exit from the block above — success, failure, cancel, or an
+    // exception nobody predicted — leaves the enhancing state behind. `finally`
+    // is the only construct that can promise that, and it can only promise it
+    // for what the block actually covers, which is why the block starts where
+    // it does. Each outcome below then repaints over a widget already at rest.
     setEnhancing(ctx, false);
   }
 

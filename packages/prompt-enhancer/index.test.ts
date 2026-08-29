@@ -1253,6 +1253,36 @@ describe("the enhancing state", () => {
     expect(hasEnhancingChip(lastWidgetLine(log))).toBe(false);
   });
 
+  /**
+   * The `finally` can only promise what its block covers, so the block starts
+   * on the statement after `setEnhancing(ctx, true)`. It used to start two
+   * statements later, and a throw in that gap left the widget lit: pi's
+   * shortcut dispatcher logs `Shortcut handler error` and nothing repaints
+   * until the next session_start.
+   *
+   * `ctx.mode` is the first thing read inside the block and is pi's property,
+   * not ours — a host is free to make it a getter that misbehaves.
+   */
+  it("clears even when the run throws before any call goes out", async () => {
+    const harness = createHarness();
+    const host = createHost({ draft: DRAFT, model: faux.getModel() });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    Object.defineProperty(host.ctx, "mode", {
+      configurable: true,
+      get: () => {
+        throw new Error("host exploded reading mode");
+      },
+    });
+
+    await expect(harness.commands.get("prompt_enhance")?.("", host.ctx)).rejects.toThrow(
+      "host exploded reading mode",
+    );
+
+    expect(host.log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(true);
+    expect(hasEnhancingChip(lastWidgetLine(host.log))).toBe(false);
+    await harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
   it("clears on the headless call path, which has no loader to hide behind", async () => {
     // RPC: hasUI is true, so the widget is painted, but ctx.ui.custom resolves
     // undefined and the work runs with no BorderedLoader at all.
