@@ -202,6 +202,28 @@ The rule returns immediately when the original carries no fenced block, so it is
 fixtures the recorded 216-call pass used. Re-scoring that file with this rule present changes **no
 verdict, adds no code and adds no signal**.
 
+#### Known limitation: one model dissolves the sample, and the prompt cannot stop it
+
+`fenced-trace` is the only cell in the matrix that fails, and it fails on one model.
+`anthropic/claude-haiku-4-5` paraphrases the pasted trace into prose 6 times out of 6 — no fenced
+block in the output at all, the line numbers and the assertion values read out of the trace and set
+into sentences. Grok, sonnet, opus and the local Qwen carry the block through; the two rewrites that
+shortened it kept the surviving lines verbatim. So the shipped instruction is not the problem for
+four of the five, and the failure is not the harness being strict: there is nothing left to compare.
+
+**This is documented rather than fixed, on purpose.** The rewrite is not a code path — the enhancer
+sends one system prompt to whatever model the user has selected — so the only lever is wording, and
+nothing here may branch on a provider, model id or api. One stronger wording was written and
+measured: the rule made definite rather than "usually", naming the output explicitly ("Copy it into
+your output as a block, character for character. Never describe it in prose instead."), and the
+closing "no quoting of the original" — the one phrase that reads as licence to leave a sample out —
+softened to "no restating". Six calls on haiku and six on grok: **haiku 6/6 bad, unchanged; grok 0/6,
+unaffected.** The wording was reverted. `SYSTEM_PROMPT` is what it was, and this cell is expected to
+be red on that model until the model changes.
+
+Do not "fix" this by dropping the fixture, by special-casing the model, or by loosening the rule
+until the paraphrase passes. A red cell that names a real behaviour is the measurement working.
+
 ### Signals: recorded, never counted
 
 `ClassifyResult.signals` is a second list that never touches `verdict`. It exists for behaviour worth
