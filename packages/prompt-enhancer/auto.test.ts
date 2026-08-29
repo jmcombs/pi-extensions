@@ -117,6 +117,12 @@ describe("tooShortToEnhance", () => {
    * here would break the implication proved below — auto-enhance would hand
    * over a draft this rule then refuses out loud. Tightening it in both places
    * is a change to auto-enhance's behaviour and does not belong in this fix.
+   *
+   * `ok 👨‍👩‍👧‍👦` gets past on the character floor: the count is code points, and one
+   * family emoji is seven of them, so two tokens reach nine characters. Every
+   * emoji a developer actually types in a draft (✅ ❌ ✓) is a single code point
+   * and counts as one; recorded here so the multi-code-point ones are a known
+   * hole rather than a discovery.
    */
   it("lets some worthless chatter through, knowingly", () => {
     for (const draft of [
@@ -126,6 +132,7 @@ describe("tooShortToEnhance", () => {
       "k thx bye",
       "do it now",
       "ok 👍 sure",
+      "ok 👨‍👩‍👧‍👦",
       "and/or",
       "yes 3/5",
       "no w/e",

@@ -295,18 +295,31 @@ export const TRANSIENT_STATUS_MS = 4000;
  * A success or a cancel lands on a user who is watching: they pressed a key,
  * something happened, four seconds is plenty. A transport failure is the
  * opposite. It arrives only after the retry ladder has spent its whole
- * budget — 2 s, 4 s and 8 s of backoff, about fourteen seconds — and that is
- * exactly the wait during which a user looks away. Measured in a pty, the
- * message was on screen from t+14 to t+17 and gone by t+18; come back at t+20
- * and the widget is bare, the draft is untouched, and nothing anywhere records
- * that a call was made and failed. With auto-enhance off there is no surviving
- * evidence at all.
+ * budget — 2 s, 4 s and 8 s of backoff, plus however long each attempt itself
+ * takes to fail — and that is the stretch during which a user looks away.
+ * Measured in a pty, the message was on screen from t+14 to t+17 and gone by
+ * t+18; come back at t+20 and the widget is bare, the draft is untouched, and
+ * nothing anywhere records that a call was made and failed. With auto-enhance
+ * off there is no surviving evidence at all.
  *
- * Fifteen seconds is the first round number past that ladder, so a user who
- * looked away for the entire wait their failure paid for still finds the
- * message when they look back. It stays transient on purpose: an operational
- * failure needs nothing from the user, and a notification that must be
- * dismissed is the wrong shape for something a second press might fix.
+ * Fifteen seconds is counted from the failure, not from the keypress, and it
+ * is not a number that outlasts the wait — the wait has no fixed length. Only
+ * the backoff is fixed; the attempts are not. Measured through a pty against a
+ * stub that hangs before erroring: attempts that fail instantly put the
+ * failure at 14 s and the message on screen from 14 s to 29 s; ten seconds of
+ * hang per attempt puts the failure at 54 s and the message from 54 s to 69 s;
+ * thirty seconds puts it at 134 s and 134 s to 149 s. Wherever the failure
+ * lands, the user has fifteen seconds from that moment to look back and see
+ * what happened, which is the grace period four seconds did not give them.
+ *
+ * That is enough because the wait before it is not blank: the widget reads
+ * `enhancing…` for as long as the call is out, and the loader names the retry
+ * it is on and the reason the last attempt gave. The window here is for
+ * someone who looked away, not for someone who never had anything to look at.
+ *
+ * It stays transient on purpose: an operational failure needs nothing from the
+ * user, and a notification that must be dismissed is the wrong shape for
+ * something a second press might fix.
  */
 export const TRANSIENT_FAILURE_STATUS_MS = 15000;
 

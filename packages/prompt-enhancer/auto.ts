@@ -45,8 +45,16 @@ const MIN_ENHANCEABLE_TOKENS = 3;
  * wrong refusal blocks work and has no override, a wrong acceptance costs one
  * call they asked for.
  *
- * Counted in code points rather than UTF-16 units so an emoji is one character
- * and a surrogate pair cannot buy its way past the floor either.
+ * Counted in code points rather than UTF-16 units, so anything outside the BMP
+ * counts once instead of twice and a surrogate pair cannot buy its way past the
+ * floor. It is a count of code points and not of what a reader would call
+ * characters: an emoji drawn as a single glyph is often several code points — a
+ * family 👨‍👩‍👧‍👦 is seven, a flag two, a keycap three — so `ok 👨‍👩‍👧‍👦` counts nine and clears a
+ * floor that `ok` alone is refused by.
+ *
+ * Left that way on purpose. The marks that actually turn up in developer drafts
+ * (✅ ❌ ✓) are one code point each and already count as one, and a two-word
+ * draft padded to length with a family emoji is not something anyone types.
  */
 const MIN_ENHANCEABLE_CHARS = 8;
 

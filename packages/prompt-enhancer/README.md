@@ -151,9 +151,18 @@ Too short to enhance. Add a few more words.
 
 Naming a file is enough on its own: `fix foo.ts` is a task, and it enhances.
 Two measures rather than one because words are counted by splitting on spaces,
-and not every language writes them: `implement OAuth2`, `memory leak` and a
-whole request written in Chinese or Japanese are all requests, and all of them
-enhance.
+and not every language writes them: `implement OAuth2` and `memory leak` are
+two words each and both enhance, and so does a Chinese or Japanese request long
+enough to clear the character floor — `重写这个函数以支持异步并添加错误处理` counts
+as one word and eighteen characters.
+
+The floor is calibrated to how much an English draft says in eight characters,
+so a short *complete* request in a denser language is still refused: `优化性能`
+(optimize performance), `添加错误处理` (add error handling), `重构代码` (refactor
+the code) and `リファクタして` (refactor it) are all under it. Korean is hit
+hardest, because it writes spaces and is compact, so both measures catch it:
+`코드 리팩터링` (refactor the code) is two words and six characters. Adding a few
+more words is what gets one of these through.
 
 ## Requirements
 
