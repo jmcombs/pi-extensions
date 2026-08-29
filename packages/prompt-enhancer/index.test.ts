@@ -1718,6 +1718,23 @@ describe("the editor's representation of our text", () => {
   it("has nothing to hold when we have written nothing", () => {
     expect(editorHoldsOurText("anything at all", undefined)).toBe(false);
   });
+
+  /**
+   * The editor slot is replaceable. `ui.setEditorComponent` swaps pi-tui's
+   * `Editor` for whatever another extension installs, and nothing reports which
+   * component is in it, so normalisation cannot be assumed either way. A
+   * component that stores text verbatim hands the tab back as a tab; treating
+   * that as a hand edit would make every tabbed rewrite unrepeatable and every
+   * revert warn about edits nobody made.
+   */
+  it.each(REWRITE_SHAPES)("recognises $name from an editor that stores verbatim", ({ text }) => {
+    expect(editorHoldsOurText(text, text)).toBe(true);
+  });
+
+  it("is still provenance against a verbatim editor: one edited word is not ours", () => {
+    const ours = "Fix the typo in\tREADME.md and leave the wording unchanged.";
+    expect(editorHoldsOurText(ours.replace("unchanged", "alone"), ours)).toBe(false);
+  });
 });
 
 // ── Revert, end to end through the real runEnhancer ────────────────────
@@ -1861,21 +1878,20 @@ describe("revert", () => {
   });
 
   /**
-   * The second half of the same defect, found through a real terminal.
+   * An edit that has been enhanced is the thing revert comes back to.
    *
-   * Enhance, hand-edit the rewrite, enhance again, revert: the equality test
-   * that decided "is this still our output" saw the edit, called the edited
-   * rewrite a fresh original, and Ctrl+Shift+Z put *that* in the editor under
-   * the status "Reverted to your original prompt." The typed draft was gone and
-   * unreachable, and the status said the opposite.
-   *
-   * The chain now runs from its first enhance to the next submit, so no amount
-   * of editing in between can move the stored original.
+   * Enhancing the user's edit and then reverting past it to a draft they had
+   * already moved on from put text in the editor that was two steps behind what
+   * they last said. The edit replaced the draft it was made from: what the
+   * model was given is what Ctrl+Shift+Z hands back, always, so the two can
+   * never name different strings. The draft before the edit is the editor's own
+   * undo, not this extension's.
    */
-  it("keeps the typed original when the user hand-edits the rewrite before enhancing again", async () => {
+  it("restores the edit once an edit has been enhanced, not the draft behind it", async () => {
     const host = await armed();
     const rewrite =
       "Fix the misspelling in README.md so the install command matches the published package name, and leave the surrounding wording unchanged.";
+    const edited = rewrite.replace("wording unchanged", "wording alone");
     faux.setResponses([
       fauxAssistantMessage(rewrite),
       fauxAssistantMessage("Correct the misspelled package name in README.md's install command."),
@@ -1885,14 +1901,56 @@ describe("revert", () => {
     expect(host.ctx.ui.getEditorText()).toBe(rewrite);
 
     // The user tightens our rewrite by hand — still our rewrite, with an edit.
-    host.typeIntoEditor(rewrite.replace("wording unchanged", "wording alone"));
+    host.typeIntoEditor(edited);
     await enhance(host);
     expect(host.ctx.ui.getEditorText()).toBe(
       "Correct the misspelled package name in README.md's install command.",
     );
 
     await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe(edited);
+    // Nothing was typed after that enhance, so nothing was lost by restoring it.
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    expect(lastWidgetLine(host.log)).not.toContain("later edits lost");
+    await shutdown(host);
+  });
+
+  /**
+   * The revert that never enhanced again — pre-existing, and invisible while
+   * the warning was a flag only an enhance could set.
+   *
+   * Enhance, hand-edit the rewrite, press Ctrl+Shift+Z. The edit was never
+   * given to the model, so nothing in this extension recorded it; the status
+   * said "Reverted to your original prompt." and the user's edit was gone
+   * without a word. The editor is asked at revert time instead, so the sentence
+   * warns.
+   */
+  it("warns when the revert overwrites an edit that was never enhanced", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("Fix the typo in README.md.")]);
+
+    await enhance(host);
+    host.typeIntoEditor("Fix the typo in README.md, and nothing else.");
+
+    await revert(host);
     expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    const status = lastWidgetLine(host.log);
+    expect(status).toContain("Reverted to your original prompt");
+    expect(status).toContain("later edits lost");
+    await shutdown(host);
+  });
+
+  /** The same press over a rewrite nobody touched still gets the clean sentence. */
+  it("does not warn when the revert overwrites only our own untouched rewrite", async () => {
+    const host = await armed();
+    faux.setResponses([fauxAssistantMessage("Fix the typo in\tREADME.md.")]);
+
+    await enhance(host);
+    await revert(host);
+
+    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(lastWidgetLine(host.log)).toContain("Reverted to your original prompt.");
+    expect(lastWidgetLine(host.log)).not.toContain("later edits lost");
     await shutdown(host);
   });
 
@@ -1901,37 +1959,42 @@ describe("revert", () => {
    *
    * A user who finds the rewrite too verbose cuts it down and enhances again.
    * Word-token overlap read that as a fresh draft — 82 characters removed from a
-   * short rewrite falls below any threshold — and revert then handed back a line
-   * that was half machine text under the status "Reverted to your original
-   * prompt." The typed draft was unreachable.
+   * short rewrite falls below any threshold — and revert handed back a line that
+   * was half machine text under the status "Reverted to your original prompt."
+   *
+   * There is no threshold now, so the trim is treated the same as any other
+   * edit: it was enhanced, so it is what comes back, whole and exactly as the
+   * user left it. Never a partial rewrite, which is the failure that mattered.
    */
-  it("keeps the typed original when the user cuts most of the rewrite away", async () => {
+  it("restores the trimmed line the user enhanced, not a half-machine one", async () => {
     const host = await armed();
     const rewrite =
       "Fix the widget colour and the spacing on the settings screen without breaking the snapshot tests.";
+    const trimmed = "Fix the widget padding.";
     faux.setResponses([fauxAssistantMessage(rewrite), fauxAssistantMessage("SECOND REWRITE")]);
 
     await enhance(host);
-    host.typeIntoEditor("Fix the widget padding.");
+    host.typeIntoEditor(trimmed);
     await enhance(host);
 
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
-    expect(host.ctx.ui.getEditorText()).not.toContain("widget");
+    expect(host.ctx.ui.getEditorText()).toBe(trimmed);
+    expect(host.ctx.ui.getEditorText()).not.toContain("snapshot tests");
     await shutdown(host);
   });
 
   /**
-   * The accepted cost, held to its own promise.
+   * The accepted cost, now paid off rather than hedged.
    *
-   * Clearing the editor and typing a different task without submitting leaves
-   * the chain open, so revert restores the older original and the newly typed
-   * draft is not what comes back. Nothing in pi's extension API distinguishes
-   * that from a hand-edit — no editor-change event, no observation between our
-   * own writes — so the extension does not guess. It stops claiming the
-   * restored text is the user's own.
+   * Clearing the editor and typing a different task used to leave the chain
+   * pointing at the older draft, so revert handed back a task the user had
+   * abandoned and the status line could only warn about it. Nothing in pi's
+   * extension API distinguishes a retype from a hand-edit — no editor-change
+   * event, no observation between our own writes — and it no longer has to:
+   * both are the user writing, both are enhanced, and both become what revert
+   * restores. The sentence has nothing left to hedge about.
    */
-  it("does not call the restored text the user's own once the chain left our rewrite", async () => {
+  it("restores the retyped draft rather than warning about an abandoned one", async () => {
     const host = await armed();
     const retyped = "Fix the chip spacing issue.";
     faux.setResponses([
@@ -1945,15 +2008,15 @@ describe("revert", () => {
     expect(host.ctx.ui.getEditorText()).toBe("Correct the spacing of the chip component.");
 
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(host.ctx.ui.getEditorText()).toBe(retyped);
     const status = lastWidgetLine(host.log);
-    expect(status).toContain("Reverted to your original prompt");
-    expect(status).toContain("later edits lost");
+    expect(status).toContain("Reverted to your original prompt.");
+    expect(status).not.toContain("later edits lost");
     await shutdown(host);
   });
 
   /** The same sequence, entered through auto-enhance rather than the command. */
-  it("keeps the typed original across a hand-edit on the auto-enhance path", async () => {
+  it("re-seats the chain on a hand-edit on the auto-enhance path too", async () => {
     const host = await armed();
     const rewrite =
       "Fix the misspelling in README.md so the install command matches the published package name, and leave the surrounding wording unchanged.";
@@ -1968,12 +2031,13 @@ describe("revert", () => {
     );
     expect(host.ctx.ui.getEditorText()).toBe(rewrite);
 
-    host.typeIntoEditor(rewrite.replace("wording unchanged", "wording alone"));
+    const edited = rewrite.replace("wording unchanged", "wording alone");
+    host.typeIntoEditor(edited);
     await enhance(host);
     expect(host.ctx.ui.getEditorText()).toBe("SECOND REWRITE");
 
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(host.ctx.ui.getEditorText()).toBe(edited);
     await shutdown(host);
   });
 
@@ -2147,9 +2211,91 @@ describe("repeat enhance", () => {
 
     expect(seen).toEqual([TYPED, edited]);
 
-    // The chain is unmoved by the edit: revert still reaches the typed draft.
+    // The edit is now the chain's original, so it is what revert reaches.
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe(TYPED);
+    expect(host.ctx.ui.getEditorText()).toBe(edited);
+    await shutdown(host);
+  });
+
+  /**
+   * The reported defect: an edit honoured once, then silently dropped.
+   *
+   * Type, enhance, edit the rewrite, enhance — the edit went to the model, as
+   * it should. Press enhance once more and the *first* draft went instead,
+   * under a footer reading "Re-enhanced your original prompt.", because the
+   * stored original had never moved off the text typed before the first press.
+   * Whatever the user last wrote is what "again" means, so the edit is what the
+   * third press re-rolls.
+   */
+  it("re-rolls the edit, not the draft it replaced, on the press after an edit", async () => {
+    const host = await armed();
+    const seen = script(["REWRITE ONE", "REWRITE TWO", "REWRITE THREE"]);
+
+    await enhance(host);
+    const edited = "RW-ONE PLUS MY EDIT";
+    host.typeIntoEditor(edited);
+    await enhance(host);
+    await enhance(host);
+
+    expect(seen).toEqual([TYPED, edited, edited]);
+    expect(seen.at(-1)).not.toBe(TYPED);
+    await shutdown(host);
+  });
+
+  /** And the press after *that* edit re-rolls the newer one. */
+  it("moves again when the user edits a second time mid-chain", async () => {
+    const host = await armed();
+    const seen = script(["ONE", "TWO", "THREE", "FOUR"]);
+
+    await enhance(host);
+    host.typeIntoEditor("FIRST EDIT");
+    await enhance(host);
+    host.typeIntoEditor("SECOND EDIT");
+    await enhance(host);
+    await enhance(host);
+
+    expect(seen).toEqual([TYPED, "FIRST EDIT", "SECOND EDIT", "SECOND EDIT"]);
+    await revert(host);
+    expect(host.ctx.ui.getEditorText()).toBe("SECOND EDIT");
+    await shutdown(host);
+  });
+
+  /**
+   * The footer, pinned to the request rather than to the flag behind it.
+   *
+   * The status and the prompt were both derived from the same variable but
+   * never checked against each other, so reverting the prompt selection alone
+   * left "Re-enhanced your original prompt." announcing a re-roll that had not
+   * happened, and the suite stayed green. Here the two are compared: the
+   * sentence may only appear on a press that sent the model the same string as
+   * the press before it, and whatever is sent must be the user's own words.
+   */
+  it("only claims a re-roll on a press that really re-sent the same prompt", async () => {
+    const host = await armed();
+    const seen = script(["ONE", "TWO", "THREE", "FOUR", "FIVE"]);
+    const statuses: string[] = [];
+    const press = async (): Promise<void> => {
+      await enhance(host);
+      statuses.push(lastWidgetLine(host.log));
+    };
+
+    const edited = "Fix the misspelling in README.md, and leave the wording alone.";
+    await press();
+    await press();
+    await press();
+    host.typeIntoEditor(edited);
+    await press();
+    await press();
+
+    // What the user had written, at each press.
+    const wrote = [TYPED, TYPED, TYPED, edited, edited];
+    expect(seen).toEqual(wrote);
+
+    for (const [i, sent] of seen.entries()) {
+      const claimsReroll = (statuses[i] ?? "").includes("Re-enhanced your original prompt");
+      expect(claimsReroll).toBe(i > 0 && sent === seen[i - 1]);
+      expect(sent).toBe(wrote[i]);
+    }
     await shutdown(host);
   });
 

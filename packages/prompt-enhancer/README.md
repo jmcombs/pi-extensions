@@ -49,7 +49,7 @@ you pick with `/prompt_enhance_model`.
 | --- | --- |
 | `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
 | `/prompt_enhance_model` | Pick the enhancer model for the current session. Resets when Pi restarts. |
-| `/prompt_enhance_revert` | Put back the draft you typed before the first enhance. Once only; also clears when you send a prompt. |
+| `/prompt_enhance_revert` | Put back the last prompt you wrote and enhanced. Once only; also clears when you send a prompt. |
 | `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
 **Shortcuts** (also listed in `/hotkeys`):
@@ -67,14 +67,17 @@ times to see different approaches to the same request. The footer says
 `Re-enhanced your original prompt` when that is what happened, since a second
 rewrite can read much like the first. Edit the rewrite first and enhancing takes
 your edited text instead: an edit is you saying something, so it is what gets
-rewritten.
+rewritten — and from then on it is what "again" means. Every further press
+re-rolls your edit, not the draft you started from, until you edit again.
 
-Revert always goes back to the draft you typed before the *first* enhance, not
-to the previous rewrite, and enhancing repeatedly never moves that target: a
-chain runs from the first enhance to the next thing you send. Stepping back
-through the drafts in between is the editor's own undo. If you clear the editor
-and type something new without sending it, revert still hands back the earlier
-draft — the status line says so rather than calling it your original.
+So `Ctrl+Shift+Z` hands back the last thing you wrote and enhanced: your typed
+draft if you never edited a rewrite, otherwise your most recent edit. Getting
+back to the draft behind an edit is the editor's own undo, not this. Revert is
+once per chain, and a chain ends when you send something.
+
+If you edit a rewrite and press `Ctrl+Shift+Z` without enhancing first, that
+edit is overwritten — the status line says `later edits lost` rather than
+claiming it gave you your own words back.
 
 ## When an enhance does not work
 
