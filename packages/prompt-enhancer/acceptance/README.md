@@ -37,7 +37,7 @@ Flags: `--n <count>`, `--model <cell key or provider/id>` (repeatable), `--fixtu
 
 `--model` takes either a full cell key (`xai/grok-4.6#openai-responses`) or a `provider/id` when
 that is unambiguous. Grok appears twice, under different providers and ids, so `provider/id` still
-resolves: `xai/grok-4.6` and `openrouter/x-ai/grok-4.6`.
+resolves: `xai/grok-4.6`.
 
 Records stream to `<out>.partial.jsonl` as each call finishes and are rewritten as a single JSON
 document at `<out>` when the run completes; the partial is removed on success. That file is the way
@@ -71,7 +71,6 @@ is exercised over two different api paths and the two must never collide in the 
 
 ```
 xai/grok-4.6#openai-responses
-openrouter/x-ai/grok-4.6#openai-completions
 anthropic/claude-sonnet-5#anthropic-messages
 anthropic/claude-haiku-4-5#anthropic-messages
 anthropic/claude-opus-5#anthropic-messages
@@ -87,18 +86,17 @@ recorded. That file is a 6 × 6 × 6 = 216-call pass and remains valid **for wha
 predates the fenced-sample rule, the typo-repair rule, the project-conventions context section and
 the raised conversation caps, so it is not evidence about any of them.
 
-### Why grok appears twice
+### Why grok appears once
 
-`openai-completions` is the api shape the reported incident occurred on, and every `xai` entry in
-`~/.pi/agent/models-store.json` is `openai-responses`. `openrouter/x-ai/grok-4.6` serves the same
-model over `openai-completions`, so the matrix covers both shapes with catalog entries and
-credentials that already exist — no `models.json` or `auth.json` change is needed. The native
-`xai` + `openai-completions` combination no longer exists, so this cell tests the api **shape**,
-through a different endpoint and provider, not the original endpoint. Do not try to reconstruct the
-original combination.
+Grok runs on `xai/grok-4.6` over `openai-responses`. That is the maintainer's own xAI account and
+its usage is covered by his credits.
 
-Note the openrouter cell's catalog `maxTokens` is 4,096 (the `xai` entry advertises 500,000); that
-is a real difference between the two grok cells, not a runner artifact.
+An `openrouter/x-ai/grok-4.6` cell used to sit alongside it, to cover `openai-completions`, the api
+shape the reported incident occurred on. It was removed: OpenRouter bills the maintainer directly,
+and `openai-completions` is already exercised by the llama.cpp cell. The failure this harness was
+built for was a prompt problem that appeared on every model and every api path, so the api shape is
+not the variable. If a future defect turns out to be provider-specific, add a cell for that defect
+rather than paying for one on every pass.
 
 ## llama.cpp precondition
 
@@ -410,14 +408,10 @@ for cell, n in sorted(infra.items()):
 EOF
 ```
 
-**The reasoning-effort 400 is fixed.** `pi-ai`'s openrouter branch sends
-`reasoning: { effort: model.thinkingLevelMap?.off ?? "none" }` when the caller passes no effort, and
-the catalog entry for `x-ai/grok-4.6` had no map, so `pi` actively disabled reasoning on an endpoint
-that requires it. The model needs an explicit `thinkingLevelMap` in `~/.pi/agent/models.json`; that
-entry is a precondition for the openrouter cell, not something the runner can supply.
+**The reasoning-effort 400 no longer applies.** It affected the openrouter cell, which has been
+removed from the matrix.
 
-**The credential failures were 1Password.** `anthropic` and `openrouter` are the two providers whose
-keys resolve through `!op read`. Both failure runs are consecutive from the start of the pass and
+**The credential failures were 1Password.** `anthropic` resolves its key through `!op read`. Both failure runs are consecutive from the start of the pass and
 stop about 9.5 minutes in, with none in the remaining 34 minutes — the signature of `op` waiting on
 a desktop-app authorisation nobody answered (`error initializing client: authorization timeout`),
 not of a flaky key. Before any pass touching those providers:
@@ -425,7 +419,6 @@ not of a flaky key. Before any pass touching those providers:
 ```bash
 op whoami                                   # must not say "account is not signed in"
 pi auth check --provider anthropic          # must print ready, not not_ready
-pi auth check --provider openrouter         # must print ready, not not_ready
 ```
 
 If either reports `not_ready`, **stop**: the pass will record dozens of `bad` calls that say nothing

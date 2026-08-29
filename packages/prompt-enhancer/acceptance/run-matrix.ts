@@ -83,14 +83,15 @@ interface MatrixModel {
 }
 
 /**
- * The locked model matrix. Exactly these six cells, with this casing — do not
+ * The locked model matrix. Exactly these five cells, with this casing — do not
  * re-case, do not pin dated snapshots, do not add or substitute.
  *
- * Grok is covered on both api shapes and both must pass: `xai/grok-4.6` over
- * `openai-responses` (the normal path here) and `openrouter/x-ai/grok-4.6` over
- * `openai-completions` (the api shape the reported incident occurred on). The
- * native `xai` + `openai-completions` combination no longer exists in the
- * catalog, so the openrouter cell tests the shape, not the original endpoint.
+ * Grok runs on `xai/grok-4.6` over `openai-responses`, which is the maintainer's
+ * own account and is covered by his xAI credits. An `openrouter/x-ai/grok-4.6`
+ * cell was removed: it billed the maintainer directly, and the api shape it
+ * covered (`openai-completions`) is already exercised by the llama.cpp cell.
+ * The failure this harness was built for was a prompt problem that appeared on
+ * every model and every api path, so the api shape is not the variable.
  */
 const MODELS: readonly MatrixModel[] = [
   {
@@ -98,12 +99,6 @@ const MODELS: readonly MatrixModel[] = [
     provider: "xai",
     id: "grok-4.6",
     api: "openai-responses",
-  },
-  {
-    key: "openrouter/x-ai/grok-4.6#openai-completions",
-    provider: "openrouter",
-    id: "x-ai/grok-4.6",
-    api: "openai-completions",
   },
   {
     key: "anthropic/claude-sonnet-5#anthropic-messages",
