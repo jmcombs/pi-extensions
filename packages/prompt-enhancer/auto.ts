@@ -9,6 +9,16 @@
 
 const REPLY_WORD_LIMIT = 6;
 
+/**
+ * Below this many tokens a draft carries nothing to rewrite.
+ *
+ * Three is where a request starts being one: an action and something to act
+ * on, with enough left over to say which one ("fix the readme link"). Two or
+ * fewer is an acknowledgement or a fragment — "ok", "ship it", "do that" —
+ * and a rewrite of it is invention, not enhancement.
+ */
+const MIN_ENHANCEABLE_TOKENS = 3;
+
 const PATHISH = /\/|\.[A-Za-z][A-Za-z0-9]{0,7}$/;
 
 export interface AutoEnhanceSkipOptions {
@@ -25,6 +35,27 @@ export function tokenizeDraft(text: string): string[] {
 
 export function looksLikePathToken(token: string): boolean {
   return PATHISH.test(token);
+}
+
+/**
+ * Is there too little here to enhance at all?
+ *
+ * Shape, not vocabulary, for the same reason as everything else in this file:
+ * a word list of acknowledgements rots, and it would refuse a two-word draft
+ * that happens to say something. A path-like token is the exemption — `fix
+ * foo.ts` names a file, which is a task however few words surround it.
+ *
+ * The threshold matches the tiny-draft clause of `shouldSkipAutoEnhance` on
+ * purpose: the same shape of draft is unenhanceable whichever way the run was
+ * started. They stay separate functions because they answer different
+ * questions — auto asks whether to stand aside on this turn, this asks whether
+ * the model has anything to work with — and only one of them may ever speak up
+ * about it. Auto-enhance stands down silently and never reaches this.
+ */
+export function tooShortToEnhance(text: string): boolean {
+  const words = tokenizeDraft(text);
+  if (words.length >= MIN_ENHANCEABLE_TOKENS) return false;
+  return !words.some(looksLikePathToken);
 }
 
 export function shouldSkipAutoEnhance(text: string, options: AutoEnhanceSkipOptions = {}): boolean {

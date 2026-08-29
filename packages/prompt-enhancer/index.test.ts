@@ -49,6 +49,7 @@ import factory, {
   normalizeFailureReason,
   revertStatusText,
   SYSTEM_PROMPT,
+  TOO_SHORT_MESSAGE,
   toEditorText,
 } from "./index.js";
 import { ENHANCING_SEGMENT } from "./widget.js";
@@ -868,9 +869,11 @@ interface HostLog {
 function createHarness(): {
   commands: Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>;
   events: Map<string, (event: unknown, ctx: ExtensionContext) => unknown>;
+  shortcuts: Map<string, (ctx: ExtensionContext) => Promise<void>>;
 } {
   const commands = new Map<string, (args: string, ctx: ExtensionContext) => Promise<void>>();
   const events = new Map<string, (event: unknown, ctx: ExtensionContext) => unknown>();
+  const shortcuts = new Map<string, (ctx: ExtensionContext) => Promise<void>>();
   const api = {
     on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
       events.set(name, handler);
@@ -881,10 +884,15 @@ function createHarness(): {
     ) => {
       commands.set(name, def.handler);
     },
-    registerShortcut: () => {},
+    registerShortcut: (
+      name: string,
+      def: { handler: (ctx: ExtensionContext) => Promise<void> },
+    ) => {
+      shortcuts.set(name, def.handler);
+    },
   } as unknown as ExtensionAPI;
   factory(api);
-  return { commands, events };
+  return { commands, events, shortcuts };
 }
 
 function createHost(options: {
@@ -1264,6 +1272,107 @@ describe("the enhancing state", () => {
     expect(host.log.widgets).toEqual([]);
     expect(host.log.notifications.map((n) => n.level)).toEqual(["warning"]);
     await harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+});
+
+// ── Too short to enhance ───────────────────────────────────────────────
+
+/**
+ * `ok` is not a prompt.
+ *
+ * Ctrl+Shift+E on two characters used to gather a file tree, a git summary,
+ * the project's instruction files and the recent turns — thousands of tokens
+ * of context — to rewrite a word. The refusal has to land before any of that,
+ * which means before credentials are even resolved.
+ */
+describe("a draft too short to enhance", () => {
+  let faux: ReturnType<typeof registerFauxProvider>;
+
+  beforeAll(() => {
+    faux = registerFauxProvider({ api: "faux-too-short", provider: "faux-short" });
+  });
+
+  afterAll(() => {
+    faux.unregister();
+  });
+
+  async function armed(draft: string): Promise<{
+    harness: ReturnType<typeof createHarness>;
+    ctx: ExtensionContext;
+    log: HostLog;
+  }> {
+    const harness = createHarness();
+    const host = createHost({ draft, model: faux.getModel() });
+    await harness.events.get("session_start")?.({}, host.ctx);
+    return { harness, ctx: host.ctx, log: host.log };
+  }
+
+  it("costs nothing: no auth lookup, no call, no context gathering", async () => {
+    const host = await armed("ok");
+    await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
+
+    expect(host.log.authLookups).toBe(0);
+    expect(lastWidgetLine(host.log)).toContain(TOO_SHORT_MESSAGE);
+    // The draft is untouched — nothing was written to the editor at all.
+    expect(host.log.editorTexts).toEqual([]);
+    expect(host.ctx.ui.getEditorText()).toBe("ok");
+    // It is guidance, not a failure: nothing in the notification area.
+    expect(host.log.notifications).toEqual([]);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("says the same thing from the shortcut", async () => {
+    const host = await armed("ship it");
+    await host.harness.shortcuts.get("ctrl+shift+e")?.(host.ctx);
+
+    expect(host.log.authLookups).toBe(0);
+    expect(lastWidgetLine(host.log)).toContain(TOO_SHORT_MESSAGE);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("and from a command argument, which never touches the editor", async () => {
+    const host = await armed("");
+    await host.harness.commands.get("prompt_enhance")?.("ship it", host.ctx);
+
+    expect(host.log.authLookups).toBe(0);
+    expect(lastWidgetLine(host.log)).toContain(TOO_SHORT_MESSAGE);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("never paints the enhancing state, because no call is made", async () => {
+    const host = await armed("ok");
+    await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
+
+    expect(host.log.widgets.map((w) => w[0] ?? "").some(hasEnhancingChip)).toBe(false);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("enhances a short draft that names a file", async () => {
+    const host = await armed("fix foo.ts");
+    faux.setResponses([fauxAssistantMessage("Fix the failing behaviour in foo.ts.")]);
+    await host.harness.commands.get("prompt_enhance")?.("", host.ctx);
+
+    expect(host.log.authLookups).toBe(1);
+    expect(host.ctx.ui.getEditorText()).toBe("Fix the failing behaviour in foo.ts.");
+    expect(lastWidgetLine(host.log)).not.toContain(TOO_SHORT_MESSAGE);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
+  });
+
+  it("stays out of auto-enhance's way, which stands down without a word", async () => {
+    const host = await armed("ok");
+    await host.harness.commands.get("prompt_enhance_auto")?.("", host.ctx);
+
+    // Enter, as pi delivers it: the editor is emptied before the event fires.
+    const outcome = await host.harness.events.get("input")?.(
+      { source: "interactive", text: "ok", images: [] },
+      host.ctx,
+    );
+
+    // The draft went to the agent, and the widget said nothing about it.
+    expect(outcome).toEqual({ action: "continue" });
+    expect(host.log.widgets.map((w) => w[0] ?? "").join("")).not.toContain(TOO_SHORT_MESSAGE);
+    expect(host.log.authLookups).toBe(0);
+    await host.harness.events.get("session_shutdown")?.({}, host.ctx);
   });
 });
 
@@ -2400,21 +2509,29 @@ describe("repeat enhance", () => {
     await shutdown(host);
   });
 
-  /** And the press after *that* edit re-rolls the newer one. */
+  /**
+   * And the press after *that* edit re-rolls the newer one.
+   *
+   * The edits are three tokens rather than two so that they are drafts the
+   * enhancer will take on at all — a two-word edit is refused as too short
+   * before any of this chain logic is reached.
+   */
   it("moves again when the user edits a second time mid-chain", async () => {
     const host = await armed();
     const seen = script(["ONE", "TWO", "THREE", "FOUR"]);
+    const first = "MY FIRST EDIT";
+    const second = "MY SECOND EDIT";
 
     await enhance(host);
-    host.typeIntoEditor("FIRST EDIT");
+    host.typeIntoEditor(first);
     await enhance(host);
-    host.typeIntoEditor("SECOND EDIT");
+    host.typeIntoEditor(second);
     await enhance(host);
     await enhance(host);
 
-    expect(seen).toEqual([TYPED, "FIRST EDIT", "SECOND EDIT", "SECOND EDIT"]);
+    expect(seen).toEqual([TYPED, first, second, second]);
     await revert(host);
-    expect(host.ctx.ui.getEditorText()).toBe("SECOND EDIT");
+    expect(host.ctx.ui.getEditorText()).toBe(second);
     await shutdown(host);
   });
 

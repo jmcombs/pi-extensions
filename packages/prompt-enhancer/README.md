@@ -140,7 +140,15 @@ flowchart TD
 ```
 
 Short replies like `ok`, `yes`, `approved`, or a brief answer to a question
-are skipped. To enhance those anyway, use `Ctrl+Shift+E`.
+are skipped. `Ctrl+Shift+E` enhances a skipped reply anyway — unless there is
+nothing there to work with. A draft under three words that names no file is
+too short to rewrite into anything, so it is refused before any call is made:
+
+```text
+Too short to enhance. Add a few more words.
+```
+
+Naming a file is enough on its own: `fix foo.ts` is a task, and it enhances.
 
 ## Requirements
 
