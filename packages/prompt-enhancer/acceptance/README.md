@@ -175,20 +175,37 @@ infrastructure, not model behaviour: they say the call never produced a scoreabl
 
 A draft that pastes a stack trace, a diff or a failing test is ordinary, and a *reworded* trace is
 worse than no rewrite at all — its line numbers and identifiers are the entire reason it was pasted.
-The rule extracts the body of every fenced block in the **original** and requires each to appear in
-the rewrite verbatim. Fence markers, info strings and where the block sits in the rewrite are all
-free to move; line endings and trailing whitespace are normalised, because those are transport
-artifacts rather than the model rewording anything. Everything else, including indentation inside a
-line, must match.
+The rule extracts the body of every fenced block in the **original** and asks what became of it. The
+line is between a sample that was *corrupted or dropped* and one that was merely *shortened*: the
+point is to protect pasted content from being reworded, not to demand byte-for-byte reproduction.
+
+Three outcomes per block:
+
+- **verbatim** — the body appears in the rewrite unchanged. Checked against the whole rewrite rather
+  than against its fenced blocks, so a model that kept the sample but lost the fences still passes.
+  Fence markers, info strings and where the block sits are all free to move; line endings and
+  trailing whitespace are normalised, because those are transport artifacts rather than the model
+  rewording anything.
+- **trimmed** — the rewrite carries a fenced block whose lines are an *excerpt* of the body: the same
+  lines, verbatim, in order, fewer of them. Head and tail may be cut without limit; interior gaps are
+  capped at two lines, past which the survivors have been stitched together rather than excerpted.
+  Not a verdict — see `code_block_trimmed` below.
+- **mangled** — everything else. A line that was reworded, re-indented or invented matches nothing
+  and fails, and so does a sample paraphrased away into prose entirely.
+
+The trim tolerance deliberately requires a surviving fenced block. An unchanged sample may lose its
+fences to an editor, but a *shortened* one that is no longer set off as a sample has been absorbed
+into the prose, which is the failure this rule exists to catch. Quoting one trace line inline in a
+paraphrase is not a trim.
 
 The rule returns immediately when the original carries no fenced block, so it is inert on all six
 fixtures the recorded 216-call pass used. Re-scoring that file with this rule present changes **no
-verdict and adds no code**.
+verdict, adds no code and adds no signal**.
 
 ### Signals: recorded, never counted
 
 `ClassifyResult.signals` is a second list that never touches `verdict`. It exists for behaviour worth
-seeing without being scoreable, and today it carries two families:
+seeing without being scoreable, and today it carries three families:
 
 | signal | meaning |
 | --- | --- |
@@ -196,6 +213,7 @@ seeing without being scoreable, and today it carries two families:
 | `typo_path_corrected` | the rewrite replaced it with the path that actually exists |
 | `typo_path_dropped` | the rewrite kept neither |
 | `low_anchor_retention` | the rewrite kept under 30% of the original's content-bearing words |
+| `code_block_trimmed` | a fenced sample survived as a verbatim excerpt of itself, not in full |
 
 The near miss is derived, not listed: a file-shaped token in the original that is not a known path
 but is within edit distance 2 of one. No fixture-specific expectations, and nothing here can see the
@@ -206,6 +224,15 @@ provider, model or api.
 typos and misspellings, in identifiers and paths too"* argues for correcting it. Scoring either as
 `bad` would encode a preference this harness has no evidence for. The counts print on their own
 `signals (not verdicts)` line and are stored per record; the judgement stays with the maintainer.
+
+#### `code_block_trimmed`: shortening is not corruption
+
+Carrying a pasted trace through whole and cutting it to the assertion line are both defensible
+enhancements, and the harness has no evidence for preferring one — the same reasoning that keeps the
+typo-path outcomes out of `verdict`. Silence would be the other option, and it costs something: a
+run where every model reproduces samples in full and a run where half of them quietly shorten to one
+line look identical in the table, and the second is where content loss starts. Recording it is free
+— signals never touch `verdict` — and it makes that drift visible a run before it matters.
 
 #### `low_anchor_retention`: a structural metric that must never be a verdict
 

@@ -459,7 +459,8 @@ function findFabricatedPaths(input: ClassifyInput): string[] {
  * Pasting a stack trace, a diff or a failing test into a draft is ordinary, and
  * a reworded trace is worse than no rewrite: the line numbers and identifiers
  * are the whole payload. The system prompt tells the model to carry these
- * through unchanged, so the harness checks that it did.
+ * through unchanged, so the harness checks that whatever sample it did emit is
+ * still the user's lines and not the model's retyping of them.
  *
  * Only the block *body* is captured. The fence markers themselves, the info
  * string, and where the block sits in the rewrite are all free to move.
@@ -494,17 +495,88 @@ function normalizeBlock(text: string): string {
 }
 
 /**
- * Fenced bodies from the original that do not survive into the rewrite.
+ * How many of the original's payload lines an excerpt may skip *between* the
+ * first and last line it kept.
+ *
+ * Trimming a trace to its head or its tail drops lines from an end, which this
+ * does not count at all. A gap in the middle is different: it is the shape a
+ * model makes when it decides which lines matter and stitches the survivors
+ * together, and past a line or two that is no longer an excerpt of the sample.
+ */
+const BLOCK_ELISION_TOLERANCE = 2;
+
+/** Payload lines: blank lines carry nothing and are not part of the comparison. */
+function payloadLines(block: string): string[] {
+  return normalizeBlock(block)
+    .split("\n")
+    .filter((line) => line.length > 0);
+}
+
+/**
+ * Whether `emitted` is a contiguous — or near-contiguous — run of `source`.
+ *
+ * Every emitted line must be a line of the source, verbatim, in order. Leading
+ * and trailing lines may be dropped without limit; interior gaps are capped by
+ * `BLOCK_ELISION_TOLERANCE`. A reworded, re-indented or invented line matches
+ * nothing and fails here, which is the whole point: this tolerates a shorter
+ * sample, never a rewritten one.
+ *
+ * Matching takes the earliest candidate for each line. That decides subsequence
+ * membership correctly; with a repeated line it could in principle report a
+ * wider gap than some other alignment would, which errs toward flagging.
+ */
+function isExcerptOf(emitted: readonly string[], source: readonly string[]): boolean {
+  if (emitted.length === 0) return false;
+  let cursor = -1;
+  let elided = 0;
+  for (const line of emitted) {
+    const at = source.indexOf(line, cursor + 1);
+    if (at === -1) return false;
+    if (cursor >= 0) elided += at - cursor - 1;
+    cursor = at;
+  }
+  return elided <= BLOCK_ELISION_TOLERANCE;
+}
+
+/** What became of one fenced body from the original. */
+type BlockOutcome = "verbatim" | "trimmed" | "mangled";
+
+/**
+ * How each fenced body from the original fared in the rewrite.
  *
  * Returns `[]` when the original has no fenced block, so this rule is inert on
  * every prompt that does not carry a sample — including all six fixtures the
  * recorded baseline was measured on.
+ *
+ * Three outcomes, because the corpus shows three behaviours:
+ *
+ * - `verbatim` — the body appears in the rewrite unchanged. Checked against the
+ *   whole rewrite, not against its fenced blocks, so a model that kept the
+ *   sample but dropped the fences still passes.
+ * - `trimmed` — the rewrite carries a *block* whose lines are an excerpt of the
+ *   body: same lines, fewer of them. Not a verdict; see `code_block_trimmed`.
+ * - `mangled` — anything else, which is the pair of failures worth catching:
+ *   lines that were reworded or re-indented, and a sample paraphrased away into
+ *   prose entirely.
+ *
+ * The trim tolerance deliberately requires a surviving fenced block. An
+ * unchanged sample may lose its fences to an editor; a *shortened* one that is
+ * no longer set off as a sample has been absorbed into the prose, which is the
+ * failure this rule exists to catch and not a trim at all.
  */
-function findMangledBlocks(original: string, enhanced: string): string[] {
+function classifyFencedBlocks(original: string, enhanced: string): BlockOutcome[] {
+  const bodies = fencedBlockBodies(original).filter((body) => normalizeBlock(body).length > 0);
+  if (bodies.length === 0) return [];
+
   const haystack = normalizeBlock(enhanced);
-  return fencedBlockBodies(original)
-    .map(normalizeBlock)
-    .filter((body) => body.length > 0 && !haystack.includes(body));
+  const emitted = fencedBlockBodies(enhanced).map(payloadLines);
+
+  return bodies.map((body) => {
+    if (haystack.includes(normalizeBlock(body))) return "verbatim";
+    const source = payloadLines(body);
+    if (emitted.some((block) => isExcerptOf(block, source))) return "trimmed";
+    return "mangled";
+  });
 }
 
 /** Levenshtein distance, abandoned as soon as it is known to exceed `max`. */
@@ -717,8 +789,12 @@ export function classifyEnhancement(input: ClassifyInput): ClassifyResult {
   }
   // Compared against the *raw* original and rewrite: `normalize` rewrites
   // quotes, and a trace's quotes are part of the payload.
-  if (findMangledBlocks(input.original, input.enhanced).length > 0) {
+  const blocks = classifyFencedBlocks(input.original, input.enhanced);
+  if (blocks.includes("mangled")) {
     codes.push("code_block_mangled");
+  }
+  if (blocks.includes("trimmed")) {
+    signals.push("code_block_trimmed");
   }
 
   const retention = anchorRetention(input.original, enhanced);

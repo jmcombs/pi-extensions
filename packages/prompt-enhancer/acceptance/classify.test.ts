@@ -714,6 +714,72 @@ describe("classifyEnhancement — fenced samples", () => {
     expect(result.codes).not.toContain("code_block_mangled");
   });
 
+  it("passes and signals a block trimmed to its tail, kept line for line", () => {
+    // Observed on two models: the fence survives, the head of the trace does
+    // not. The lines that remain are the user's own, so this is a shorter
+    // sample, not a rewritten one.
+    const tail = TRACE.split("\n").slice(1).join("\n");
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced: `Work out which to change:\n\n\`\`\`\n${tail}\n\`\`\``,
+    });
+    expect(result.codes).not.toContain("code_block_mangled");
+    expect(result.signals).toContain("code_block_trimmed");
+  });
+
+  it("passes a block trimmed to its head", () => {
+    const head = TRACE.split("\n").slice(0, 3).join("\n");
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced: `Work out which to change:\n\n\`\`\`\n${head}\n\`\`\``,
+    });
+    expect(result.codes).not.toContain("code_block_mangled");
+    expect(result.signals).toContain("code_block_trimmed");
+  });
+
+  it("flags a block whose lines were re-indented, however few were dropped", () => {
+    // Observed on one model: every line present, each one a space narrower.
+    // A trace whose indentation moved is a trace that was retyped.
+    const shifted = TRACE.split("\n")
+      .map((line) => line.replace(/^ /, ""))
+      .join("\n");
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced: `Work out which to change:\n\n\`\`\`\n${shifted}\n\`\`\``,
+    });
+    expect(result.verdict).toBe("bad");
+    expect(result.codes).toContain("code_block_mangled");
+  });
+
+  it("flags a paraphrase that quotes one line of the trace inline", () => {
+    // The line is verbatim, but no block survived: the sample was absorbed into
+    // the prose. Trim tolerance must not rescue this.
+    const result = classify({
+      original: FENCED_ORIGINAL,
+      enhanced:
+        "The test fails with `AssertionError: expected 607 to be less than 360`. Work out whether the bound or the code is wrong.",
+    });
+    expect(result.verdict).toBe("bad");
+    expect(result.codes).toContain("code_block_mangled");
+  });
+
+  it("flags a block stitched together across a wide interior gap", () => {
+    // Keeping the first and last line of an eight-line frame is not an excerpt
+    // of the sample; it is a model deciding which lines the reader needs.
+    const frames = Array.from(
+      { length: 8 },
+      (_, i) => ` \u276f packages/prompt-enhancer/index.test.ts:${340 + i}:32`,
+    );
+    const original = `this keeps failing:\n\n\`\`\`\n${frames.join("\n")}\n\`\`\`\n\nwork out why`;
+    const stitched = [frames[0], frames[7]].join("\n");
+    const result = classify({
+      original,
+      enhanced: `Work out why it fails:\n\n\`\`\`\n${stitched}\n\`\`\``,
+    });
+    expect(result.verdict).toBe("bad");
+    expect(result.codes).toContain("code_block_mangled");
+  });
+
   it("is inert on a prompt with no fenced block at all", () => {
     // Every fixture the recorded 216-call baseline was measured on is in this
     // shape, so the rule cannot retroactively change any of those verdicts.
