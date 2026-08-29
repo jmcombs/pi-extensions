@@ -130,111 +130,176 @@ function looksLikeAnnouncement(trimmed: string): boolean {
 }
 
 /**
- * Phrases that mean "the model addressed the user instead of rewriting".
+ * Refusal: a *first-person self-decline* or a *role assertion*, never a bare
+ * phrase.
  *
- * These are self-descriptions of the rewriter's role, or flat statements of
- * declining. None of them is something a user's own prompt says, so they need
- * no object to disambiguate them. Compared case-insensitively — `"My job is
- * to"` at the start of a sentence used to slip past a case-sensitive
- * `includes`.
+ * The previous revision matched substrings — `"i appreciate"`, `"my job is
+ * to"`, `"as an ai,"`, `"^unable to"` — anywhere in a 400-character window.
+ * Four of those fired on rewrites that are entirely correct, and one of the
+ * four is real model output under the shipped `SYSTEM_PROMPT`:
+ *
+ * | rewrite | why the old rule fired |
+ * | --- | --- |
+ * | `"Unable to reach staging from the laptop. Figure out why the deploy hangs at the migration step."` | `^unable to` treated a status line as a decline |
+ * | `"My job is to ship this by Friday; find the regression that broke the build."` | `my job is to` with no rewriting anywhere near it |
+ * | `"I appreciate that the schema is messy, but fix the migration anyway."` | `i appreciate` as a bare substring |
+ * | `"As an AI, I would still like the summariser rewritten."` | the `as an ai,` frame with no decline after it |
+ *
+ * None of the six fixtures the recorded baseline used produces those shapes, so
+ * 0 of its 216 records tripped them. That makes it a latent bug, not a harmless
+ * one: `CELL_BAD_THRESHOLD` is 0, so a single such rewrite fails a whole cell.
+ *
+ * Every rule below therefore requires a **subject declining this job**:
+ *
+ * - a role assertion (`"I'm a prompt rewriter, not an answerer"`, `"my job is
+ *   to rewrite prompts"`) — the rewriter describing itself instead of working;
+ * - a first-person modal (`I can't`, `I won't`, `I'm unable to`, `I don't`)
+ *   whose object is the job (`rewrite this`, `comply`, `help with that`);
+ * - the same with the subject elided, but only at position 0, where a bare
+ *   `"Unable to comply with that request."` is unambiguous;
+ * - a terse self-decline with no object at all (`"I must decline."`);
+ * - the `"As an AI, I …"` frame, and only when a decline follows it;
+ * - an apology that names the prompt or the rewriting it is declining.
+ *
+ * What was deliberately dropped: the soft-opener branch (`"Sorry"` /
+ * `"Unfortunately"` plus any modal). Every genuine refusal it caught is caught
+ * by the modal rules on their own, and it fired on
+ * `"Unfortunately I cannot get the profiler to attach; instrument the hot path
+ * instead."` — an apology and an inability that belong to the user.
  */
-const REFUSAL_PHRASES = [
-  "i appreciate",
-  "i'm a prompt rewriter",
-  "i am a prompt rewriter",
-  "not an answerer",
-  "my job is to",
-  "i refuse",
-  "must decline",
-  "not something i can",
-];
 
 /**
- * Openers that only mean refusal in company.
+ * The rewriter describing its own role.
  *
- * `"Sorry,"`, `"I'm afraid"` and `"Unfortunately"` are the standard preface to
- * a decline, but each is also ordinary first-person text a rewrite may carry
- * forward — "Sorry, this is the third time I've asked" is a user's voice, not a
- * model's. So they count only at position 0 *and* only when the same window
- * carries an inability modal. An apology plus an inability, in the opening of
- * something that was asked to return a rewritten prompt, is a refusal.
- *
- * `"Unable to"` is the exception that counts alone: as an opener it is a status
- * line, and no rewritten *request* begins with one.
+ * The `my job/role/…` half must reach a rewriting verb *and* the thing being
+ * rewritten (a prompt or a request) within one clause. That conjunction is what
+ * keeps `"My job is to ship this by Friday"` and `"My role is to rewrite the
+ * onboarding docs this quarter"` out: both are a user talking about their own
+ * work, and neither names the prompt.
  */
-const REFUSAL_SOFT_OPENERS = [
-  "sorry",
-  "i'm sorry",
-  "i am sorry",
-  "i'm afraid",
-  "i am afraid",
-  "unfortunately",
-];
-const REFUSAL_HARD_OPENER_RE = /^unable to\b/i;
+const REFUSAL_ROLE_RE =
+  /\b(?:I'm|I am)\s+(?:just\s+|only\s+|merely\s+)?(?:an?|the)\s+(?:prompt\s+)?(?:rewriter|rephraser|reworder)\b|\bnot an answerer\b|\bmy (?:job|role|function|purpose|task)\b[^.!?;\n]{0,40}\b(?:rewrit|rephras|restat|refin|rewor)\w*[^.!?;\n]{0,20}\b(?:prompts?|requests?)\b/i;
 
 /**
- * The `"As an AI, I …"` frame, which only exists to preface a decline.
+ * First-person modals that can precede an object.
  *
- * The comma is load-bearing: it separates the self-description from a prompt
- * that legitimately talks about AI ("As an AI safety researcher, I want …"),
- * where the noun phrase runs on instead.
+ * `"not something I can"` is here rather than in its own rule because it takes
+ * the same object test: `"That is not something I can help with."` declines the
+ * job, and the object is what says so.
  */
-const REFUSAL_AI_SELF_RE = /\bas an ai(?:\s+language\s+model)?\s*,/i;
+const REFUSAL_SELF_MODAL =
+  "(?:I can't|I cannot|I can not|I won't|I will not|I'm not able to|I am not able to|I'm unable to|I am unable to|I'm not going to|I am not going to|I'm not willing to|I am not willing to|I refuse to|not something I (?:can|could|will|am able to))";
 
 /**
- * A refusal proper: an inability phrase with a *task* as its object.
+ * `don't` / `do not` take no gap at all.
  *
- * The object is what keeps a user's own voice out of the count. `"I can't tell
- * if …"` is the user describing their problem; `"I can't rewrite that"` is the
- * model declining the job. The harness's own `fenced-trace.txt` draft opens
- * "… and I can't tell if the bound is wrong or the code is", and `SYSTEM_PROMPT`
- * asks the model to match the prompt's tone, so a faithful rewrite carries that
- * first person forward verbatim; scoring the bare modal made the fixture fail
- * against itself.
- *
- * Requiring an object is not a reason to keep the vocabulary small, which is
- * where the previous revision went wrong: against a battery of genuine refusals
- * it missed more than the bare-substring rule it replaced. The modal list is
- * therefore as wide as the ways a model says no, and the gap between modal and
- * object allows punctuation and up to three words, so `"I won't be able to
- * help"` and `"I can't, unfortunately, rewrite this"` both land.
+ * `"I don't rewrite prompts like this one"` is a refusal; `"I don't want to
+ * rewrite the whole module"` is the user's own sentence, and the space between
+ * the modal and the object is the whole difference. The third-person form
+ * (`it doesn't help …`) is gone entirely: without a first-person subject it was
+ * scoring `"It doesn't help to restate the error; find the root cause."`
  */
-const REFUSAL_STRONG_MODAL =
-  "(?:I can't|I cannot|I can not|I won't|I will not|I'm not able to|I am not able to|I'm unable to|I am unable to|I'm not going to|I am not going to|I'm not willing to|I am not willing to)";
+const REFUSAL_SELF_WEAK_MODAL = "(?:I don't|I do not)";
+
+/** The same decline with the subject elided, recognised only at position 0. */
+const REFUSAL_ELIDED_MODAL = "(?:Unable to|Not able to|Can't|Cannot|Won't|Will not|Not going to)";
 
 /**
- * The weak modals — `don't` / `doesn't` — take no gap at all.
+ * The gap between modal and object: one clause, at most one comma-delimited
+ * aside.
  *
- * `"I don't rewrite prompts like this"` is a refusal; `"I don't want to rewrite
- * the whole module"` is a user's own sentence, and three words of slack is all
- * that separates them. So the object has to sit immediately after the modal.
+ * `"I'm not able to, for policy reasons, rewrite this."` needs the aside;
+ * `"I can't reproduce it, so help with that."` must not be allowed to bridge
+ * two clauses on a single comma, which a plain `.{0,32}` gap does. Sentence
+ * punctuation ends the clause outright.
  */
-const REFUSAL_WEAK_MODAL =
-  "(?:I don't|I do not|(?:I|it|that|this) doesn't|(?:I|it|that|this) does not)";
+const REFUSAL_GAP = "(?:,[^,.!?;\\n]{1,24},)?[^,.!?;\\n]{0,24}";
 
 /**
- * The object half: what a rewriter names when it declines *this* job.
+ * The job as an object: a rewriting verb whose own object is the prompt.
  *
- * Still bounded to the job. Generic verbs a user's own sentence reaches for —
- * "I can't complete the release", "I can't process this file" — stay out,
- * because carrying the user's voice forward is what `SYSTEM_PROMPT` asks for
- * and must not be scored as a refusal.
+ * The lookahead is what separates the two halves of `"I won't rewrite this
+ * prompt"` from `"I won't rewrite history on this branch"`. A rewriting verb
+ * alone is not a decline — the user's draft may well contain one.
+ *
+ * An opening quote counts as a complement because a model that declines often
+ * quotes the prompt it is declining — `I am not going to rewrite "honestly
+ * I've been at this all afternoon …"` — and by then the quoted span has already
+ * been blanked, so nothing is left after the verb to match on.
  */
-const REFUSAL_OBJECT =
-  "(?:rewrit(?:e|ing)|rephras(?:e|ing)|rewor(?:d|ding)|compl(?:y|ying)|assist(?:ing)?|help(?:ing)?|fulfil{1,2}(?:ing)?|answer(?:ing)?|respond(?:ing)?|declin(?:e|ing)|refus(?:e|ing)|do (?:that|this|it|so)|with (?:that|this|your request))";
+const REFUSAL_JOB_OBJECT =
+  "(?:rewrit|rephras|rewor[dk]|recast|restat|reformulat|paraphras)\\w*" +
+  "(?=[^\\w\\n]{0,3}(?:$|[.!?;,\"']|\\b(?:it|this|that|these|those|anything|prompts?|requests?|(?:the|this|that|your|a|any)\\s+(?:prompt|request|question|original|version|draft))\\b))";
 
-/** Up to three intervening words, punctuation free. */
-const REFUSAL_GAP = "(?:[^\\w\\n]+\\w+){0,3}[^\\w\\n]+";
+/**
+ * The generic objects — `comply`, `help`, `answer`, `do` — which a user's own
+ * sentence also reaches for, so each needs its complement pinned.
+ *
+ * The complement is either the end of the sentence (`"Unfortunately I cannot
+ * comply."`), a pronoun that ends it (`"I can't do that."`, optionally with a
+ * short adverb: `"I can't do that here."`), or the job named outright (`"I
+ * cannot help with this request."`). `"I can't do this migration by hand"` and
+ * `"I can't answer that myself, which is why I'm asking"` fail all three: their
+ * object runs on into the user's actual request.
+ *
+ * The adverb list is a small tuning surface; it exists so a decline that ends
+ * `"… do that here."` still reads as terminal.
+ */
+const REFUSAL_TASK_OBJECT =
+  "(?:compl(?:y|ying)|fulfil{1,2}\\w*|assist(?:ing)?|help(?:ing)?|answer(?:ing)?|respond(?:ing)?|engage|do)" +
+  "(?:\\s+(?:with|to|in))?" +
+  "(?=\\s*(?:[.!?]|$)" +
+  "|\\s+(?:that|this|it|so)(?:\\s+(?:here|now|today|either|at all|for you))?\\s*(?:[.!?]|$)" +
+  "|\\s+(?:this|that|your|the|any)\\s+(?:request|question|prompt)s?\\b" +
+  "|\\s+questions?\\b)";
 
-const REFUSAL_STRONG_RE = new RegExp(
-  `\\b${REFUSAL_STRONG_MODAL}${REFUSAL_GAP}${REFUSAL_OBJECT}\\b`,
+const REFUSAL_OBJECT = `(?:${REFUSAL_JOB_OBJECT}|${REFUSAL_TASK_OBJECT})`;
+
+const REFUSAL_SELF_RE = new RegExp(
+  `\\b${REFUSAL_SELF_MODAL}${REFUSAL_GAP}\\b${REFUSAL_OBJECT}`,
   "i",
 );
-const REFUSAL_WEAK_RE = new RegExp(`\\b${REFUSAL_WEAK_MODAL}[^\\w\\n]+${REFUSAL_OBJECT}\\b`, "i");
-const REFUSAL_ANY_MODAL_RE = new RegExp(
-  `\\b(?:${REFUSAL_STRONG_MODAL}|${REFUSAL_WEAK_MODAL})\\b`,
+const REFUSAL_WEAK_RE = new RegExp(`\\b${REFUSAL_SELF_WEAK_MODAL}\\s+\\b${REFUSAL_OBJECT}`, "i");
+const REFUSAL_ELIDED_RE = new RegExp(
+  `^${REFUSAL_ELIDED_MODAL}\\b${REFUSAL_GAP}\\b${REFUSAL_OBJECT}`,
   "i",
 );
+
+/**
+ * Self-declines that carry no object because they need none.
+ *
+ * Each still needs its subject and a terminal position: `"I must decline."`
+ * declines the job, `"I have to decline the vendor meeting, so summarise the
+ * thread instead."` is the user's calendar. Same for `"Not rewriting that."`
+ * against `"Not rewriting the tests is fine — just fix the parser."`
+ */
+const REFUSAL_TERSE_RE =
+  /\bI (?:must|have to|need to|will have to|'ll have to|am going to|'m going to) (?:decline|pass)(?=\s*(?:[.!?]|$)|\s+(?:on\s+)?(?:this|that|it|here)\b)|\bI (?:refuse|decline)(?=\s*(?:[.!?]|$))|\bI(?:'m| am) declining\b|^(?:not rewriting (?:that|this|it)|no rewrite here)\b/i;
+
+/**
+ * The `"As an AI, I …"` frame, and only when a decline follows it in the same
+ * sentence.
+ *
+ * The comma is load-bearing — it separates the self-description from a prompt
+ * that legitimately talks about AI (`"As an AI safety researcher, I want …"`),
+ * where the noun phrase runs on instead. The decline is load-bearing too:
+ * `"As an AI, I would still like the summariser rewritten."` is a rewrite.
+ */
+/**
+ * An apology that names the job it is declining.
+ *
+ * The bare soft-opener rule this replaces asked only for an apology plus any
+ * first-person modal, and that scored `"Unfortunately I cannot get the profiler
+ * to attach; instrument the hot path instead."` as a refusal. Requiring the
+ * clause to also *name* the prompt or the rewriting keeps the user's apologies
+ * out while still catching a decline phrased outside the object vocabulary:
+ * `"I'm sorry, but I don't turn rough questions into polished prompts."`
+ */
+const REFUSAL_APOLOGY_RE =
+  /^(?:sorry|i(?:'m| am)(?:\s+\w+){0,2}\s+sorry|i(?:'m| am)\s+afraid|unfortunately|regrettably)\b[^.!?;\n]{0,80}\bI (?:can't|cannot|can not|won't|will not|don't|do not|am not|'m not)\b[^.!?;\n]{0,60}\b(?:prompts?|rewrit\w*|rephras\w*|restat\w*)\b/i;
+
+const REFUSAL_AI_FRAME_RE =
+  /\bas an ai(?:\s+language\s+model)?\s*,[^.!?\n]{0,60}\b(?:can't|cannot|can not|won't|will not|unable|not able|don't|do not|must decline|have to decline|refuse|not going to|not permitted|not allowed)\b/i;
 
 /**
  * Refusals are bounded and masked exactly as announcements are.
@@ -242,8 +307,7 @@ const REFUSAL_ANY_MODAL_RE = new RegExp(
  * Same two reasons: a refusal is an opening move, not something that surfaces in
  * paragraph four of a rewrite; and a rewrite that *quotes* a refusal (the
  * `self-referential.txt` probe asks about a model that produces one) is citing
- * the failure mode, not committing it. Both rules apply to the bare phrase list
- * as well, which the previous revision changed without saying so.
+ * the failure mode, not committing it.
  *
  * The two costs are accepted rather than hidden: a refusal a model chooses to
  * put inside quotes, and one that starts past character 400, are not counted.
@@ -254,16 +318,15 @@ const REFUSAL_WINDOW = 400;
 
 function looksLikeRefusal(trimmed: string): boolean {
   const head = maskQuotedSpans(trimmed).slice(0, REFUSAL_WINDOW);
-  const lowered = head.toLowerCase();
-  if (REFUSAL_PHRASES.some((phrase) => lowered.includes(phrase))) return true;
-  if (REFUSAL_HARD_OPENER_RE.test(head) || REFUSAL_AI_SELF_RE.test(head)) return true;
-  if (
-    REFUSAL_SOFT_OPENERS.some((opener) => lowered.startsWith(opener)) &&
-    REFUSAL_ANY_MODAL_RE.test(head)
-  ) {
-    return true;
-  }
-  return REFUSAL_STRONG_RE.test(head) || REFUSAL_WEAK_RE.test(head);
+  return (
+    REFUSAL_ROLE_RE.test(head) ||
+    REFUSAL_TERSE_RE.test(head.trimStart()) ||
+    REFUSAL_AI_FRAME_RE.test(head) ||
+    REFUSAL_APOLOGY_RE.test(head.trimStart()) ||
+    REFUSAL_SELF_RE.test(head) ||
+    REFUSAL_WEAK_RE.test(head) ||
+    REFUSAL_ELIDED_RE.test(head.trimStart())
+  );
 }
 
 /** Phrases that mean "the model described the request rather than restating it". */
@@ -504,6 +567,124 @@ function findMisspelledPaths(
 }
 
 /**
+ * Anchor retention: how much of the request's subject matter survived.
+ *
+ * **A signal, and only ever a signal.** It was proposed as a hard verdict at
+ * `< 0.5` and that was refuted before it shipped: 5 of 9 hand-written
+ * legitimate rewrites and 6 of 8 live ones under the shipped `SYSTEM_PROMPT`
+ * score below 0.5 while being genuine rewrites, because an "anchor" is any word
+ * of six letters or more and that admits `unfortunately`, `honestly`,
+ * `whatever`, `basically`, `probably`. Stripping exactly those is what a good
+ * rewrite does, so as a verdict the metric penalises the enhancer for working.
+ * No threshold above 0 was clean: at 0.2, where recall has already collapsed,
+ * a legitimate rewrite still failed. With `CELL_BAD_THRESHOLD` at 0 that would
+ * make the harness less trustworthy, not more. It stays out of `verdict`
+ * permanently; `typo_path_*` is the precedent.
+ *
+ * As a signal it is worth having: a response that dropped nearly every
+ * content-bearing word of the request is worth a human glance whatever the
+ * lexical rules concluded, and it is the only thing here with any purchase on
+ * a refusal written in a language the phrase rules do not cover.
+ *
+ * **Tuning surfaces, disclosed.** There is deliberately no stopword or filler
+ * list — an earlier proposal carried a hand-authored 137-word one, undisclosed,
+ * and rebuilding it three ways moved its headline false-positive count from 7
+ * to 1 at no cost in recall, which is the definition of a knob. What remains
+ * tunable is: the six-character anchor floor, the edit-distance tolerance, the
+ * suffix stemmer, the three-anchor minimum, and the threshold itself. All five
+ * are in this block, none of them can see a provider, model or fixture, and the
+ * whole thing is inert on `verdict`.
+ */
+const ANCHOR_MIN_LENGTH = 6;
+
+/**
+ * Below three anchors a single dropped word swings the score across the whole
+ * range, so short prompts are not scored at all.
+ */
+const ANCHOR_MIN_COUNT = 3;
+
+/**
+ * 0.3, from a sweep over 45 constructed refusals and 297 legitimate rewrites:
+ * it flags 71% of the refusals and 2 of 14 live legitimate rewrites. 0.4 and
+ * 0.5 buy a few more refusals for 5 and 7 legitimate ones. Since this only ever
+ * asks a human to look, the cheap direction is the quiet one.
+ */
+const ANCHOR_RETENTION_SIGNAL_THRESHOLD = 0.3;
+
+/** Words, split out of paths, dotted names and camelCase, lowercased. */
+function anchorTokens(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of text.split(/[^A-Za-z0-9_./@'-]+/)) {
+    if (raw.length === 0) continue;
+    for (const segment of raw.split(/[./@_'-]+/)) {
+      if (segment.length === 0) continue;
+      for (const word of segment.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/\s+/)) {
+        const token = word.toLowerCase();
+        if (token.length >= 3) out.push(token);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The tokens that carry the request's subject matter: long words, plus anything
+ * inside a path-shaped token or carrying a digit or an internal capital, which
+ * is how short identifiers (`ci`, `iva`, `v2`) stay in.
+ */
+function anchorsOf(text: string): string[] {
+  const structural = new Set<string>();
+  PATH_TOKEN_RE.lastIndex = 0;
+  for (let match = PATH_TOKEN_RE.exec(text); match; match = PATH_TOKEN_RE.exec(text)) {
+    for (const token of anchorTokens(match[0])) structural.add(token);
+  }
+  for (const word of text.match(/[A-Za-z0-9_]+/g) ?? []) {
+    if (/[a-z][A-Z]/.test(word) || /\d/.test(word)) {
+      for (const token of anchorTokens(word)) structural.add(token);
+    }
+  }
+  const anchors = new Set<string>();
+  for (const token of anchorTokens(text)) {
+    if (token.length >= ANCHOR_MIN_LENGTH || structural.has(token)) anchors.add(token);
+  }
+  return [...anchors];
+}
+
+/** Crude suffix stemmer, so `migrations` still matches `migration`. */
+function stemToken(token: string): string {
+  return token
+    .replace(/ies$/, "y")
+    .replace(/(?:es|s)$/, "")
+    .replace(/(?:ing|ed)$/, "");
+}
+
+/**
+ * The fraction of the original's anchors that reappear in the rewrite, allowing
+ * a stem match or a small edit distance — the system prompt asks the model to
+ * fix misspellings, so a repaired identifier must still count as retained.
+ */
+export function anchorRetention(
+  original: string,
+  enhanced: string,
+): { score: number; count: number } {
+  const source = anchorsOf(original);
+  if (source.length === 0) return { score: 1, count: 0 };
+  const target = anchorTokens(enhanced);
+  const exact = new Set(target);
+  const stems = new Set(target.map(stemToken));
+  let hit = 0;
+  for (const token of source) {
+    if (exact.has(token) || stems.has(stemToken(token))) {
+      hit += 1;
+      continue;
+    }
+    const tolerance = token.length >= 8 ? 2 : 1;
+    if (target.some((candidate) => withinEditDistance(token, candidate, tolerance))) hit += 1;
+  }
+  return { score: hit / source.length, count: source.length };
+}
+
+/**
  * Score one enhancement. `verdict` is `"bad"` whenever any code fires.
  *
  * `echo` keys on the transport only (`setEditorTextCount === 1`, i.e. no
@@ -538,6 +719,11 @@ export function classifyEnhancement(input: ClassifyInput): ClassifyResult {
   // quotes, and a trace's quotes are part of the payload.
   if (findMangledBlocks(input.original, input.enhanced).length > 0) {
     codes.push("code_block_mangled");
+  }
+
+  const retention = anchorRetention(input.original, enhanced);
+  if (retention.count >= ANCHOR_MIN_COUNT && retention.score < ANCHOR_RETENTION_SIGNAL_THRESHOLD) {
+    signals.push("low_anchor_retention");
   }
 
   for (const { typo, actual } of findMisspelledPaths(input.original, input.knownPaths)) {

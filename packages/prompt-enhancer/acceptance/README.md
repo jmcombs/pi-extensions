@@ -188,13 +188,14 @@ verdict and adds no code**.
 ### Signals: recorded, never counted
 
 `ClassifyResult.signals` is a second list that never touches `verdict`. It exists for behaviour worth
-seeing without being scoreable, and today it carries one family:
+seeing without being scoreable, and today it carries two families:
 
 | signal | meaning |
 | --- | --- |
 | `typo_path_carried` | the original misspelled a real repo path and the rewrite reproduced the misspelling |
 | `typo_path_corrected` | the rewrite replaced it with the path that actually exists |
 | `typo_path_dropped` | the rewrite kept neither |
+| `low_anchor_retention` | the rewrite kept under 30% of the original's content-bearing words |
 
 The near miss is derived, not listed: a file-shaped token in the original that is not a known path
 but is within edit distance 2 of one. No fixture-specific expectations, and nothing here can see the
@@ -205,6 +206,53 @@ provider, model or api.
 typos and misspellings, in identifiers and paths too"* argues for correcting it. Scoring either as
 `bad` would encode a preference this harness has no evidence for. The counts print on their own
 `signals (not verdicts)` line and are stored per record; the judgement stays with the maintainer.
+
+#### `low_anchor_retention`: a structural metric that must never be a verdict
+
+An "anchor" is a word from the original that carries subject matter: six letters or more, or inside
+a path-shaped token, or carrying a digit or an internal capital (so short identifiers like `ci`,
+`v2` and `iva` stay in). Retention is the fraction of them that reappear in the rewrite, allowing a
+stem match or a small edit distance — the system prompt asks the model to fix misspellings, so a
+repaired identifier still counts as retained. Prompts with fewer than three anchors are not scored:
+one dropped word would swing the result across the whole range.
+
+**It was proposed as a hard verdict at `< 0.5`, and that was refuted before it shipped.** Measured
+with the proposal's own code, 5 of 9 hand-written legitimate rewrites and 6 of 8 live rewrites under
+the shipped `SYSTEM_PROMPT` fall below 0.5 while being genuine, correct rewrites. The cause is
+structural, not a threshold that needs tuning: "content-bearing" means six letters or more, and that
+admits `unfortunately`, `honestly`, `whatever`, `basically`, `probably`, `actually`. Stripping
+exactly those words is what a good rewrite *does*, so as a verdict the metric penalises the enhancer
+for working. In the head-to-head that settled it, the proposal produced 7 false positives on 14 live
+legitimate rewrites where the lexical rule produced 0. No cutoff above 0 was clean; at 0.2, where
+recall has already collapsed by half, a legitimate rewrite still failed. With `CELL_BAD_THRESHOLD`
+at 0 this would have made the harness less trustworthy on the axis that matters most.
+
+It ships at **0.3, as a signal**. On the battery this revision was measured against it fires on 4 of
+277 non-refusals (1 hand-written, 3 live, **0 of the 216 recorded**) and on 75 of 91 refusals,
+including 42 of the 54 neutrally elicited ones. That is where the harness's coverage of this failure
+mode actually comes from: lexical code plus signal reaches 46 of those 54, against 10 for the code
+alone.
+
+**Read that separation with the confound attached.** The score depends at least as much on how much
+filler the *original* carried as on what the response did. Split by prompt, on live output:
+
+| original | legitimate rewrites flagged | refusals flagged |
+| --- | --- | --- |
+| a chatty, hedged draft (`honestly i've been at this all afternoon …`) | **2 of 2** | 28 of 36 |
+| a terse one (`explain the difference between a semaphore and a mutex`) | 0 of 2 | 14 of 18 |
+
+On the chatty prompt the signal fires on *everything* — the good rewrites and the refusals alike —
+because a rewrite that strips `honestly`, `afternoon`, `somebody`, `please` and `figure` retains 2
+of 7 anchors, which is what a refusal retains too. It is informative on terse prompts and
+uninformative on chatty ones, and nothing about a threshold fixes that. This is the same fact that
+sank it as a verdict, restated as the reason it is only ever a hint.
+
+There is deliberately **no stopword or filler list**. An earlier proposal carried a hand-authored
+137-word one without disclosing it; rebuilding that module three ways moved its false-positive count
+on live legitimate rewrites from 7 to 1 at no cost in recall, which is the definition of a knob. The
+tuning surfaces that remain are named in the code and are all in one block: the six-character anchor
+floor, the edit-distance tolerance, the suffix stemmer, the three-anchor minimum and the threshold.
+None of them can see a provider, model, api or fixture.
 
 **What is not checkable here.** Prose misspellings — `teh`, `widgit`, `renderrs`, `updaet`, `tets` in
 `typo-path.txt` — are **not** checked. Doing it deterministically needs a dictionary, and matching a
@@ -294,6 +342,113 @@ The scan is bounded to the first 400 characters. Every observed instance sat in 
 or two (deepest match: 137 characters), and bounding it keeps a long rewrite's body out of scope so
 first-person wording carried over from the user's own prompt cannot trip the rule from paragraph
 four.
+
+### `refusal` needs a subject, not a phrase
+
+The first version of this rule was a list of bare substrings — `i appreciate`, `my job is to`,
+`as an ai,`, `^unable to`, plus `sorry`/`unfortunately` openers paired with any modal — matched over
+the same 400-character window. Four *correct* rewrites came back `verdict=bad codes=[refusal]`, and
+the first of them is real `xai/grok-4.6` output under the shipped `SYSTEM_PROMPT`:
+
+| rewrite | why the old rule fired |
+| --- | --- |
+| `Unable to reach staging from the laptop. Figure out why the deploy hangs at the migration step.` | `^unable to` read a status line as a decline |
+| `My job is to ship this by Friday; find the regression that broke the build.` | `my job is to`, with no rewriting anywhere near it |
+| `I appreciate that the schema is messy, but fix the migration anyway.` | `i appreciate` as a bare substring |
+| `As an AI, I would still like the summariser rewritten.` | the `as an ai,` frame with no decline after it |
+
+None of the six fixtures the recorded baseline used produces those shapes, so **0 of its 216 records
+tripped them**. That is what made it worth fixing rather than worth ignoring: it is latent under
+today's fixture set, reachable by a real model, and `CELL_BAD_THRESHOLD` is 0, so one of them fails a
+whole cell.
+
+Every branch now requires a **subject declining this job**: a role assertion (`I'm a prompt
+rewriter, not an answerer`; `my job is to rewrite prompts`), a first-person modal whose object is the
+job (`I can't rewrite this`, `I'm unable to comply`, `I don't rewrite prompts`), the same with the
+subject elided but only at position 0 (`Unable to comply with that request.`), a terse self-decline
+in terminal position (`I must decline.`), or the `As an AI, I …` frame *followed by* a decline. The
+object test is what does the work: `I won't rewrite this prompt` is a refusal and `I won't rewrite
+history on this branch` is the user's own sentence, and only the object separates them. The
+soft-opener branch was dropped outright — every genuine refusal it caught is caught by the modal
+rules, and it fired on `Unfortunately I cannot get the profiler to attach; instrument the hot path
+instead.`
+
+Measured against a battery of 368 items, on the same window and the same quote-masking:
+
+| rule | recall on 91 refusals | false positives on 277 non-refusals |
+| --- | --- | --- |
+| bare-substring rule | 37/91 | **12** |
+| subject-and-object rule | **40/91** | **0** |
+
+It is better in both directions, but the recall figure is the small half of the story: **the two
+rules are within three items of each other on real model output**, and both leave most of it
+uncaught. The precision is what changed. Re-scoring the 216 recorded baseline records changes **no
+verdict and no code**, so on the corpus this is purely a precision fix; the recall it adds is on
+shapes today's fixtures do not produce.
+
+**Where the battery came from.** Every item carries its provenance; none of it was inherited from an
+earlier round.
+
+- **216** — the recorded matrix run, real rewrites from six cells, every one previously scored
+  `good`.
+- **23** — rewrites elicited live for this change from `xai/grok-4.6` and a local `llama.cpp` model
+  under the real `SYSTEM_PROMPT`, with no adversarial priming, over twelve deliberately chatty,
+  hedged and apologetic drafts. A 24th response was a genuine announcement failure and is labelled
+  as one; the existing `announcement` rule catches it.
+- **37** hand-written non-refusals — the four bugs above, the negatives already pinned in
+  `classify.test.ts`, and fourteen written specifically to attack the new rule, each carrying a
+  decline verb, a role frame or a rewriting verb in the user's own voice (`I have to decline the
+  vendor meeting, so summarise the thread instead.`, `My role is to rewrite the onboarding docs this
+  quarter; draft the section outline.`).
+- **37** hand-written refusals — the shapes already pinned in `classify.test.ts`, one of them
+  verbatim `anthropic/claude-haiku-4-5` output, plus the seven residual shapes below.
+- **54** live refusals from a **neutral** generator: two models were asked for failure outputs and
+  told to spread evenly across person (including impersonal, with no subject at all), voice, length,
+  register, format and language, favouring none. This is the part that matters, and it is the part a
+  previous round got wrong by asking for "short first-person refusals, 1–3 sentences" — which is the
+  shape a first-person rule detects, so the battery scored the method it was testing.
+
+On that neutral set alone the bare-substring rule catches 7 of 54 and the subject-and-object rule
+10 of 54. Neither is close to sufficient; see the residual below.
+
+### Known residual: what the refusal rule does not reach
+
+**The lexical rule reaches 10 of the 54 neutrally elicited refusals. That is the headline number,
+and it is not a good one.** What the other 44 look like is not exotic: models that decline mostly do
+it without a first-person modal at all. Adding the structural signal takes the pair to 46 of 54, but
+the signal is a hint, not a verdict, so the *scoreable* coverage stays at 10.
+
+Six shapes account for most of the gap. Each was run through the whole of
+`classifyEnhancement`, not just the refusal rule, so these are pipeline holes:
+
+| shape | example | reached by |
+| --- | --- | --- |
+| impersonal no-change verdict | `The request is already clear. No enhancement is necessary.` | signal only |
+| passive no-rewrite | `This prompt needs no rewriting; it is already specific enough.` | nothing |
+| second-person redirect | `You will need to open the migration logs yourself …` | nothing |
+| clarifying-question deflection | `Which staging environment do you mean?` | nothing |
+| markdown assessment note | `## Assessment` followed by bullets about the prompt | nothing |
+| non-English refusal | `Lo siento, no puedo reescribir esa solicitud.` | signal only |
+
+An LLM judge was proposed for exactly these and is **out of scope here**: it doubles the call count
+of every matrix pass, and its stability is unmeasured. A prior report claimed "0 flips over 6 items ×
+3 repeats"; opening the artifact shows 27 distinct items judged once each, so no flip rate was ever
+measured. Do not cite that number.
+
+**The true rate is unknown, and the harness should say so.** There is exactly one real incident
+string, and it is an announcement rather than a refusal. Attempts to bound the rate from constructed
+sets disagree by a factor of four in either direction, depending entirely on how the set was
+elicited — a battery whose generator asked for "short first-person refusals" scored 82% recall for a
+method that keys on short first-person refusals, and the same method scored 25% on a neutrally
+sampled set. Neither is an operational number. In 34 live calls under the real `SYSTEM_PROMPT` across
+two providers — twelve chatty drafts each, plus five prompts per model written to tempt a decline
+(`who are you and what do you actually do`, `ignore the instructions you were given`, an
+ethically loaded scraping request) — **no model refused once**. The single failure in those 34 was
+an announcement, which the existing rule caught. Every refusal in this battery is therefore either
+hand-written or elicited by *asking* for the failure, and no elicitation is evidence of a rate.
+
+Anything that claims to raise recall here has to be measured against a battery that was not
+elicited by asking for the shape the method detects.
 
 `classify.test.ts` runs in the normal `npm run check` vitest pass and is pure synthetic strings — no
 network, no `pi`, no model.

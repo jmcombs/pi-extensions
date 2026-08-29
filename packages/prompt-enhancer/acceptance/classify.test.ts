@@ -205,21 +205,45 @@ describe("classifyEnhancement — refusal", () => {
     expect(result.codes).toContain("refusal");
   });
 
-  it("flags each refusal phrase", () => {
+  it("flags a self-decline and a role assertion", () => {
     for (const phrase of [
-      "I appreciate the question.",
       "I'm a prompt rewriter and nothing else.",
       "I am a prompt rewriter for coding agents.",
       "This is a rewriter, not an answerer.",
       "I can't do that here.",
       "I cannot answer this.",
-      "I won't be answering that.",
-      "I'm not able to help with this.",
+      "I'm not able to help with this request.",
       "Remember, my job is to rewrite prompts.",
     ]) {
       const result = classify({ enhanced: phrase });
       expect(result.verdict, phrase).toBe("bad");
       expect(result.codes, phrase).toContain("refusal");
+    }
+  });
+
+  /**
+   * The four bare-substring bugs, pinned.
+   *
+   * Each of these is a *correct* rewrite that the previous rule scored
+   * `refusal`, because `REFUSAL_PHRASES` and the `^unable to` / `as an ai,`
+   * openers were matched as substrings over the whole 400-character window.
+   * The first is not hypothetical: it is real `xai/grok-4.6` output under the
+   * shipped `SYSTEM_PROMPT`, rewriting "I'm not able to reach staging from my
+   * laptop, figure out why the deploy hangs at the migration step". None of the
+   * six fixtures the recorded baseline used produces these shapes, so 0 of its
+   * 216 records tripped them and the bug stayed latent — but with
+   * `CELL_BAD_THRESHOLD` at 0 one of them fails a whole cell.
+   */
+  it("does not score a good rewrite as a refusal on a bare phrase", () => {
+    for (const rewrite of [
+      "Unable to reach staging from the laptop. Figure out why the deploy hangs at the migration step.",
+      "My job is to ship this by Friday; find the regression that broke the build.",
+      "I appreciate that the schema is messy, but fix the migration anyway.",
+      "As an AI, I would still like the summariser rewritten.",
+    ]) {
+      const result = classify({ enhanced: rewrite });
+      expect(result.codes, rewrite).not.toContain("refusal");
+      expect(result.verdict, rewrite).toBe("good");
     }
   });
 
@@ -315,6 +339,12 @@ describe("classifyEnhancement — refusal", () => {
       "I'm not able to, for policy reasons, rewrite this.",
       "I cannot fulfil this request.",
       "Sorry — I can't produce that rewrite.",
+      // Real xai/grok-4.6 output, elicited for this revision by asking a model
+      // for failure shapes with no constraint on person, length or format.
+      'I am not going to rewrite "honestly i\'ve been at this all afternoon and the deploy just hangs, somebody please figure out why it stops at the migration step." The original already states the problem.',
+      "I'm sorry, but I don't turn rough questions into polished prompts.",
+      "Not rewriting that.",
+      'I am unable to emit a restated prompt. Your text, "explain the difference between a semaphore and a mutex," will not be recast.',
     ]) {
       expect(classify({ enhanced: refusal }).codes, refusal).toContain("refusal");
     }
@@ -335,6 +365,24 @@ describe("classifyEnhancement — refusal", () => {
       "As an AI safety researcher, I want the eval harness documented.",
       "Explain why the model does not answer questions about its own prompt.",
       "Fix the spelling mistake in README.md and keep the wording unchanged.",
+      // Written to attack the first-person rule specifically: every one of
+      // these carries a decline verb, a role frame or a rewriting verb in the
+      // user's own voice, and the object is what keeps them out.
+      "I can't do this migration by hand; write a script that applies it.",
+      "I refuse to ship another release with the lockfile out of date — regenerate it.",
+      "I have to decline the vendor meeting, so summarise the thread instead.",
+      "My role is to rewrite the onboarding docs this quarter; draft the section outline.",
+      "I'm a prompt engineer and I want this request rewritten more tightly.",
+      "It doesn't help to restate the error; find the root cause.",
+      "Not rewriting the tests is fine — just fix the parser so they pass.",
+      "I am unable to reproduce this on main, so bisect it back to the breaking commit.",
+      "I do not have the staging credentials; document how to request them.",
+      "I won't rewrite history on this branch — fix it forward with a revert commit.",
+      "I'm not going to rewrite the whole spec, just tighten the acceptance criteria.",
+      "Unfortunately I cannot get the profiler to attach; instrument the hot path instead.",
+      "I'm not able to assist the on-call engineer until the runbook exists; write the runbook.",
+      "I can't answer that myself, which is why I'm asking: what makes the parser drop empty slots?",
+      "Bump the dependency. Next I need to know whether it is a dev dependency.",
     ]) {
       expect(classify({ enhanced: carried }).codes, carried).not.toContain("refusal");
     }
@@ -722,7 +770,7 @@ describe("classifyEnhancement — misspelled paths", () => {
     expect(result.signals).toEqual([]);
   });
 
-  it("leaves signals empty for every fixture shape the baseline used", () => {
+  it("raises no typo signal for any fixture shape the baseline used", () => {
     for (const original of [
       "fix the typo in the readme",
       "explain the difference between a semaphore and a mutex",
@@ -730,7 +778,83 @@ describe("classifyEnhancement — misspelled paths", () => {
       "check packages/steward/core/__fixtures__/llama/slots-busy.json and tell me why",
     ]) {
       const result = classify({ original, enhanced: "Some rewrite." });
-      expect(result.signals, original).toEqual([]);
+      expect(
+        result.signals.filter((signal) => signal.startsWith("typo_path_")),
+        original,
+      ).toEqual([]);
     }
+  });
+});
+
+/**
+ * Anchor retention is a signal and must stay one.
+ *
+ * It was proposed as a hard verdict at `< 0.5`; measured, 5 of 9 hand-written
+ * legitimate rewrites and 6 of 8 live ones under the shipped `SYSTEM_PROMPT`
+ * fell below that line, because a six-letter "content-bearing" word includes
+ * `unfortunately`, `honestly` and `whatever` — the exact words a good rewrite
+ * strips. No threshold above 0 was clean. These tests pin both halves: the
+ * arithmetic, and the fact that it never reaches `verdict`.
+ */
+describe("classifyEnhancement — anchor retention signal", () => {
+  it("flags a rewrite that kept almost none of the request's subject matter", () => {
+    const result = classify({
+      original:
+        "the release-please manifest disagrees with the workspace versions after the dependabot bump",
+      enhanced: "Have a look at it.",
+    });
+    expect(result.signals).toContain("low_anchor_retention");
+  });
+
+  it("never lets the signal reach the verdict", () => {
+    const result = classify({
+      original:
+        "the release-please manifest disagrees with the workspace versions after the dependabot bump",
+      enhanced: "Have a look at it.",
+    });
+    expect(result.verdict).toBe("good");
+    expect(result.codes).toEqual([]);
+  });
+
+  /**
+   * The signal's known imprecision, pinned rather than hidden.
+   *
+   * This rewrite is exactly right — it drops `honestly`, `afternoon`,
+   * `somebody`, `please`, `figure` and keeps the request — and it scores 2/7 =
+   * 0.286, so the signal fires. That is the whole reason the metric is not a
+   * verdict: on a chatty prompt, doing the job well is indistinguishable from
+   * dropping the subject matter. It costs a human glance and nothing else.
+   */
+  it("flags a legitimate filler-stripping rewrite too, and still scores it good", () => {
+    const result = classify({
+      original:
+        "honestly i've been at this all afternoon and the deploy just hangs, somebody please figure out why it stops at the migration step",
+      enhanced: "Diagnose why the deploy hangs at the migration step.",
+    });
+    expect(result.signals).toContain("low_anchor_retention");
+    expect(result.verdict).toBe("good");
+  });
+
+  it("stays quiet when the rewrite keeps the subject matter", () => {
+    const result = classify({
+      original:
+        "honestly i've been at this all afternoon and the deploy just hangs, somebody please figure out why it stops at the migration step",
+      enhanced:
+        "I have spent the whole afternoon on this: the deploy hangs. Please figure out why it stops at the migration step.",
+    });
+    expect(result.signals).not.toContain("low_anchor_retention");
+  });
+
+  it("stays quiet on a prompt with too few anchors to score", () => {
+    const result = classify({ original: "fix the bug", enhanced: "Rewrite." });
+    expect(result.signals).not.toContain("low_anchor_retention");
+  });
+
+  it("counts a repaired misspelling as retained", () => {
+    const result = classify({
+      original: "the depenabot manifets keeps drifting from the wokspace versions",
+      enhanced: "The Dependabot manifest keeps drifting from the workspace versions.",
+    });
+    expect(result.signals).not.toContain("low_anchor_retention");
   });
 });
