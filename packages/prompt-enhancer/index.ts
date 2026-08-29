@@ -230,34 +230,19 @@ function revertHintText(): string {
 const FAILURE_REASON_MAX_CHARS = 100;
 
 /**
- * The same reason's budget when the sentence has to fit on the widget.
- *
- * The status line is one line that does not wrap: pi cuts it at the terminal's
- * edge, and the clause that matters most — that the user's prompt is
- * unchanged — is the one at the end. Measured in a real terminal, the brand
- * and model blocks take about 40 columns, so a 100-character reason needs
- * close to 200 columns before the promise is on screen; 40 brings that to
- * about 135. Narrower than that and the line is still cut — the fix for the
- * rest is a wider terminal — but the reason is elided here with an ellipsis
- * rather than chopped without one.
- */
-export const WIDGET_FAILURE_REASON_MAX_CHARS = 40;
-
-/**
  * Reduce raw provider/transport error text to something quotable inline:
  * first line only, no trailing period, capped. Returns `undefined` when there
  * is nothing left worth showing, so callers can drop the parenthetical
  * entirely rather than print an empty one.
  */
-export function normalizeFailureReason(
-  raw: string | undefined,
-  maxChars: number = FAILURE_REASON_MAX_CHARS,
-): string | undefined {
+export function normalizeFailureReason(raw: string | undefined): string | undefined {
   if (typeof raw !== "string") return undefined;
   const firstLine = raw.split("\n", 1)[0] ?? "";
   const trimmed = firstLine.trim().replace(/\.$/, "").trim();
   if (trimmed.length === 0) return undefined;
-  return trimmed.length > maxChars ? `${trimmed.slice(0, maxChars)}…` : trimmed;
+  return trimmed.length > FAILURE_REASON_MAX_CHARS
+    ? `${trimmed.slice(0, FAILURE_REASON_MAX_CHARS)}…`
+    : trimmed;
 }
 
 /**
@@ -267,8 +252,8 @@ export function normalizeFailureReason(
  * the user typed is still theirs and still in the editor. Auto-enhance standing
  * itself down is shown by the widget, not repeated here.
  */
-export function formatEnhancementFailure(reason: string | undefined, maxChars?: number): string {
-  const normalized = normalizeFailureReason(reason, maxChars);
+export function formatEnhancementFailure(reason: string | undefined): string {
+  const normalized = normalizeFailureReason(reason);
   return normalized === undefined
     ? "prompt enhancement failed; your prompt is unchanged"
     : `prompt enhancement failed (${normalized}); your prompt is unchanged`;
@@ -1280,11 +1265,14 @@ const SKIPPED_FILES_SHOWN = 2;
 /**
  * Budget for the whole note, and for one path inside it.
  *
- * The note is appended to a status line in a single-line widget that does not
- * wrap or truncate, so an unbounded note pushes the rest of the line off the
- * terminal. Two refused files nested a few directories deep measured 243
- * characters. A deep path keeps its tail — the basename is the half that
- * identifies the file — behind a leading ellipsis.
+ * The note is appended to a status line the widget renders through pi-tui's
+ * `Text`, which wraps: nothing is lost off the right-hand edge, so the budget
+ * is not about truncation. What an unbounded note costs is height. The widget
+ * sits above the editor, and two refused files nested a few directories deep
+ * measured 243 characters — four wrapped rows at 80 columns, shoving the
+ * conversation up the screen to name files the user did not ask about. A deep
+ * path keeps its tail — the basename is the half that identifies the file —
+ * behind a leading ellipsis.
  */
 const SKIPPED_NOTE_MAX_CHARS = 120;
 const SKIPPED_PATH_MAX_CHARS = 40;
@@ -1731,10 +1719,7 @@ async function runEnhancer(
   // are the opposite case and stay as notifications: each one needs the user
   // to change something before a retry can work, and a message that vanishes
   // is the wrong shape for that.
-  showTransientStatus(
-    ctx,
-    formatEnhancementFailure(result.message, WIDGET_FAILURE_REASON_MAX_CHARS),
-  );
+  showTransientStatus(ctx, formatEnhancementFailure(result.message));
 }
 
 function runRevert(ctx: ExtensionContext): void {
