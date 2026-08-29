@@ -2730,10 +2730,6 @@ describe("repeat enhance", () => {
 
   /**
    * And the press after *that* edit re-rolls the newer one.
-   *
-   * The edits are three tokens rather than two so that they are drafts the
-   * enhancer will take on at all — a two-word edit is refused as too short
-   * before any of this chain logic is reached.
    */
   it("moves again when the user edits a second time mid-chain", async () => {
     const host = await armed();
