@@ -357,8 +357,8 @@
   {
     "name": "npm",
     "slug": "npm",
-    "envVars": ["NPM_CONFIG_USERCONFIG"],
-    "primaryEnvVar": "NPM_CONFIG_USERCONFIG",
+    "envVars": ["PNPM_CONFIG__AUTH"],
+    "primaryEnvVar": "PNPM_CONFIG__AUTH",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/npm"
   },
   {
