@@ -209,6 +209,7 @@
       "GH_HOST",
       "GH_TOKEN",
       "GITHUB_ENTERPRISE_TOKEN",
+      "GITHUB_PAT",
       "GITHUB_TOKEN"
     ],
     "primaryEnvVar": "GH_TOKEN",
@@ -357,8 +358,8 @@
   {
     "name": "npm",
     "slug": "npm",
-    "envVars": ["NPM_CONFIG_USERCONFIG"],
-    "primaryEnvVar": "NPM_CONFIG_USERCONFIG",
+    "envVars": ["NODE_AUTH_TOKEN", "NPM_TOKEN", "PNPM_CONFIG__AUTH"],
+    "primaryEnvVar": "NODE_AUTH_TOKEN",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/npm"
   },
   {
@@ -504,7 +505,7 @@
   {
     "name": "Stripe",
     "slug": "stripe",
-    "envVars": ["STRIPE_API_KEY"],
+    "envVars": ["STRIPE_API_KEY", "STRIPE_SECRET_KEY"],
     "primaryEnvVar": "STRIPE_API_KEY",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/stripe"
   },
