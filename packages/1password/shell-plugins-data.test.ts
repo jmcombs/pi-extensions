@@ -136,6 +136,7 @@ describe("shell-plugins.json primaryEnvVar", () => {
       postgresql: "PGPASSWORD",
       datadog: "DATADOG_API_KEY",
       gitlab: "GITLAB_TOKEN",
+      npm: "NODE_AUTH_TOKEN",
     };
 
     const actual = Object.fromEntries(
