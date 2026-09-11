@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.2.0...relay/v1.2.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **relay:** strip Pi provider/thinking from Cursor --model ([#249](https://github.com/jmcombs/pi-extensions/issues/249)) ([09efee1](https://github.com/jmcombs/pi-extensions/commit/09efee1cbfd202906d4b5e1a25e8d8705f62ffb3))
+
 ## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.3...relay/v1.2.0) (2026-09-11)
 
 
