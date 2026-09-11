@@ -108,7 +108,9 @@ export const RELAY_CURSOR_PROVIDER = "relay-cursor";
 /**
  * Models exposed by the provider. Pi `auto` is passed through as Cursor `--model
  * auto`. Pi `opus` is mapped by the driver to Cursor's listed id
- * `claude-opus-4-8-high`.
+ * `claude-opus-4-8-high`. The driver's `resolveCursorModel` strips the
+ * `relay-cursor/` prefix and pi thinking suffixes first, so a role declaring
+ * `relay-cursor/opus` with `thinking: high` still resolves to a listed id.
  */
 const RELAY_CURSOR_MODELS = [
   { id: "auto", name: "Relay Cursor Auto" },
@@ -297,6 +299,16 @@ export function streamViaDriver(
     fs.writeFileSync(systemPromptFile, systemPrompt, { mode: 0o600 });
   }
 
+  const cleanupTemp = (): void => {
+    if (tempDir) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // Best-effort temp cleanup.
+      }
+    }
+  };
+
   // pi-neutral tool names; the driver applies the pi→backend tool map (D10).
   const tools = (context.tools ?? []).map((tool) => tool.name);
 
@@ -306,8 +318,19 @@ export function streamViaDriver(
     ...(systemPromptFile ? { systemPromptFile, systemPromptMode: "replace" as const } : {}),
     ...(tools.length > 0 ? { tools } : {}),
   };
-  const args = driver.buildArgs(invocation);
-  const extraEnv = driver.env?.(invocation);
+  // A driver rejects an invocation it cannot dispatch (e.g. cursor's model
+  // resolver on an unlisted id) by throwing. That is deliberately fail-fast —
+  // it is a role-file misconfiguration, not a run outcome — but the system
+  // prompt has already been written to disk by this point, so drop it first.
+  let args: string[];
+  let extraEnv: Readonly<Record<string, string>> | undefined;
+  try {
+    args = driver.buildArgs(invocation);
+    extraEnv = driver.env?.(invocation);
+  } catch (error) {
+    cleanupTemp();
+    throw error;
+  }
 
   const child = spawn(driver.bin, args, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -343,16 +366,6 @@ export function streamViaDriver(
         }, beatMs)
       : undefined;
   heartbeat?.unref?.();
-
-  const cleanupTemp = (): void => {
-    if (tempDir) {
-      try {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort temp cleanup.
-      }
-    }
-  };
 
   const timer = setTimeout(() => {
     cut = true;

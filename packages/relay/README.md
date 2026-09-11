@@ -89,7 +89,10 @@ other subagents. Grok is invoked with `--permission-mode dontAsk` plus one
 invoked with `--output-format json` and `--trust` (skip the workspace-trust prompt).
 `--force` / `--yolo` (Cursor's permission bypass) and `--sandbox` are **never**
 passed. Pi `relay-cursor/auto` maps to `--model auto`; `relay-cursor/opus` maps to
-the listed id `claude-opus-4-8-high`. Cursor has no system-prompt flag, so persona +
+the listed id `claude-opus-4-8-high`. The mapper strips the `relay-cursor/` provider
+prefix and any pi thinking suffix (`relay-cursor/opus:high`, `…:off`) first, since
+Cursor's `--model` accepts listed ids only; an id that does not resolve to a listed
+id is rejected up front rather than forwarded. Cursor has no system-prompt flag, so persona +
 skills are prepended onto the user prompt. Tool scoping is a temp `cli-config.json`
 allow/deny list via `CURSOR_CONFIG_DIR`, not an argv allowlist.
 

@@ -21,7 +21,10 @@
  * Listed ids only. Parameterized forms such as
  * `claude-opus-4-8[context=300k,effort=high]` are rejected. Pi `opus` maps to
  * the listed id `claude-opus-4-8-high` ("Claude Opus 4.8 1M"). `auto` is
- * passed through.
+ * passed through. `resolveCursorModel` first strips the `relay-cursor/`
+ * provider prefix and any pi thinking suffix (`:high`, `:off`, …) that pi
+ * appends to the model id, since Cursor accepts neither; an id that does not
+ * resolve to a listed id throws instead of being forwarded to `--model`.
  *
  * ── Tool/permission model ──
  * `--print` has access to all tools, including write and shell. `--force` /
@@ -40,15 +43,40 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentDriver, DriverInvocation, DriverResult } from "./claude.js";
 
-/** Pi model id → Cursor `--model` id. Unknown ids are passed through. */
+/** Pi model id → Cursor `--model` id. */
 export const CURSOR_MODEL_MAP: Readonly<Record<string, string>> = {
   auto: "auto",
   opus: "claude-opus-4-8-high",
 };
 
-/** Resolve a pi model id to the Cursor CLI `--model` value. */
+/** The Cursor `--model` values this driver may emit, accepted verbatim on input. */
+const CURSOR_LISTED_IDS: ReadonlySet<string> = new Set(Object.values(CURSOR_MODEL_MAP));
+
+/** A leading `<provider>/` segment, e.g. the `relay-cursor/` in `relay-cursor/opus`. */
+const PROVIDER_PREFIX = /^[^/]*\//;
+
+/** A pi thinking level appended to the model id, e.g. the `:high` in `opus:high`. */
+const PI_THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max)$/;
+
+/**
+ * Resolve a pi model id to the Cursor CLI `--model` value.
+ *
+ * Pi hands the driver the model string as written in the role file, which may
+ * carry the `relay-cursor/` provider prefix and/or a pi thinking level
+ * (`relay-cursor/opus:high`). Cursor's `--model` accepts neither, so both are
+ * stripped before the lookup. An id that is still unrecognized throws here
+ * rather than reaching `--model`, where Cursor would reject it after the run
+ * has already been dispatched.
+ */
 export function resolveCursorModel(piId: string): string {
-  return CURSOR_MODEL_MAP[piId.trim().toLowerCase()] ?? piId;
+  const id = piId.trim().toLowerCase().replace(PROVIDER_PREFIX, "").replace(PI_THINKING_SUFFIX, "");
+  const mapped = CURSOR_MODEL_MAP[id];
+  if (mapped) return mapped;
+  if (CURSOR_LISTED_IDS.has(id)) return id;
+  throw new Error(
+    `relay-cursor: \`${piId}\` is not a supported relay-cursor model. ` +
+      `Use one of: ${Object.keys(CURSOR_MODEL_MAP).join(", ")}.`,
+  );
 }
 
 /**

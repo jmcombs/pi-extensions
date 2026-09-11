@@ -193,6 +193,36 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
     },
   };
 
+  // A driver refuses an invocation it cannot dispatch by throwing — cursor's
+  // model resolver does this for an id Cursor does not list. The assembled
+  // system prompt is already written to a temp dir by then, so the refusal must
+  // propagate without leaving it behind.
+  const rejectingDriver: AgentDriver = {
+    name: "rejecting-fake",
+    bin: "node",
+    buildArgs: () => {
+      throw new Error("relay-cursor: `relay-cursor/sonnet` is not a supported relay-cursor model.");
+    },
+    parseResult: () => ({ result: "", isError: true }),
+  };
+
+  it("propagates a driver's invocation refusal and leaves no temp prompt behind", () => {
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: ["You are `verifier`."],
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const countTempDirs = (): number =>
+      fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith("pi-relay-")).length;
+
+    const before = countTempDirs();
+    expect(() => streamViaDriver(rejectingDriver, model, context)).toThrow(
+      /not a supported relay-cursor model/,
+    );
+    expect(countTempDirs()).toBe(before);
+  });
+
   it("pushes `start` then periodic `text_delta` beats before the final `done`", async () => {
     const context = {
       messages: [{ role: "user", content: "verify the phase" }],
@@ -670,6 +700,28 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     expect(resolveCursorModel("claude-opus-4-8-high")).toBe("claude-opus-4-8-high");
   });
 
+  // Pi hands the driver the model string as written in the role file, so the
+  // `relay-cursor/` provider prefix and the thinking level pi appends when a
+  // role declares `thinking: high` both arrive here. Cursor's `--model` rejects
+  // both spellings, so they must be stripped before the map lookup.
+  it("strips the provider prefix and pi thinking suffix before mapping", () => {
+    expect(resolveCursorModel("relay-cursor/opus")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("relay-cursor/opus:high")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("relay-cursor/opus:off")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("opus:high")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("relay-cursor/auto:medium")).toBe("auto");
+    expect(resolveCursorModel("  RELAY-CURSOR/Opus:High  ")).toBe("claude-opus-4-8-high");
+  });
+
+  // Forwarding an unmapped id would make Cursor reject the model only after the
+  // run was dispatched, which surfaces as an opaque mid-run failure.
+  it("throws rather than forwarding an id Cursor does not list", () => {
+    expect(() => resolveCursorModel("relay-cursor/sonnet")).toThrow(/relay-cursor\/sonnet/);
+    expect(() => resolveCursorModel("nope")).toThrow(/not a supported relay-cursor model/);
+    expect(() => resolveCursorModel("claude-opus-4-8[context=300k]")).toThrow();
+    expect(() => resolveCursorModel("")).toThrow();
+  });
+
   it("maps pi tools onto Cursor allow/deny permission rules", () => {
     expect(mapAllowRules(["read", "bash", "grep", "find", "subagent"])).toEqual([
       "Read(**/*)",
@@ -682,8 +734,10 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
 
   it("buildArgs emits headless json + --trust and never a bypass/sandbox flag", () => {
     const args = cursorDriver.buildArgs({
+      // The provider passes `model.id` straight through, so this is the shape pi
+      // sends for a `relay-cursor/opus` role with `thinking: high`.
       task: "t",
-      model: "opus",
+      model: "relay-cursor/opus:high",
       tools: ["read", "bash"],
     });
     expect(args).toEqual([
