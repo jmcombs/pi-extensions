@@ -117,6 +117,12 @@ export interface AgentDriver {
   buildArgs(invocation: DriverInvocation): string[];
   /** Extract the neutral result from the backend's raw stdout. */
   parseResult(stdout: string): DriverResult;
+  /**
+   * Extra env vars merged into the spawned process. Optional. Used by backends
+   * that configure permissions via a config dir (e.g. `CURSOR_CONFIG_DIR`)
+   * rather than argv flags.
+   */
+  env?(invocation: DriverInvocation): Readonly<Record<string, string>>;
 }
 
 function asEnvelope(value: unknown): ClaudeResultEnvelope | undefined {

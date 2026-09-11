@@ -2,9 +2,9 @@
 
 `@jmcombs/pi-relay` runs a Pi subagent on an **external coding-agent CLI** through a small,
 backend-agnostic seam — the **`AgentDriver`** (Locked Decision **D10**). The live implementations
-are `claudeDriver` (headless Claude Opus via `claude -p`) and `grokDriver` (headless Grok Build via
-`grok -p`). This document is how to add a driver for a **different** coding agent (e.g. OpenAI
-Codex, Gemini CLI).
+are `claudeDriver` (headless Claude Opus via `claude -p`), `grokDriver` (headless Grok Build via
+`grok -p`), and `cursorDriver` (headless Cursor Agent via `cursor-agent -p`). This document is how
+to add a driver for a **different** coding agent (e.g. OpenAI Codex, Gemini CLI).
 
 For monorepo-wide conventions (the `npm run check` quality gate, Conventional Commits, releases,
 Trusted Publishing), see the [repo-root `CONTRIBUTING.md`](../../CONTRIBUTING.md). This file covers
@@ -28,6 +28,7 @@ interface AgentDriver {
   readonly bin: string;                              // executable to spawn, e.g. "claude"
   buildArgs(invocation: DriverInvocation): string[]; // argv for ONE headless run
   parseResult(stdout: string): DriverResult;         // pull the neutral result out of stdout
+  env?(invocation: DriverInvocation): Readonly<Record<string, string>>; // optional extra spawn env
 }
 ```
 
@@ -75,18 +76,25 @@ backend is a **driver** concern, because backends express permissions differentl
   given. Never use `--permission-mode auto`/`bypassPermissions` or `--always-approve` — confirmed to
   auto-approve every tool call with no allowlist, the Grok analogue of
   `--dangerously-skip-permissions`.
+- **Cursor Agent** has no `--allowedTools` argv flag. `--force` / `--yolo` is the bypass analogue
+  of `--dangerously-skip-permissions` and must **never** be passed; `--sandbox` is also never
+  passed (D12). `--trust` is passed so headless runs do not hang on the workspace-trust prompt
+  (not a tool bypass). `cursorDriver` maps `read`/`grep`/`find` → `Read(**/*)`, `bash` → `Shell(*)`,
+  `edit`/`write` → `Write(**/*)`, writes those rules into a temp `cli-config.json`, and points
+  `CURSOR_CONFIG_DIR` at it via `env()`. Read-only roles also `deny` `Write(**/*)`. Cursor has no
+  system-prompt flag; persona+skills are prepended to the user prompt.
 
-Keep the map a small `Record<string, string>` beside the driver, and drop unmapped names (preserve
-order, de-duplicate) — mirror `CLAUDE_TOOL_NAME_MAP` / `mapToolNames` in `drivers/claude.ts` (or
-`GROK_TOOL_NAME_MAP` in `drivers/grok.ts`).
+Keep the map a small `Record` beside the driver, and drop unmapped names (preserve order,
+de-duplicate) — mirror `CLAUDE_TOOL_NAME_MAP` / `mapToolNames` in `drivers/claude.ts` (or
+`GROK_TOOL_NAME_MAP` in `drivers/grok.ts`, `CURSOR_TOOL_PERMISSION_MAP` in `drivers/cursor.ts`).
 
 ## Steps to add a driver
 
 1. **Create `drivers/<backend>.ts`.** Implement `AgentDriver`; import the shared `DriverInvocation` /
    `DriverResult` types from `./claude.js`. Use `drivers/codex.ts` (a documented, unwired stub) or
-   `drivers/grok.ts` (a live, wired-in implementation) as the field-by-field template — `grok.ts` is
-   the better reference if your backend's permission model turns out to differ from its `--help`
-   text once you actually run it (see the Grok bullet above for what that looked like in practice).
+   `drivers/grok.ts` / `drivers/cursor.ts` (live, wired-in implementations) as the field-by-field
+   template — those are the better reference if your backend's permission model turns out to differ
+   from its `--help` text once you actually run it.
 2. **Map tools + express read-only (D2)** the way your backend does — allowlist, sandbox flag, etc.
    Never add a permission-bypass flag.
 3. **Implement `parseResult`** — read your backend's structured output (a JSON / JSONL envelope) and

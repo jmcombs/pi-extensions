@@ -1,12 +1,13 @@
 /**
- * provider.ts — registers the `relay-claude` and `relay-grok` pi providers.
+ * provider.ts — registers the `relay-claude`, `relay-grok`, and `relay-cursor` pi providers.
  *
  * A pi-subagent runs on an external coding agent simply by setting its `model` to
- * `relay-claude/<id>` (e.g. `relay-claude/opus`) or `relay-grok/<id>` (e.g.
- * `relay-grok/grok-4.5`). pi's native `resolveModel` routes that model to the
- * custom `streamSimple` handler registered here; the handler runs ONE headless CLI
- * invocation through the backend's {@link AgentDriver} (`claudeDriver`/`grokDriver`)
- * and streams the external agent's final assistant text back as the completion.
+ * `relay-claude/<id>` (e.g. `relay-claude/opus`), `relay-grok/<id>` (e.g.
+ * `relay-grok/grok-4.5`), or `relay-cursor/<id>` (e.g. `relay-cursor/opus`). pi's
+ * native `resolveModel` routes that model to the custom `streamSimple` handler
+ * registered here; the handler runs ONE headless CLI invocation through the
+ * backend's {@link AgentDriver} (`claudeDriver`/`grokDriver`/`cursorDriver`) and
+ * streams the external agent's final assistant text back as the completion.
  *
  * ── Single completion = one full headless CLI run (single-turn) ──
  * The relayed subagent has NO pi-side tools; the external agent runs its OWN tool
@@ -37,8 +38,9 @@
  * contract. Provider types are derived from `@earendil-works/pi-coding-agent`'s
  * `ProviderConfig`.
  *
- * Not affiliated with or endorsed by Anthropic or xAI. Claude and Opus are
- * trademarks of Anthropic, PBC; Grok is a trademark of xAI.
+ * Not affiliated with or endorsed by Anthropic, xAI, or Anysphere. Claude and
+ * Opus are trademarks of Anthropic, PBC; Grok is a trademark of xAI; Cursor is
+ * a trademark of Anysphere, Inc.
  */
 
 import { spawn } from "node:child_process";
@@ -48,6 +50,7 @@ import * as path from "node:path";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { type AgentDriver, claudeDriver } from "./drivers/claude.js";
+import { cursorDriver } from "./drivers/cursor.js";
 import { grokDriver } from "./drivers/grok.js";
 import { expandSkillReferences } from "./roles/resolver.js";
 
@@ -99,6 +102,19 @@ const RELAY_GROK_MODELS = [
   { id: "grok-composer-2.5-fast", name: "Relay Grok Composer 2.5 Fast" },
 ] as const;
 
+/** The pi provider name. `model: relay-cursor/<id>` routes to this provider. */
+export const RELAY_CURSOR_PROVIDER = "relay-cursor";
+
+/**
+ * Models exposed by the provider. Pi `auto` is passed through as Cursor `--model
+ * auto`. Pi `opus` is mapped by the driver to Cursor's listed id
+ * `claude-opus-4-8-high`.
+ */
+const RELAY_CURSOR_MODELS = [
+  { id: "auto", name: "Relay Cursor Auto" },
+  { id: "opus", name: "Relay Cursor Opus 4.8" },
+] as const;
+
 /** Resolve the configured wall-cap in milliseconds (D6). */
 function wallCapMs(): number {
   const raw = process.env.PI_RELAY_WALL_MS;
@@ -143,8 +159,9 @@ function extractTask(context: RelayContext): string {
  * tool's presence in `context.tools` is what tells us we're on omp.
  *
  * `yield` is deliberately absent from every driver's tool-name map, so it is
- * dropped by `mapToolNames` and never reaches `claude`/`grok` — it stays local to
- * the host, and relay is the one that calls it.
+ * dropped by `mapToolNames` / Cursor's permission map and never reaches
+ * `claude`/`grok`/`cursor-agent` — it stays local to the host, and relay is the
+ * one that calls it.
  */
 const RELAY_TERMINAL_YIELD_TOOL = "yield";
 
@@ -283,14 +300,19 @@ export function streamViaDriver(
   // pi-neutral tool names; the driver applies the pi→backend tool map (D10).
   const tools = (context.tools ?? []).map((tool) => tool.name);
 
-  const args = driver.buildArgs({
+  const invocation = {
     task: extractTask(context),
     model: model.id,
     ...(systemPromptFile ? { systemPromptFile, systemPromptMode: "replace" as const } : {}),
     ...(tools.length > 0 ? { tools } : {}),
-  });
+  };
+  const args = driver.buildArgs(invocation);
+  const extraEnv = driver.env?.(invocation);
 
-  const child = spawn(driver.bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(driver.bin, args, {
+    stdio: ["ignore", "pipe", "pipe"],
+    ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
+  });
 
   let out = "";
   let cut = false;
@@ -473,4 +495,31 @@ export function registerRelayGrokProvider(pi: ExtensionAPI): void {
     })),
   };
   pi.registerProvider(RELAY_GROK_PROVIDER, config);
+}
+
+/** Register the `relay-cursor` provider on the given pi extension API. */
+export function registerRelayCursorProvider(pi: ExtensionAPI): void {
+  const config: ProviderConfig = {
+    name: "Relay (Cursor)",
+    // `api` is required when registering a custom `streamSimple` handler.
+    api: RELAY_CURSOR_PROVIDER,
+    // baseUrl + apiKey are required by provider validation when models are
+    // defined, but are UNUSED here: the streamSimple handler shells out to
+    // `cursor-agent -p`, which authenticates via its own login / CURSOR_API_KEY,
+    // never an API key or network baseUrl from relay.
+    baseUrl: "http://relay.invalid",
+    apiKey: "relay-unused",
+    streamSimple: (model, context, options: RelayStreamOptions) =>
+      streamViaDriver(cursorDriver, model, context, options?.signal),
+    models: RELAY_CURSOR_MODELS.map((m) => ({
+      id: m.id,
+      name: m.name,
+      reasoning: false,
+      input: ["text"] as ("text" | "image")[],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 64_000,
+    })),
+  };
+  pi.registerProvider(RELAY_CURSOR_PROVIDER, config);
 }

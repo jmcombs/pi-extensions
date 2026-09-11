@@ -13,6 +13,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterAll, describe, expect, it } from "vitest";
 import { type AgentDriver, claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
+import { cursorDriver, mapAllowRules, mapDenyRules, resolveCursorModel } from "./drivers/cursor.js";
 import {
   grokDriver,
   mapToolName as mapGrokToolName,
@@ -64,7 +65,7 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     const { api, providers } = createApiStub();
     factory(api);
 
-    expect(providers).toHaveLength(2);
+    expect(providers).toHaveLength(3);
     const provider = providers.find((p) => p.name === "relay-claude");
     if (!provider) throw new Error("relay-claude provider not registered");
     expect(provider.config.api).toBe("relay-claude");
@@ -80,7 +81,7 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     const { api, providers } = createApiStub();
     factory(api);
 
-    expect(providers).toHaveLength(2);
+    expect(providers).toHaveLength(3);
     const provider = providers.find((p) => p.name === "relay-grok");
     if (!provider) throw new Error("relay-grok provider not registered");
     expect(provider.config.api).toBe("relay-grok");
@@ -89,6 +90,22 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     expect(provider.config.apiKey).toBeTruthy();
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
     expect(modelIds).toContain("grok-4.5");
+  });
+
+  it("registers the relay-cursor provider with a custom streamSimple and auto/opus models", () => {
+    const { api, providers } = createApiStub();
+    factory(api);
+
+    expect(providers).toHaveLength(3);
+    const provider = providers.find((p) => p.name === "relay-cursor");
+    if (!provider) throw new Error("relay-cursor provider not registered");
+    expect(provider.config.api).toBe("relay-cursor");
+    expect(typeof provider.config.streamSimple).toBe("function");
+    expect(provider.config.baseUrl).toBeTruthy();
+    expect(provider.config.apiKey).toBeTruthy();
+    const modelIds = (provider.config.models ?? []).map((m) => m.id);
+    expect(modelIds).toContain("auto");
+    expect(modelIds).toContain("opus");
   });
 });
 
@@ -643,6 +660,121 @@ describe("grokDriver — parseResult (D6 fail-safe)", () => {
   it("treats unparseable/empty stdout as an error with no result (D6)", () => {
     expect(grokDriver.parseResult("")).toEqual({ result: "", isError: true });
     expect(grokDriver.parseResult("not json")).toEqual({ result: "", isError: true });
+  });
+});
+
+describe("cursorDriver — model map + permissions (D10, in the driver)", () => {
+  it("maps pi `opus` to Cursor's listed High id and passes `auto` through", () => {
+    expect(resolveCursorModel("opus")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("AUTO")).toBe("auto");
+    expect(resolveCursorModel("claude-opus-4-8-high")).toBe("claude-opus-4-8-high");
+  });
+
+  it("maps pi tools onto Cursor allow/deny permission rules", () => {
+    expect(mapAllowRules(["read", "bash", "grep", "find", "subagent"])).toEqual([
+      "Read(**/*)",
+      "Shell(*)",
+    ]);
+    expect(mapDenyRules(["read", "bash", "grep", "find"])).toEqual(["Write(**/*)"]);
+    expect(mapDenyRules(["read", "edit"])).toEqual([]);
+    expect(mapDenyRules(["write"])).toEqual([]);
+  });
+
+  it("buildArgs emits headless json + --trust and never a bypass/sandbox flag", () => {
+    const args = cursorDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      tools: ["read", "bash"],
+    });
+    expect(args).toEqual([
+      "-p",
+      "--output-format",
+      "json",
+      "--model",
+      "claude-opus-4-8-high",
+      "--trust",
+      "t",
+    ]);
+    expect(args).not.toContain("--force");
+    expect(args).not.toContain("--yolo");
+    expect(args).not.toContain("--sandbox");
+    expect(args).not.toContain("auto");
+  });
+
+  it("buildArgs prepends systemPromptFile for replace and appends for append", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-cursor-test-"));
+    const file = path.join(tmp, "system-prompt.md");
+    fs.writeFileSync(file, "PERSONA BODY.");
+    try {
+      const replaceArgs = cursorDriver.buildArgs({
+        task: "t",
+        model: "auto",
+        systemPromptFile: file,
+        systemPromptMode: "replace",
+      });
+      expect(replaceArgs.at(-1)).toBe("PERSONA BODY.\n\nt");
+
+      const appendArgs = cursorDriver.buildArgs({
+        task: "t",
+        model: "auto",
+        systemPromptFile: file,
+        systemPromptMode: "append",
+      });
+      expect(appendArgs.at(-1)).toBe("t\n\nPERSONA BODY.");
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("env writes a temp cli-config.json allowlist from the role's tools", () => {
+    const extra = cursorDriver.env?.({
+      task: "t",
+      model: "auto",
+      tools: ["read", "bash"],
+    });
+    const dir = extra?.CURSOR_CONFIG_DIR;
+    expect(dir).toBeTruthy();
+    if (!dir) throw new Error("CURSOR_CONFIG_DIR missing");
+    try {
+      const raw = fs.readFileSync(path.join(dir, "cli-config.json"), "utf8");
+      const config = JSON.parse(raw) as {
+        approvalMode?: string;
+        permissions?: { allow?: string[]; deny?: string[] };
+      };
+      expect(config.approvalMode).toBe("allowlist");
+      expect(config.permissions?.allow).toEqual(["Read(**/*)", "Shell(*)"]);
+      expect(config.permissions?.deny).toEqual(["Write(**/*)"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cursorDriver — parseResult (D6 fail-safe)", () => {
+  it("parses a clean result envelope as a pass", () => {
+    const envelope = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "the answer",
+      session_id: "s",
+    });
+    expect(cursorDriver.parseResult(envelope)).toEqual({ result: "the answer", isError: false });
+  });
+
+  it("treats is_error true as an error", () => {
+    const envelope = JSON.stringify({ type: "result", is_error: true, result: "boom" });
+    expect(cursorDriver.parseResult(envelope)).toEqual({ result: "boom", isError: true });
+  });
+
+  it("treats a `type: error` envelope as an error", () => {
+    const envelope = JSON.stringify({ type: "error", message: "boom" });
+    expect(cursorDriver.parseResult(envelope)).toEqual({ result: "boom", isError: true });
+  });
+
+  it("treats unparseable/empty stdout as an error with no result (D6)", () => {
+    expect(cursorDriver.parseResult("")).toEqual({ result: "", isError: true });
+    expect(cursorDriver.parseResult("not json")).toEqual({ result: "", isError: true });
   });
 });
 

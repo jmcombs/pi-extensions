@@ -52,7 +52,7 @@ docker run --rm pi-ext-interactive:latest        # or: npm run validate:extensio
 # PASS pi 1password: tools[bash,1p_diagnose] handlers[session_start,user_bash]
 # PASS pi context7: tools[context7_search,context7_get_docs] commands[context7_setup]
 # … (one PASS line per non-private package) …
-# PASS pi relay: providers[relay-claude,relay-grok]
+# PASS pi relay: providers[relay-claude,relay-grok,relay-cursor]
 # PI-SMOKE: platform=pi packages=10 pass=10 fail=0 skipped=1
 # == oh-my-pi extension load check (op absent) ==
 # PASS oh-my-pi 1password: tools[bash,1p_diagnose] handlers[session_start,!user_bash]

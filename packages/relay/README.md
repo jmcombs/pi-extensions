@@ -11,13 +11,15 @@
 
 > **Relay roles** for the [Pi coding agent](https://pi.dev): run any Pi **subagent**
 > on an **external coding agent** instead of a local model — just by setting its
-> `model`. Relay registers pi **providers** (`relay-claude`, `relay-grok`); a
-> subagent whose `model` is `relay-claude/opus` or `relay-grok/grok-4.5` routes
-> through relay to a headless **Claude Opus** (`claude -p`) or **Grok Build**
-> (`grok -p`), which runs its own tool loop and returns the final result.
+> `model`. Relay registers pi **providers** (`relay-claude`, `relay-grok`,
+> `relay-cursor`); a subagent whose `model` is `relay-claude/opus`,
+> `relay-grok/grok-4.5`, or `relay-cursor/opus` routes through relay to a headless
+> **Claude Opus** (`claude -p`), **Grok Build** (`grok -p`), or **Cursor Agent**
+> (`cursor-agent -p`), which runs its own tool loop and returns the final result.
 
-> **Not affiliated with or endorsed by Anthropic or xAI. Claude and Opus are
-> trademarks of Anthropic, PBC; Grok is a trademark of xAI.**
+> **Not affiliated with or endorsed by Anthropic, xAI, or Anysphere. Claude and
+> Opus are trademarks of Anthropic, PBC; Grok is a trademark of xAI; Cursor is a
+> trademark of Anysphere, Inc.**
 
 ## Fixes
 
@@ -33,16 +35,18 @@
 A **relay role** is an existing pi-subagent (its persona `.md` + referenced
 `SKILL.md`s). Nothing about the subagent changes except the processor:
 
-- **Trigger + model** — set a subagent's `model` to `relay-claude/opus` or
-  `relay-grok/grok-4.5`. pi's native `resolveModel` routes the completion to
-  relay's registered provider → `claudeDriver`/`grokDriver` → `claude -p …
-  --model opus` / `grok -p … --model grok-4.5`.
+- **Trigger + model** — set a subagent's `model` to `relay-claude/opus`,
+  `relay-grok/grok-4.5`, or `relay-cursor/opus`. pi's native `resolveModel` routes
+  the completion to relay's registered provider → `claudeDriver` / `grokDriver` /
+  `cursorDriver` → `claude -p … --model opus` / `grok -p … --model grok-4.5` /
+  `cursor-agent -p … --model claude-opus-4-8-high`.
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
   a skill injection into the (child) session's system prompt, where skills are
   `<available_skills>` **references** (name/description/location). Relay reads each
   referenced `SKILL.md` and **inlines its full content** into the prompt it writes
   via the backend's own system-prompt mechanism (`claude`'s
-  `--system-prompt-file`, or `grok`'s inline `--system-prompt-override`/`--rules`),
+  `--system-prompt-file`, `grok`'s inline `--system-prompt-override`/`--rules`, or
+  prepended onto Cursor's user prompt — Cursor has no system-prompt flag),
   so the methodology is guaranteed present (deterministic — no model re-echo, no
   drift).
 - **Tools** — each driver maps the subagent's pi tools onto its backend's own
@@ -51,7 +55,10 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
   `subagent`, `ls`) are dropped. Claude gets `--allowedTools`; Grok gets one
   `--allow <Tool>` flag per tool plus `--permission-mode dontAsk` (fail-closed —
   unlisted tools are silently declined, never a hang or a blanket bypass). The map
-  is a **driver** function (D10).
+  is a **driver** function (D10). Cursor has no `--allowedTools` argv flag;
+  `cursorDriver` maps the same pi names onto a temp `cli-config.json` allow/deny
+  list (`Read(**/*)`, `Shell(*)`, `Write(**/*)`) and points `CURSOR_CONFIG_DIR` at
+  it. `--force` / `--yolo` are never passed.
 - **Single external run** — the relayed subagent has no external equivalent for
   pi/oh-my-pi orchestration tools. The external agent runs its own tool loop once
   and returns final text. pi consumes that text directly; oh-my-pi receives the same
@@ -78,11 +85,19 @@ other subagents. Grok is invoked with `--permission-mode dontAsk` plus one
 `--allow <Tool>` per allowed tool (verified fail-closed and non-interactive —
 **never** `--always-approve` or `--permission-mode auto`/`bypassPermissions`).
 
+`relay-cursor` (Cursor Agent, `cursor-agent -p`) is a third live driver. Cursor is
+invoked with `--output-format json` and `--trust` (skip the workspace-trust prompt).
+`--force` / `--yolo` (Cursor's permission bypass) and `--sandbox` are **never**
+passed. Pi `relay-cursor/auto` maps to `--model auto`; `relay-cursor/opus` maps to
+the listed id `claude-opus-4-8-high`. Cursor has no system-prompt flag, so persona +
+skills are prepended onto the user prompt. Tool scoping is a temp `cli-config.json`
+allow/deny list via `CURSOR_CONFIG_DIR`, not an argv allowlist.
+
 A driver/adapter seam (`AgentDriver` in `drivers/claude.ts`) keeps the provider
-backend-agnostic. `claudeDriver` and `grokDriver` are the live implementations,
-each owning its own pi→backend tool-name map (D10); `drivers/codex.ts` is a
-documented seam-only stub (`codex exec`, `-s read-only`) for a future OpenAI Codex
-backend. `roles/resolver.ts` is backend-neutral: it inlines skill references to
+backend-agnostic. `claudeDriver`, `grokDriver`, and `cursorDriver` are the live
+implementations, each owning its own pi→backend tool-name map (D10);
+`drivers/codex.ts` is a documented seam-only stub (`codex exec`, `-s read-only`) for
+a future OpenAI Codex backend. `roles/resolver.ts` is backend-neutral: it inlines skill references to
 full content (`expandSkillReferences`) and resolves a persona+skills role from
 disk (used off the pi-subagents path). The provider streams the completion
 through pi's own `createAssistantMessageEventStream()` (`@earendil-works/pi-ai`).
@@ -95,6 +110,8 @@ through pi's own `createAssistantMessageEventStream()` (`@earendil-works/pi-ai`)
   your Claude subscription (`oauthAccount`), for `relay-claude`
 - The `grok` (Grok Build) CLI on `PATH`, authenticated (`grok login` or
   `XAI_API_KEY`), for `relay-grok`
+- The [`cursor-agent`](https://cursor.com/docs/cli/headless) CLI on `PATH`,
+  authenticated (`cursor-agent login` or `CURSOR_API_KEY`), for `relay-cursor`
 
 ## Configuration
 
@@ -126,20 +143,22 @@ path, project-scoped install, and filtering options.
 
 ## Usage
 
-Relay registers the `relay-claude` and `relay-grok` **providers**; you use either
-by pointing a subagent (or a whole session) at it through `model`:
+Relay registers the `relay-claude`, `relay-grok`, and `relay-cursor` **providers**;
+you use any of them by pointing a subagent (or a whole session) at it through
+`model`:
 
 ```bash
 # Route a whole session through the relay provider
 pi --model relay-claude/opus "…"
 pi --model relay-grok/grok-4.5 "…"
+pi --model relay-cursor/auto "…"
+pi --model relay-cursor/opus "…"
 ```
 
 To run an existing subagent through relay, set its `model` frontmatter to
-`relay-claude/opus` or `relay-grok/grok-4.5` and make relay discoverable in the
-subagent's child pi (an installed package, or the agent's `extensions` field). The
-flagship example is the `verifier` subagent — `model: relay-claude/opus` with a
-read-only tool set (D1: verify stays Claude-Opus-only).
+`relay-claude/opus`, `relay-grok/grok-4.5`, or `relay-cursor/opus` and make relay
+discoverable in the subagent's child pi (an installed package, or the agent's
+`extensions` field).
 
 oh-my-pi discovers custom task agents from `~/.omp/agent/agents/*.md` and
 `.omp/agents/*.md`. Set the agent's model normally:
@@ -153,16 +172,16 @@ tools: read, grep
 ---
 ```
 
-oh-my-pi keeps `yield` local; relay never forwards it to Claude or Grok.
+oh-my-pi keeps `yield` local; relay never forwards it to Claude, Grok, or Cursor.
 
 ## Extending — adding a driver
 
-Relay is backend-agnostic through the `AgentDriver` seam (D10). `claudeDriver` and
-`grokDriver` are the live implementations; `drivers/codex.ts` is a documented
-seam-only stub for a future OpenAI Codex backend. To add a driver for another coding
-agent (Codex, Gemini CLI, …) — the `AgentDriver` API, the pi→backend tool-name
-mapping, the read-only/fail-safe constraints, and a step-by-step guide — see
-[`CONTRIBUTING.md`](./CONTRIBUTING.md) in this package.
+Relay is backend-agnostic through the `AgentDriver` seam (D10). `claudeDriver`,
+`grokDriver`, and `cursorDriver` are the live implementations; `drivers/codex.ts` is
+a documented seam-only stub for a future OpenAI Codex backend. To add a driver for
+another coding agent (Codex, Gemini CLI, …) — the `AgentDriver` API, the pi→backend
+tool-name mapping, the read-only/fail-safe constraints, and a step-by-step guide —
+see [`CONTRIBUTING.md`](./CONTRIBUTING.md) in this package.
 
 ## Development
 
@@ -176,6 +195,7 @@ npm ci
 npm run check                       # full quality gate
 node packages/relay/scripts/harness.mjs   # manual provider proof vs. real `claude -p`
 node packages/relay/scripts/harness.mjs --model relay-grok/grok-4.5   # same, vs. real `grok -p`
+node packages/relay/scripts/harness.mjs --model relay-cursor/auto     # same, vs. real `cursor-agent -p`
 ```
 
 ## License
