@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.3...relay/v1.2.0) (2026-09-11)
+
+
+### Features
+
+* **relay:** add Cursor Agent CLI driver (relay-cursor) ([#245](https://github.com/jmcombs/pi-extensions/issues/245)) ([95f9b36](https://github.com/jmcombs/pi-extensions/commit/95f9b3627620e206a59dd14a18c47db9f4a6c896))
+
 ## [1.1.3](https://github.com/jmcombs/pi-extensions/compare/relay/v1.1.2...relay/v1.1.3) (2026-08-17)
 
 
