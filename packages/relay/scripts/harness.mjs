@@ -3,7 +3,7 @@
  * harness.mjs — manual provider proof against a REAL backend CLI.
  *
  * Phase 3 replaced relay's bespoke `verify_phase`/`dispatch` tools with registered
- * pi providers (`relay-claude`, `relay-grok`). This harness proves the provider
+ * pi providers (`relay-claude`, `relay-grok`, `relay-cursor`). This harness proves the provider
  * seam end-to-end: it loads the relay extension into a real headless `pi` session,
  * routes a completion through the given `model`, and confirms the reply is the
  * final text of one backend CLI run (single-turn) — i.e. one provider completion
@@ -15,6 +15,7 @@
  *
  *   node packages/relay/scripts/harness.mjs                        # relay-claude/opus (default)
  *   node packages/relay/scripts/harness.mjs --model relay-grok/grok-4.5
+ *   node packages/relay/scripts/harness.mjs --model relay-cursor/auto
  *
  * Exit code 0 iff the routed proof succeeds.
  */

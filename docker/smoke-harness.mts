@@ -95,7 +95,7 @@ export interface Expected {
 // | headroom        | headroom_retrieve                 | headroom-status, headroom_setup, headroom-stats, headroom-simulate | context, session_start                          | —                                     |
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_end, agent_end     | —                                     |
 // | prompt-enhancer | —                                 | prompt_enhance, prompt_enhance_model, prompt_enhance_revert, prompt_enhance_auto | session_start, session_shutdown, model_select, input | shortcuts ctrl+shift+e, ctrl+shift+z  |
-// | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok (via stub) |
+// | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok, relay-cursor (via stub) |
 // | steward         | —                                 | steward_start, steward_dashboard, steward_stop, steward_initialize | session_start, turn_start, turn_end, session_shutdown | —                                     |
 // | tavily-search   | tavily_search                     | tavily_setup                                               | —                                                        | —                                     |
 
@@ -149,8 +149,8 @@ export const EXPECTED: Record<string, Expected> = {
     note: "commands + handlers + shortcuts, no tools",
   },
   relay: {
-    providers: ["relay-claude", "relay-grok"],
-    note: "providers only: relay-claude, relay-grok (via stub registerProvider)",
+    providers: ["relay-claude", "relay-grok", "relay-cursor"],
+    note: "providers only: relay-claude, relay-grok, relay-cursor (via stub registerProvider)",
   },
   steward: {
     commands: ["steward_start", "steward_dashboard", "steward_stop", "steward_initialize"],
