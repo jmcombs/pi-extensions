@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.3.1...relay/v1.4.0) (2026-09-12)
+
+
+### Features
+
+* **relay:** stream Claude print mode and idle-reset the wall-cap ([#258](https://github.com/jmcombs/pi-extensions/issues/258)) ([f2af719](https://github.com/jmcombs/pi-extensions/commit/f2af7195f4b9169d771bb047a653aca43518a4e8))
+
 ## [1.3.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.3.0...relay/v1.3.1) (2026-09-12)
 
 
