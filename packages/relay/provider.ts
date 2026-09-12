@@ -143,27 +143,30 @@ function toProviderModels(
  * Models exposed by the provider. The pi model id after the slash (`opus`,
  * `sonnet`, `haiku`) is passed through as the driver's `--model` value. D1: the
  * verify role uses `relay-claude/opus`.
+ *
+ * Catalog windows from live `claude -p --model <alias> --output-format json`
+ * `modelUsage` (Claude Code 2.1.266): opus/sonnet → 1M / 64K, haiku → 200K / 32K.
  */
 const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
   {
     id: "opus",
     name: "Relay Claude Opus",
     contextWindow: 1_000_000,
-    maxTokens: 128_000,
+    maxTokens: 64_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP,
   },
   {
     id: "sonnet",
     name: "Relay Claude Sonnet",
     contextWindow: 1_000_000,
-    maxTokens: 128_000,
+    maxTokens: 64_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP,
   },
   {
     id: "haiku",
     name: "Relay Claude Haiku",
     contextWindow: 200_000,
-    maxTokens: 64_000,
+    maxTokens: 32_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP,
   },
 ];

@@ -130,11 +130,12 @@ describe("@jmcombs/pi-relay — provider registration", () => {
 
     const byProvider = Object.fromEntries(providers.map((p) => [p.name, p.config.models ?? []]));
     const claudeOpus = byProvider["relay-claude"]?.find((m) => m.id === "opus");
+    const claudeSonnet = byProvider["relay-claude"]?.find((m) => m.id === "sonnet");
     const claudeHaiku = byProvider["relay-claude"]?.find((m) => m.id === "haiku");
     const grok45 = byProvider["relay-grok"]?.find((m) => m.id === "grok-4.5");
     const cursorOpus = byProvider["relay-cursor"]?.find((m) => m.id === "opus");
     const cursorAuto = byProvider["relay-cursor"]?.find((m) => m.id === "auto");
-    if (!claudeOpus || !claudeHaiku || !grok45 || !cursorOpus || !cursorAuto) {
+    if (!claudeOpus || !claudeSonnet || !claudeHaiku || !grok45 || !cursorOpus || !cursorAuto) {
       throw new Error("expected catalog models missing");
     }
 
@@ -142,13 +143,19 @@ describe("@jmcombs/pi-relay — provider registration", () => {
       reasoning: true,
       input: ["text"],
       contextWindow: 1_000_000,
-      maxTokens: 128_000,
+      maxTokens: 64_000,
     });
     expect(claudeOpus.thinkingLevelMap?.minimal).toBeNull();
     expect(claudeOpus.thinkingLevelMap?.high).toBe("high");
+    expect(claudeSonnet).toMatchObject({
+      reasoning: true,
+      input: ["text"],
+      contextWindow: 1_000_000,
+      maxTokens: 64_000,
+    });
     expect(claudeHaiku).toMatchObject({
       contextWindow: 200_000,
-      maxTokens: 64_000,
+      maxTokens: 32_000,
       reasoning: true,
     });
 
