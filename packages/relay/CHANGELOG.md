@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.3.0...relay/v1.3.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **relay:** seed Cursor config dir so headless tool calls do not hang ([#255](https://github.com/jmcombs/pi-extensions/issues/255)) ([7afa795](https://github.com/jmcombs/pi-extensions/commit/7afa79533fc90a228ce6b2a97f901603515f7bc2))
+
 ## [1.3.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.2.1...relay/v1.3.0) (2026-09-12)
 
 
