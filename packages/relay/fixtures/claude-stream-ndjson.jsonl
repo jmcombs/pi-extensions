@@ -1,0 +1,6 @@
+{"type":"system","subtype":"init","session_id":"fixture"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read"}]}}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"partial"}}}
+{"type":"result","is_error":false,"result":"first-result","duration_ms":1}
+{"type":"tool_progress","tool_name":"Bash","heartbeat":true,"elapsed_time_seconds":30}
+{"type":"result","is_error":false,"result":"LAST_RESULT_OK","duration_ms":488413,"usage":{"output_tokens":3}}

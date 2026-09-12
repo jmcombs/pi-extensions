@@ -76,7 +76,7 @@ The **verify** quality bar is **Claude Opus only** (D1), reached through the
 subscription `claude -p` CLI (billed to your Claude subscription via
 `oauthAccount` — never the Anthropic API, never a local model). The verify role
 is **read-only**: `claude` is invoked with a scoped `--allowedTools` allowlist and
-**never** with `--dangerously-skip-permissions`. On a cut run (wall-cap or abort)
+**never** with `--dangerously-skip-permissions`. On a cut run (idle-cap or abort)
 relay surfaces an **UNVERIFIED** error result — it **never** auto-passes.
 
 `relay-grok` (Grok Build, `grok -p`) is a second live driver available for generic
@@ -88,7 +88,7 @@ other subagents. Grok is invoked with `--permission-mode dontAsk` plus one
 **never** `--always-approve` or `--permission-mode auto`/`bypassPermissions`).
 
 `relay-cursor` (Cursor Agent, `cursor-agent -p`) is a third live driver. Cursor is
-invoked with `--output-format json` and `--trust` (skip the workspace-trust prompt).
+invoked with `--output-format stream-json` and `--trust` (skip the workspace-trust prompt).
 `--force` / `--yolo` (Cursor's permission bypass) and `--sandbox` are **never**
 passed. Pi `relay-cursor/auto` maps to `--model auto`. Pi `relay-cursor/opus` maps
 by thinking level onto Cursor listed ids (`opus` / `:off` → `claude-opus-4-8-high`;
@@ -127,15 +127,14 @@ through pi's own `createAssistantMessageEventStream()` (`@earendil-works/pi-ai`)
 
 ## Configuration
 
-- `PI_RELAY_WALL_MS` — wall-cap backstop for a single relayed run, in milliseconds
-  (default `600000`). On a cut run relay reports an **UNVERIFIED** error result.
-- `PI_RELAY_HEARTBEAT_MS` — interval, in milliseconds, at which the provider pushes
-  a no-op stream beat while a relayed run is in flight (default `20000`; set `0` to
-  disable). A single `claude -p` completion emits nothing until it finishes, so
-  without a beat pi-subagents' parent run sees "no observed activity" and falsely
-  flips the child to `needs_attention` at its 60s threshold. Each beat surfaces as
-  a pi `message_update`, advancing the parent's activity clock; the verdict still
-  rides only on the terminal result, so the beats never affect it.
+- `PI_RELAY_WALL_MS` — idle-cap backstop for a single relayed run, in milliseconds
+  (default `600000`). Any stdout or stderr byte resets the timer; true silence still
+  SIGTERMs the child. On a cut run relay reports an **UNVERIFIED** error result.
+- `PI_RELAY_HEARTBEAT_MS` — fallback no-op stream beat while a backend emits nothing
+  (json print mode). Stream backends forward real `text_delta` / tool-progress instead.
+  Default `20000`; set `0` to disable. Each beat surfaces as a pi `message_update`,
+  advancing the parent's activity clock; the verdict still rides only on the terminal
+  result, so the beats never affect it.
 
 ## Install
 

@@ -4,17 +4,26 @@
  * read-only tools and never a permission-bypass mode (D2).
  *
  * Field/behavior notes below were confirmed against `grok` v0.2.93 and re-checked
- * on v1.0.25 (`grok -p --output-format json`) — re-verify after a CLI upgrade:
+ * on v1.0.25 (`grok -p --output-format json`) and v1.0.30 streaming formats —
+ * re-verify after a CLI upgrade:
  *
- * ── Output envelope (`--output-format json`) ──
- * Success: `{ text, stopReason, sessionId, requestId, thought }` — the answer is
- * `.text`, not `.result`. A clean finish is `stopReason: "EndTurn"` (v0.2.93) or
+ * ── Output envelope ──
+ * Headless streaming uses `--output-format streaming-messages-json` (Anthropic
+ * Messages NDJSON) plus `--include-partial-messages` for `stream_event` deltas.
+ * Final text is the last `{ type: "result", result, is_error }` line — same shape
+ * as Claude stream-json. `stream-json` is not a grok value (error); `streaming-json`
+ * is ACP (`type: text` / `type: end`) and is not used. `--verbose` is not a grok
+ * flag (error).
+ *
+ * The historical `--output-format json` envelope is still parsed as a fallback:
+ * `{ text, stopReason, sessionId, requestId, thought }` — the answer is `.text`,
+ * not `.result`. A clean finish is `stopReason: "EndTurn"` (v0.2.93) or
  * `"end_turn"` (v1.0.25); parse both. A tool call blocked by the permission model
  * (or a max-turns cutoff) still uses this SAME shape but with `stopReason:
  * "Cancelled"` / `"cancelled"` and often empty `text` — it is NOT flagged via an
- * error type, so `parseResult` must check `stopReason`, not just look for an error
- * envelope. A hard failure (e.g. an invalid `--model`) uses a DIFFERENT shape:
- * `{ "type": "error", "message": "..." }`.
+ * error type, so the json fallback must check `stopReason`, not just look for an
+ * error envelope. A hard failure (e.g. an invalid `--model`) uses a DIFFERENT
+ * shape: `{ "type": "error", "message": "..." }`.
  *
  * ── System prompt ──
  * Grok has no `--system-prompt-file`; both of its equivalents take the prompt
@@ -41,7 +50,12 @@
  */
 
 import * as fs from "node:fs";
-import type { AgentDriver, DriverInvocation, DriverResult } from "./claude.js";
+import {
+  type AgentDriver,
+  type DriverInvocation,
+  type DriverResult,
+  findLastNdjsonResult,
+} from "./claude.js";
 import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
 /**
@@ -109,8 +123,10 @@ function isGrokEndTurn(stopReason: string | undefined): boolean {
 
 /**
  * `AgentDriver` implementation for Grok Build: headless dispatch via `grok -p`,
- * scoped read-only tools via repeated `--allow` flags (D2), `--output-format
- * json` for a machine-parseable envelope.
+ * scoped read-only tools via repeated `--allow` flags (D2),
+ * `--output-format streaming-messages-json --include-partial-messages` so print
+ * mode emits NDJSON as it runs (never `--permission-mode auto` / `bypassPermissions`
+ * / `--always-approve`).
  */
 export const grokDriver: AgentDriver = {
   name: "grok",
@@ -123,7 +139,8 @@ export const grokDriver: AgentDriver = {
       "-p",
       invocation.task,
       "--output-format",
-      "json",
+      "streaming-messages-json",
+      "--include-partial-messages",
       "--model",
       parsed.bareId,
       "--no-auto-update",
@@ -152,6 +169,14 @@ export const grokDriver: AgentDriver = {
   },
 
   parseResult(stdout: string): DriverResult {
+    const fromStream = findLastNdjsonResult(stdout);
+    if (fromStream) {
+      return {
+        result: String(fromStream.result ?? ""),
+        isError: fromStream.is_error === true,
+      };
+    }
+
     let envelope: GrokResultEnvelope;
     try {
       envelope = JSON.parse(stdout) as GrokResultEnvelope;

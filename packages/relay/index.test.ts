@@ -34,7 +34,7 @@ import {
 } from "./drivers/grok.js";
 import { parseModelThinking, resolveThinkingLevel } from "./drivers/thinking.js";
 import factory from "./index.js";
-import { streamViaDriver } from "./provider.js";
+import { progressFromNdjsonLine, streamViaDriver } from "./provider.js";
 import {
   expandSkillReferences,
   normalizeSystemPrompt,
@@ -205,6 +205,7 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
     type: string;
     reason?: string;
     contentIndex?: number;
+    delta?: string;
     partial?: {
       content?: StreamContent[];
       stopReason?: string;
@@ -594,6 +595,170 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
       else process.env.PI_RELAY_WALL_MS = previousWall;
     }
   });
+
+  it("resets the idle cap on slow stdout so a working run is not SIGTERM'd", async () => {
+    // Writes a progress line every 80ms, then the result at 250ms. A wall-cap of
+    // 120ms would kill the child; an idle-reset of 120ms survives.
+    const slowDriver: AgentDriver = {
+      name: "slow-stdout",
+      bin: "node",
+      buildArgs: () => [
+        "-e",
+        [
+          "const line = (o) => process.stdout.write(JSON.stringify(o) + '\\n');",
+          "line({type:'tool_progress',heartbeat:true});",
+          "setTimeout(() => line({type:'tool_progress',heartbeat:true}), 80);",
+          "setTimeout(() => line({type:'tool_progress',heartbeat:true}), 160);",
+          "setTimeout(() => line({type:'result',result:'IDLE_OK',is_error:false}), 250);",
+        ].join("\n"),
+      ],
+      parseResult: claudeDriver.parseResult,
+    };
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+    const prevBeat = process.env.PI_RELAY_HEARTBEAT_MS;
+    const prevWall = process.env.PI_RELAY_WALL_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    process.env.PI_RELAY_WALL_MS = "120";
+    try {
+      const stream = streamViaDriver(
+        slowDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+      expect(events.at(-1)?.type).toBe("done");
+      expect(events.at(-1)?.message?.content?.[0]?.text).toBe("IDLE_OK");
+    } finally {
+      if (prevBeat === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = prevBeat;
+      if (prevWall === undefined) delete process.env.PI_RELAY_WALL_MS;
+      else process.env.PI_RELAY_WALL_MS = prevWall;
+    }
+  });
+
+  it("still cuts a truly silent run at the idle cap (D6 UNVERIFIED)", async () => {
+    const silentDriver: AgentDriver = {
+      name: "silent-stdout",
+      bin: "node",
+      buildArgs: () => [
+        "-e",
+        "setTimeout(() => process.stdout.write(JSON.stringify({type:'result',result:'TOO_LATE',is_error:false})+'\\n'), 400)",
+      ],
+      parseResult: claudeDriver.parseResult,
+    };
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+    const prevBeat = process.env.PI_RELAY_HEARTBEAT_MS;
+    const prevWall = process.env.PI_RELAY_WALL_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    process.env.PI_RELAY_WALL_MS = "80";
+    try {
+      const stream = streamViaDriver(
+        silentDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+      expect(events.at(-1)?.type).toBe("error");
+      expect(events.at(-1)?.error?.stopReason).toBe("error");
+    } finally {
+      if (prevBeat === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = prevBeat;
+      if (prevWall === undefined) delete process.env.PI_RELAY_WALL_MS;
+      else process.env.PI_RELAY_WALL_MS = prevWall;
+    }
+  });
+
+  it("resets the idle cap on stderr bytes even when stdout is silent", async () => {
+    const stderrDriver: AgentDriver = {
+      name: "stderr-idle",
+      bin: "node",
+      buildArgs: () => [
+        "-e",
+        [
+          "process.stderr.write('tick\\n');",
+          "setTimeout(() => process.stderr.write('tick\\n'), 80);",
+          "setTimeout(() => process.stderr.write('tick\\n'), 160);",
+          "setTimeout(() => process.stdout.write(JSON.stringify({type:'result',result:'STDERR_OK',is_error:false})+'\\n'), 250);",
+        ].join("\n"),
+      ],
+      parseResult: claudeDriver.parseResult,
+    };
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+    const prevBeat = process.env.PI_RELAY_HEARTBEAT_MS;
+    const prevWall = process.env.PI_RELAY_WALL_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    process.env.PI_RELAY_WALL_MS = "120";
+    try {
+      const stream = streamViaDriver(
+        stderrDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+      expect(events.at(-1)?.type).toBe("done");
+      expect(events.at(-1)?.message?.content?.[0]?.text).toBe("STDERR_OK");
+    } finally {
+      if (prevBeat === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = prevBeat;
+      if (prevWall === undefined) delete process.env.PI_RELAY_WALL_MS;
+      else process.env.PI_RELAY_WALL_MS = prevWall;
+    }
+  });
+
+  it("forwards content_block_delta text into the assistant stream", async () => {
+    const streamDriver: AgentDriver = {
+      name: "ndjson-progress",
+      bin: "node",
+      buildArgs: () => [
+        "-e",
+        [
+          "const line = (o) => process.stdout.write(JSON.stringify(o) + '\\n');",
+          "line({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'Hel'}}});",
+          "line({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:'lo'}}});",
+          "line({type:'result',result:'Hello',is_error:false});",
+        ].join("\n"),
+      ],
+      parseResult: claudeDriver.parseResult,
+    };
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+    const prevBeat = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        streamDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+      const deltas = events.filter((event) => event.type === "text_delta");
+      expect(deltas.map((event) => event.delta ?? "")).toEqual(["Hel", "lo"]);
+      expect(events.at(-1)?.type).toBe("done");
+      expect(events.at(-1)?.message?.content?.[0]?.text).toBe("Hello");
+    } finally {
+      if (prevBeat === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = prevBeat;
+    }
+  });
 });
 
 describe("claudeDriver — tool-name map (D10, in the driver)", () => {
@@ -624,6 +789,20 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(args[idx + 1]).toBe("Read Bash Grep Glob");
     // D2: never a permission-skip flag.
+    expect(args).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("buildArgs uses stream-json + --verbose and never a permission-skip flag", () => {
+    const args = claudeDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      thinking: "high",
+      tools: ["read", "bash", "grep", "find"],
+    });
+    expect(args[args.indexOf("--output-format") + 1]).toBe("stream-json");
+    expect(args).toContain("--verbose");
+    expect(args).toContain("--include-partial-messages");
+    expect(args[args.indexOf("--effort") + 1]).toBe("high");
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
 
@@ -705,6 +884,53 @@ describe("claudeDriver — parseResult (D6 fail-safe)", () => {
     ]);
     expect(claudeDriver.parseResult(stdout)).toEqual({ result: "last", isError: false });
   });
+
+  it('reads the last type:"result" object from an NDJSON stream fixture', () => {
+    const stdout = fs.readFileSync(
+      path.join(import.meta.dirname, "fixtures/claude-stream-ndjson.jsonl"),
+      "utf8",
+    );
+    expect(claudeDriver.parseResult(stdout)).toEqual({ result: "LAST_RESULT_OK", isError: false });
+    expect(grokDriver.parseResult(stdout)).toEqual({ result: "LAST_RESULT_OK", isError: false });
+    expect(cursorDriver.parseResult(stdout)).toEqual({ result: "LAST_RESULT_OK", isError: false });
+  });
+});
+
+describe("progressFromNdjsonLine", () => {
+  it("forwards content_block_delta text_delta and tool_progress activity", () => {
+    expect(
+      progressFromNdjsonLine(
+        JSON.stringify({
+          type: "stream_event",
+          event: { type: "content_block_delta", delta: { type: "text_delta", text: "#" } },
+        }),
+      ),
+    ).toEqual({ kind: "text_delta", text: "#" });
+    expect(
+      progressFromNdjsonLine(
+        JSON.stringify({ type: "tool_progress", tool_name: "Bash", heartbeat: true }),
+      ),
+    ).toEqual({ kind: "activity" });
+    expect(
+      progressFromNdjsonLine(
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: "OK" }] },
+        }),
+      ),
+    ).toEqual({ kind: "assistant_text", text: "OK" });
+    expect(
+      progressFromNdjsonLine(
+        JSON.stringify({
+          type: "stream_event",
+          event: {
+            type: "content_block_delta",
+            delta: { type: "thinking_delta", thinking: "..." },
+          },
+        }),
+      ),
+    ).toBeUndefined();
+  });
 });
 
 describe("grokDriver — tool-name map (D10, in the driver)", () => {
@@ -744,7 +970,8 @@ describe("grokDriver — tool-name map (D10, in the driver)", () => {
         "-p",
         "t",
         "--output-format",
-        "json",
+        "streaming-messages-json",
+        "--include-partial-messages",
         "--model",
         "grok-4.5",
         "--no-auto-update",
@@ -781,6 +1008,8 @@ describe("grokDriver — tool-name map (D10, in the driver)", () => {
     expect(args).not.toContain("--always-approve");
     expect(args).not.toContain("auto");
     expect(args).not.toContain("bypassPermissions");
+    expect(args).not.toContain("--verbose");
+    expect(args).not.toContain("stream-json");
   });
 
   it("maps systemPromptFile + systemPromptMode onto --system-prompt-override / --rules", () => {
@@ -894,7 +1123,7 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     expect(mapDenyRules(["write"])).toEqual([]);
   });
 
-  it("buildArgs emits headless json + --trust and never a bypass/sandbox flag", () => {
+  it("buildArgs emits headless stream-json + --trust and never a bypass/sandbox flag", () => {
     const args = cursorDriver.buildArgs({
       // The provider passes `model.id` straight through, so this is the shape pi
       // sends for a `relay-cursor/opus` role with `thinking: high`.
@@ -905,7 +1134,7 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     expect(args).toEqual([
       "-p",
       "--output-format",
-      "json",
+      "stream-json",
       "--model",
       "claude-opus-4-8-thinking-high",
       "--trust",
@@ -914,6 +1143,8 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     expect(args).not.toContain("--force");
     expect(args).not.toContain("--yolo");
     expect(args).not.toContain("--sandbox");
+    expect(args).not.toContain("--stream-partial-output");
+    expect(args).not.toContain("--verbose");
     expect(args).not.toContain("auto");
   });
 

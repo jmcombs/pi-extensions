@@ -222,7 +222,7 @@ const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
   },
 ];
 
-/** Resolve the configured wall-cap in milliseconds (D6). */
+/** Resolve the configured idle-cap in milliseconds (D6). Any stdout/stderr byte resets it. */
 function wallCapMs(): number {
   const raw = process.env.PI_RELAY_WALL_MS;
   const parsed = raw !== undefined ? Number.parseInt(raw, 10) : Number.NaN;
@@ -366,14 +366,70 @@ function assistantMessage(
   return message as unknown as RelayAssistantMessage;
 }
 
+type NdjsonLineProgress =
+  | { kind: "text_delta"; text: string }
+  | { kind: "assistant_text"; text: string }
+  | { kind: "activity" };
+
+function assistantTextFromMessage(message: unknown): string {
+  if (typeof message !== "object" || message === null) return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (typeof part !== "object" || part === null) continue;
+    const rec = part as { type?: unknown; text?: unknown };
+    if (rec.type === "text" && typeof rec.text === "string") parts.push(rec.text);
+  }
+  return parts.join("");
+}
+
+function textDeltaFromStreamEvent(event: unknown): string | undefined {
+  if (typeof event !== "object" || event === null) return undefined;
+  const rec = event as { type?: unknown; delta?: unknown };
+  if (rec.type !== "content_block_delta") return undefined;
+  if (typeof rec.delta !== "object" || rec.delta === null) return undefined;
+  const delta = rec.delta as { type?: unknown; text?: unknown };
+  if (delta.type !== "text_delta" || typeof delta.text !== "string") return undefined;
+  return delta.text.length > 0 ? delta.text : undefined;
+}
+
+/** Pull forwardable progress out of one Claude/Grok/Cursor NDJSON line. */
+export function progressFromNdjsonLine(line: string): NdjsonLineProgress | undefined {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const rec = parsed as { type?: unknown; event?: unknown; message?: unknown };
+  if (rec.type === "stream_event") {
+    const text = textDeltaFromStreamEvent(rec.event);
+    return text !== undefined ? { kind: "text_delta", text } : undefined;
+  }
+  if (rec.type === "assistant") {
+    const text = assistantTextFromMessage(rec.message);
+    return text.length > 0 ? { kind: "assistant_text", text } : { kind: "activity" };
+  }
+  if (rec.type === "tool_progress") return { kind: "activity" };
+  return undefined;
+}
+
 /**
  * Run a single dispatch through `driver` and return an assistant-message event
- * stream. The stream opens with a `start` and then emits periodic no-op
- * `text_delta` beats (heartbeat — keeps a long, single-completion run from being
- * misread as a 60s stall; see the interval below) until it terminates with a
- * `done` event (the external agent's final text) or, on a cut / spawn-failure /
- * unparseable result, an `error` event — NEVER a silent success (D6 fail-safe: no
- * auto-PASS on a cut run). The verdict rides ONLY on the terminal event.
+ * stream. The stream opens with a `start` and then, while the child is silent,
+ * emits periodic no-op `text_delta` beats (heartbeat fallback for json backends).
+ * Stream print-mode runs parse NDJSON as it arrives and forward real `text_delta`
+ * (and optional tool-progress activity) instead. The idle timer (`PI_RELAY_WALL_MS`)
+ * resets on any stdout or stderr byte; true silence still SIGTERMs the child.
+ * The run terminates with a `done` event (the external agent's final text) or, on
+ * a cut / spawn-failure / unparseable result, an `error` event — NEVER a silent
+ * success (D6 fail-safe: no auto-PASS on a cut run). The verdict rides ONLY on the
+ * terminal event.
  *
  * On oh-my-pi a successful run that produced text also emits `toolcall_start` +
  * `toolcall_end` for the synthetic `yield` call just before `done`, and `done`
@@ -454,25 +510,23 @@ export function streamViaDriver(
   });
 
   let out = "";
+  let lineBuf = "";
   let cut = false;
   let settled = false;
+  let sawForwardedProgress = false;
+  let forwardedTextDelta = false;
+  let streamedText = "";
 
-  // ── Heartbeat (keeps a long, single-completion run visibly "active") ─────────
-  // A `claude -p` run emits nothing on the stream until it finishes, so the
-  // parent pi-subagent run would otherwise observe >60 s of "no activity" and
-  // FALSELY flip the child to `needs_attention`. We open the stream with `start`
-  // (so pi's agent-loop has a partial to update), then push a no-op `text_delta`
-  // beat every `heartbeatMs()`. Each beat becomes a pi `message_update` — a JSONL
-  // line on the child's stdout — which advances the parent's `lastActivityAt`.
-  // The beats carry an EMPTY partial and are discarded when `done` swaps in the
-  // real final message, so the verdict (D6/D10) is untouched. `settle` clears the
-  // interval before pushing the terminal event; `push()` also no-ops post-settle.
+  // ── Heartbeat (fallback for json backends that emit nothing until exit) ──────
+  // Stream print-mode runs forward real `text_delta` / tool-progress instead; the
+  // fake beat is skipped once those exist so empty heartbeats cannot wipe the
+  // accumulating partial. `settle` clears the interval before the terminal event.
   push({ type: "start", partial: assistantMessage(model, "") });
   const beatMs = heartbeatMs();
   const heartbeat =
     beatMs > 0
       ? setInterval(() => {
-          if (settled) return;
+          if (settled || sawForwardedProgress) return;
           push({
             type: "text_delta",
             contentIndex: 0,
@@ -483,10 +537,46 @@ export function streamViaDriver(
       : undefined;
   heartbeat?.unref?.();
 
-  const timer = setTimeout(() => {
-    cut = true;
-    child.kill("SIGTERM");
-  }, wallCapMs());
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const armIdleTimer = (): void => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(() => {
+      cut = true;
+      child.kill("SIGTERM");
+    }, wallCapMs());
+  };
+  armIdleTimer();
+
+  const pushProgress = (delta: string): void => {
+    if (settled) return;
+    sawForwardedProgress = true;
+    if (delta.length > 0) streamedText += delta;
+    push({
+      type: "text_delta",
+      contentIndex: 0,
+      delta,
+      partial: assistantMessage(model, streamedText),
+    });
+  };
+
+  const flushLine = (line: string): void => {
+    const progress = progressFromNdjsonLine(line);
+    if (progress === undefined) return;
+    if (progress.kind === "text_delta") {
+      forwardedTextDelta = true;
+      pushProgress(progress.text);
+      return;
+    }
+    if (progress.kind === "assistant_text") {
+      if (forwardedTextDelta) {
+        pushProgress("");
+        return;
+      }
+      pushProgress(progress.text);
+      return;
+    }
+    pushProgress("");
+  };
 
   const onAbort = (): void => {
     cut = true;
@@ -520,7 +610,22 @@ export function streamViaDriver(
   };
 
   child.stdout?.on("data", (chunk: Buffer) => {
-    out += chunk.toString();
+    armIdleTimer();
+    const text = chunk.toString();
+    out += text;
+    lineBuf += text;
+    let nl = lineBuf.indexOf("\n");
+    while (nl !== -1) {
+      flushLine(lineBuf.slice(0, nl));
+      lineBuf = lineBuf.slice(nl + 1);
+      nl = lineBuf.indexOf("\n");
+    }
+  });
+
+  // Drain stderr so a chatty CLI cannot stall on a full pipe, and treat any
+  // stderr byte as idle-reset signal (json backends that write while silent on stdout).
+  child.stderr?.on("data", () => {
+    armIdleTimer();
   });
   // Drain stderr so a chatty backend cannot fill the pipe (~64 KiB) and deadlock.
   child.stderr?.resume();
@@ -536,12 +641,13 @@ export function streamViaDriver(
   });
 
   child.on("close", () => {
+    if (lineBuf.length > 0) flushLine(lineBuf);
     if (cut) {
-      // D6: a cut run (wall-cap or abort) is UNVERIFIED, never PASS.
+      // D6: a cut run (idle-cap or abort) is UNVERIFIED, never PASS.
       settle(
         assistantMessage(
           model,
-          "relay: run cut short (wall-cap or abort) before producing a result — UNVERIFIED",
+          "relay: run cut short (idle-cap or abort) before producing a result — UNVERIFIED",
           { isError: true },
         ),
         true,

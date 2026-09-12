@@ -19,7 +19,7 @@ Trusted Publishing), see the [repo-root `CONTRIBUTING.md`](../../CONTRIBUTING.md
 ## The `AgentDriver` interface
 
 A driver is a plain object implementing `AgentDriver` (defined in `drivers/claude.ts`). The relay
-provider owns everything backend-independent — spawn, streaming, the wall-cap backstop, and abort
+provider owns everything backend-independent — spawn, streaming, the idle-cap backstop, and abort
 handling — and is written against this interface, never against a backend CLI directly.
 
 ```ts
