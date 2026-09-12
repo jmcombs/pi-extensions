@@ -776,6 +776,14 @@ describe("grokDriver — parseResult (D6 fail-safe)", () => {
     expect(grokDriver.parseResult(envelope)).toEqual({ result: "the answer", isError: false });
   });
 
+  it("parses grok 1.0.25 snake_case end_turn as a pass", () => {
+    const envelope = JSON.stringify({
+      text: "RELAY_OK",
+      stopReason: "end_turn",
+    });
+    expect(grokDriver.parseResult(envelope)).toEqual({ result: "RELAY_OK", isError: false });
+  });
+
   it("treats a `type: error` envelope as an error, surfacing its message", () => {
     const envelope = JSON.stringify({ type: "error", message: "boom" });
     expect(grokDriver.parseResult(envelope)).toEqual({ result: "boom", isError: true });
