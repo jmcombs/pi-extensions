@@ -41,6 +41,7 @@
 
 import * as fs from "node:fs";
 import type { AgentDriver, DriverInvocation, DriverResult } from "./claude.js";
+import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
 /**
  * The JSON envelope emitted by `grok -p --output-format json`. Only the fields
@@ -90,6 +91,17 @@ export function mapToolNames(piNames: readonly string[]): string[] {
 }
 
 /**
+ * Pi thinking → Grok `--reasoning-effort`. Grok CLI accepts `low|medium|high|xhigh`.
+ * `off` omits the flag. `minimal` clamps to `low`; `max` clamps to `xhigh`.
+ */
+export function mapGrokEffort(level: PiThinkingLevel | undefined): string | undefined {
+  if (level === undefined || level === "off") return undefined;
+  if (level === "minimal") return "low";
+  if (level === "max") return "xhigh";
+  return level;
+}
+
+/**
  * `AgentDriver` implementation for Grok Build: headless dispatch via `grok -p`,
  * scoped read-only tools via repeated `--allow` flags (D2), `--output-format
  * json` for a machine-parseable envelope.
@@ -99,19 +111,22 @@ export const grokDriver: AgentDriver = {
   bin: "grok",
 
   buildArgs(invocation: DriverInvocation): string[] {
+    const parsed = parseModelThinking(invocation.model);
+    const effort = mapGrokEffort(invocation.thinking ?? parsed.thinking);
     const args = [
       "-p",
       invocation.task,
       "--output-format",
       "json",
       "--model",
-      invocation.model,
+      parsed.bareId,
       "--no-auto-update",
       // D2: fail-closed, non-interactive. Verified: with no --allow flags this
       // silently declines tool calls (no hang) rather than auto-approving them.
       "--permission-mode",
       "dontAsk",
     ];
+    if (effort !== undefined) args.push("--reasoning-effort", effort);
 
     if (invocation.systemPromptFile) {
       const content = fs.readFileSync(invocation.systemPromptFile, "utf8");

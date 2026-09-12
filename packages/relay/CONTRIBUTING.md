@@ -39,6 +39,7 @@ result back:
 interface DriverInvocation {
   readonly task: string;                       // the final task / user message
   readonly model: string;                      // id after the slash: relay-<x>/opus → "opus"
+  readonly thinking?: PiThinkingLevel;         // Pi thinking (`off`…`max`); drivers also parse `:<level>` on model
   readonly systemPromptFile?: string;          // assembled persona + inlined skills (a file path)
   readonly systemPromptMode?: "replace" | "append";
   readonly tools?: readonly string[];          // pi-NEUTRAL names: read, bash, edit, write, grep, find
@@ -54,7 +55,7 @@ interface DriverResult {
 
 | Method | Responsibility | Must / must not |
 |---|---|---|
-| `buildArgs` | Turn a `DriverInvocation` into the backend's argv | Map `systemPromptFile`/`systemPromptMode` onto the backend's system-prompt mechanism; map the pi-neutral `tools` onto the backend's tool/permission model (below); request a machine-parseable output format. **Never** pass a privilege-escalating flag — `--dangerously-skip-permissions` or a backend analogue (**D2**). |
+| `buildArgs` | Turn a `DriverInvocation` into the backend's argv | Map `systemPromptFile`/`systemPromptMode` onto the backend's system-prompt mechanism; map Pi thinking onto the backend (`--effort`, `--reasoning-effort`, or a listed `--model` id); map the pi-neutral `tools` onto the backend's tool/permission model (below); request a machine-parseable output format. **Never** pass a privilege-escalating flag — `--dangerously-skip-permissions` or a backend analogue (**D2**). |
 | `parseResult` | Extract `{ result, isError }` from raw stdout | Return the agent's final text as `result`. Set `isError: true` when the backend signals failure **or** stdout is unparseable/empty — the provider's fail-safe then reports **UNVERIFIED**, never PASS (**D6**). **No verdict parsing here** (no `VERDICT: PASS\|FAIL`) — that belongs to the consumer (**D10**). |
 
 ### Tool-name mapping is a per-driver function (D10)

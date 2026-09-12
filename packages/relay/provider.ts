@@ -52,6 +52,7 @@ import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-age
 import { type AgentDriver, claudeDriver } from "./drivers/claude.js";
 import { cursorDriver } from "./drivers/cursor.js";
 import { grokDriver } from "./drivers/grok.js";
+import { resolveThinkingLevel } from "./drivers/thinking.js";
 import { expandSkillReferences } from "./roles/resolver.js";
 
 // ── Types derived from pi's ProviderConfig (resolve via its nested pi-ai) ──────
@@ -79,16 +80,93 @@ const DEFAULT_WALL_CAP_MS = 600_000;
  */
 const DEFAULT_HEARTBEAT_MS = 20_000;
 
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } as const;
+const TEXT_ONLY = ["text"] as ("text" | "image")[];
+
+/** Claude `--effort` levels. `minimal` has no Claude equivalent (hidden). */
+const CLAUDE_THINKING_MAP = {
+  off: "off",
+  minimal: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+} as const;
+
+/** Grok CLI `--reasoning-effort`: `low|medium|high|xhigh`. No `minimal`/`max`. */
+const GROK_THINKING_MAP = {
+  off: "off",
+  minimal: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: null,
+} as const;
+
+/** Cursor listed-id thinking. `minimal` has no Cursor row (hidden). */
+const CURSOR_THINKING_MAP = {
+  off: "off",
+  minimal: null,
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+} as const;
+
+interface RelayCatalogModel {
+  readonly id: string;
+  readonly name: string;
+  readonly contextWindow: number;
+  readonly maxTokens: number;
+  readonly thinkingLevelMap: Readonly<Record<string, string | null>>;
+}
+
+function toProviderModels(
+  models: readonly RelayCatalogModel[],
+): NonNullable<ProviderConfig["models"]> {
+  return models.map((m) => ({
+    id: m.id,
+    name: m.name,
+    reasoning: true,
+    thinkingLevelMap: m.thinkingLevelMap,
+    input: TEXT_ONLY,
+    cost: { ...ZERO_COST },
+    contextWindow: m.contextWindow,
+    maxTokens: m.maxTokens,
+  }));
+}
+
 /**
  * Models exposed by the provider. The pi model id after the slash (`opus`,
  * `sonnet`, `haiku`) is passed through as the driver's `--model` value. D1: the
  * verify role uses `relay-claude/opus`.
  */
-const RELAY_CLAUDE_MODELS = [
-  { id: "opus", name: "Relay Claude Opus" },
-  { id: "sonnet", name: "Relay Claude Sonnet" },
-  { id: "haiku", name: "Relay Claude Haiku" },
-] as const;
+const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
+  {
+    id: "opus",
+    name: "Relay Claude Opus",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  },
+  {
+    id: "sonnet",
+    name: "Relay Claude Sonnet",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  },
+  {
+    id: "haiku",
+    name: "Relay Claude Haiku",
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  },
+];
 
 /** The pi provider name. `model: relay-grok/<id>` routes to this provider. */
 export const RELAY_GROK_PROVIDER = "relay-grok";
@@ -96,26 +174,50 @@ export const RELAY_GROK_PROVIDER = "relay-grok";
 /**
  * Models exposed by the provider. The pi model id after the slash (`grok-4.5`,
  * `grok-composer-2.5-fast`) is passed through as the driver's `--model` value.
+ * `grok-composer-2.5-fast` is not in current `grok models` (only grok-4.5 / 4.6);
+ * context/max stay conservative until that CLI id is confirmed.
  */
-const RELAY_GROK_MODELS = [
-  { id: "grok-4.5", name: "Relay Grok 4.5" },
-  { id: "grok-composer-2.5-fast", name: "Relay Grok Composer 2.5 Fast" },
-] as const;
+const RELAY_GROK_MODELS: readonly RelayCatalogModel[] = [
+  {
+    id: "grok-4.5",
+    name: "Relay Grok 4.5",
+    contextWindow: 500_000,
+    maxTokens: 500_000,
+    thinkingLevelMap: GROK_THINKING_MAP,
+  },
+  {
+    id: "grok-composer-2.5-fast",
+    name: "Relay Grok Composer 2.5 Fast",
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+    thinkingLevelMap: GROK_THINKING_MAP,
+  },
+];
 
 /** The pi provider name. `model: relay-cursor/<id>` routes to this provider. */
 export const RELAY_CURSOR_PROVIDER = "relay-cursor";
 
 /**
  * Models exposed by the provider. Pi `auto` is passed through as Cursor `--model
- * auto`. Pi `opus` is mapped by the driver to Cursor's listed id
- * `claude-opus-4-8-high`. The driver's `resolveCursorModel` strips the
- * `relay-cursor/` prefix and pi thinking suffixes first, so a role declaring
- * `relay-cursor/opus` with `thinking: high` still resolves to a listed id.
+ * auto` (thinking does not change that id). Pi `opus` maps by thinking level to
+ * Cursor listed ids (`claude-opus-4-8-thinking-high`, etc.).
  */
-const RELAY_CURSOR_MODELS = [
-  { id: "auto", name: "Relay Cursor Auto" },
-  { id: "opus", name: "Relay Cursor Opus 4.8" },
-] as const;
+const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
+  {
+    id: "auto",
+    name: "Relay Cursor Auto",
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+    thinkingLevelMap: CURSOR_THINKING_MAP,
+  },
+  {
+    id: "opus",
+    name: "Relay Cursor Opus 4.8",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    thinkingLevelMap: CURSOR_THINKING_MAP,
+  },
+];
 
 /** Resolve the configured wall-cap in milliseconds (D6). */
 function wallCapMs(): number {
@@ -268,8 +370,10 @@ export function streamViaDriver(
   driver: AgentDriver,
   model: RelayModel,
   context: RelayContext,
-  signal?: AbortSignal,
+  options?: RelayStreamOptions,
 ): RelayStreamReturn {
+  const signal = options?.signal;
+  const thinking = resolveThinkingLevel(model.id, options?.reasoning);
   const terminalYieldTool = terminalYieldToolName(context);
   // D11: pi's own event-stream contract (for use in extensions) — not hand-rolled.
   const stream = createAssistantMessageEventStream();
@@ -315,6 +419,7 @@ export function streamViaDriver(
   const invocation = {
     task: extractTask(context),
     model: model.id,
+    ...(thinking !== undefined ? { thinking } : {}),
     ...(systemPromptFile ? { systemPromptFile, systemPromptMode: "replace" as const } : {}),
     ...(tools.length > 0 ? { tools } : {}),
   };
@@ -469,16 +574,8 @@ export function registerRelayClaudeProvider(pi: ExtensionAPI): void {
     baseUrl: "http://relay.invalid",
     apiKey: "relay-unused",
     streamSimple: (model, context, options: RelayStreamOptions) =>
-      streamViaDriver(claudeDriver, model, context, options?.signal),
-    models: RELAY_CLAUDE_MODELS.map((m) => ({
-      id: m.id,
-      name: m.name,
-      reasoning: false,
-      input: ["text"] as ("text" | "image")[],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 200_000,
-      maxTokens: 64_000,
-    })),
+      streamViaDriver(claudeDriver, model, context, options),
+    models: toProviderModels(RELAY_CLAUDE_MODELS),
   };
   pi.registerProvider(RELAY_CLAUDE_PROVIDER, config);
 }
@@ -496,16 +593,8 @@ export function registerRelayGrokProvider(pi: ExtensionAPI): void {
     baseUrl: "http://relay.invalid",
     apiKey: "relay-unused",
     streamSimple: (model, context, options: RelayStreamOptions) =>
-      streamViaDriver(grokDriver, model, context, options?.signal),
-    models: RELAY_GROK_MODELS.map((m) => ({
-      id: m.id,
-      name: m.name,
-      reasoning: false,
-      input: ["text"] as ("text" | "image")[],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 200_000,
-      maxTokens: 64_000,
-    })),
+      streamViaDriver(grokDriver, model, context, options),
+    models: toProviderModels(RELAY_GROK_MODELS),
   };
   pi.registerProvider(RELAY_GROK_PROVIDER, config);
 }
@@ -523,16 +612,8 @@ export function registerRelayCursorProvider(pi: ExtensionAPI): void {
     baseUrl: "http://relay.invalid",
     apiKey: "relay-unused",
     streamSimple: (model, context, options: RelayStreamOptions) =>
-      streamViaDriver(cursorDriver, model, context, options?.signal),
-    models: RELAY_CURSOR_MODELS.map((m) => ({
-      id: m.id,
-      name: m.name,
-      reasoning: false,
-      input: ["text"] as ("text" | "image")[],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      contextWindow: 200_000,
-      maxTokens: 64_000,
-    })),
+      streamViaDriver(cursorDriver, model, context, options),
+    models: toProviderModels(RELAY_CURSOR_MODELS),
   };
   pi.registerProvider(RELAY_CURSOR_PROVIDER, config);
 }

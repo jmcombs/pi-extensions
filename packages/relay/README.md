@@ -38,8 +38,8 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
 - **Trigger + model** — set a subagent's `model` to `relay-claude/opus`,
   `relay-grok/grok-4.5`, or `relay-cursor/opus`. pi's native `resolveModel` routes
   the completion to relay's registered provider → `claudeDriver` / `grokDriver` /
-  `cursorDriver` → `claude -p … --model opus` / `grok -p … --model grok-4.5` /
-  `cursor-agent -p … --model claude-opus-4-8-high`.
+  `cursorDriver` → `claude -p … --model opus --effort <level>` / `grok -p … --model grok-4.5 --reasoning-effort <level>` /
+  `cursor-agent -p … --model claude-opus-4-8-thinking-high` (Pi thinking selects the listed Cursor id).
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
   a skill injection into the (child) session's system prompt, where skills are
   `<available_skills>` **references** (name/description/location). Relay reads each
@@ -88,13 +88,17 @@ other subagents. Grok is invoked with `--permission-mode dontAsk` plus one
 `relay-cursor` (Cursor Agent, `cursor-agent -p`) is a third live driver. Cursor is
 invoked with `--output-format json` and `--trust` (skip the workspace-trust prompt).
 `--force` / `--yolo` (Cursor's permission bypass) and `--sandbox` are **never**
-passed. Pi `relay-cursor/auto` maps to `--model auto`; `relay-cursor/opus` maps to
-the listed id `claude-opus-4-8-high`. The mapper strips the `relay-cursor/` provider
-prefix and any pi thinking suffix (`relay-cursor/opus:high`, `…:off`) first, since
-Cursor's `--model` accepts listed ids only; an id that does not resolve to a listed
-id is rejected up front rather than forwarded. Cursor has no system-prompt flag, so persona +
+passed. Pi `relay-cursor/auto` maps to `--model auto`. Pi `relay-cursor/opus` maps
+by thinking level onto Cursor listed ids (`opus` / `:off` → `claude-opus-4-8-high`;
+`:high` → `claude-opus-4-8-thinking-high`). The mapper strips the `relay-cursor/`
+provider prefix first; an id that does not resolve to a listed id is rejected up
+front rather than forwarded. Cursor has no system-prompt flag, so persona +
 skills are prepended onto the user prompt. Tool scoping is a temp `cli-config.json`
 allow/deny list via `CURSOR_CONFIG_DIR`, not an argv allowlist.
+
+Claude and Grok keep `--model` as the alias (`opus`, `grok-4.5`) and apply Pi
+thinking as `--effort` / `--reasoning-effort`. Relay catalogs these models with
+`reasoning: true` so Pi's thinking UI matches what the drivers send.
 
 A driver/adapter seam (`AgentDriver` in `drivers/claude.ts`) keeps the provider
 backend-agnostic. `claudeDriver`, `grokDriver`, and `cursorDriver` are the live
