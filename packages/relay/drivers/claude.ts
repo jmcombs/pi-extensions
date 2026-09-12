@@ -103,10 +103,10 @@ export function mapClaudeEffort(level: PiThinkingLevel | undefined): string | un
 }
 
 /**
- * The JSON envelope emitted by `claude -p --output-format json`. Claude Code
- * historically emitted a single object; 2.1.220+ emits a JSON array of stream
- * events ending in `{ type: "result", result, is_error }`. Only the fields the
- * driver reads are modelled; everything else is ignored.
+ * The JSON envelope emitted by `claude -p --output-format stream-json` (and the
+ * historical `--output-format json` object / 2.1.220+ array). Stream-json is
+ * NDJSON whose last `{ type: "result", result, is_error }` line is the parse
+ * target. Only the fields the driver reads are modelled; everything else is ignored.
  */
 export interface ClaudeResultEnvelope {
   type?: string;
@@ -145,7 +145,7 @@ export interface AgentDriver {
 }
 
 function asEnvelope(value: unknown): ClaudeResultEnvelope | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   return value as ClaudeResultEnvelope;
 }
 
@@ -162,9 +162,57 @@ function extractResultEnvelope(parsed: unknown): ClaudeResultEnvelope | undefine
 }
 
 /**
+ * Scan NDJSON stdout for the last `{ type: "result" }` object. Does not fall back
+ * to `JSON.parse` of the whole buffer — backends still on a single json envelope
+ * keep their own whole-stdout parser.
+ */
+export function findLastNdjsonResult(stdout: string): ClaudeResultEnvelope | undefined {
+  let last: ClaudeResultEnvelope | undefined;
+  for (const line of stdout.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    try {
+      const env = asEnvelope(JSON.parse(trimmed) as unknown);
+      if (env?.type === "result") last = env;
+    } catch {
+      // Non-JSON lines are ignored; parseResult fails closed if nothing matches.
+    }
+  }
+  return last;
+}
+
+/**
+ * Claude/Cursor-style result: last NDJSON `type:"result"`, else the historical
+ * whole-stdout JSON object or 2.1.220+ array.
+ */
+export function parseClaudeStyleResult(stdout: string): DriverResult {
+  const fromLines = findLastNdjsonResult(stdout);
+  if (fromLines) {
+    return {
+      result: String(fromLines.result ?? ""),
+      isError: fromLines.is_error === true,
+    };
+  }
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    const envelope = extractResultEnvelope(parsed);
+    if (!envelope) return { result: "", isError: true };
+    return {
+      result: String(envelope.result ?? ""),
+      isError: envelope.is_error === true,
+    };
+  } catch {
+    // Unparseable stdout (truncated/empty/non-JSON) is treated as an error with
+    // no result — the caller's fail-safe (D6) then reports UNVERIFIED, never PASS.
+    return { result: "", isError: true };
+  }
+}
+
+/**
  * The primary `AgentDriver` implementation: subscription **Opus via `claude -p`**
  * (D1), scoped read-only tools and never `--dangerously-skip-permissions` (D2),
- * `--output-format json` for a machine-parseable envelope.
+ * `--output-format stream-json --verbose` so print mode emits NDJSON as it runs
+ * (`--include-partial-messages` because the provider forwards `text_delta`).
  *
  * The persona + skills reach `claude` deterministically via
  * `--system-prompt-file` (our code writes the file — no model re-echo, no drift).
@@ -176,7 +224,16 @@ export const claudeDriver: AgentDriver = {
   buildArgs(invocation: DriverInvocation): string[] {
     const parsed = parseModelThinking(invocation.model);
     const effort = mapClaudeEffort(invocation.thinking ?? parsed.thinking);
-    const args = ["-p", invocation.task, "--output-format", "json", "--model", parsed.bareId];
+    const args = [
+      "-p",
+      invocation.task,
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages",
+      "--model",
+      parsed.bareId,
+    ];
     if (effort !== undefined) args.push("--effort", effort);
 
     if (invocation.systemPromptFile) {
@@ -202,21 +259,6 @@ export const claudeDriver: AgentDriver = {
   },
 
   parseResult(stdout: string): DriverResult {
-    try {
-      const parsed: unknown = JSON.parse(stdout);
-      // 2.1.220+ emits a stream-event array ending in type:"result". Older CLIs
-      // emit a single envelope object. Missing/non-object shapes are an error —
-      // never an empty-string success (D6).
-      const envelope = extractResultEnvelope(parsed);
-      if (!envelope) return { result: "", isError: true };
-      return {
-        result: String(envelope.result ?? ""),
-        isError: envelope.is_error === true,
-      };
-    } catch {
-      // Unparseable stdout (truncated/empty/non-JSON) is treated as an error with
-      // no result — the caller's fail-safe (D6) then reports UNVERIFIED, never PASS.
-      return { result: "", isError: true };
-    }
+    return parseClaudeStyleResult(stdout);
   },
 };

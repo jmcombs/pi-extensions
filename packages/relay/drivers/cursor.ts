@@ -7,11 +7,14 @@
  * 2026.09.10-fd3934a directly (not just its `--help` text or vendor docs) —
  * re-verify after a CLI upgrade:
  *
- * ── Output envelope (`--output-format json`) ──
- * Success: `{ type: "result", subtype: "success", is_error: false, result }` —
- * the answer is `.result`, same field name as Claude. Errors may set
- * `is_error: true` or use a `{ type: "error" }` shape; unparseable/empty
- * stdout is treated as an error (D6).
+ * ── Output envelope (`--output-format stream-json`) ──
+ * NDJSON. Success is the last `{ type: "result", subtype: "success", is_error:
+ * false, result }` line — the answer is `.result`, same field name as Claude.
+ * `--verbose` is not a cursor-agent flag (error). `--stream-partial-output` hung
+ * with empty stdout in a live probe, so it is omitted; assistant text still
+ * arrives as whole `type:"assistant"` messages. Errors may set `is_error: true`
+ * or use a `{ type: "error" }` shape; unparseable/empty stdout is treated as an
+ * error (D6). The historical `--output-format json` single object is still parsed.
  *
  * ── System prompt ──
  * Cursor has no `--system-prompt-file` / `--system-prompt-override`. Persona +
@@ -48,7 +51,12 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentDriver, DriverInvocation, DriverResult } from "./claude.js";
+import {
+  type AgentDriver,
+  type DriverInvocation,
+  type DriverResult,
+  findLastNdjsonResult,
+} from "./claude.js";
 import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
 /** Pi model id → Cursor `--model` id when thinking is off. */
@@ -148,7 +156,7 @@ export function mapDenyRules(piNames: readonly string[]): string[] {
   return ["Write(**/*)"];
 }
 
-/** The JSON envelope emitted by `cursor-agent -p --output-format json`. */
+/** The JSON envelope emitted by `cursor-agent -p --output-format stream-json`. */
 export interface CursorResultEnvelope {
   type?: string;
   subtype?: string;
@@ -231,8 +239,8 @@ function writeCursorConfigDir(invocation: DriverInvocation): string {
 
 /**
  * `AgentDriver` implementation for Cursor Agent CLI: headless dispatch via
- * `cursor-agent -p`, `--output-format json`, `--trust`, never `--force` /
- * `--yolo` / `--sandbox`.
+ * `cursor-agent -p`, `--output-format stream-json`, `--trust`, never `--force` /
+ * `--yolo` / `--sandbox` / `--stream-partial-output`.
  */
 export const cursorDriver: AgentDriver = {
   name: "cursor",
@@ -242,7 +250,7 @@ export const cursorDriver: AgentDriver = {
     return [
       "-p",
       "--output-format",
-      "json",
+      "stream-json",
       "--model",
       resolveCursorModel(invocation.model, invocation.thinking),
       // Headless hang-avoidance for the workspace-trust prompt. Not a tool bypass.
@@ -259,6 +267,12 @@ export const cursorDriver: AgentDriver = {
   },
 
   parseResult(stdout: string): DriverResult {
+    const fromStream = findLastNdjsonResult(stdout);
+    if (fromStream) {
+      const text = String(fromStream.result ?? "");
+      return { result: text, isError: fromStream.is_error === true || text.length === 0 };
+    }
+
     let envelope: CursorResultEnvelope;
     try {
       envelope = JSON.parse(stdout) as CursorResultEnvelope;
