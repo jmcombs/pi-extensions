@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.2.1...relay/v1.3.0) (2026-09-12)
+
+
+### Features
+
+* **relay:** map Pi thinking onto Cursor, Claude, and Grok drivers ([#252](https://github.com/jmcombs/pi-extensions/issues/252)) ([9034297](https://github.com/jmcombs/pi-extensions/commit/9034297ed4940737fa1c8c670e07b6cf0ece7773))
+
 ## [1.2.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.2.0...relay/v1.2.1) (2026-09-11)
 
 
