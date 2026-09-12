@@ -3,17 +3,18 @@
  * **Grok Build** CLI (binary `grok`). Headless dispatch via `grok -p`, scoped
  * read-only tools and never a permission-bypass mode (D2).
  *
- * Field/behavior notes below were confirmed by running `grok` v0.2.93 directly
- * (not just its `--help` text or vendor docs) — re-verify after a CLI upgrade:
+ * Field/behavior notes below were confirmed against `grok` v0.2.93 and re-checked
+ * on v1.0.25 (`grok -p --output-format json`) — re-verify after a CLI upgrade:
  *
  * ── Output envelope (`--output-format json`) ──
  * Success: `{ text, stopReason, sessionId, requestId, thought }` — the answer is
- * `.text`, not `.result`. A clean finish is `stopReason: "EndTurn"`; a tool call
- * blocked by the permission model (or a max-turns cutoff) still uses this SAME
- * shape but with `stopReason: "Cancelled"` and often empty `text` — it is NOT
- * flagged via an error type, so `parseResult` must check `stopReason`, not just
- * look for an error envelope. A hard failure (e.g. an invalid `--model`) uses a
- * DIFFERENT shape: `{ "type": "error", "message": "..." }`.
+ * `.text`, not `.result`. A clean finish is `stopReason: "EndTurn"` (v0.2.93) or
+ * `"end_turn"` (v1.0.25); parse both. A tool call blocked by the permission model
+ * (or a max-turns cutoff) still uses this SAME shape but with `stopReason:
+ * "Cancelled"` / `"cancelled"` and often empty `text` — it is NOT flagged via an
+ * error type, so `parseResult` must check `stopReason`, not just look for an error
+ * envelope. A hard failure (e.g. an invalid `--model`) uses a DIFFERENT shape:
+ * `{ "type": "error", "message": "..." }`.
  *
  * ── System prompt ──
  * Grok has no `--system-prompt-file`; both of its equivalents take the prompt
@@ -41,6 +42,7 @@
 
 import * as fs from "node:fs";
 import type { AgentDriver, DriverInvocation, DriverResult } from "./claude.js";
+import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
 /**
  * The JSON envelope emitted by `grok -p --output-format json`. Only the fields
@@ -90,6 +92,22 @@ export function mapToolNames(piNames: readonly string[]): string[] {
 }
 
 /**
+ * Pi thinking → Grok `--reasoning-effort`. Grok CLI accepts `low|medium|high|xhigh`.
+ * `off` omits the flag. `minimal` clamps to `low`; `max` clamps to `xhigh`.
+ */
+export function mapGrokEffort(level: PiThinkingLevel | undefined): string | undefined {
+  if (level === undefined || level === "off") return undefined;
+  if (level === "minimal") return "low";
+  if (level === "max") return "xhigh";
+  return level;
+}
+
+/** True for Grok success stopReason: `EndTurn` (v0.2.93) or `end_turn` (v1.0.25). */
+function isGrokEndTurn(stopReason: string | undefined): boolean {
+  return (stopReason ?? "").replaceAll("_", "").toLowerCase() === "endturn";
+}
+
+/**
  * `AgentDriver` implementation for Grok Build: headless dispatch via `grok -p`,
  * scoped read-only tools via repeated `--allow` flags (D2), `--output-format
  * json` for a machine-parseable envelope.
@@ -99,19 +117,22 @@ export const grokDriver: AgentDriver = {
   bin: "grok",
 
   buildArgs(invocation: DriverInvocation): string[] {
+    const parsed = parseModelThinking(invocation.model);
+    const effort = mapGrokEffort(invocation.thinking ?? parsed.thinking);
     const args = [
       "-p",
       invocation.task,
       "--output-format",
       "json",
       "--model",
-      invocation.model,
+      parsed.bareId,
       "--no-auto-update",
       // D2: fail-closed, non-interactive. Verified: with no --allow flags this
       // silently declines tool calls (no hang) rather than auto-approving them.
       "--permission-mode",
       "dontAsk",
     ];
+    if (effort !== undefined) args.push("--reasoning-effort", effort);
 
     if (invocation.systemPromptFile) {
       const content = fs.readFileSync(invocation.systemPromptFile, "utf8");
@@ -145,10 +166,11 @@ export const grokDriver: AgentDriver = {
     }
 
     const text = typeof envelope.text === "string" ? envelope.text : "";
-    // D6: only a clean EndTurn with non-empty text is a pass. A blocked/cut
-    // tool call reuses this same envelope shape with a non-"EndTurn"
-    // stopReason (e.g. "Cancelled") and must not be read as a silent success.
-    const isError = envelope.stopReason !== "EndTurn" || text.length === 0;
+    // D6: only a clean end-turn with non-empty text is a pass. v0.2.93 used
+    // PascalCase `EndTurn`; v1.0.25 uses snake_case `end_turn`. A blocked/cut
+    // tool call reuses this same envelope with Cancelled/cancelled and must not
+    // be read as a silent success.
+    const isError = !isGrokEndTurn(envelope.stopReason) || text.length === 0;
     return { result: text, isError };
   },
 };

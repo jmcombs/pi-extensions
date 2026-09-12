@@ -12,13 +12,21 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterAll, describe, expect, it } from "vitest";
-import { type AgentDriver, claudeDriver, mapToolName, mapToolNames } from "./drivers/claude.js";
+import {
+  type AgentDriver,
+  claudeDriver,
+  mapClaudeEffort,
+  mapToolName,
+  mapToolNames,
+} from "./drivers/claude.js";
 import { cursorDriver, mapAllowRules, mapDenyRules, resolveCursorModel } from "./drivers/cursor.js";
 import {
   grokDriver,
+  mapGrokEffort,
   mapToolName as mapGrokToolName,
   mapToolNames as mapGrokToolNames,
 } from "./drivers/grok.js";
+import { parseModelThinking, resolveThinkingLevel } from "./drivers/thinking.js";
 import factory from "./index.js";
 import { streamViaDriver } from "./provider.js";
 import {
@@ -35,7 +43,15 @@ interface CapturedProvider {
     baseUrl?: string;
     apiKey?: string;
     streamSimple?: unknown;
-    models?: { id: string; name: string }[];
+    models?: {
+      id: string;
+      name: string;
+      reasoning?: boolean;
+      thinkingLevelMap?: Record<string, string | null>;
+      input?: ("text" | "image")[];
+      contextWindow?: number;
+      maxTokens?: number;
+    }[];
   };
 }
 
@@ -106,6 +122,61 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
     expect(modelIds).toContain("auto");
     expect(modelIds).toContain("opus");
+  });
+
+  it("catalogs context, max-out, thinking, and text-only input per backend", () => {
+    const { api, providers } = createApiStub();
+    factory(api);
+
+    const byProvider = Object.fromEntries(providers.map((p) => [p.name, p.config.models ?? []]));
+    const claudeOpus = byProvider["relay-claude"]?.find((m) => m.id === "opus");
+    const claudeSonnet = byProvider["relay-claude"]?.find((m) => m.id === "sonnet");
+    const claudeHaiku = byProvider["relay-claude"]?.find((m) => m.id === "haiku");
+    const grok45 = byProvider["relay-grok"]?.find((m) => m.id === "grok-4.5");
+    const cursorOpus = byProvider["relay-cursor"]?.find((m) => m.id === "opus");
+    const cursorAuto = byProvider["relay-cursor"]?.find((m) => m.id === "auto");
+    if (!claudeOpus || !claudeSonnet || !claudeHaiku || !grok45 || !cursorOpus || !cursorAuto) {
+      throw new Error("expected catalog models missing");
+    }
+
+    expect(claudeOpus).toMatchObject({
+      reasoning: true,
+      input: ["text"],
+      contextWindow: 1_000_000,
+      maxTokens: 64_000,
+    });
+    expect(claudeOpus.thinkingLevelMap?.minimal).toBeNull();
+    expect(claudeOpus.thinkingLevelMap?.high).toBe("high");
+    expect(claudeSonnet).toMatchObject({
+      reasoning: true,
+      input: ["text"],
+      contextWindow: 1_000_000,
+      maxTokens: 64_000,
+    });
+    expect(claudeHaiku).toMatchObject({
+      contextWindow: 200_000,
+      maxTokens: 32_000,
+      reasoning: true,
+    });
+
+    expect(grok45).toMatchObject({
+      reasoning: true,
+      input: ["text"],
+      contextWindow: 500_000,
+      maxTokens: 500_000,
+    });
+    expect(grok45.thinkingLevelMap?.max).toBeNull();
+    expect(grok45.thinkingLevelMap?.xhigh).toBe("xhigh");
+
+    expect(cursorOpus).toMatchObject({
+      reasoning: true,
+      input: ["text"],
+      contextWindow: 1_000_000,
+      maxTokens: 128_000,
+    });
+    expect(cursorOpus.thinkingLevelMap?.high).toBe("high");
+    expect(cursorAuto.reasoning).toBe(true);
+    expect(cursorAuto.input).toEqual(["text"]);
   });
 });
 
@@ -504,6 +575,21 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     // D2: never a permission-skip flag.
     expect(args).not.toContain("--dangerously-skip-permissions");
   });
+
+  it("maps Pi thinking onto `--effort` and strips a thinking suffix from `--model`", () => {
+    expect(mapClaudeEffort("off")).toBeUndefined();
+    expect(mapClaudeEffort("minimal")).toBe("low");
+    expect(mapClaudeEffort("high")).toBe("high");
+    expect(mapClaudeEffort("max")).toBe("max");
+
+    const withSuffix = claudeDriver.buildArgs({ task: "t", model: "relay-claude/opus:high" });
+    expect(withSuffix[withSuffix.indexOf("--model") + 1]).toBe("opus");
+    expect(withSuffix[withSuffix.indexOf("--effort") + 1]).toBe("high");
+
+    const off = claudeDriver.buildArgs({ task: "t", model: "opus", thinking: "off" });
+    expect(off).not.toContain("--effort");
+    expect(off[off.indexOf("--model") + 1]).toBe("opus");
+  });
 });
 
 describe("claudeDriver — read-only by declaration, NO OS sandbox (D12)", () => {
@@ -617,6 +703,20 @@ describe("grokDriver — tool-name map (D10, in the driver)", () => {
     );
   });
 
+  it("maps Pi thinking onto `--reasoning-effort` and strips a thinking suffix from `--model`", () => {
+    expect(mapGrokEffort("off")).toBeUndefined();
+    expect(mapGrokEffort("minimal")).toBe("low");
+    expect(mapGrokEffort("max")).toBe("xhigh");
+    expect(mapGrokEffort("xhigh")).toBe("xhigh");
+
+    const withSuffix = grokDriver.buildArgs({ task: "t", model: "relay-grok/grok-4.5:high" });
+    expect(withSuffix[withSuffix.indexOf("--model") + 1]).toBe("grok-4.5");
+    expect(withSuffix[withSuffix.indexOf("--reasoning-effort") + 1]).toBe("high");
+
+    const off = grokDriver.buildArgs({ task: "t", model: "grok-4.5", thinking: "off" });
+    expect(off).not.toContain("--reasoning-effort");
+  });
+
   it("never emits the broken --tools/--disallowed-tools flags or a permission-bypass mode", () => {
     const args = grokDriver.buildArgs({
       task: "t",
@@ -676,6 +776,14 @@ describe("grokDriver — parseResult (D6 fail-safe)", () => {
     expect(grokDriver.parseResult(envelope)).toEqual({ result: "the answer", isError: false });
   });
 
+  it("parses grok 1.0.25 snake_case end_turn as a pass", () => {
+    const envelope = JSON.stringify({
+      text: "RELAY_OK",
+      stopReason: "end_turn",
+    });
+    expect(grokDriver.parseResult(envelope)).toEqual({ result: "RELAY_OK", isError: false });
+  });
+
   it("treats a `type: error` envelope as an error, surfacing its message", () => {
     const envelope = JSON.stringify({ type: "error", message: "boom" });
     expect(grokDriver.parseResult(envelope)).toEqual({ result: "boom", isError: true });
@@ -702,15 +810,18 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
 
   // Pi hands the driver the model string as written in the role file, so the
   // `relay-cursor/` provider prefix and the thinking level pi appends when a
-  // role declares `thinking: high` both arrive here. Cursor's `--model` rejects
-  // both spellings, so they must be stripped before the map lookup.
-  it("strips the provider prefix and pi thinking suffix before mapping", () => {
+  // role declares `thinking: high` both arrive here. Cursor encodes thinking in
+  // the listed `--model` id (`…-thinking-high`), not a suffix on `opus`.
+  it("maps Pi thinking onto Cursor listed thinking ids and strips the provider prefix", () => {
     expect(resolveCursorModel("relay-cursor/opus")).toBe("claude-opus-4-8-high");
-    expect(resolveCursorModel("relay-cursor/opus:high")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("relay-cursor/opus:high")).toBe("claude-opus-4-8-thinking-high");
     expect(resolveCursorModel("relay-cursor/opus:off")).toBe("claude-opus-4-8-high");
-    expect(resolveCursorModel("opus:high")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("opus:high")).toBe("claude-opus-4-8-thinking-high");
+    expect(resolveCursorModel("opus:low")).toBe("claude-opus-4-8-thinking-low");
+    expect(resolveCursorModel("opus:max")).toBe("claude-opus-4-8-thinking-max");
+    expect(resolveCursorModel("opus", "xhigh")).toBe("claude-opus-4-8-thinking-xhigh");
     expect(resolveCursorModel("relay-cursor/auto:medium")).toBe("auto");
-    expect(resolveCursorModel("  RELAY-CURSOR/Opus:High  ")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("  RELAY-CURSOR/Opus:High  ")).toBe("claude-opus-4-8-thinking-high");
   });
 
   // Forwarding an unmapped id would make Cursor reject the model only after the
@@ -745,7 +856,7 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
       "--output-format",
       "json",
       "--model",
-      "claude-opus-4-8-high",
+      "claude-opus-4-8-thinking-high",
       "--trust",
       "t",
     ]);
@@ -829,6 +940,26 @@ describe("cursorDriver — parseResult (D6 fail-safe)", () => {
   it("treats unparseable/empty stdout as an error with no result (D6)", () => {
     expect(cursorDriver.parseResult("")).toEqual({ result: "", isError: true });
     expect(cursorDriver.parseResult("not json")).toEqual({ result: "", isError: true });
+  });
+});
+
+describe("parseModelThinking / resolveThinkingLevel", () => {
+  it("strips a provider prefix and optional thinking suffix", () => {
+    expect(parseModelThinking("relay-cursor/opus:high")).toEqual({
+      bareId: "opus",
+      thinking: "high",
+    });
+    expect(parseModelThinking("opus")).toEqual({ bareId: "opus" });
+    expect(parseModelThinking("  RELAY-CLAUDE/Opus:Off  ")).toEqual({
+      bareId: "opus",
+      thinking: "off",
+    });
+  });
+
+  it("prefers options.reasoning over a model-id suffix", () => {
+    expect(resolveThinkingLevel("opus:high", "low")).toBe("low");
+    expect(resolveThinkingLevel("opus:high")).toBe("high");
+    expect(resolveThinkingLevel("opus")).toBeUndefined();
   });
 });
 

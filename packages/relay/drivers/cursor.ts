@@ -19,12 +19,12 @@
  *
  * ── Model ids ──
  * Listed ids only. Parameterized forms such as
- * `claude-opus-4-8[context=300k,effort=high]` are rejected. Pi `opus` maps to
- * the listed id `claude-opus-4-8-high` ("Claude Opus 4.8 1M"). `auto` is
- * passed through. `resolveCursorModel` first strips the `relay-cursor/`
- * provider prefix and any pi thinking suffix (`:high`, `:off`, …) that pi
- * appends to the model id, since Cursor accepts neither; an id that does not
- * resolve to a listed id throws instead of being forwarded to `--model`.
+ * `claude-opus-4-8[context=300k,effort=high]` are rejected. Pi `opus` with
+ * thinking off maps to `claude-opus-4-8-high`; Pi thinking `high` maps to
+ * `claude-opus-4-8-thinking-high`. `auto` is passed through. `resolveCursorModel`
+ * strips the `relay-cursor/` prefix and uses the Pi thinking suffix (`:high`,
+ * `:off`, …) to pick the listed id; an id that does not resolve throws instead
+ * of being forwarded to `--model`.
  *
  * ── Tool/permission model ──
  * `--print` has access to all tools, including write and shell. `--force` /
@@ -42,36 +42,53 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { AgentDriver, DriverInvocation, DriverResult } from "./claude.js";
+import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
-/** Pi model id → Cursor `--model` id. */
+/** Pi model id → Cursor `--model` id when thinking is off. */
 export const CURSOR_MODEL_MAP: Readonly<Record<string, string>> = {
   auto: "auto",
   opus: "claude-opus-4-8-high",
 };
 
+/**
+ * Pi thinking → Cursor listed Opus 4.8 id. Thinking is encoded in the listed
+ * `--model` id (`…-thinking-high`), not a separate flag. `off` is effort-high
+ * without thinking. `minimal` has no Cursor row and clamps to thinking-low.
+ * `-fast` variants are unused (Pi has no fast axis).
+ */
+export const CURSOR_OPUS_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> = {
+  off: "claude-opus-4-8-high",
+  minimal: "claude-opus-4-8-thinking-low",
+  low: "claude-opus-4-8-thinking-low",
+  medium: "claude-opus-4-8-thinking-medium",
+  high: "claude-opus-4-8-thinking-high",
+  xhigh: "claude-opus-4-8-thinking-xhigh",
+  max: "claude-opus-4-8-thinking-max",
+};
+
 /** The Cursor `--model` values this driver may emit, accepted verbatim on input. */
-const CURSOR_LISTED_IDS: ReadonlySet<string> = new Set(Object.values(CURSOR_MODEL_MAP));
-
-/** A leading `<provider>/` segment, e.g. the `relay-cursor/` in `relay-cursor/opus`. */
-const PROVIDER_PREFIX = /^[^/]*\//;
-
-/** A pi thinking level appended to the model id, e.g. the `:high` in `opus:high`. */
-const PI_THINKING_SUFFIX = /:(off|minimal|low|medium|high|xhigh|max)$/;
+const CURSOR_LISTED_IDS: ReadonlySet<string> = new Set([
+  ...Object.values(CURSOR_MODEL_MAP),
+  ...Object.values(CURSOR_OPUS_BY_THINKING),
+]);
 
 /**
  * Resolve a pi model id to the Cursor CLI `--model` value.
  *
  * Pi hands the driver the model string as written in the role file, which may
  * carry the `relay-cursor/` provider prefix and/or a pi thinking level
- * (`relay-cursor/opus:high`). Cursor's `--model` accepts neither, so both are
- * stripped before the lookup. An id that is still unrecognized throws here
- * rather than reaching `--model`, where Cursor would reject it after the run
- * has already been dispatched.
+ * (`relay-cursor/opus:high`). Cursor's `--model` accepts listed ids only, so the
+ * prefix is stripped and the thinking level selects the matching listed id
+ * (`opus:high` → `claude-opus-4-8-thinking-high`). `auto` is passed through
+ * unchanged (no thinking-encoded listed ids). An id that does not resolve to a
+ * listed id throws here rather than reaching `--model`.
  */
-export function resolveCursorModel(piId: string): string {
-  const id = piId.trim().toLowerCase().replace(PROVIDER_PREFIX, "").replace(PI_THINKING_SUFFIX, "");
-  const mapped = CURSOR_MODEL_MAP[id];
-  if (mapped) return mapped;
+export function resolveCursorModel(piId: string, thinking?: PiThinkingLevel): string {
+  const parsed = parseModelThinking(piId);
+  const level = thinking ?? parsed.thinking ?? "off";
+  const id = parsed.bareId;
+  if (id === "auto") return "auto";
+  if (id === "opus") return CURSOR_OPUS_BY_THINKING[level];
   if (CURSOR_LISTED_IDS.has(id)) return id;
   throw new Error(
     `relay-cursor: \`${piId}\` is not a supported relay-cursor model. ` +
@@ -175,7 +192,7 @@ export const cursorDriver: AgentDriver = {
       "--output-format",
       "json",
       "--model",
-      resolveCursorModel(invocation.model),
+      resolveCursorModel(invocation.model, invocation.thinking),
       // Headless hang-avoidance for the workspace-trust prompt. Not a tool bypass.
       "--trust",
       buildPrompt(invocation),

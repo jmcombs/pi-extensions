@@ -22,6 +22,8 @@
  * names; a future `codexDriver` maps the same neutral list to its sandbox (`-s`).
  */
 
+import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
+
 /**
  * A single, backend-neutral dispatch request. The relay provider assembles this
  * from the pi model id (→ {@link model}), the pi subagent's system prompt
@@ -32,6 +34,12 @@ export interface DriverInvocation {
   readonly task: string;
   /** External model id parsed from the pi model id (e.g. `relay-claude/opus` → `opus`). */
   readonly model: string;
+  /**
+   * Pi thinking level for this run (`off`…`max`). When omitted, the driver
+   * falls back to a `:<level>` suffix on {@link model} (the shape pi appends
+   * when a role declares `thinking: high`).
+   */
+  readonly thinking?: PiThinkingLevel;
   /**
    * Path to the assembled system-prompt file (persona body + skills). When
    * omitted, the backend runs with its own default system prompt.
@@ -81,6 +89,17 @@ export function mapToolNames(piNames: readonly string[]): string[] {
     if (mapped && !out.includes(mapped)) out.push(mapped);
   }
   return out;
+}
+
+/**
+ * Pi thinking → Claude `--effort`. Claude accepts `low|medium|high|xhigh|max`.
+ * `off` omits the flag (Claude's own default). `minimal` has no Claude equivalent
+ * and clamps to `low`.
+ */
+export function mapClaudeEffort(level: PiThinkingLevel | undefined): string | undefined {
+  if (level === undefined || level === "off") return undefined;
+  if (level === "minimal") return "low";
+  return level;
 }
 
 /**
@@ -155,7 +174,10 @@ export const claudeDriver: AgentDriver = {
   bin: "claude",
 
   buildArgs(invocation: DriverInvocation): string[] {
-    const args = ["-p", invocation.task, "--output-format", "json", "--model", invocation.model];
+    const parsed = parseModelThinking(invocation.model);
+    const effort = mapClaudeEffort(invocation.thinking ?? parsed.thinking);
+    const args = ["-p", invocation.task, "--output-format", "json", "--model", parsed.bareId];
+    if (effort !== undefined) args.push("--effort", effort);
 
     if (invocation.systemPromptFile) {
       // `--system-prompt-file` replaces claude's default system prompt with the
