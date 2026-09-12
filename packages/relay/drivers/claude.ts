@@ -141,7 +141,7 @@ export interface AgentDriver {
    * that configure permissions via a config dir (e.g. `CURSOR_CONFIG_DIR`)
    * rather than argv flags.
    */
-  env?(invocation: DriverInvocation): Readonly<Record<string, string>>;
+  env?(invocation: DriverInvocation): Readonly<Record<string, string>> | undefined;
 }
 
 function asEnvelope(value: unknown): ClaudeResultEnvelope | undefined {

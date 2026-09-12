@@ -56,9 +56,11 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
   `--allow <Tool>` flag per tool plus `--permission-mode dontAsk` (fail-closed —
   unlisted tools are silently declined, never a hang or a blanket bypass). The map
   is a **driver** function (D10). Cursor has no `--allowedTools` argv flag;
-  `cursorDriver` maps the same pi names onto a temp `cli-config.json` allow/deny
-  list (`Read(**/*)`, `Shell(*)`, `Write(**/*)`) and points `CURSOR_CONFIG_DIR` at
-  it. `--force` / `--yolo` are never passed.
+  `cursorDriver` maps the same pi names onto allow/deny rules (`Read(**/*)`,
+  `Shell(*)`, `Write(**/*)`), copies the user's Cursor config home into a temp dir,
+  overlays those rules on `cli-config.json`, and points `CURSOR_CONFIG_DIR` at it.
+  A sparse temp dir (only the generated config) hangs `cursor-agent -p` on the first
+  tool call. `--force` / `--yolo` are never passed.
 - **Single external run** — the relayed subagent has no external equivalent for
   pi/oh-my-pi orchestration tools. The external agent runs its own tool loop once
   and returns final text. pi consumes that text directly; oh-my-pi receives the same
@@ -93,8 +95,10 @@ by thinking level onto Cursor listed ids (`opus` / `:off` → `claude-opus-4-8-h
 `:high` → `claude-opus-4-8-thinking-high`). The mapper strips the `relay-cursor/`
 provider prefix first; an id that does not resolve to a listed id is rejected up
 front rather than forwarded. Cursor has no system-prompt flag, so persona +
-skills are prepended onto the user prompt. Tool scoping is a temp `cli-config.json`
-allow/deny list via `CURSOR_CONFIG_DIR`, not an argv allowlist.
+skills are prepended onto the user prompt. Tool scoping overlays allow/deny rules
+on a **seeded** temp `CURSOR_CONFIG_DIR` (copy of the user's Cursor config home,
+not a lone `cli-config.json` — that hangs headless tool calls until the wall-cap).
+When the role declared no tools, relay leaves `CURSOR_CONFIG_DIR` unset.
 
 Claude and Grok keep `--model` as the alias (`opus`, `grok-4.5`) and apply Pi
 thinking as `--effort` / `--reasoning-effort`. Relay catalogs these models with

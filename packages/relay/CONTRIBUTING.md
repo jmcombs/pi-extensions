@@ -81,9 +81,12 @@ backend is a **driver** concern, because backends express permissions differentl
   of `--dangerously-skip-permissions` and must **never** be passed; `--sandbox` is also never
   passed (D12). `--trust` is passed so headless runs do not hang on the workspace-trust prompt
   (not a tool bypass). `cursorDriver` maps `read`/`grep`/`find` → `Read(**/*)`, `bash` → `Shell(*)`,
-  `edit`/`write` → `Write(**/*)`, writes those rules into a temp `cli-config.json`, and points
-  `CURSOR_CONFIG_DIR` at it via `env()`. Read-only roles also `deny` `Write(**/*)`. Cursor has no
-  system-prompt flag; persona+skills are prepended to the user prompt.
+  `edit`/`write` → `Write(**/*)`. `env()` copies the user's Cursor config home (top-level files)
+  into a temp dir, overlays those rules on `cli-config.json`, and points `CURSOR_CONFIG_DIR` at
+  it — a temp dir that contains only the generated config hangs `cursor-agent -p` on the first
+  tool call (wall-cap UNVERIFIED). When the role declared no tools, `env()` is a no-op. Read-only
+  roles also `deny` `Write(**/*)`. Cursor has no system-prompt flag; persona+skills are prepended
+  to the user prompt.
 
 Keep the map a small `Record` beside the driver, and drop unmapped names (preserve order,
 de-duplicate) — mirror `CLAUDE_TOOL_NAME_MAP` / `mapToolNames` in `drivers/claude.ts` (or

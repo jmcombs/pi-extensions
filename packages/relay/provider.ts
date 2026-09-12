@@ -242,6 +242,17 @@ function heartbeatMs(): number {
   return parsed > 0 ? parsed : 0;
 }
 
+/** Best-effort rm of a relay-owned temp dir (`pi-relay-*` under os.tmpdir()). */
+function cleanupRelayTempDir(dir: string | undefined): void {
+  if (dir === undefined) return;
+  if (!path.basename(dir).startsWith("pi-relay-")) return;
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    // Best-effort temp cleanup.
+  }
+}
+
 /** Extract the task text (concatenated user-message text) from the pi context. */
 function extractTask(context: RelayContext): string {
   const parts: string[] = [];
@@ -406,13 +417,11 @@ export function streamViaDriver(
     fs.writeFileSync(systemPromptFile, systemPrompt, { mode: 0o600 });
   }
 
+  let extraEnv: Readonly<Record<string, string>> | undefined;
   const cleanupTemp = (): void => {
-    if (tempDir) {
-      try {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort temp cleanup.
-      }
+    cleanupRelayTempDir(tempDir);
+    if (extraEnv !== undefined) {
+      for (const value of Object.values(extraEnv)) cleanupRelayTempDir(value);
     }
   };
 
@@ -431,7 +440,6 @@ export function streamViaDriver(
   // it is a role-file misconfiguration, not a run outcome — but the system
   // prompt has already been written to disk by this point, so drop it first.
   let args: string[];
-  let extraEnv: Readonly<Record<string, string>> | undefined;
   try {
     args = driver.buildArgs(invocation);
     extraEnv = driver.env?.(invocation);
@@ -514,6 +522,8 @@ export function streamViaDriver(
   child.stdout?.on("data", (chunk: Buffer) => {
     out += chunk.toString();
   });
+  // Drain stderr so a chatty backend cannot fill the pipe (~64 KiB) and deadlock.
+  child.stderr?.resume();
 
   child.on("error", (error: Error) => {
     // Spawn failure (e.g. missing binary) → fail-safe error, never auto-success.
