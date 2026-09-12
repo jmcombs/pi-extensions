@@ -84,8 +84,9 @@ backend is a **driver** concern, because backends express permissions differentl
   `edit`/`write` → `Write(**/*)`. `env()` copies the user's Cursor config home (top-level files)
   into a temp dir, overlays those rules on `cli-config.json`, and points `CURSOR_CONFIG_DIR` at
   it — a temp dir that contains only the generated config hangs `cursor-agent -p` on the first
-  tool call (wall-cap UNVERIFIED). When the role declared no tools, `env()` is a no-op. Read-only
-  roles also `deny` `Write(**/*)`. Cursor has no system-prompt flag; persona+skills are prepended
+  tool call (wall-cap UNVERIFIED; #254). Always seed; no-tools roles still get a seeded home and
+  fail-closed `deny` `Write(**/*)` so Cursor cannot fall through to `~/.cursor`. Read-only roles
+  also `deny` `Write(**/*)`. Cursor has no system-prompt flag; persona+skills are prepended
   to the user prompt.
 
 Keep the map a small `Record` beside the driver, and drop unmapped names (preserve order,

@@ -942,8 +942,46 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     }
   });
 
-  it("env is a no-op when the role declared no tools", () => {
-    expect(cursorDriver.env?.({ task: "t", model: "auto" })).toBeUndefined();
+  it("env seeds a config dir and fail-closed denies Write when the role declared no tools", () => {
+    const source = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-cursor-src-"));
+    fs.writeFileSync(path.join(source, "argv.json"), `${JSON.stringify({ marker: true })}\n`);
+    fs.writeFileSync(
+      path.join(source, "cli-config.json"),
+      `${JSON.stringify({ version: 1, editor: { vimMode: true } })}\n`,
+    );
+    const previous = process.env.CURSOR_CONFIG_DIR;
+    process.env.CURSOR_CONFIG_DIR = source;
+    const dirs: string[] = [];
+    try {
+      for (const tools of [undefined, [] as const]) {
+        const extra = cursorDriver.env?.({
+          task: "t",
+          model: "auto",
+          ...(tools ? { tools } : {}),
+        });
+        const dir = extra?.CURSOR_CONFIG_DIR;
+        expect(dir).toBeTruthy();
+        if (!dir) throw new Error("CURSOR_CONFIG_DIR missing");
+        dirs.push(dir);
+        expect(path.basename(dir).startsWith(CURSOR_CONFIG_TEMP_PREFIX)).toBe(true);
+        expect(fs.existsSync(path.join(dir, "argv.json"))).toBe(true);
+        const raw = fs.readFileSync(path.join(dir, "cli-config.json"), "utf8");
+        const config = JSON.parse(raw) as {
+          approvalMode?: string;
+          editor?: { vimMode?: boolean };
+          permissions?: { allow?: string[]; deny?: string[] };
+        };
+        expect(config.editor?.vimMode).toBe(true);
+        expect(config.approvalMode).toBe("allowlist");
+        expect(config.permissions?.allow).toEqual([]);
+        expect(config.permissions?.deny).toEqual(["Write(**/*)"]);
+      }
+    } finally {
+      for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true });
+      if (previous === undefined) delete process.env.CURSOR_CONFIG_DIR;
+      else process.env.CURSOR_CONFIG_DIR = previous;
+      fs.rmSync(source, { recursive: true, force: true });
+    }
   });
 
   it("env seeds the user config home and overlays the role allowlist", () => {

@@ -39,8 +39,10 @@
  * `cli-config.json`, and points `CURSOR_CONFIG_DIR` at that dir. A temp dir that
  * contains only the generated `cli-config.json` makes `cursor-agent -p` hang on
  * the first tool call until relay's wall-cap (empty pipes; the wait is on the
- * tty). When the role declared no tools, `env()` is a no-op so we do not replace
- * the user's config home with an empty allowlist.
+ * tty) — reproduced in #254 against cursor-agent 2026.09.10-fd3934a. Always seed
+ * from the real config home (never a sparse dir). No-tools roles still seed so
+ * they do not hang, and overlay fail-closed deny-Write so skipping
+ * `CURSOR_CONFIG_DIR` cannot fall through to `~/.cursor` and create files.
  */
 
 import * as fs from "node:fs";
@@ -250,9 +252,9 @@ export const cursorDriver: AgentDriver = {
   },
 
   env(invocation: DriverInvocation): Readonly<Record<string, string>> | undefined {
-    // No declared tools → do not replace the user's config home with an empty
-    // allowlist. That sparse overlay hangs `cursor-agent -p` on the first tool.
-    if (invocation.tools === undefined || invocation.tools.length === 0) return undefined;
+    // Always seed + overlay. Sparse-only cli-config.json hangs on the first tool
+    // call (#254). No-tools still gets a seeded home (no hang) and deny Write
+    // (D2: do not fall through to ~/.cursor).
     return { CURSOR_CONFIG_DIR: writeCursorConfigDir(invocation) };
   },
 

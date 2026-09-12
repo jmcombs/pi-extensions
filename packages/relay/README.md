@@ -97,8 +97,9 @@ provider prefix first; an id that does not resolve to a listed id is rejected up
 front rather than forwarded. Cursor has no system-prompt flag, so persona +
 skills are prepended onto the user prompt. Tool scoping overlays allow/deny rules
 on a **seeded** temp `CURSOR_CONFIG_DIR` (copy of the user's Cursor config home,
-not a lone `cli-config.json` — that hangs headless tool calls until the wall-cap).
-When the role declared no tools, relay leaves `CURSOR_CONFIG_DIR` unset.
+not a lone `cli-config.json` — that hangs headless tool calls until the wall-cap;
+see #254). No-tools roles still seed that dir and fail-closed `deny` `Write(**/*)`
+so Cursor cannot fall through to `~/.cursor`.
 
 Claude and Grok keep `--model` as the alias (`opus`, `grok-4.5`) and apply Pi
 thinking as `--effort` / `--reasoning-effort`. Relay catalogs these models with
