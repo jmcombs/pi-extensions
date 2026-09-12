@@ -203,6 +203,10 @@ npm run check                       # full quality gate
 node packages/relay/scripts/harness.mjs   # manual provider proof vs. real `claude -p`
 node packages/relay/scripts/harness.mjs --model relay-grok/grok-4.5   # same, vs. real `grok -p`
 node packages/relay/scripts/harness.mjs --model relay-cursor/auto     # same, vs. real `cursor-agent -p`
+
+# Unreleased worktree only (--no-extensions -e ./packages/relay):
+./packages/relay/scripts/prove-thinking-map.sh catalog   # list-models vs expected context/max/thinking
+./packages/relay/scripts/prove-thinking-map.sh argv      # Pi thinking → real CLI flags (six -p runs)
 ```
 
 ## License

@@ -126,5 +126,20 @@ npm ci
 npm run check   # lint, format, types, tests, version-sync, security — from the repo root
 ```
 
+`npm run check` does **not** hit live CLIs. After catalog or thinking/driver argv changes, also
+prove the unreleased worktree (never `npm:@jmcombs/pi-relay`) against real backends:
+
+```bash
+# Catalog only (no backend spend) — context / max-out / thinking must match this tree
+./packages/relay/scripts/prove-thinking-map.sh catalog
+
+# Live argv: Pi thinking → Claude --effort, Grok --reasoning-effort, Cursor listed --model ids
+# Needs authenticated claude, grok, and cursor-agent on PATH. Skips cmux shims.
+./packages/relay/scripts/prove-thinking-map.sh argv
+```
+
+`catalog` is cheap and should stay green. `argv` spends six one-shot `-p` runs; re-check a previous
+log with `./packages/relay/scripts/prove-thinking-map.sh assert` (no backends).
+
 Then follow the repo-root [`CONTRIBUTING.md`](../../CONTRIBUTING.md) for commit style (Conventional
 Commits, scope `relay`) and the branch/PR flow.
