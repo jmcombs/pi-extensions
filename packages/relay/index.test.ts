@@ -19,7 +19,13 @@ import {
   mapToolName,
   mapToolNames,
 } from "./drivers/claude.js";
-import { cursorDriver, mapAllowRules, mapDenyRules, resolveCursorModel } from "./drivers/cursor.js";
+import {
+  CURSOR_CONFIG_TEMP_PREFIX,
+  cursorDriver,
+  mapAllowRules,
+  mapDenyRules,
+  resolveCursorModel,
+} from "./drivers/cursor.js";
 import {
   grokDriver,
   mapGrokEffort,
@@ -543,6 +549,51 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
       else process.env.PI_RELAY_HEARTBEAT_MS = previous;
     }
   });
+
+  it("drains stderr so a chatty backend cannot deadlock the unread pipe", async () => {
+    const noisyDriver: AgentDriver = {
+      name: "noisy-fake",
+      bin: "node",
+      buildArgs: () => [
+        "-e",
+        "process.stderr.write('x'.repeat(256 * 1024)); process.stdout.write(JSON.stringify({ type: 'result', result: 'DRAIN_OK', is_error: false }))",
+      ],
+      parseResult: (stdout: string) => {
+        const envelope = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+        return { result: String(envelope.result ?? ""), isError: envelope.is_error === true };
+      },
+    };
+    const context = {
+      messages: [{ role: "user", content: "verify the phase" }],
+      systemPrompt: undefined,
+      tools: [],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previousBeat = process.env.PI_RELAY_HEARTBEAT_MS;
+    const previousWall = process.env.PI_RELAY_WALL_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    process.env.PI_RELAY_WALL_MS = "2000";
+    try {
+      const stream = streamViaDriver(
+        noisyDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const types: string[] = [];
+      let finalText = "";
+      for await (const event of stream) {
+        types.push(event.type);
+        if (event.type === "done") finalText = event.message?.content?.[0]?.text ?? "";
+      }
+      expect(types).toEqual(["start", "done"]);
+      expect(finalText).toBe("DRAIN_OK");
+    } finally {
+      if (previousBeat === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previousBeat;
+      if (previousWall === undefined) delete process.env.PI_RELAY_WALL_MS;
+      else process.env.PI_RELAY_WALL_MS = previousWall;
+    }
+  });
 });
 
 describe("claudeDriver — tool-name map (D10, in the driver)", () => {
@@ -891,26 +942,48 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     }
   });
 
-  it("env writes a temp cli-config.json allowlist from the role's tools", () => {
-    const extra = cursorDriver.env?.({
-      task: "t",
-      model: "auto",
-      tools: ["read", "bash"],
-    });
-    const dir = extra?.CURSOR_CONFIG_DIR;
-    expect(dir).toBeTruthy();
-    if (!dir) throw new Error("CURSOR_CONFIG_DIR missing");
+  it("env is a no-op when the role declared no tools", () => {
+    expect(cursorDriver.env?.({ task: "t", model: "auto" })).toBeUndefined();
+  });
+
+  it("env seeds the user config home and overlays the role allowlist", () => {
+    const source = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-cursor-src-"));
+    fs.writeFileSync(path.join(source, "argv.json"), `${JSON.stringify({ marker: true })}\n`);
+    fs.writeFileSync(
+      path.join(source, "cli-config.json"),
+      `${JSON.stringify({ version: 1, editor: { vimMode: true } })}\n`,
+    );
+    const previous = process.env.CURSOR_CONFIG_DIR;
+    process.env.CURSOR_CONFIG_DIR = source;
     try {
-      const raw = fs.readFileSync(path.join(dir, "cli-config.json"), "utf8");
-      const config = JSON.parse(raw) as {
-        approvalMode?: string;
-        permissions?: { allow?: string[]; deny?: string[] };
-      };
-      expect(config.approvalMode).toBe("allowlist");
-      expect(config.permissions?.allow).toEqual(["Read(**/*)", "Shell(*)"]);
-      expect(config.permissions?.deny).toEqual(["Write(**/*)"]);
+      const extra = cursorDriver.env?.({
+        task: "t",
+        model: "auto",
+        tools: ["read", "bash"],
+      });
+      const dir = extra?.CURSOR_CONFIG_DIR;
+      expect(dir).toBeTruthy();
+      if (!dir) throw new Error("CURSOR_CONFIG_DIR missing");
+      try {
+        expect(path.basename(dir).startsWith(CURSOR_CONFIG_TEMP_PREFIX)).toBe(true);
+        expect(fs.existsSync(path.join(dir, "argv.json"))).toBe(true);
+        const raw = fs.readFileSync(path.join(dir, "cli-config.json"), "utf8");
+        const config = JSON.parse(raw) as {
+          approvalMode?: string;
+          editor?: { vimMode?: boolean };
+          permissions?: { allow?: string[]; deny?: string[] };
+        };
+        expect(config.editor?.vimMode).toBe(true);
+        expect(config.approvalMode).toBe("allowlist");
+        expect(config.permissions?.allow).toEqual(["Read(**/*)", "Shell(*)"]);
+        expect(config.permissions?.deny).toEqual(["Write(**/*)"]);
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      if (previous === undefined) delete process.env.CURSOR_CONFIG_DIR;
+      else process.env.CURSOR_CONFIG_DIR = previous;
+      fs.rmSync(source, { recursive: true, force: true });
     }
   });
 });

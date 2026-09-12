@@ -34,8 +34,13 @@
  *
  * Cursor has no `--allowedTools` argv flag. Permissions live in
  * `~/.cursor/cli-config.json` / `<project>/.cursor/cli.json`. To scope a run
- * without mutating the workspace, `env()` writes a temp `cli-config.json` with
- * mapped allow/deny rules and points `CURSOR_CONFIG_DIR` at it.
+ * without mutating the workspace, `env()` copies the user's Cursor config *home*
+ * (top-level files only) into a temp dir, overlays mapped allow/deny rules on
+ * `cli-config.json`, and points `CURSOR_CONFIG_DIR` at that dir. A temp dir that
+ * contains only the generated `cli-config.json` makes `cursor-agent -p` hang on
+ * the first tool call until relay's wall-cap (empty pipes; the wait is on the
+ * tty). When the role declared no tools, `env()` is a no-op so we do not replace
+ * the user's config home with an empty allowlist.
  */
 
 import * as fs from "node:fs";
@@ -160,18 +165,63 @@ function buildPrompt(invocation: DriverInvocation): string {
   return `${content}\n\n${invocation.task}`;
 }
 
+/** Prefix of the temp config home `env()` writes; the provider cleans these up. */
+export const CURSOR_CONFIG_TEMP_PREFIX = "pi-relay-cursor-config-";
+
+/** Skip oversized caches when seeding a temp Cursor config home. */
+const CURSOR_SEED_MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+function cursorConfigSourceDir(): string {
+  return process.env.CURSOR_CONFIG_DIR ?? path.join(os.homedir(), ".cursor");
+}
+
+function readJsonObject(file: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Missing or invalid JSON — start from an empty object.
+  }
+  return {};
+}
+
+/** Copy top-level files from the user's Cursor config home into `destDir`. */
+function seedCursorConfigHome(sourceDir: string, destDir: string): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const from = path.join(sourceDir, entry.name);
+    const to = path.join(destDir, entry.name);
+    try {
+      const st = fs.statSync(from);
+      if (st.size > CURSOR_SEED_MAX_FILE_BYTES) continue;
+      fs.copyFileSync(from, to);
+    } catch {
+      // Skip unreadable / raced entries.
+    }
+  }
+}
+
 function writeCursorConfigDir(invocation: DriverInvocation): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-cursor-config-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), CURSOR_CONFIG_TEMP_PREFIX));
+  seedCursorConfigHome(cursorConfigSourceDir(), dir);
   const tools = invocation.tools ?? [];
-  const config = {
-    version: 1,
-    approvalMode: "allowlist",
-    permissions: {
-      allow: mapAllowRules(tools),
-      deny: mapDenyRules(tools),
-    },
+  const configPath = path.join(dir, "cli-config.json");
+  const config = readJsonObject(configPath);
+  config.version = 1;
+  config.approvalMode = "allowlist";
+  config.permissions = {
+    allow: mapAllowRules(tools),
+    deny: mapDenyRules(tools),
   };
-  fs.writeFileSync(path.join(dir, "cli-config.json"), `${JSON.stringify(config, null, 2)}\n`, {
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, {
     mode: 0o600,
   });
   return dir;
@@ -199,7 +249,10 @@ export const cursorDriver: AgentDriver = {
     ];
   },
 
-  env(invocation: DriverInvocation): Readonly<Record<string, string>> {
+  env(invocation: DriverInvocation): Readonly<Record<string, string>> | undefined {
+    // No declared tools → do not replace the user's config home with an empty
+    // allowlist. That sparse overlay hangs `cursor-agent -p` on the first tool.
+    if (invocation.tools === undefined || invocation.tools.length === 0) return undefined;
     return { CURSOR_CONFIG_DIR: writeCursorConfigDir(invocation) };
   },
 
