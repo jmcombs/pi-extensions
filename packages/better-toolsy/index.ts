@@ -123,7 +123,9 @@ export type ReadInput = Static<typeof readSchema>;
 const grepSchema = Type.Object({
   pattern: Type.String({ description: "Regular expression or substring to search for." }),
   path: Type.Optional(
-    Type.String({ description: "Directory to search in (relative or absolute). Defaults to cwd." }),
+    Type.String({
+      description: "Directory or file to search (relative or absolute). Defaults to cwd.",
+    }),
   ),
   glob: Type.Optional(
     Type.String({ description: "Glob pattern to restrict files (e.g. '*.ts')." }),
@@ -300,76 +302,145 @@ export async function readTool(_toolCallId: string, params: ReadInput): Promise<
 
 // ── grep ───────────────────────────────────────────────────────────────
 
-async function grepTool(_toolCallId: string, params: GrepInput): Promise<ToolResult> {
-  const searchDir = safeResolve(params.path ?? ".");
-  const gitignorePatterns = await loadGitignore(searchDir);
+async function isRgAvailable(): Promise<boolean> {
+  try {
+    await execFileAsync("rg", ["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function execErrorCode(err: unknown): string | number | undefined {
+  if (typeof err !== "object" || err === null || !("code" in err)) return undefined;
+  const { code } = err;
+  if (typeof code === "string" || typeof code === "number") return code;
+  return undefined;
+}
+
+function formatGrepLine(filePath: string, lineNumber: number, line: string): string {
+  return `  ${relative(process.cwd(), filePath)}:${String(lineNumber)}:     ${line.trimEnd()}`;
+}
+
+async function grepFilesWithNode(
+  files: string[],
+  params: GrepInput,
+  maxResults: number,
+): Promise<{ results: string[]; matchCount: number }> {
+  const results: string[] = [];
+  let matchCount = 0;
+  const re = params.literal ? null : new RegExp(params.pattern, params.ignoreCase ? "iu" : "u");
+
+  for (const file of files) {
+    try {
+      const content = await fs.readFile(file, "utf-8");
+      const fileLines = content.split("\n");
+      for (let idx = 0; idx < fileLines.length; idx++) {
+        const line = fileLines[idx] ?? "";
+        const hit = re
+          ? re.test(line)
+          : params.ignoreCase
+            ? line.toLowerCase().includes(params.pattern.toLowerCase())
+            : line.includes(params.pattern);
+        if (hit) {
+          results.push(formatGrepLine(file, idx + 1, line));
+          matchCount++;
+          if (matchCount >= maxResults) return { results, matchCount };
+        }
+      }
+    } catch {
+      // skip binary/unreadable files
+    }
+  }
+  return { results, matchCount };
+}
+
+export async function grepTool(_toolCallId: string, params: GrepInput): Promise<ToolResult> {
+  let searchPath: string;
+  try {
+    searchPath = safeResolve(params.path ?? ".");
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: [{ type: "text", text: `Error searching: ${message}` }],
+      details: { error: true, query: params.pattern, path: params.path },
+    };
+  }
+
+  let isDirectory: boolean;
+  try {
+    isDirectory = (await fs.stat(searchPath)).isDirectory();
+  } catch (err: unknown) {
+    const code = execErrorCode(err);
+    const message =
+      code === "ENOENT" || code === "ENOTDIR"
+        ? `Path not found: ${searchPath}`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+    return {
+      content: [{ type: "text", text: `Error searching: ${message}` }],
+      details: { error: true, query: params.pattern, path: params.path },
+    };
+  }
+
   const maxResults = params.limit ?? 100;
   let matchCount = 0;
-  const results: string[] = [];
+  let results: string[] = [];
+  let usedRg = false;
 
-  const rgAvailable = await new Promise<boolean>((res) => {
-    execFileAsync("rg", ["--version"], { cwd: searchDir })
-      .then(() => {
-        res(true);
-      })
-      .catch(() => {
-        res(false);
-      });
-  });
-
-  let lines: string[] = [];
-  if (rgAvailable) {
-    const rgArgs = ["-n", "--no-heading", "--color=never"];
+  if (await isRgAvailable()) {
+    const rgArgs = ["-n", "-H", "--no-heading", "--color=never"];
     if (params.ignoreCase) rgArgs.push("-i");
     if (params.literal) rgArgs.push("-F");
     if (params.context != null) rgArgs.push("-C", String(params.context));
     if (params.glob) rgArgs.push("-g", params.glob);
-    rgArgs.push("-e", params.pattern, searchDir);
+    rgArgs.push("-e", params.pattern, "--", searchPath);
     try {
-      const { stdout } = await execFileAsync("rg", rgArgs, { cwd: searchDir });
-      lines = stdout.trim().split("\n").filter(Boolean);
-    } catch {
-      lines = [];
-    }
-  } else {
-    const allFiles = await walkDir(searchDir, gitignorePatterns, params.glob ?? null);
-    const reFlags = params.ignoreCase ? "iu" : "u";
-    const re = params.literal ? null : new RegExp(params.pattern, reFlags);
-    for (const file of allFiles) {
-      try {
-        const content = await fs.readFile(file, "utf-8");
-        const relFile = relative(process.cwd(), file);
-        const fileLines = content.split("\n");
-        fileLines.forEach((line, idx) => {
-          const hit = re
-            ? re.test(line)
-            : params.ignoreCase
-              ? line.toLowerCase().includes(params.pattern.toLowerCase())
-              : line.includes(params.pattern);
-          if (hit && matchCount < maxResults) {
-            results.push(`  ${relFile}:${String(idx + 1)}:     ${line.trimEnd()}`);
-            matchCount++;
-          }
-        });
+      // Never pass searchPath as cwd — models routinely grep a file, and spawn()
+      // throws ENOTDIR synchronously when cwd is not a directory.
+      const { stdout } = await execFileAsync("rg", rgArgs);
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      for (const line of lines) {
         if (matchCount >= maxResults) break;
-      } catch {
-        // skip binary/unreadable files
+        const colonIdx = line.indexOf(":");
+        if (colonIdx > 0) {
+          const absPath = line.slice(0, colonIdx);
+          const rest = line.slice(colonIdx);
+          results.push(`  ${relative(process.cwd(), absPath)}${rest}`);
+        } else {
+          results.push(`  ${line}`);
+        }
+        matchCount++;
+      }
+      usedRg = true;
+    } catch (err: unknown) {
+      // rg exits 1 when there are no matches. Any other failure (including a
+      // leftover cwd/ENOTDIR) falls through to the Node walker.
+      if (execErrorCode(err) === 1) {
+        usedRg = true;
       }
     }
   }
 
-  if (rgAvailable && lines.length > 0) {
-    for (const line of lines) {
-      if (matchCount >= maxResults) break;
-      const colonIdx = line.indexOf(":");
-      if (colonIdx > 0) {
-        const absPath = line.slice(0, colonIdx);
-        const rest = line.slice(colonIdx);
-        results.push(`  ${relative(process.cwd(), absPath)}${rest}`);
+  if (!usedRg) {
+    try {
+      const gitignorePatterns = isDirectory ? await loadGitignore(searchPath) : [];
+      let files: string[];
+      if (isDirectory) {
+        files = await walkDir(searchPath, gitignorePatterns, params.glob ?? null);
+      } else if (params.glob && !matchesFilePattern(basename(searchPath), params.glob)) {
+        files = [];
       } else {
-        results.push(`  ${line}`);
+        files = [searchPath];
       }
-      matchCount++;
+      ({ results, matchCount } = await grepFilesWithNode(files, params, maxResults));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: "text", text: `Error searching: ${message}` }],
+        details: { error: true, query: params.pattern, path: searchPath },
+      };
     }
   }
 
@@ -377,7 +448,7 @@ async function grepTool(_toolCallId: string, params: GrepInput): Promise<ToolRes
     content: [
       { type: "text", text: results.length > 0 ? results.join("\n") : "No matches found." },
     ],
-    details: { query: params.pattern, path: searchDir, matches: matchCount, usedRg: rgAvailable },
+    details: { query: params.pattern, path: searchPath, matches: matchCount, usedRg },
   };
 }
 
@@ -882,7 +953,7 @@ export default function (pi: ExtensionAPI): void {
     name: "grep",
     label: "Search",
     description:
-      "Search for patterns in code files. Uses ripgrep if available, falls back to Node.js. Respects .gitignore.",
+      "Search for patterns in a file or directory. Uses ripgrep if available, falls back to Node.js. Respects .gitignore.",
     parameters: grepSchema,
     execute: grepTool,
     renderCall: (args: GrepInput, theme) =>
