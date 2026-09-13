@@ -48,18 +48,21 @@ API, which installs automatically as a dependency. What this means for you:
 
 ```mermaid
 flowchart TD
-    A["/grok_setup or first tool use"] --> B{"is1PasswordAvailable()<br/>(op installed AND configured)"}
-    B -- "Yes" --> C["Live vault → item → field picker<br/>or manual op:// reference"]
-    C --> D["Store !op read 'op://…' entry"]
-    B -- "No" --> E["Manual API-key entry<br/>+ nudge to enable 1Password"]
-    E --> F["Store literal api_key entry"]
-    D --> G["resolveSecret precedence:<br/>xai_search ?? xai ?? grok<br/>resolves fresh on each tool call"]
+    A["/grok_setup"] --> B{"xAI OAuth in auth.json?"}
+    B -- "Yes" --> C["Setup card: use OAuth<br/>or override with an API key"]
+    C -- "Use OAuth" --> D["Persist grokSearch.credential=oauth<br/>in settings.json"]
+    C -- "API key" --> E["1Password onboardSecret → grok id"]
+    B -- "No" --> E
+    E --> F["Persist grokSearch.credential=api_key"]
+    D --> G["Each grok_search call"]
     F --> G
-    G --> H["Bearer token → xAI API<br/>(never shown to the LLM)"]
+    G --> H{"preference"}
+    H -- "oauth / unset + OAuth present" --> I["Bearer xAI OAuth access token<br/>(refresh if expired)"]
+    H -- "api_key / no OAuth" --> J["xai_search ?? xai ?? grok API key"]
 ```
 
-> `/grok_setup` writes the **`grok`** id, so it never overwrites the shared real
-> `xai` model-provider key.
+> `/grok_setup` never overwrites the shared `xai` OAuth or API-key provider entry.
+> API-key onboarding writes the **`grok`** id.
 
 ## Install
 
@@ -71,31 +74,35 @@ pi install npm:@jmcombs/pi-grok-search
 pi -e npm:@jmcombs/pi-grok-search
 ```
 
-An xAI API key is required. [Sign up at x.ai](https://x.ai) to get one, then configure it
-with `/grok_setup` (or one of the methods below).
+Credentials: a SuperGrok / X Premium login (`/login xai`) **or** an xAI API key.
+[Sign up at x.ai](https://x.ai) if you need a key, then run `/grok_setup`.
 
 ## What It Adds
 
 - **Tool**: `grok_search` — performs a web search using the xAI Grok Agent Tools API to
   get real-time information from the internet. The tool is callable by the LLM whenever it
   needs current information from the public web.
-- **Command**: `/grok_setup` — runs the `@jmcombs/pi-1password` onboarding flow to save
-  (or update) your Grok / xAI key. The input is never visible to the LLM.
+- **Command**: `/grok_setup` — if Pi already has xAI OAuth (SuperGrok / X Premium), shows a
+  setup card so you can use it or override with an API key. Otherwise runs the
+  `@jmcombs/pi-1password` onboarding flow. Input is never visible to the LLM.
 
 ## Configuration
 
-The `grok_search` tool resolves the key through `@jmcombs/pi-1password` in this
-precedence, reading `~/.pi/agent/auth.json` fresh on each call:
+The `grok_search` tool resolves a Bearer token on each call:
 
-1. `resolveSecret("xai_search")` — a **dedicated** Grok search key, if you keep one
-   separate. **Preferred.**
-2. `resolveSecret("xai")` — the **real xAI model-provider key**, reused as-is. Grok search
-   never overwrites this key; it only reads it.
-3. `resolveSecret("grok")` — the id `/grok_setup` writes when you onboard a key here.
+1. **Preference** in `~/.pi/agent/settings.json` (`grokSearch.credential`: `oauth` or
+   `api_key`), written by `/grok_setup`. Both an OAuth login and an API key can exist at
+   once; the preference picks which one to send.
+2. **xAI OAuth** — Pi's `/login xai` SuperGrok / X Premium entry (`auth.json` `xai` with
+   `type: "oauth"`). Used when the preference is `oauth` or unset. Expired access tokens
+   are refreshed automatically.
+3. **API key chain** — `resolveSecret("xai_search")`, then `resolveSecret("xai")` (API-key
+   shaped only), then `resolveSecret("grok")`. Used when the preference is `api_key`, or
+   when no OAuth is present.
 
-Each entry may be a literal key or an `!op read 'op://…'` reference. If none resolves, the
-tool automatically runs onboarding (the availability branch above) on first use, then
-re-resolves — preserving the "prompt on first use" experience.
+If nothing resolves, the tool auto-runs API-key onboarding on first use. If you chose OAuth
+in `/grok_setup` but the token is gone, it errors and asks you to `/login xai` or run
+`/grok_setup` again — it will not silently switch to an API key.
 
 ### Option 1 — `/grok_setup` (recommended)
 
@@ -181,8 +188,8 @@ ever stored on disk in plaintext.
 - Uses the current xAI Responses + Agent Tools API (`web_search` tool).
 - The tool honors Pi's abort signal — pressing **Esc** during a search cancels the
   HTTP request.
-- If the API key is missing the tool returns a result guiding you to `/grok_setup`
-  instead of throwing.
+- If no credential resolves, the tool returns a result guiding you to `/grok_setup`
+  (or `/login xai` when OAuth is the selected source) instead of throwing.
 - 401 / 429 / other non-2xx responses from xAI surface as tool results (with status and
   a helpful hint) rather than throwing. Recoverable errors are reported through the tool's
   `content` so the agent can guide you, never via a returned `isError` (which pi ignores).
@@ -207,9 +214,16 @@ npm run check       # full quality gate
 pi -e ./packages/grok-search
 ```
 
-The smoke test in `index.test.ts` does **not** mock the xAI API; it only
-verifies registration shape. Real end-to-end behavior is exercised via `pi -e`.
+Tests do **not** mock the xAI API. `index.test.ts` checks registration shape;
+`auth.test.ts` / `setup.test.ts` exercise real temp `auth.json` / `settings.json`
+and the setup card. Live search is still `pi -e`.
 
 ## License
 
 [MIT](./LICENSE) © Jeremy Combs
+al end-to-end behavior is exercised via `pi -e`.
+
+## License
+
+[MIT](./LICENSE) © Jeremy Combs
+ombs
