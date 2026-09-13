@@ -10,11 +10,12 @@
 
 import { execFile } from "node:child_process";
 import { promises as fsPromises } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { editTool, makeGhBodySafe, readTool, safeResolve } from "./index.js";
+import factory, { editTool, grepTool, makeGhBodySafe, readTool, safeResolve } from "./index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -147,6 +148,69 @@ describe("readTool — line numbering at offset", () => {
     } finally {
       await fsPromises.unlink(filePath);
     }
+  });
+});
+
+describe("grepTool", () => {
+  async function withTempDir(fn: (dir: string) => Promise<void>): Promise<void> {
+    const dir = await fsPromises.mkdtemp(join(tmpdir(), "better-toolsy-grep-"));
+    try {
+      await fn(dir);
+    } finally {
+      await fsPromises.rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("searches a file path without throwing spawn ENOTDIR", async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, "PLAN.md");
+      await fsPromises.writeFile(
+        filePath,
+        "# Plan\n\n**Skills:** planning\n\nMore text.\n",
+        "utf-8",
+      );
+
+      const result = await grepTool("id", { pattern: "^\\*\\*Skills:\\*\\*", path: filePath });
+      const text = result.content[0]?.text ?? "";
+
+      expect(text).not.toMatch(/ENOTDIR/);
+      expect(text).toContain("PLAN.md");
+      expect(text).toContain("**Skills:**");
+      expect(result.details.error).toBeUndefined();
+      expect(result.details.matches).toBe(1);
+    });
+  });
+
+  it("returns no matches for a file without throwing", async () => {
+    await withTempDir(async (dir) => {
+      const filePath = join(dir, "PLAN.md");
+      await fsPromises.writeFile(filePath, "nothing here\n", "utf-8");
+
+      const result = await grepTool("id", { pattern: "zzz-no-such-token", path: filePath });
+      expect(result.content[0]?.text).toBe("No matches found.");
+    });
+  });
+
+  it("searches a directory", async () => {
+    await withTempDir(async (dir) => {
+      await fsPromises.writeFile(join(dir, "a.ts"), "const needleXyz = 1;\n", "utf-8");
+      await fsPromises.writeFile(join(dir, "b.ts"), "const other = 2;\n", "utf-8");
+
+      const result = await grepTool("id", { pattern: "needleXyz", path: dir });
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("needleXyz");
+      expect(text).toContain("a.ts");
+    });
+  });
+
+  it("returns a path error for a missing file instead of spawn ENOTDIR", async () => {
+    await withTempDir(async (dir) => {
+      const missing = join(dir, "nope.md");
+      const result = await grepTool("id", { pattern: "x", path: missing });
+      const text = result.content[0]?.text ?? "";
+      expect(text).toContain("Path not found");
+      expect(text).not.toMatch(/ENOTDIR/);
+    });
   });
 });
 

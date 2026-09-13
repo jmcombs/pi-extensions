@@ -29,7 +29,7 @@ Pi exposes six built-in file tools that the LLM is trained to call by name. This
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ls`    | `.gitignore` filtering, dotfile suppression, directories listed as `name/`                                                                 |
 | `read`  | 50 KB size guard, accurate line-number prefixes when using `offset`                                                                        |
-| `grep`  | Relative paths in all results, ripgrep fast-path with Node.js fallback, `ignoreCase` / `literal` / `context` flags, `.gitignore` filtering |
+| `grep`  | File or directory search, relative paths in all results, ripgrep fast-path with Node.js fallback, `ignoreCase` / `literal` / `context` flags, `.gitignore` filtering |
 | `find`  | `.gitignore` filtering, path-based gitignore patterns (`dist/**`), reliable result cap                                                     |
 | `edit`  | `$`-injection-safe replacement (slice arithmetic, not `String.replace`), uniqueness validation, multiple edits in one call                 |
 | `write` | Path-traversal guard, automatic parent directory creation                                                                                  |
