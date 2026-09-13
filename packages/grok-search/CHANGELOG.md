@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.0.0...grok-search/v2.1.0) (2026-09-13)
+
+
+### Features
+
+* **grok-search:** use xAI OAuth when available ([#263](https://github.com/jmcombs/pi-extensions/issues/263)) ([14d5444](https://github.com/jmcombs/pi-extensions/commit/14d54440f89660b0830ce5f2a44b94e9796a739e))
+
 ## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v1.1.1...grok-search/v2.0.0) (2026-07-19)
 
 
