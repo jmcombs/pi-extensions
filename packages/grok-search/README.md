@@ -198,8 +198,8 @@ ever stored on disk in plaintext.
 
 - Pi `>= 0.80.8` (credentials via the `@jmcombs/pi-1password` API and `ExtensionAPI`)
 - Node `>= 22.19.0`
-- An xAI API key
-- Optional: the `op` (1Password) CLI for vault-backed onboarding and startup unlock
+- xAI OAuth (`/login xai` SuperGrok / X Premium) **or** an xAI API key
+- Optional: the `op` (1Password) CLI for vault-backed API-key onboarding and startup unlock
 
 ## Development
 
@@ -221,9 +221,3 @@ and the setup card. Live search is still `pi -e`.
 ## License
 
 [MIT](./LICENSE) © Jeremy Combs
-al end-to-end behavior is exercised via `pi -e`.
-
-## License
-
-[MIT](./LICENSE) © Jeremy Combs
-ombs
