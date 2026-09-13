@@ -2,21 +2,19 @@
  * @jmcombs/pi-grok-search — Real-time web search for the Pi coding agent via xAI Grok.
  *
  * Registers a `grok_search` tool that the LLM can call to perform a Grok-powered
- * web search. Credentials are handled entirely through the imported
- * `@jmcombs/pi-1password` credential API (`resolveSecret` / `onboardSecret`), so the
- * key is never leaked into the agent's context.
+ * web search. Credentials are handled through `@jmcombs/pi-1password` plus the
+ * xAI OAuth entry Pi stores after `/login xai` (SuperGrok / X Premium). The
+ * token is never leaked into the agent's context.
  *
- * Credential handling (D12 three-id precedence):
- *    1. `resolveSecret("xai_search")` — a dedicated Grok search key, if set.
- *    2. `resolveSecret("xai")` — the real xAI model-provider key, reused as-is
- *       (never overwritten by onboarding).
- *    3. `resolveSecret("grok")` — the id onboarding writes.
- *    Each reads `~/.pi/agent/auth.json` fresh on every call (a literal key or an
- *    `!op read 'op://…'` reference). If none resolves, the tool auto-invokes
- *    `onboardSecret` (writing the `grok` id), which branches on 1Password
- *    availability — the live vault picker when `op` is configured, manual API-key
- *    entry otherwise — then re-resolves. `/grok_setup` runs the same onboarding
- *    flow on demand.
+ * Credential handling:
+ *    1. If settings.json prefers `api_key`, resolve `xai_search` / `xai` / `grok`
+ *       API keys only.
+ *    2. Otherwise use xAI OAuth (`auth.json` `xai.type === "oauth"`) when present,
+ *       refreshing the access token when expired.
+ *    3. Else fall through to the API-key chain above.
+ *    4. If nothing resolves, auto-invoke 1Password `onboardSecret` (writing the
+ *       `grok` id). `/grok_setup` is the explicit setup command: when OAuth is
+ *       already present it shows a card offering OAuth vs an API-key override.
  *
  * Error contract: user-facing recoverable errors (missing key, 401,
  * 429, network, non-2xx) are reported via `content[]` + `details` — never a
@@ -24,8 +22,10 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
+import { onboardSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
+import { readCredentialPreference, resolveGrokAuth } from "./auth.js";
+import { runGrokSetup } from "./setup.js";
 
 const XAI_RESPONSES_ENDPOINT = "https://api.x.ai/v1/responses";
 
@@ -40,21 +40,6 @@ const grokSearchSchema = Type.Object({
 
 export type GrokSearchInput = Static<typeof grokSearchSchema>;
 
-// ── Helpers ────────────────────────────────────────────────────────────
-
-/**
- * Resolve the xAI key in D12 precedence: a dedicated `xai_search` key, else the
- * real `xai` provider key, else the onboarding-written `grok` id. Each entry is
- * resolved fresh (literal or `!op read`) and never surfaces to the LLM.
- */
-async function resolveGrokKey(): Promise<string | undefined> {
-  return (
-    (await resolveSecret("xai_search")) ??
-    (await resolveSecret("xai")) ??
-    (await resolveSecret("grok"))
-  );
-}
-
 function formatResults(content: string, query: string): string {
   if (!content || content.trim().length === 0) {
     return `No search results found for "${query}".`;
@@ -62,17 +47,41 @@ function formatResults(content: string, query: string): string {
   return `Grok search results for "${query}":\n\n${content}`;
 }
 
+function missingCredentialResult(preference: "oauth" | undefined): {
+  content: [{ type: "text"; text: string }];
+  details: { error: string };
+} {
+  if (preference === "oauth") {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            "Grok Search is set to use xAI OAuth, but no usable SuperGrok / X Premium " +
+            "token was found. Run /login xai or /grok_setup to configure credentials.",
+        },
+      ],
+      details: { error: "missing_oauth" },
+    };
+  }
+  return {
+    content: [
+      {
+        type: "text",
+        text: "Search cancelled: no xAI API key provided. Run /grok_setup to configure one.",
+      },
+    ],
+    details: { error: "missing_api_key" },
+  };
+}
+
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
-  // -- /grok_setup (user-facing command)
-  // The input is captured by the TUI and never enters the LLM's context.
-  // Onboarding writes the `grok` id — it never overwrites the shared real `xai`
-  // provider key.
   pi.registerCommand("grok_setup", {
-    description: "Set up or update your Grok / xAI API key (never shown to the agent).",
+    description: "Set up Grok Search (xAI OAuth or an API key; never shown to the agent).",
     handler: async (_args, ctx) => {
-      const result = await onboardSecret(ctx, { name: "grok", label: "Grok / xAI" });
+      const result = await runGrokSetup(ctx);
       ctx.ui.notify(result.message, result.ok ? "info" : "warning");
     },
   });
@@ -81,30 +90,23 @@ export default function (pi: ExtensionAPI): void {
     name: "grok_search",
     label: "Grok Web Search",
     description:
-      // Improved tool description for better intent matching and reasoning support.
       "Performs real-time web research using xAI Grok. Call this to get up-to-date information on topics beyond your training cutoff, verify facts, or perform complex synthesis of live web data when reasoning and multi-source analysis are required.",
     parameters: grokSearchSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      let apiKey = await resolveGrokKey();
+      let auth = await resolveGrokAuth(signal);
 
-      // Auto-onboard: run the availability-branched onboarding flow if no key is
-      // configured, then re-resolve. Onboarding writes the `grok` id.
-      if (!apiKey) {
+      if (!auth) {
+        const preference = await readCredentialPreference();
+        if (preference === "oauth") {
+          return missingCredentialResult("oauth");
+        }
         const r = await onboardSecret(ctx, { name: "grok", label: "Grok / xAI" });
         if (r.ok) {
-          apiKey = await resolveGrokKey();
+          auth = await resolveGrokAuth(signal);
         }
       }
-      if (!apiKey) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Search cancelled: no xAI API key provided. Run /grok_setup to configure one.",
-            },
-          ],
-          details: { error: "missing_api_key" },
-        };
+      if (!auth) {
+        return missingCredentialResult(undefined);
       }
 
       try {
@@ -112,7 +114,7 @@ export default function (pi: ExtensionAPI): void {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${auth.token}`,
           },
           body: JSON.stringify({
             model: "grok-3",
@@ -129,11 +131,11 @@ export default function (pi: ExtensionAPI): void {
                 {
                   type: "text",
                   text:
-                    "xAI API error: 401 Unauthorized. Your xAI API key may be missing " +
+                    "xAI API error: 401 Unauthorized. Your xAI credential may be missing " +
                     "or invalid. Run /grok_setup to configure it.",
                 },
               ],
-              details: { status: 401 },
+              details: { status: 401, source: auth.source },
             };
           }
           if (response.status === 429) {
@@ -146,7 +148,7 @@ export default function (pi: ExtensionAPI): void {
                     "please wait a moment and try again.",
                 },
               ],
-              details: { status: 429 },
+              details: { status: 429, source: auth.source },
             };
           }
 
@@ -158,7 +160,7 @@ export default function (pi: ExtensionAPI): void {
                 text: `xAI API error: ${String(response.status)} ${response.statusText}\n${errorText}`,
               },
             ],
-            details: { status: response.status, body: errorText },
+            details: { status: response.status, body: errorText, source: auth.source },
           };
         }
 
@@ -169,13 +171,13 @@ export default function (pi: ExtensionAPI): void {
         const content = messageItem?.content?.[0]?.text ?? "";
         return {
           content: [{ type: "text", text: formatResults(content, params.query) }],
-          details: { raw: data },
+          details: { raw: data, source: auth.source },
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
           content: [{ type: "text", text: `Error performing Grok search: ${message}` }],
-          details: { error: message },
+          details: { error: message, source: auth.source },
         };
       }
     },
