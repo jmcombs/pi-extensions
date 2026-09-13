@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.2.0...better-toolsy/v1.2.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **better-toolsy:** search files in grep without spawn ENOTDIR ([#260](https://github.com/jmcombs/pi-extensions/issues/260)) ([899964f](https://github.com/jmcombs/pi-extensions/commit/899964f4b092b2f8cc95a1d3a64d467893d5c896))
+
 ## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/better-toolsy/v1.1.3...better-toolsy/v1.2.0) (2026-07-09)
 
 
