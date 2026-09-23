@@ -4,8 +4,8 @@
  * `cursor-agent -p`, never a permission-bypass flag (D2).
  *
  * Field/behavior notes below were confirmed by running `cursor-agent`
- * 2026.09.10-fd3934a directly (not just its `--help` text or vendor docs) —
- * re-verify after a CLI upgrade:
+ * 2026.09.10-fd3934a / 2026.09.18-9a7762b directly (not just `--help` or vendor
+ * docs) — re-verify after a CLI upgrade:
  *
  * ── Output envelope (`--output-format stream-json`) ──
  * NDJSON. Success is the last `{ type: "result", subtype: "success", is_error:
@@ -22,12 +22,19 @@
  *
  * ── Model ids ──
  * Listed ids only. Parameterized forms such as
- * `claude-opus-4-8[context=300k,effort=high]` are rejected. Pi `opus` with
- * thinking off maps to `claude-opus-4-8-high`; Pi thinking `high` maps to
- * `claude-opus-4-8-thinking-high`. `auto` is passed through. `resolveCursorModel`
- * strips the `relay-cursor/` prefix and uses the Pi thinking suffix (`:high`,
- * `:off`, …) to pick the listed id; an id that does not resolve throws instead
- * of being forwarded to `--model`.
+ * `claude-opus-4-8[context=300k,effort=high]` are rejected.
+ *
+ * Cursor Agent encodes effort/thinking IN the listed `--model` id (unlike Claude
+ * Code, which uses `--model claude-opus-5-5` + `--effort`). Account catalogs are
+ * live (`cursor-agent --list-models`); the shapes below match Cursor's published
+ * Opus 5.5 / Composer catalog and the prior live Opus 4.8 verify:
+ *   - Pi `opus-4.8` (legacy alias `opus`) → `claude-opus-4-8-high` / `…-thinking-*`
+ *   - Pi `opus-5.5` → `claude-opus-5-5-medium` (default) / `claude-opus-5-5-<level>`
+ *   - Pi `cursor` → `composer-2.5` (Cursor's own agentic model)
+ *   - Pi `auto` → `auto`
+ * `resolveCursorModel` strips `relay-cursor/` and uses the Pi thinking suffix to
+ * pick the listed id; an id that does not resolve throws instead of being
+ * forwarded to `--model`.
  *
  * ── Tool/permission model ──
  * `--print` has access to all tools, including write and shell. `--force` /
@@ -59,19 +66,29 @@ import {
 } from "./claude.js";
 import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
-/** Pi model id → Cursor `--model` id when thinking is off. */
+/** Pi model id → Cursor `--model` id when thinking is off / not remapped. */
 export const CURSOR_MODEL_MAP: Readonly<Record<string, string>> = {
   auto: "auto",
+  /** Cursor's own agentic model (Composer 2.5). */
+  cursor: "composer-2.5",
+  /**
+   * Opus 4.8 High (default listed id). Thinking remaps via
+   * {@link CURSOR_OPUS_48_BY_THINKING}. Legacy Pi id `opus` resolves here too.
+   */
+  "opus-4.8": "claude-opus-4-8-high",
+  /** @deprecated Prefer `opus-4.8`. Kept so existing `relay-cursor/opus` roles keep working. */
   opus: "claude-opus-4-8-high",
+  /** Default Opus 5.5 effort (medium). Thinking remaps via {@link CURSOR_OPUS_55_BY_THINKING}. */
+  "opus-5.5": "claude-opus-5-5-medium",
 };
 
 /**
  * Pi thinking → Cursor listed Opus 4.8 id. Thinking is encoded in the listed
  * `--model` id (`…-thinking-high`), not a separate flag. `off` is effort-high
- * without thinking. `minimal` has no Cursor row and clamps to thinking-low.
- * `-fast` variants are unused (Pi has no fast axis).
+ * without thinking ("Opus 4.8 High"). `minimal` has no Cursor row and clamps to
+ * thinking-low. `-fast` variants are unused (Pi has no fast axis).
  */
-export const CURSOR_OPUS_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> = {
+export const CURSOR_OPUS_48_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> = {
   off: "claude-opus-4-8-high",
   minimal: "claude-opus-4-8-thinking-low",
   low: "claude-opus-4-8-thinking-low",
@@ -81,10 +98,35 @@ export const CURSOR_OPUS_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> 
   max: "claude-opus-4-8-thinking-max",
 };
 
+/** @deprecated Use {@link CURSOR_OPUS_48_BY_THINKING}. */
+export const CURSOR_OPUS_BY_THINKING = CURSOR_OPUS_48_BY_THINKING;
+
+/**
+ * Pi thinking → Cursor listed Opus 5.5 id. Cursor bakes effort into the listed
+ * id (`claude-opus-5-5-medium`, …) — there is no separate `--effort` flag and no
+ * `-thinking-` infix (unlike Opus 4.8). Thinking cannot be disabled on Opus 5.5,
+ * so `off` maps to medium (Cursor + Anthropic default). `minimal` clamps to low.
+ * `-fast` variants unused.
+ *
+ * IDs match Cursor's Opus 5.5 catalog (`claude-opus-5-5-<level>`). Confirm with
+ * an authenticated `cursor-agent --list-models` after CLI upgrades — the catalog
+ * is account/server-driven.
+ */
+export const CURSOR_OPUS_55_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> = {
+  off: "claude-opus-5-5-medium",
+  minimal: "claude-opus-5-5-low",
+  low: "claude-opus-5-5-low",
+  medium: "claude-opus-5-5-medium",
+  high: "claude-opus-5-5-high",
+  xhigh: "claude-opus-5-5-xhigh",
+  max: "claude-opus-5-5-max",
+};
+
 /** The Cursor `--model` values this driver may emit, accepted verbatim on input. */
 const CURSOR_LISTED_IDS: ReadonlySet<string> = new Set([
   ...Object.values(CURSOR_MODEL_MAP),
-  ...Object.values(CURSOR_OPUS_BY_THINKING),
+  ...Object.values(CURSOR_OPUS_48_BY_THINKING),
+  ...Object.values(CURSOR_OPUS_55_BY_THINKING),
 ]);
 
 /**
@@ -92,22 +134,23 @@ const CURSOR_LISTED_IDS: ReadonlySet<string> = new Set([
  *
  * Pi hands the driver the model string as written in the role file, which may
  * carry the `relay-cursor/` provider prefix and/or a pi thinking level
- * (`relay-cursor/opus:high`). Cursor's `--model` accepts listed ids only, so the
- * prefix is stripped and the thinking level selects the matching listed id
- * (`opus:high` → `claude-opus-4-8-thinking-high`). `auto` is passed through
- * unchanged (no thinking-encoded listed ids). An id that does not resolve to a
- * listed id throws here rather than reaching `--model`.
+ * (`relay-cursor/opus-4.8:high`). Cursor's `--model` accepts listed ids only, so
+ * the prefix is stripped and the thinking level selects the matching listed id.
+ * `auto` and `cursor` are passed through unchanged. An id that does not resolve
+ * to a listed id throws here rather than reaching `--model`.
  */
 export function resolveCursorModel(piId: string, thinking?: PiThinkingLevel): string {
   const parsed = parseModelThinking(piId);
   const level = thinking ?? parsed.thinking ?? "off";
   const id = parsed.bareId;
   if (id === "auto") return "auto";
-  if (id === "opus") return CURSOR_OPUS_BY_THINKING[level];
+  if (id === "cursor") return "composer-2.5";
+  if (id === "opus" || id === "opus-4.8") return CURSOR_OPUS_48_BY_THINKING[level];
+  if (id === "opus-5.5") return CURSOR_OPUS_55_BY_THINKING[level];
   if (CURSOR_LISTED_IDS.has(id)) return id;
   throw new Error(
     `relay-cursor: \`${piId}\` is not a supported relay-cursor model. ` +
-      `Use one of: ${Object.keys(CURSOR_MODEL_MAP).join(", ")}.`,
+      `Use one of: auto, cursor, opus-4.8, opus-5.5 (legacy alias: opus).`,
   );
 }
 

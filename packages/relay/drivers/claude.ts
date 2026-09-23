@@ -25,6 +25,31 @@
 import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
 
 /**
+ * Pi model id → Claude Code `--model` value.
+ *
+ * Claude Code accepts aliases (`opus`, `sonnet`, `haiku`) and full ids
+ * (`claude-opus-5-5`). Confirmed in Claude Code 2.1.280 package strings and
+ * docs (`code.claude.com/docs/en/model-config`): `opus` is still the rolling
+ * Opus alias (Opus 4.8 on the Anthropic API as of that doc); pin Opus 5.5 with
+ * `claude-opus-5-5` and control depth via `--effort` (default medium on 5.5).
+ * `opus-4.8` pins `claude-opus-4-8`. Unknown ids are passed through so a future
+ * Claude alias does not need a relay release to reach `--model`.
+ */
+export const CLAUDE_MODEL_MAP: Readonly<Record<string, string>> = {
+  opus: "opus",
+  "opus-4.8": "claude-opus-4-8",
+  "opus-5.5": "claude-opus-5-5",
+  sonnet: "sonnet",
+  haiku: "haiku",
+};
+
+/** Resolve a pi model id to the Claude Code `--model` value (strips provider/thinking). */
+export function resolveClaudeModel(piId: string): string {
+  const id = parseModelThinking(piId).bareId;
+  return CLAUDE_MODEL_MAP[id] ?? id;
+}
+
+/**
  * A single, backend-neutral dispatch request. The relay provider assembles this
  * from the pi model id (→ {@link model}), the pi subagent's system prompt
  * (→ {@link systemPromptFile}), and its **pi-neutral** tool set (→ {@link tools}).
@@ -232,7 +257,7 @@ export const claudeDriver: AgentDriver = {
       "--verbose",
       "--include-partial-messages",
       "--model",
-      parsed.bareId,
+      resolveClaudeModel(invocation.model),
     ];
     if (effort !== undefined) args.push("--effort", effort);
 

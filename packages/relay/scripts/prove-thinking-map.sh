@@ -57,10 +57,14 @@ cmd_catalog() {
   printf '%s\n' "$CATALOG"
   printf '\n'
   expect_catalog_row relay-claude opus 1M 64K yes
+  expect_catalog_row relay-claude opus-4.8 1M 64K yes
+  expect_catalog_row relay-claude opus-5.5 1M 128K yes
   expect_catalog_row relay-claude sonnet 1M 64K yes
   expect_catalog_row relay-claude haiku 200K 32K yes
   expect_catalog_row relay-grok grok-4.5 500K 500K yes
-  expect_catalog_row relay-cursor opus 1M 128K yes
+  expect_catalog_row relay-cursor opus-4.8 1M 128K yes
+  expect_catalog_row relay-cursor opus-5.5 1M 128K yes
+  expect_catalog_row relay-cursor cursor 200K 64K yes
   expect_catalog_row relay-cursor auto 200K 64K yes
   expect_catalog_row relay-grok grok-composer-2.5-fast 200K 64K yes
   if printf '%s\n' "$CATALOG" | awk '$5=="no"{exit 0} END{exit 1}'; then
@@ -178,9 +182,12 @@ cmd_argv() {
 
   run_one "relay-claude/opus:high"
   run_one "relay-claude/opus:off"
+  run_one "relay-claude/opus-5.5:medium"
   run_one "relay-grok/grok-4.5:high"
-  run_one "relay-cursor/opus:high"
-  run_one "relay-cursor/opus:off"
+  run_one "relay-cursor/opus-4.8:high"
+  run_one "relay-cursor/opus-4.8:off"
+  run_one "relay-cursor/opus-5.5:medium"
+  run_one "relay-cursor/cursor:high"
   run_one "relay-cursor/auto:high"
 
   cmd_assert
@@ -194,11 +201,15 @@ cmd_assert() {
   must_have "relay-claude/opus:high" '--effort high'
   must_have "relay-claude/opus:off" '--model opus'
   must_not "relay-claude/opus:off" '--effort'
+  must_have "relay-claude/opus-5.5:medium" '--model claude-opus-5-5'
+  must_have "relay-claude/opus-5.5:medium" '--effort medium'
   must_have "relay-grok/grok-4.5:high" '--reasoning-effort high'
-  must_have "relay-cursor/opus:high" '--model claude-opus-4-8-thinking-high'
-  must_not "relay-cursor/opus:high" '--model claude-opus-4-8-high'
-  must_have "relay-cursor/opus:off" '--model claude-opus-4-8-high'
-  must_not "relay-cursor/opus:off" 'thinking-high'
+  must_have "relay-cursor/opus-4.8:high" '--model claude-opus-4-8-thinking-high'
+  must_not "relay-cursor/opus-4.8:high" '--model claude-opus-4-8-high'
+  must_have "relay-cursor/opus-4.8:off" '--model claude-opus-4-8-high'
+  must_not "relay-cursor/opus-4.8:off" 'thinking-high'
+  must_have "relay-cursor/opus-5.5:medium" '--model claude-opus-5-5-medium'
+  must_have "relay-cursor/cursor:high" '--model composer-2.5'
   must_have "relay-cursor/auto:high" '--model auto'
   must_not "relay-cursor/auto:high" 'thinking-high'
   printf '\n== ARGV lines ==\n'
@@ -210,7 +221,7 @@ usage() {
 usage: $0 catalog|argv|assert|all
 
   catalog  pi --list-models through the worktree package (no backend spend)
-  argv     wrap claude/grok/cursor-agent, run six -p completions, assert flags
+  argv     wrap claude/grok/cursor-agent, run -p completions, assert flags
   assert   re-check /tmp/relay-argv.log from a previous argv run (no backends)
   all      catalog then argv
 

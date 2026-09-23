@@ -13,9 +13,10 @@
 > on an **external coding agent** instead of a local model — just by setting its
 > `model`. Relay registers pi **providers** (`relay-claude`, `relay-grok`,
 > `relay-cursor`); a subagent whose `model` is `relay-claude/opus`,
-> `relay-grok/grok-4.5`, or `relay-cursor/opus` routes through relay to a headless
-> **Claude Opus** (`claude -p`), **Grok Build** (`grok -p`), or **Cursor Agent**
-> (`cursor-agent -p`), which runs its own tool loop and returns the final result.
+> `relay-grok/grok-4.5`, `relay-cursor/cursor`, `relay-cursor/opus-4.8`, or
+> `relay-cursor/opus-5.5` routes through relay to a headless **Claude** (`claude -p`),
+> **Grok Build** (`grok -p`), or **Cursor Agent** (`cursor-agent -p`), which runs its
+> own tool loop and returns the final result.
 
 > **Not affiliated with or endorsed by Anthropic, xAI, or Anysphere. Claude and
 > Opus are trademarks of Anthropic, PBC; Grok is a trademark of xAI; Cursor is a
@@ -36,10 +37,13 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
 `SKILL.md`s). Nothing about the subagent changes except the processor:
 
 - **Trigger + model** — set a subagent's `model` to `relay-claude/opus`,
-  `relay-grok/grok-4.5`, or `relay-cursor/opus`. pi's native `resolveModel` routes
+  `relay-claude/opus-5.5`, `relay-grok/grok-4.5`, `relay-cursor/cursor`,
+  `relay-cursor/opus-4.8`, or `relay-cursor/opus-5.5`. pi's native `resolveModel` routes
   the completion to relay's registered provider → `claudeDriver` / `grokDriver` /
-  `cursorDriver` → `claude -p … --model opus --effort <level>` / `grok -p … --model grok-4.5 --reasoning-effort <level>` /
-  `cursor-agent -p … --model claude-opus-4-8-thinking-high` (Pi thinking selects the listed Cursor id).
+  `cursorDriver` → `claude -p … --model opus|claude-opus-5-5 --effort <level>` /
+  `grok -p … --model grok-4.5 --reasoning-effort <level>` /
+  `cursor-agent -p … --model composer-2.5|claude-opus-4-8-thinking-high|claude-opus-5-5-medium`
+  (Pi thinking selects Claude/Grok effort flags, or the listed Cursor id).
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
   a skill injection into the (child) session's system prompt, where skills are
   `<available_skills>` **references** (name/description/location). Relay reads each
@@ -90,19 +94,39 @@ other subagents. Grok is invoked with `--permission-mode dontAsk` plus one
 `relay-cursor` (Cursor Agent, `cursor-agent -p`) is a third live driver. Cursor is
 invoked with `--output-format stream-json` and `--trust` (skip the workspace-trust prompt).
 `--force` / `--yolo` (Cursor's permission bypass) and `--sandbox` are **never**
-passed. Pi `relay-cursor/auto` maps to `--model auto`. Pi `relay-cursor/opus` maps
-by thinking level onto Cursor listed ids (`opus` / `:off` → `claude-opus-4-8-high`;
-`:high` → `claude-opus-4-8-thinking-high`). The mapper strips the `relay-cursor/`
-provider prefix first; an id that does not resolve to a listed id is rejected up
-front rather than forwarded. Cursor has no system-prompt flag, so persona +
+passed. Pi model → Cursor `--model` map:
+
+| Pi id | Cursor `--model` (thinking off / default) | Notes |
+| --- | --- | --- |
+| `relay-cursor/auto` | `auto` | Thinking does not change the id |
+| `relay-cursor/cursor` | `composer-2.5` | Cursor's own Composer 2.5 model |
+| `relay-cursor/opus-4.8` | `claude-opus-4-8-high` | Renamed from `opus`; `:high` → `…-thinking-high` |
+| `relay-cursor/opus-5.5` | `claude-opus-5-5-medium` | Effort baked into the listed id; `:high` → `…-high` |
+
+The mapper strips the `relay-cursor/` provider prefix first; an id that does not
+resolve to a listed id is rejected up front rather than forwarded. Legacy
+`relay-cursor/opus` still resolves in the driver to the Opus 4.8 High family but
+is no longer in the provider catalog. Cursor has no system-prompt flag, so persona +
 skills are prepended onto the user prompt. Tool scoping overlays allow/deny rules
 on a **seeded** temp `CURSOR_CONFIG_DIR` (copy of the user's Cursor config home,
 not a lone `cli-config.json` — that hangs headless tool calls until the wall-cap;
 see #254). No-tools roles still seed that dir and fail-closed `deny` `Write(**/*)`
 so Cursor cannot fall through to `~/.cursor`.
 
-Claude and Grok keep `--model` as the alias (`opus`, `grok-4.5`) and apply Pi
-thinking as `--effort` / `--reasoning-effort`. Relay catalogs these models with
+Claude Code and Cursor name the same Anthropic models differently:
+
+| Goal | Claude Code (`claude -p`) | Cursor Agent (`cursor-agent -p`) |
+| --- | --- | --- |
+| Opus 4.8 | `--model opus` or `--model claude-opus-4-8` + optional `--effort` | Listed id `claude-opus-4-8-high` / `claude-opus-4-8-thinking-<level>` |
+| Opus 5.5 Medium | `--model claude-opus-5-5 --effort medium` | Listed id `claude-opus-5-5-medium` |
+| Composer 2.5 | n/a | `--model composer-2.5` |
+
+Confirm Cursor account availability with an authenticated `cursor-agent --list-models`
+(catalog is server-driven). Claude Code 2.1.280+ accepts `claude-opus-5-5`; the rolling
+`opus` alias remains Opus 4.8 on the Anthropic API per Claude Code model-config docs.
+
+Claude and Grok keep `--model` as the alias / pinned id and apply Pi thinking as
+`--effort` / `--reasoning-effort`. Relay catalogs these models with
 `reasoning: true` so Pi's thinking UI matches what the drivers send.
 
 A driver/adapter seam (`AgentDriver` in `drivers/claude.ts`) keeps the provider
@@ -161,14 +185,18 @@ you use any of them by pointing a subagent (or a whole session) at it through
 ```bash
 # Route a whole session through the relay provider
 pi --model relay-claude/opus "…"
+pi --model relay-claude/opus-5.5 "…"
 pi --model relay-grok/grok-4.5 "…"
 pi --model relay-cursor/auto "…"
-pi --model relay-cursor/opus "…"
+pi --model relay-cursor/cursor "…"
+pi --model relay-cursor/opus-4.8 "…"
+pi --model relay-cursor/opus-5.5 "…"
 ```
 
 To run an existing subagent through relay, set its `model` frontmatter to
-`relay-claude/opus`, `relay-grok/grok-4.5`, or `relay-cursor/opus` and make relay
-discoverable in the subagent's child pi (an installed package, or the agent's
+`relay-claude/opus`, `relay-claude/opus-5.5`, `relay-grok/grok-4.5`,
+`relay-cursor/cursor`, `relay-cursor/opus-4.8`, or `relay-cursor/opus-5.5` and make
+relay discoverable in the subagent's child pi (an installed package, or the agent's
 `extensions` field).
 
 oh-my-pi discovers custom task agents from `~/.omp/agent/agents/*.md` and
