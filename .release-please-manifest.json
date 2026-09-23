@@ -2,7 +2,7 @@
   "packages/1password": "2.2.1",
   "packages/tavily-search": "3.0.0",
   "packages/prompt-enhancer": "4.0.0",
-  "packages/notify": "1.1.0",
+  "packages/notify": "1.2.0",
   "packages/grok-search": "2.1.0",
   "packages/context7": "2.0.0",
   "packages/better-toolsy": "1.2.1",
