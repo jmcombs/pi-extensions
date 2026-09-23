@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.4.0...relay/v1.5.0) (2026-09-23)
+
+
+### Features
+
+* **relay:** add Cursor Composer and Opus 5.5 Medium models ([#267](https://github.com/jmcombs/pi-extensions/issues/267)) ([1eba5c1](https://github.com/jmcombs/pi-extensions/commit/1eba5c1ab9616bf4077622f6df0771f5ef5dbb8f))
+
 ## [1.4.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.3.1...relay/v1.4.0) (2026-09-12)
 
 
