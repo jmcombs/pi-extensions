@@ -5,7 +5,8 @@
  * A pi-subagent runs on a headless external agent — subscription **Claude Opus via
  * `claude -p`**, **Grok Build via `grok -p`**, or **Cursor Agent via
  * `cursor-agent -p`** — simply by setting its `model` to `relay-claude/opus`,
- * `relay-grok/grok-4.5`, or `relay-cursor/opus`: pi's native `resolveModel` routes
+ * `relay-grok/grok-4.5`, `relay-cursor/cursor`, `relay-cursor/opus-4.8`, or
+ * `relay-cursor/opus-5.5`: pi's native `resolveModel` routes
  * the completion to relay's `streamSimple` handler, which runs ONE headless CLI
  * invocation and streams the external agent's final assistant text back. Persona +
  * skills reach the backend deterministically via its own system-prompt mechanism
