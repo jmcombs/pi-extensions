@@ -1,10 +1,10 @@
 # @jmcombs/pi-notify
 
 A [Pi coding agent](https://pi.dev) extension that sends a notification via your
-terminal emulator's native system (OSC 777/9/99) when Pi finishes a turn and is
-waiting for your input — so you can switch away while Pi works and get tapped on
-the shoulder the moment it's done. Works in Ghostty, iTerm2, WezTerm, Kitty, etc.
-with zero OS binaries or dependencies.
+terminal emulator's native system (OSC 777/9/99) when Pi finishes a turn **or**
+blocks on interactive input (e.g. `ask_user`) — so you can switch away while Pi
+works and get tapped on the shoulder the moment it needs you. Works in Ghostty,
+iTerm2, WezTerm, Kitty, etc. with zero OS binaries or dependencies.
 
 ## Install
 
@@ -18,13 +18,30 @@ pi -e npm:@jmcombs/pi-notify
 
 ## What It Adds
 
-- **Event hook**: `agent_end` — automatically sends a terminal notification (via
-  OSC) each time the agent finishes a turn and is waiting for input.
+- **Event hook**: `agent_end` — sends a terminal notification (via OSC) each time
+  the agent finishes a turn.
+- **Event hook**: `tool_execution_start` — sends a notification when an
+  interactive tool that blocks for your input starts. Defaults to `ask_user`
+  (from [`pi-ask-user`](https://www.npmjs.com/package/pi-ask-user)); while that
+  prompt is open the agent is still running, so `agent_end` never fires.
 - **Command**: `/notify [message]` — sends a one-shot test notification. Useful for
   verifying the extension is working after install. Defaults to
   `"Waiting for your input"` when called with no argument.
 
 No tools are registered. The LLM does not call this extension directly.
+
+### Waiting-tool names
+
+By default only `ask_user` triggers a mid-run “waiting for input” notification.
+Override with a comma-separated list:
+
+```bash
+# Watch additional interactive tools
+export PI_NOTIFY_WAIT_TOOLS=ask_user,confirm
+
+# Disable mid-run wait notifications (agent_end only)
+export PI_NOTIFY_WAIT_TOOLS=
+```
 
 ## Terminal Support
 
