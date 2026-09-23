@@ -3,7 +3,7 @@
  *
  * A pi-subagent runs on an external coding agent simply by setting its `model` to
  * `relay-claude/<id>` (e.g. `relay-claude/opus`), `relay-grok/<id>` (e.g.
- * `relay-grok/grok-4.5`), or `relay-cursor/<id>` (e.g. `relay-cursor/opus`). pi's
+ * `relay-grok/grok-4.5`), or `relay-cursor/<id>` (e.g. `relay-cursor/opus-4.8`). pi's
  * native `resolveModel` routes that model to the custom `streamSimple` handler
  * registered here; the handler runs ONE headless CLI invocation through the
  * backend's {@link AgentDriver} (`claudeDriver`/`grokDriver`/`cursorDriver`) and
@@ -140,19 +140,36 @@ function toProviderModels(
 }
 
 /**
- * Models exposed by the provider. The pi model id after the slash (`opus`,
- * `sonnet`, `haiku`) is passed through as the driver's `--model` value. D1: the
- * verify role uses `relay-claude/opus`.
+ * Models exposed by the provider. The pi model id after the slash is mapped by
+ * `resolveClaudeModel` onto Claude Code `--model` (aliases `opus`/`sonnet`/`haiku`,
+ * or pinned ids such as `claude-opus-5-5`). D1: the verify role uses
+ * `relay-claude/opus` (rolling Opus alias — Opus 4.8 on Anthropic API as of Claude
+ * Code model-config docs).
  *
  * Catalog windows from live `claude -p --model <alias> --output-format json`
  * `modelUsage` (Claude Code 2.1.266): opus/sonnet → 1M / 64K, haiku → 200K / 32K.
+ * Opus 5.5 is 1M / 128K per Anthropic's model card.
  */
 const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
   {
     id: "opus",
-    name: "Relay Claude Opus",
+    name: "Relay Claude Opus 4.8",
     contextWindow: 1_000_000,
     maxTokens: 64_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  },
+  {
+    id: "opus-4.8",
+    name: "Relay Claude Opus 4.8",
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  },
+  {
+    id: "opus-5.5",
+    name: "Relay Claude Opus 5.5",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP,
   },
   {
@@ -201,9 +218,10 @@ const RELAY_GROK_MODELS: readonly RelayCatalogModel[] = [
 export const RELAY_CURSOR_PROVIDER = "relay-cursor";
 
 /**
- * Models exposed by the provider. Pi `auto` is passed through as Cursor `--model
- * auto` (thinking does not change that id). Pi `opus` maps by thinking level to
- * Cursor listed ids (`claude-opus-4-8-thinking-high`, etc.).
+ * Models exposed by the provider. Pi `auto` → Cursor `--model auto`. Pi `cursor`
+ * → Composer 2.5. Pi `opus-4.8` (legacy catalog id `opus` removed — driver still
+ * accepts the alias) and `opus-5.5` map by thinking onto Cursor listed ids
+ * (`claude-opus-4-8-high`, `claude-opus-5-5-medium`, …).
  */
 const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
   {
@@ -214,8 +232,22 @@ const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
     thinkingLevelMap: CURSOR_THINKING_MAP,
   },
   {
-    id: "opus",
-    name: "Relay Cursor Opus 4.8",
+    id: "cursor",
+    name: "Relay Cursor Composer 2.5",
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+    thinkingLevelMap: CURSOR_THINKING_MAP,
+  },
+  {
+    id: "opus-4.8",
+    name: "Relay Cursor Opus 4.8 High",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    thinkingLevelMap: CURSOR_THINKING_MAP,
+  },
+  {
+    id: "opus-5.5",
+    name: "Relay Cursor Opus 5.5 Medium",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     thinkingLevelMap: CURSOR_THINKING_MAP,
