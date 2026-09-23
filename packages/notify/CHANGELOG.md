@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/notify/v1.1.0...notify/v1.2.0) (2026-09-23)
+
+
+### Features
+
+* **notify:** notify when agent blocks on ask_user ([#269](https://github.com/jmcombs/pi-extensions/issues/269)) ([ab497af](https://github.com/jmcombs/pi-extensions/commit/ab497afaf21f665fda508b037dfcc88e40324d09)), closes [#219](https://github.com/jmcombs/pi-extensions/issues/219)
+
 ## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/notify/v1.0.1...notify/v1.1.0) (2026-05-24)
 
 
