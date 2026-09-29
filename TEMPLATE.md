@@ -68,7 +68,7 @@ Conventions:
 - TypeBox schemas for tool parameters; `Static<typeof schema>` for the input
   type. Export the input type if other extensions might want to type a
   `tool_call` event for your tool.
-- Return objects of shape `{ content, details }` from tools.
+- Return objects of shape `{ content, details }` from tools. Details must be JSON-compatible: no `unknown`, `any`, `Record<string, unknown>`, or `[key: string]: unknown`, and no explicit `undefined`. `registerTool` `parameters` must be a TypeBox `Type.Object`.
 - For secrets, depend on
   [`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
   and import `resolveSecret` / `onboardSecret` from it — resolve the key on use

@@ -21,6 +21,7 @@ import { execFile } from "node:child_process";
 import { type Dirent, promises as fs } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
@@ -185,7 +186,7 @@ export type WriteInput = Static<typeof writeSchema>;
 
 interface ToolResult {
   content: { type: "text"; text: string }[];
-  details: Record<string, unknown>;
+  details: JsonObject;
 }
 
 // ── ls ─────────────────────────────────────────────────────────────────
@@ -209,7 +210,7 @@ async function lsTool(_toolCallId: string, params: LsInput): Promise<ToolResult>
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Error listing directory: ${message}` }],
-      details: { error: true, path: params.path },
+      details: { error: true, path: params.path ?? "." } satisfies JsonValue,
     };
   }
 
@@ -234,7 +235,7 @@ async function lsTool(_toolCallId: string, params: LsInput): Promise<ToolResult>
       path: params.path ?? ".",
       entries: capped.length,
       truncated: capped.length < sorted.length,
-    },
+    } satisfies JsonValue,
   };
 }
 
@@ -257,7 +258,7 @@ export async function readTool(_toolCallId: string, params: ReadInput): Promise<
             text: `File is ${String(stat.size)} bytes (${String(totalLines)} lines). Use offset/limit to read it in chunks, e.g. {offset: 1, limit: 400}.`,
           },
         ],
-        details: { path: params.path, size: stat.size, totalLines },
+        details: { path: params.path, size: stat.size, totalLines } satisfies JsonValue,
       };
     }
 
@@ -283,19 +284,27 @@ export async function readTool(_toolCallId: string, params: ReadInput): Promise<
             text: `Requested slice is ${String(Buffer.byteLength(output, "utf-8"))} bytes, over the ${String(maxBytes)}-byte cap. Narrow the range — try a smaller limit, e.g. {offset: ${String(params.offset ?? 1)}, limit: ${String(Math.max(1, Math.floor((selected.length * maxBytes) / Buffer.byteLength(output, "utf-8"))))}}.`,
           },
         ],
-        details: { path: params.path, totalLines: lines.length, requestedLines: selected.length },
+        details: {
+          path: params.path,
+          totalLines: lines.length,
+          requestedLines: selected.length,
+        } satisfies JsonValue,
       };
     }
 
     return {
       content: [{ type: "text", text: output || "(empty file)" }],
-      details: { path: params.path, totalLines: lines.length, returnedLines: selected.length },
+      details: {
+        path: params.path,
+        totalLines: lines.length,
+        returnedLines: selected.length,
+      } satisfies JsonValue,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Error reading file: ${message}` }],
-      details: { error: true, path: params.path },
+      details: { error: true, path: params.path } satisfies JsonValue,
     };
   }
 }
@@ -363,7 +372,7 @@ export async function grepTool(_toolCallId: string, params: GrepInput): Promise<
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Error searching: ${message}` }],
-      details: { error: true, query: params.pattern, path: params.path },
+      details: { error: true, query: params.pattern, path: params.path ?? "." } satisfies JsonValue,
     };
   }
 
@@ -380,7 +389,7 @@ export async function grepTool(_toolCallId: string, params: GrepInput): Promise<
           : String(err);
     return {
       content: [{ type: "text", text: `Error searching: ${message}` }],
-      details: { error: true, query: params.pattern, path: params.path },
+      details: { error: true, query: params.pattern, path: params.path ?? "." } satisfies JsonValue,
     };
   }
 
@@ -439,7 +448,7 @@ export async function grepTool(_toolCallId: string, params: GrepInput): Promise<
       const message = err instanceof Error ? err.message : String(err);
       return {
         content: [{ type: "text", text: `Error searching: ${message}` }],
-        details: { error: true, query: params.pattern, path: searchPath },
+        details: { error: true, query: params.pattern, path: searchPath } satisfies JsonValue,
       };
     }
   }
@@ -448,7 +457,12 @@ export async function grepTool(_toolCallId: string, params: GrepInput): Promise<
     content: [
       { type: "text", text: results.length > 0 ? results.join("\n") : "No matches found." },
     ],
-    details: { query: params.pattern, path: searchPath, matches: matchCount, usedRg },
+    details: {
+      query: params.pattern,
+      path: searchPath,
+      matches: matchCount,
+      usedRg,
+    } satisfies JsonValue,
   };
 }
 
@@ -509,7 +523,11 @@ async function findTool(_toolCallId: string, params: FindInput): Promise<ToolRes
 
   return {
     content: [{ type: "text", text: results.length > 0 ? results.join("\n") : "No files found." }],
-    details: { query: params.pattern, path: searchDir, filesFound: results.length },
+    details: {
+      query: params.pattern,
+      path: searchDir,
+      filesFound: results.length,
+    } satisfies JsonValue,
   };
 }
 
@@ -580,7 +598,7 @@ export async function editTool(_toolCallId: string, params: EditInput): Promise<
   if (!normalized.ok) {
     return {
       content: [{ type: "text", text: `Edit failed: ${normalized.error}` }],
-      details: { error: true, path: params.path },
+      details: { error: true, path: params.path } satisfies JsonValue,
     };
   }
   const edits = normalized.edits;
@@ -600,7 +618,7 @@ export async function editTool(_toolCallId: string, params: EditInput): Promise<
               text: `Edit failed: oldText not found in ${relative(process.cwd(), filePath)}.\n"${edit.oldText.slice(0, 80)}${edit.oldText.length > 80 ? "…" : ""}"`,
             },
           ],
-          details: { error: true, path: params.path },
+          details: { error: true, path: params.path } satisfies JsonValue,
         };
       }
 
@@ -613,7 +631,7 @@ export async function editTool(_toolCallId: string, params: EditInput): Promise<
               text: `Edit failed: oldText appears ${String(countOccurrences(content, edit.oldText))} times in ${relative(process.cwd(), filePath)}. Add more surrounding context to make it unique.`,
             },
           ],
-          details: { error: true, path: params.path },
+          details: { error: true, path: params.path } satisfies JsonValue,
         };
       }
 
@@ -630,13 +648,13 @@ export async function editTool(_toolCallId: string, params: EditInput): Promise<
           text: `Edited ${relative(process.cwd(), filePath)} — applied ${String(edits.length)} edit${edits.length === 1 ? "" : "s"}.`,
         },
       ],
-      details: { path: params.path, edits: edits.length },
+      details: { path: params.path, edits: edits.length } satisfies JsonValue,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Error editing file: ${message}` }],
-      details: { error: true, path: params.path },
+      details: { error: true, path: params.path } satisfies JsonValue,
     };
   }
 }
@@ -669,13 +687,13 @@ async function writeTool(_toolCallId: string, params: WriteInput): Promise<ToolR
           text: `Wrote ${relative(process.cwd(), filePath)} (${String(stat.size)} bytes).`,
         },
       ],
-      details: { path: params.path, size: stat.size },
+      details: { path: params.path, size: stat.size } satisfies JsonValue,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text", text: `Error writing file: ${message}` }],
-      details: { error: true, path: params.path },
+      details: { error: true, path: params.path } satisfies JsonValue,
     };
   }
 }

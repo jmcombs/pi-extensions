@@ -21,6 +21,7 @@
  * returned `isError` (which pi ignores on a returned result) and never a throw.
  */
 
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { onboardSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
@@ -39,6 +40,45 @@ const grokSearchSchema = Type.Object({
 });
 
 export type GrokSearchInput = Static<typeof grokSearchSchema>;
+
+export function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return true;
+    case "object": {
+      if (Array.isArray(value)) return value.every(isJsonValue);
+      const nested: unknown[] = Object.values(value);
+      return nested.every(isJsonValue);
+    }
+    default:
+      return false;
+  }
+}
+
+function asJsonObject(value: JsonValue): JsonObject | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as JsonObject;
+}
+
+function grokMessageText(data: JsonValue): string {
+  const obj = asJsonObject(data);
+  if (!obj) return "";
+  const output = obj.output;
+  if (!Array.isArray(output)) return "";
+  const messageItem = output.find((item) => asJsonObject(item)?.type === "message");
+  const messageObj = messageItem === undefined ? undefined : asJsonObject(messageItem);
+  if (!messageObj) return "";
+  const content = messageObj.content;
+  if (!Array.isArray(content)) return "";
+  const first = content[0];
+  if (first === undefined) return "";
+  const firstObj = asJsonObject(first);
+  if (!firstObj) return "";
+  return typeof firstObj.text === "string" ? firstObj.text : "";
+}
 
 function formatResults(content: string, query: string): string {
   if (!content || content.trim().length === 0) {
@@ -165,10 +205,13 @@ export default function (pi: ExtensionAPI): void {
         }
 
         const data: unknown = await response.json();
-        const output =
-          (data as { output?: { type?: string; content?: { text?: string }[] }[] }).output ?? [];
-        const messageItem = output.find((o) => o.type === "message");
-        const content = messageItem?.content?.[0]?.text ?? "";
+        if (!isJsonValue(data)) {
+          return {
+            content: [{ type: "text", text: "xAI API returned invalid JSON." }],
+            details: { error: "invalid_json", source: auth.source },
+          };
+        }
+        const content = grokMessageText(data);
         return {
           content: [{ type: "text", text: formatResults(content, params.query) }],
           details: { raw: data, source: auth.source },

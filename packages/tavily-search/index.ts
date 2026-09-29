@@ -16,6 +16,7 @@
  *    3. `/tavily_setup` runs the same onboarding flow on demand.
  */
 
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
@@ -54,6 +55,62 @@ interface TavilySearchResponse {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
+
+export function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return true;
+    case "object": {
+      if (Array.isArray(value)) return value.every(isJsonValue);
+      const nested: unknown[] = Object.values(value);
+      return nested.every(isJsonValue);
+    }
+    default:
+      return false;
+  }
+}
+
+function asJsonObject(value: JsonValue): JsonObject | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as JsonObject;
+}
+
+function toTavilySearchResponse(data: JsonValue): TavilySearchResponse {
+  const obj = asJsonObject(data);
+  if (!obj) return {};
+  const out: TavilySearchResponse = {};
+  if (typeof obj.query === "string") out.query = obj.query;
+  if (typeof obj.answer === "string") out.answer = obj.answer;
+  if (Array.isArray(obj.results)) {
+    const results: TavilySearchResult[] = [];
+    for (const item of obj.results) {
+      const entry = asJsonObject(item);
+      if (!entry) continue;
+      if (
+        typeof entry.title !== "string" ||
+        typeof entry.url !== "string" ||
+        typeof entry.content !== "string"
+      ) {
+        continue;
+      }
+      const result: TavilySearchResult = {
+        title: entry.title,
+        url: entry.url,
+        content: entry.content,
+      };
+      if (typeof entry.score === "number") result.score = entry.score;
+      if (typeof entry.raw_content === "string" || entry.raw_content === null) {
+        result.raw_content = entry.raw_content;
+      }
+      results.push(result);
+    }
+    out.results = results;
+  }
+  return out;
+}
 
 function formatResults(data: TavilySearchResponse, query: string): string {
   const results = data.results ?? [];
@@ -132,9 +189,18 @@ export default function (pi: ExtensionAPI): void {
           };
         }
 
-        const data = (await response.json()) as TavilySearchResponse;
+        const parsed: unknown = await response.json();
+        if (!isJsonValue(parsed)) {
+          return {
+            content: [{ type: "text", text: "Tavily API returned invalid JSON." }],
+            details: { error: "invalid_json" },
+          };
+        }
+        const data = parsed;
         return {
-          content: [{ type: "text", text: formatResults(data, params.query) }],
+          content: [
+            { type: "text", text: formatResults(toTavilySearchResponse(data), params.query) },
+          ],
           details: { raw: data },
         };
       } catch (error) {

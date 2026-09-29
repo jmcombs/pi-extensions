@@ -14,7 +14,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory from "./index.js";
+import factory, { isJsonValue } from "./index.js";
 
 interface RegistrationLog {
   tools: string[];
@@ -88,5 +88,14 @@ describe("@jmcombs/pi-grok-search", () => {
 
     expect(log.tools).toContain("grok_search");
     expect(log.commands).toContain("grok_setup");
+  });
+
+  it("grok-search isJsonValue rejects undefined", () => {
+    expect(isJsonValue({ ok: true, n: 1 })).toBe(true);
+    expect(isJsonValue([1, "two", null])).toBe(true);
+    expect(isJsonValue(null)).toBe(true);
+    expect(isJsonValue("hello")).toBe(true);
+    expect(isJsonValue(undefined)).toBe(false);
+    expect(isJsonValue({ path: undefined })).toBe(false);
   });
 });

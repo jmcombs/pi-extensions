@@ -14,7 +14,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory from "./index.js";
+import factory, { isJsonValue } from "./index.js";
 
 interface RegistrationLog {
   tools: string[];
@@ -89,5 +89,14 @@ describe("@jmcombs/pi-context7", () => {
     expect(log.tools).toContain("context7_search");
     expect(log.tools).toContain("context7_get_docs");
     expect(log.commands).toContain("context7_setup");
+  });
+
+  it("context7 isJsonValue rejects undefined", () => {
+    expect(isJsonValue({ ok: true, n: 1 })).toBe(true);
+    expect(isJsonValue([1, "two", null])).toBe(true);
+    expect(isJsonValue(null)).toBe(true);
+    expect(isJsonValue("hello")).toBe(true);
+    expect(isJsonValue(undefined)).toBe(false);
+    expect(isJsonValue({ path: undefined })).toBe(false);
   });
 });

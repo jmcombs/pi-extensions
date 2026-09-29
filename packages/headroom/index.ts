@@ -492,7 +492,7 @@ function fullRetrieveResult(
     content: [{ type: "text", text: result.originalContent }],
     details: {
       hash,
-      query,
+      ...(typeof query === "string" ? { query } : {}),
       toolName: result.toolName,
       originalTokens: result.originalTokens,
       originalItemCount: result.originalItemCount,
@@ -533,7 +533,7 @@ export async function retrieveExecute(
         content: [
           { type: "text", text: `Headroom could not retrieve the original for hash ${hash}.` },
         ],
-        details: { hash, query },
+        details: { hash, ...(typeof query === "string" ? { query } : {}) },
       };
     }
 
@@ -547,7 +547,7 @@ export async function retrieveExecute(
           content: [{ type: "text", text: header + matches.join("\n") }],
           details: {
             hash,
-            query,
+            ...(typeof query === "string" ? { query } : {}),
             toolName: full.toolName,
             originalTokens: full.originalTokens,
             originalItemCount: full.originalItemCount,
@@ -565,7 +565,7 @@ export async function retrieveExecute(
         content: [{ type: "text", text: prefix + full.originalContent }],
         details: {
           hash,
-          query,
+          ...(typeof query === "string" ? { query } : {}),
           toolName: full.toolName,
           originalTokens: full.originalTokens,
           originalItemCount: full.originalItemCount,
@@ -588,7 +588,11 @@ export async function retrieveExecute(
           text: `Headroom retrieve failed for hash ${hash}: ${message}. The hash may be invalid/expired, or the Headroom proxy may be unreachable.`,
         },
       ],
-      details: { hash, query: params.query, error: true },
+      details: {
+        hash,
+        ...(typeof params.query === "string" ? { query: params.query } : {}),
+        error: true,
+      },
     };
   }
 }
