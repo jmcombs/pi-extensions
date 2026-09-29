@@ -948,28 +948,28 @@ request.
 
 ### Actionable TODOs
 
-- [ ] `packages/1password/op-account.ts`: export
+- [x] `packages/1password/op-account.ts`: export
       `opAccountFromUnknown(value: unknown): { name?: string; email?: string;
       account_uuid?: string; url?: string } | null`. Copy only those keys when
       the value is a string. Ignore every other key. Return `null` for
       non-objects. No `Record<string, unknown>`.
-- [ ] `packages/1password/op-account.test.ts`: fixture objects only. A whoami-shaped
+- [x] `packages/1password/op-account.test.ts`: fixture objects only. A whoami-shaped
       object keeps the four string fields and drops a nested object and an
       `undefined` field. A string input returns `null`. Test title:
       `opAccountFromUnknown keeps only JSON account strings`.
-- [ ] `packages/1password/index.ts`: `OpStatus.account` uses the return type of
+- [x] `packages/1password/index.ts`: `OpStatus.account` uses the return type of
       `opAccountFromUnknown`. The `op whoami` parse goes through that function,
       not `as Record<string, unknown>`. `formatOpStatus` reads `name`, `email`,
       `account_uuid`, and `url` without casts. The object returned as
       `1p_diagnose` `details` is `satisfies JsonValue`. Leave `AuthJson` and the
       auth.json writer alone except for that parse.
-- [ ] `packages/1password/bash-env.ts`: export `mergeShellEnv` and
+- [x] `packages/1password/bash-env.ts`: export `mergeShellEnv` and
       `userBashOperationsResult` with the contracts above. `exec` forwards
       `onData`, `signal`, and `timeout` and always passes the merged `env`.
       When the caller omits `env`, the base is the rebuilt shell env, computed
       at call time from `piRuntime.getAgentDir()`, not `process.env` alone and
       not a module-load cache.
-- [ ] `packages/1password/bash-env.test.ts`: a fixture `exec` records the env it
+- [x] `packages/1password/bash-env.test.ts`: a fixture `exec` records the env it
       receives. Assert overlay wins over a base `PATH`. For the omitted-env
       case, `mkdtemp` a fresh empty directory, save `PI_CODING_AGENT_DIR`, set
       it to that directory, and restore it in `finally` (delete the key when
@@ -985,17 +985,17 @@ request.
       function. Test titles: `mergeShellEnv keeps the pi bin directory on PATH`,
       `userBashOperationsResult returns undefined on throw`,
       `userBashOperationsResult rejects a non-function exec`.
-- [ ] `packages/1password/bash-env.test.ts`: call
+- [x] `packages/1password/bash-env.test.ts`: call
       `userBashOperationsResult(() => createLocalBashOperations(), () =>
       ({ PI_EXT_087_MARKER: "injected-087" }))` and `exec` the command
       `printf '%s' "$PI_EXT_087_MARKER"` with `cwd` set to `os.tmpdir()`,
       collecting `onData`. Assert the decoded output is `injected-087`. Test
       title: `wrapped local exec injects the overlay`. Timeout `15000`.
-- [ ] `packages/1password/index.ts`: the bash-tool `spawnHook` calls
+- [x] `packages/1password/index.ts`: the bash-tool `spawnHook` calls
       `mergeShellEnv`. The `user_bash` handler returns
       `userBashOperationsResult(() => piRuntime.createLocalBashOperations(), () =>
       currentShellEnv)`. Do not return `createLocalBashOperations()` directly.
-- [ ] `packages/1password/index.test.ts`: wrap every `factory(` call, including
+- [x] `packages/1password/index.test.ts`: wrap every `factory(` call, including
       the existing registration test, in the HOME isolation above. Restore
       `HOME` and `PI_CODING_AGENT_DIR` in `finally`, including when the saved
       value was `undefined`. Keep the `30000` timeout. Do not call `op`. The
@@ -1004,7 +1004,7 @@ request.
       not throw, and the result has `operations.exec` as a function and no
       `result` key. The new test uses the same isolation. Test title:
       `user_bash handler returns operations and does not throw`.
-- [ ] `scripts/register-tool-parameters.test.ts`: add the 1password factory
+- [x] `scripts/register-tool-parameters.test.ts`: add the 1password factory
       import from `packages/1password` using a `.js` specifier. Before that
       factory call, set `HOME` and `PI_CODING_AGENT_DIR` to an empty temp
       directory and restore both in `finally`. Assert tool names `bash` and
@@ -1141,13 +1141,13 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
 
 ### Actionable TODOs
 
-- [ ] `packages/steward/core/llama-models.ts`: change `QUANT_PATTERN` to
+- [x] `packages/steward/core/llama-models.ts`: change `QUANT_PATTERN` to
       `/\b((?:UD-)?(?:IQ\d+_[A-Z0-9]+|Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)?|Q\d+_\d+|Q\d+|F16|F32|BF16))\b/`.
       Keep it case-sensitive. The comment above it must say a leading `UD-` is
       part of the token, and that longest-first still lets `Q4_K_M` beat `Q4`.
       `quantFromArgs` still calls `quantFromId` on the `--model` / `-m`
       basename. Do not add a second scanner. Do not export `quantFromId`.
-- [ ] `packages/steward/core/llama-models.ts`: in `parseModel`, replace
+- [x] `packages/steward/core/llama-models.ts`: in `parseModel`, replace
       `const quant = ftype ?? (argQuant !== "" ? argQuant : quantFromId(id))`
       with `const idQuant = quantFromId(id)`,
       `const filenameQuant = argQuant !== "" ? argQuant : idQuant`, and
@@ -1158,18 +1158,18 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
       `meta.ftype` is stored only when both filename tokens are empty. It must
       not say the quant prefers `ftype`. Do not change `sizeBytes`,
       `nativeCtx`, or `meta.n_ctx` parsing. `shortName(id, quant)` stays.
-- [ ] `packages/steward/core/types.ts`: the `ModelInfo.quant` comment must say
+- [x] `packages/steward/core/types.ts`: the `ModelInfo.quant` comment must say
       a non-empty filename token from `quantFromArgs` or `quantFromId` wins
       over `meta.ftype`, and that a `UD-` token or a file-type label
       containing ` - ` displays as `mixed`. Do not add a field.
-- [ ] `packages/steward/core/format.ts`: `formatQuantField` returns `n/a` when
+- [x] `packages/steward/core/format.ts`: `formatQuantField` returns `n/a` when
       `confirmed` is false. When confirmed, a quant that starts with `UD-`, or
       a quant that contains ` - `, returns exactly `mixed`. Those checks run
       before `bitsFromCode`. Every other confirmed code keeps today's rule.
       Update the doc comment that says the field is `4-bit (Q4_0)` so it also
       says a `UD-` code and a ` - ` file-type label return `mixed` and do not
       take the first digit run. Do not change `bitsFromCode`.
-- [ ] `packages/steward/core/llama-models.test.ts`: add a test titled
+- [x] `packages/steward/core/llama-models.test.ts`: add a test titled
       `filename token wins when meta.ftype disagrees`. Inline records only. Do
       not add a tensor-count key. Do not edit
       `packages/steward/core/__fixtures__/llama/models-loaded.json`. This test
@@ -1186,14 +1186,14 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
       `quant` is `"Q4_K - Medium"` because both filename tokens are empty.
       5. `parseModels({ object: "list", data: [LOADED] })` still has `quant`
       `Q4_0`.
-- [ ] `packages/steward/core/llama-models.test.ts`: add a test titled
+- [x] `packages/steward/core/llama-models.test.ts`: add a test titled
       `UD quant token keeps the UD- prefix`. id
       `Llama-3.1-8B-UD-Q4_K_XL`, `status.value` `loaded`, `status.args`
       `["--model", "/models/Llama-3.1-8B-UD-Q4_K_XL.gguf"]`, `meta.ftype`
       `"Q4_K - Medium"`. `quant` is `UD-Q4_K_XL`. `short` is `Llama-3.1-8B`.
       `quant` is not `Q4_K_XL` and not `"Q4_K - Medium"`. This test fails on
       the unfixed tree because `QUANT_PATTERN` drops `UD-` and `ftype` wins.
-- [ ] `packages/steward/core/format.test.ts`: add a test titled
+- [x] `packages/steward/core/format.test.ts`: add a test titled
       `formatQuantField does not claim ftype bit depth`.
       `formatQuantField("Q4_K - Medium", true)` is `mixed`.
       `formatQuantField("UD-Q4_K_XL", true)` is `mixed`.
@@ -1204,7 +1204,7 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
       mixed result equals `4-bit (Q4_K - Medium)`. This test fails on the
       unfixed tree because `bitsFromCode` turns `"Q4_K - Medium"` into
       `4-bit`.
-- [ ] `packages/steward/core/select.test.ts`: add a test titled
+- [x] `packages/steward/core/select.test.ts`: add a test titled
       `dashboard Quant field does not show ftype bit depth`. Use the file's
       `snapshot`, `selectDashboard`, `MODELS`, `NOW`, and `initialUiState`.
       Do not add `fetch`. Do not edit `packages/steward/core/select.ts`.
@@ -1241,8 +1241,8 @@ Verifier-ticked. One checkbox per phase.
 
 - [x] Phase 1 — Pi 0.87.1 floor, 1password pin, and relay transcript readers
 - [x] Phase 2 — Tool result details, parameter schemas, and headroom compress payload
-- [ ] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
-- [ ] Phase 4 — Steward quant label
+- [x] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
+- [x] Phase 4 — Steward quant label
 
 ## Appendix D — Definition of Done
 

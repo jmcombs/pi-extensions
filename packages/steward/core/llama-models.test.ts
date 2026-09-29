@@ -135,6 +135,71 @@ describe("parseModels", () => {
     expect(rows.map((r) => r.status)).toEqual(["loading", "downloading", "resident"]);
   });
 
+  it("filename token wins when meta.ftype disagrees", () => {
+    const [fromArgs] = parseModels([
+      {
+        id: "chat-qwen",
+        status: {
+          value: "loaded",
+          args: ["--model", "/models/Qwen3-0.6B-Q8_0.gguf"],
+        },
+        meta: { ftype: "Q4_K - Medium" },
+      },
+    ]);
+    expect(fromArgs?.quant).toBe("Q8_0");
+    expect(fromArgs?.quant).not.toBe("Q4_K - Medium");
+
+    const [fromId] = parseModels([
+      {
+        id: "Qwen3-0.6B-Q8_0",
+        status: { args: [] },
+        meta: { ftype: "Q4_K - Medium" },
+      },
+    ]);
+    expect(fromId?.quant).toBe("Q8_0");
+
+    const [kMFromArgs] = parseModels([
+      {
+        id: "chat-qwen",
+        status: {
+          args: ["--model", "/models/Qwen3-0.6B-Q4_K_M.gguf"],
+        },
+        meta: { ftype: "Q4_K - Medium" },
+      },
+    ]);
+    expect(kMFromArgs?.quant).toBe("Q4_K_M");
+    expect(kMFromArgs?.quant).not.toBe("Q4_K - Medium");
+
+    const [ftypeOnly] = parseModels([
+      {
+        id: "chat",
+        status: { args: [] },
+        meta: { ftype: "Q4_K - Medium" },
+      },
+    ]);
+    expect(ftypeOnly?.quant).toBe("Q4_K - Medium");
+
+    const captured = parseModels({ object: "list", data: [LOADED] });
+    expect(captured[0]?.quant).toBe("Q4_0");
+  });
+
+  it("UD quant token keeps the UD- prefix", () => {
+    const [model] = parseModels([
+      {
+        id: "Llama-3.1-8B-UD-Q4_K_XL",
+        status: {
+          value: "loaded",
+          args: ["--model", "/models/Llama-3.1-8B-UD-Q4_K_XL.gguf"],
+        },
+        meta: { ftype: "Q4_K - Medium" },
+      },
+    ]);
+    expect(model?.quant).toBe("UD-Q4_K_XL");
+    expect(model?.short).toBe("Llama-3.1-8B");
+    expect(model?.quant).not.toBe("Q4_K_XL");
+    expect(model?.quant).not.toBe("Q4_K - Medium");
+  });
+
   it("never throws on garbage, returning safe rows or nothing", () => {
     expect(parseModels(null)).toEqual([]);
     expect(parseModels([])).toEqual([]);
