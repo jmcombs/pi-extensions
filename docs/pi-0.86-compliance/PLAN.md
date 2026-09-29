@@ -534,34 +534,34 @@ request. Treating an unmerged Release Please pull request as a failed phase.
 
 ### Actionable TODOs
 
-- [ ] `package.json`: set the three `@earendil-works/pi-*` devDependencies to
+- [x] `package.json`: set the three `@earendil-works/pi-*` devDependencies to
       `^0.87.1`. Do not add an `overrides` field.
-- [ ] `packages/1password/package.json`: set the devDependency
+- [x] `packages/1password/package.json`: set the devDependency
       `@earendil-works/pi-coding-agent` from `^0.85.1` to `^0.87.1`. That is
       the only `@earendil-works/pi-*` pin in this file. Leave
       `@earendil-works/pi-tui` at `"*"`. Leave every `peerDependencies` entry
       at `"*"`. Do not edit any other file under `packages/1password`.
-- [ ] `package-lock.json`: regenerate with `npm install` so
+- [x] `package-lock.json`: regenerate with `npm install` so
       `node_modules/@earendil-works/pi-ai`,
       `node_modules/@earendil-works/pi-coding-agent`, and
       `node_modules/@earendil-works/pi-tui` resolve to `0.87.1`, and so the
       key `packages/1password/node_modules/@earendil-works/pi-coding-agent` is
       absent. Do not hand-edit those version fields. Do not add `overrides`
       to remove the nest. The pin change is what removes it.
-- [ ] `packages/relay/provider.ts`: export `readHostPromptAndTools` implementing
+- [x] `packages/relay/provider.ts`: export `readHostPromptAndTools` implementing
       the resolution rule. `streamViaDriver` and `terminalYieldToolName` use it
       and do not read `context.systemPrompt` or `context.tools` directly.
       Update the file header comment that says the prompt arrives as
       `context.systemPrompt`.
-- [ ] `packages/relay/roles/resolver.ts`: the `normalizeSystemPrompt` comment
+- [x] `packages/relay/roles/resolver.ts`: the `normalizeSystemPrompt` comment
       must say pi 0.86+ does not pass `systemPrompt` on the provider context,
       and that oh-my-pi still passes `string[]`. Do not change the function's
       behavior.
-- [ ] `packages/relay/README.md`: the Fixes bullet that says oh-my-pi supplies
+- [x] `packages/relay/README.md`: the Fixes bullet that says oh-my-pi supplies
       `systemPrompt` as `string[]` stays true. Add that pi 0.86+ supplies the
       prompt and tools on transcript system messages, read with
       `getCurrentSystemPrompt` and `getCurrentTools`.
-- [ ] `packages/relay/index.test.ts`: add a test titled
+- [x] `packages/relay/index.test.ts`: add a test titled
       `reads persona, skills, and yield from transcript messages`. Build a temp
       `SKILL.md` whose body is `TRANSCRIPT SKILL BODY.` Context owns neither
       `systemPrompt` nor `tools`. `messages[0]` is a system message whose
@@ -574,7 +574,7 @@ request. Treating an unmerged Release Please pull request as a failed phase.
       `invocation.tools` containing `read`. The done message contains a
       `toolCall` named `yield` whose `arguments` are
       `{ type: "result", result: {} }`.
-- [ ] `packages/relay/index.test.ts`: add a test titled
+- [x] `packages/relay/index.test.ts`: add a test titled
       `owned string[] systemPrompt wins over transcript messages`. Context owns
       `systemPrompt: ["OMP PERSONA"]` and `tools: [{ name: "yield" }]`, and
       `messages` also include a system message `PI PERSONA`. The captured
@@ -1239,7 +1239,7 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
 
 Verifier-ticked. One checkbox per phase.
 
-- [ ] Phase 1 — Pi 0.87.1 floor, 1password pin, and relay transcript readers
+- [x] Phase 1 — Pi 0.87.1 floor, 1password pin, and relay transcript readers
 - [ ] Phase 2 — Tool result details, parameter schemas, and headroom compress payload
 - [ ] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
 - [ ] Phase 4 — Steward quant label
