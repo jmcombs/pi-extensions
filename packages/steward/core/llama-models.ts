@@ -60,9 +60,9 @@ function hasFlag(args: readonly string[], flags: readonly string[]): boolean {
   return args.some((arg) => flags.includes(arg));
 }
 
-/** Common quantisation tokens, longest-first so `Q4_K_M` beats `Q4`. */
+/** Common quantisation tokens. A leading `UD-` is part of the token; longest-first still lets `Q4_K_M` beat `Q4`. */
 const QUANT_PATTERN =
-  /\b(IQ\d+_[A-Z0-9]+|Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)?|Q\d+_\d+|Q\d+|F16|F32|BF16)\b/;
+  /\b((?:UD-)?(?:IQ\d+_[A-Z0-9]+|Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)?|Q\d+_\d+|Q\d+|F16|F32|BF16))\b/;
 
 /** Best-effort quant label from a model id, e.g. `Qwen3-0.6B-Q4_0` → `Q4_0`. */
 function quantFromId(id: string): string {
@@ -163,12 +163,15 @@ function parseModel(raw: unknown): ModelInfo | null {
   const embedding = outputs.length > 0 && !outputs.includes("text");
 
   // `meta` is only present for loaded models, so size and the native context
-  // window are known only then; the quant falls back to the launch args (an
-  // unloaded preset names its `.gguf`) and finally to the id.
+  // window are known only then.
   const meta = isRecord(raw.meta) ? raw.meta : {};
   const ftype = readString(meta.ftype);
   const argQuant = quantFromArgs(args);
-  const quant = ftype ?? (argQuant !== "" ? argQuant : quantFromId(id));
+  // A non-empty filename token wins over `meta.ftype`. `meta.ftype` is stored
+  // only when both filename tokens are empty.
+  const idQuant = quantFromId(id);
+  const filenameQuant = argQuant !== "" ? argQuant : idQuant;
+  const quant = filenameQuant !== "" ? filenameQuant : (ftype ?? "");
   const sizeBytes = readNumber(meta.size);
   const nativeCtx = readNumber(meta.n_ctx_train);
 
