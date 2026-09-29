@@ -948,28 +948,28 @@ request.
 
 ### Actionable TODOs
 
-- [ ] `packages/1password/op-account.ts`: export
+- [x] `packages/1password/op-account.ts`: export
       `opAccountFromUnknown(value: unknown): { name?: string; email?: string;
       account_uuid?: string; url?: string } | null`. Copy only those keys when
       the value is a string. Ignore every other key. Return `null` for
       non-objects. No `Record<string, unknown>`.
-- [ ] `packages/1password/op-account.test.ts`: fixture objects only. A whoami-shaped
+- [x] `packages/1password/op-account.test.ts`: fixture objects only. A whoami-shaped
       object keeps the four string fields and drops a nested object and an
       `undefined` field. A string input returns `null`. Test title:
       `opAccountFromUnknown keeps only JSON account strings`.
-- [ ] `packages/1password/index.ts`: `OpStatus.account` uses the return type of
+- [x] `packages/1password/index.ts`: `OpStatus.account` uses the return type of
       `opAccountFromUnknown`. The `op whoami` parse goes through that function,
       not `as Record<string, unknown>`. `formatOpStatus` reads `name`, `email`,
       `account_uuid`, and `url` without casts. The object returned as
       `1p_diagnose` `details` is `satisfies JsonValue`. Leave `AuthJson` and the
       auth.json writer alone except for that parse.
-- [ ] `packages/1password/bash-env.ts`: export `mergeShellEnv` and
+- [x] `packages/1password/bash-env.ts`: export `mergeShellEnv` and
       `userBashOperationsResult` with the contracts above. `exec` forwards
       `onData`, `signal`, and `timeout` and always passes the merged `env`.
       When the caller omits `env`, the base is the rebuilt shell env, computed
       at call time from `piRuntime.getAgentDir()`, not `process.env` alone and
       not a module-load cache.
-- [ ] `packages/1password/bash-env.test.ts`: a fixture `exec` records the env it
+- [x] `packages/1password/bash-env.test.ts`: a fixture `exec` records the env it
       receives. Assert overlay wins over a base `PATH`. For the omitted-env
       case, `mkdtemp` a fresh empty directory, save `PI_CODING_AGENT_DIR`, set
       it to that directory, and restore it in `finally` (delete the key when
@@ -985,17 +985,17 @@ request.
       function. Test titles: `mergeShellEnv keeps the pi bin directory on PATH`,
       `userBashOperationsResult returns undefined on throw`,
       `userBashOperationsResult rejects a non-function exec`.
-- [ ] `packages/1password/bash-env.test.ts`: call
+- [x] `packages/1password/bash-env.test.ts`: call
       `userBashOperationsResult(() => createLocalBashOperations(), () =>
       ({ PI_EXT_087_MARKER: "injected-087" }))` and `exec` the command
       `printf '%s' "$PI_EXT_087_MARKER"` with `cwd` set to `os.tmpdir()`,
       collecting `onData`. Assert the decoded output is `injected-087`. Test
       title: `wrapped local exec injects the overlay`. Timeout `15000`.
-- [ ] `packages/1password/index.ts`: the bash-tool `spawnHook` calls
+- [x] `packages/1password/index.ts`: the bash-tool `spawnHook` calls
       `mergeShellEnv`. The `user_bash` handler returns
       `userBashOperationsResult(() => piRuntime.createLocalBashOperations(), () =>
       currentShellEnv)`. Do not return `createLocalBashOperations()` directly.
-- [ ] `packages/1password/index.test.ts`: wrap every `factory(` call, including
+- [x] `packages/1password/index.test.ts`: wrap every `factory(` call, including
       the existing registration test, in the HOME isolation above. Restore
       `HOME` and `PI_CODING_AGENT_DIR` in `finally`, including when the saved
       value was `undefined`. Keep the `30000` timeout. Do not call `op`. The
@@ -1004,7 +1004,7 @@ request.
       not throw, and the result has `operations.exec` as a function and no
       `result` key. The new test uses the same isolation. Test title:
       `user_bash handler returns operations and does not throw`.
-- [ ] `scripts/register-tool-parameters.test.ts`: add the 1password factory
+- [x] `scripts/register-tool-parameters.test.ts`: add the 1password factory
       import from `packages/1password` using a `.js` specifier. Before that
       factory call, set `HOME` and `PI_CODING_AGENT_DIR` to an empty temp
       directory and restore both in `finally`. Assert tool names `bash` and
@@ -1241,7 +1241,7 @@ Verifier-ticked. One checkbox per phase.
 
 - [x] Phase 1 — Pi 0.87.1 floor, 1password pin, and relay transcript readers
 - [x] Phase 2 — Tool result details, parameter schemas, and headroom compress payload
-- [ ] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
+- [x] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
 - [ ] Phase 4 — Steward quant label
 
 ## Appendix D — Definition of Done
