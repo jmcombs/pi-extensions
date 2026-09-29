@@ -18,7 +18,9 @@
   "types": "./index.ts",
   "files": [
     "index.ts",
+    "bash-env.ts",
     "credential-api.ts",
+    "op-account.ts",
     "data/",
     "ui/",
     "README.md",

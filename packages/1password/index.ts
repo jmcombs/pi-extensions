@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // `createLocalBashOperations` is NOT on oh-my-pi's shim. Accessing it through a
 // namespace import makes a missing member `undefined` at runtime rather than a
@@ -30,7 +31,9 @@ import * as piRuntime from "@earendil-works/pi-coding-agent";
 import { createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { type Static, Type } from "typebox";
 
+import { mergeShellEnv, userBashOperationsResult } from "./bash-env.js";
 import type { UiContext } from "./credential-api.js";
+import { opAccountFromUnknown } from "./op-account.js";
 import {
   confirmInBorderedPopup,
   inputInBorderedPopup,
@@ -70,7 +73,7 @@ interface OpStatus {
    * Determined passively: no unlock, no Touch ID prompt.
    */
   configured: boolean;
-  account: Record<string, unknown> | null;
+  account: ReturnType<typeof opAccountFromUnknown>;
 }
 
 interface PluginInspection {
@@ -152,13 +155,13 @@ export async function getOpStatus(): Promise<OpStatus> {
   // signedIn — DIAGNOSTIC ONLY (see the OpStatus.signedIn doc). A
   // non-zero `op whoami` is expected under app-integration and is NOT a gate.
   let signedIn = false;
-  let account: Record<string, unknown> | null = null;
+  let account: ReturnType<typeof opAccountFromUnknown> = null;
   try {
     const { stdout: whoamiOut } = await execAsync("op whoami --format json", {
       encoding: "utf8",
       timeout: 5000,
     });
-    account = JSON.parse(whoamiOut) as Record<string, unknown>;
+    account = opAccountFromUnknown(JSON.parse(whoamiOut));
     signedIn = true;
   } catch {
     signedIn = false;
@@ -212,13 +215,9 @@ function formatOpStatus(status: OpStatus): string {
   if (!status.configured) {
     return `op ${status.version ?? "unknown"} is installed but no 1Password account is configured. Run 'op signin', or set OP_SERVICE_ACCOUNT_TOKEN (or OP_CONNECT_HOST + OP_CONNECT_TOKEN).`;
   }
-  const acct = status.account ?? {};
-  const name =
-    (acct.name as string | undefined) ??
-    (acct.email as string | undefined) ??
-    (acct.account_uuid as string | undefined) ??
-    null;
-  const url = (acct.url as string | undefined) ?? null;
+  const acct = status.account;
+  const name = acct?.name ?? acct?.email ?? acct?.account_uuid ?? null;
+  const url = acct?.url ?? null;
   if (status.signedIn && name) {
     return `op ${status.version ?? "unknown"} — signed in as ${name}${url ? ` (${url})` : ""}`;
   }
@@ -789,7 +788,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     spawnHook: ({ command, cwd: hookCwd, env }) => ({
       command,
       cwd: hookCwd,
-      env: { ...env, ...currentShellEnv },
+      env: mergeShellEnv(env, currentShellEnv),
     }),
   });
   pi.registerTool(injectedBash);
@@ -798,7 +797,12 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // exposes `createLocalBashOperations` (real pi does; oh-my-pi's compat shim does
   // not). Absent it, we skip the hook rather than crash the module load.
   if (typeof piRuntime.createLocalBashOperations === "function") {
-    pi.on("user_bash", () => ({ operations: piRuntime.createLocalBashOperations() }));
+    pi.on("user_bash", () =>
+      userBashOperationsResult(
+        () => piRuntime.createLocalBashOperations(),
+        () => currentShellEnv,
+      ),
+    );
   } else if (process.env.HEADROOM_DEBUG) {
     console.error(
       "[1password] createLocalBashOperations unavailable on this runtime; user `!` 1P injection disabled (transparent agent-bash injection still active).",
@@ -849,10 +853,30 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     return {
       report: report.trim(),
       details: {
-        opStatus: status,
-        pluginInspections: inspections,
+        opStatus: {
+          available: status.available,
+          version: status.version,
+          signedIn: status.signedIn,
+          configured: status.configured,
+          account:
+            status.account === null
+              ? null
+              : {
+                  ...(status.account.name !== undefined ? { name: status.account.name } : {}),
+                  ...(status.account.email !== undefined ? { email: status.account.email } : {}),
+                  ...(status.account.account_uuid !== undefined
+                    ? { account_uuid: status.account.account_uuid }
+                    : {}),
+                  ...(status.account.url !== undefined ? { url: status.account.url } : {}),
+                },
+        },
+        pluginInspections: inspections.map((item) => ({
+          plugin: item.plugin,
+          ...(item.output !== undefined ? { output: item.output } : {}),
+          ...(item.error !== undefined ? { error: item.error } : {}),
+        })),
         injectedShellEnvNames: injectedNames,
-      },
+      } satisfies JsonValue,
     };
   }
 
