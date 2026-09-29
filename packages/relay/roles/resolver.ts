@@ -59,16 +59,17 @@ export interface ExpandSkillOptions {
 /**
  * Normalize a provider `context.systemPrompt` to a single string.
  *
- * pi's public `Context.systemPrompt` type (`@earendil-works/pi-ai`) is
- * `string | undefined`, and real pi (0.80.9) passes a single **string**.
- * **oh-my-pi diverges**: its runtime assembles the system prompt as a
- * **`string[]`** of sections (its own `systemPrompt: string[]`), so calling
- * `.trim()` / feeding it straight into {@link expandSkillReferences} throws
- * (`… .trim is not a function`) under omp. We normalize both shapes here — without
- * lossily `String(obj)`-ing an object into `"[object Object]"` — so relay's live
- * dispatch works on either runtime:
+ * pi 0.86+ does not pass `systemPrompt` on the provider context; the prompt lives
+ * on transcript system messages. **oh-my-pi still passes `string[]`**. pi's public
+ * `Context.systemPrompt` type (`@earendil-works/pi-ai`) is `string | undefined`,
+ * and older pi passed a single **string**. **oh-my-pi diverges**: its runtime
+ * assembles the system prompt as a **`string[]`** of sections (its own
+ * `systemPrompt: string[]`), so calling `.trim()` / feeding it straight into
+ * {@link expandSkillReferences} throws (`… .trim is not a function`) under omp.
+ * We normalize both shapes here — without lossily `String(obj)`-ing an object into
+ * `"[object Object]"` — so relay's live dispatch works on either runtime:
  *
- * - `string`          → returned unchanged (pi).
+ * - `string`          → returned unchanged (legacy pi).
  * - `string[]`        → its string sections joined with a blank line (omp); this
  *   matches omp's own section separator and loses no content.
  * - `undefined` / any other shape → `""` (no system prompt; the backend runs with

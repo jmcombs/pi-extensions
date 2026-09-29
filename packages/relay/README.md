@@ -27,6 +27,9 @@
 
 - **oh-my-pi system prompts are normalized.** oh-my-pi supplies `systemPrompt` as a
   `string[]`; relay joins those sections before building the backend prompt.
+- **pi 0.86+ prompts and tools are read from the transcript.** pi 0.86+ supplies the
+  prompt and tools on transcript system messages, read with `getCurrentSystemPrompt`
+  and `getCurrentTools`.
 - **oh-my-pi tasks terminate through local `yield`.** When the host context exposes
   oh-my-pi's task-only `yield` tool, relay returns the backend text plus one
   synthetic terminal yield call. oh-my-pi therefore finalizes after one external CLI

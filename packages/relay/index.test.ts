@@ -613,6 +613,128 @@ describe("streamViaDriver — heartbeat keeps a long run visibly active", () => 
     }
   });
 
+  it("reads persona, skills, and yield from transcript messages", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-transcript-"));
+    const skillFile = path.join(root, "SKILL.md");
+    fs.writeFileSync(skillFile, "TRANSCRIPT SKILL BODY.");
+
+    let capturedPromptFile: string | undefined;
+    let capturedTools: readonly string[] | undefined;
+    const captureDriver: AgentDriver = {
+      name: "capture",
+      bin: "node",
+      buildArgs: (invocation) => {
+        if (invocation.systemPromptFile) {
+          capturedPromptFile = fs.readFileSync(invocation.systemPromptFile, "utf8");
+        }
+        capturedTools = invocation.tools;
+        return ["-e", "process.stdout.write(JSON.stringify({ result: 'OK', is_error: false }))"];
+      },
+      parseResult: (stdout: string) => {
+        const envelope = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+        return { result: String(envelope.result ?? ""), isError: envelope.is_error === true };
+      },
+    };
+
+    const context = {
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You are verifier.",
+            "",
+            "<available_skills>",
+            "  <skill>",
+            "    <name>transcript-skill</name>",
+            "    <description>transcript skill</description>",
+            `    <location>${skillFile}</location>`,
+            "  </skill>",
+            "</available_skills>",
+          ].join("\n"),
+          toolsAdded: [
+            { name: "read", description: "read", parameters: { type: "object", properties: {} } },
+            { name: "yield", description: "yield", parameters: { type: "object", properties: {} } },
+          ],
+          timestamp: 0,
+        },
+        { role: "user", content: "return the marker" },
+      ],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        captureDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+      const done = events.at(-1);
+      const yieldCall = done?.message?.content?.find((part) => part.type === "toolCall");
+
+      expect(capturedPromptFile).toContain("You are verifier.");
+      expect(capturedPromptFile).toContain("TRANSCRIPT SKILL BODY.");
+      expect(capturedTools).toContain("read");
+      expect(yieldCall?.name).toBe("yield");
+      expect(yieldCall?.arguments).toEqual({ type: "result", result: {} });
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("owned string[] systemPrompt wins over transcript messages", async () => {
+    let capturedPromptFile: string | undefined;
+    const captureDriver: AgentDriver = {
+      name: "capture",
+      bin: "node",
+      buildArgs: (invocation) => {
+        if (invocation.systemPromptFile) {
+          capturedPromptFile = fs.readFileSync(invocation.systemPromptFile, "utf8");
+        }
+        return ["-e", "process.stdout.write(JSON.stringify({ result: 'OK', is_error: false }))"];
+      },
+      parseResult: (stdout: string) => {
+        const envelope = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+        return { result: String(envelope.result ?? ""), isError: envelope.is_error === true };
+      },
+    };
+
+    const context = {
+      messages: [
+        { role: "system", content: "PI PERSONA", timestamp: 0 },
+        { role: "user", content: "return the marker" },
+      ],
+      systemPrompt: ["OMP PERSONA"],
+      tools: [{ name: "yield" }],
+    } as unknown as Parameters<typeof streamViaDriver>[2];
+
+    const previous = process.env.PI_RELAY_HEARTBEAT_MS;
+    process.env.PI_RELAY_HEARTBEAT_MS = "0";
+    try {
+      const stream = streamViaDriver(
+        captureDriver,
+        model,
+        context,
+      ) as unknown as AsyncIterable<StreamEvent>;
+      const events: StreamEvent[] = [];
+      for await (const event of stream) events.push(event);
+      const done = events.at(-1);
+
+      expect(capturedPromptFile).toBe("OMP PERSONA");
+      expect(capturedPromptFile).not.toContain("PI PERSONA");
+      expect(
+        done?.message?.content?.some((part) => part.type === "toolCall" && part.name === "yield"),
+      ).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.PI_RELAY_HEARTBEAT_MS;
+      else process.env.PI_RELAY_HEARTBEAT_MS = previous;
+    }
+  });
+
   it("drains stderr so a chatty backend cannot deadlock the unread pipe", async () => {
     const noisyDriver: AgentDriver = {
       name: "noisy-fake",
