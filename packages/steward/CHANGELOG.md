@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/steward/v1.0.0...steward/v1.0.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **steward:** keep filename quants and label UD mixes mixed ([#297](https://github.com/jmcombs/pi-extensions/issues/297)) ([88d9a75](https://github.com/jmcombs/pi-extensions/commit/88d9a750373927d02b41ed3f3c458ab29e510a3b))
+
 ## 1.0.0 (2026-08-01)
 
 
