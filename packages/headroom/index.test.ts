@@ -54,7 +54,9 @@ import {
   isPiFormat,
   type PiMessage,
   piToOpenAI,
+  reinsertSystemMessages,
   rewriteRetrieveMarker,
+  splitSystemMessages,
 } from "./pi-format.js";
 import { formatStatusLine, normalizeProxyStats, type StatusDisplayState } from "./status.js";
 
@@ -413,6 +415,20 @@ describe("applyCompressedText", () => {
   });
 });
 
+describe("system message round-trip", () => {
+  it("leading system message comes back byte-identical", () => {
+    const system = { role: "system", content: "SYSTEM PROMPT BYTES" };
+    const user = { role: "user", content: "hello" };
+    const messages = [system, user] as unknown as PiMessage[];
+
+    expect(JSON.stringify(piToOpenAI(messages))).not.toContain("SYSTEM PROMPT BYTES");
+
+    const { kept, removed } = splitSystemMessages(messages);
+    const restored = reinsertSystemMessages(kept, removed);
+    expect(JSON.stringify(restored[0])).toBe(JSON.stringify(system));
+  });
+});
+
 // ── headroom_retrieve: empty-query fallback to full retrieval (no network) ──
 
 /**
@@ -522,6 +538,22 @@ describe("retrieveExecute (headroom_retrieve)", () => {
 
     expect(text).toContain("Headroom retrieve failed");
     expect(result.details.error).toBe(true);
+  });
+
+  it("retrieve omits query when the caller omits it", async () => {
+    const { client } = createRetrieveStub({ full: FULL_RESULT });
+    const ok = await retrieveExecute({ hash: "h123" }, { client });
+    expect("query" in ok.details).toBe(false);
+    expect(JSON.parse(JSON.stringify(ok.details))).toEqual(ok.details);
+
+    const throwing = {
+      retrieve: async () => {
+        throw new Error("connection refused");
+      },
+    } as unknown as NonNullable<Parameters<typeof retrieveExecute>[1]>["client"];
+    const failed = await retrieveExecute({ hash: "h123" }, { client: throwing });
+    expect("query" in failed.details).toBe(false);
+    expect(JSON.parse(JSON.stringify(failed.details))).toEqual(failed.details);
   });
 });
 

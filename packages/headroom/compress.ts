@@ -1,21 +1,26 @@
 /**
  * @jmcombs/pi-headroom — whole-conversation compression (LD1, LD3, LD8).
  *
- * `compressMessages` is the single entry point the `context` hook calls. It:
+ * `compressMessages` is the single entry point the `context` hook calls. It
+ * drops `role: "system"` messages before `compress()`, then reinserts the
+ * original system message objects afterward. Pi conversations are converted
+ * to OpenAI via `compressPayload` → `piToOpenAI`; non-Pi conversations pass
+ * the kept messages through. If the proxy did not compress, the swap is not
+ * 1:1 alignable (`null`), or any error is thrown, it passes the **original**
+ * messages through with `tokensSaved: 0`.
  *
- *   - For **Pi** input (`isPiFormat`): converts to OpenAI via `piToOpenAI`,
- *     compresses with `fallback: true`, then swaps the compressed text back onto
- *     the original Pi messages with `applyCompressedText`. If the proxy did not
- *     compress, the swap is not 1:1 alignable (`null`), or the count differs, it
- *     passes the **original** messages through with `tokensSaved: 0`.
- *   - For **non-Pi** input: plain `compress({ fallback: true })`.
- *
- * Every path is wrapped in `try/catch` and **never throws** (LD3); on any error
- * or passthrough it returns the original messages and `tokensSaved: 0`.
+ * Every path is wrapped in `try/catch` and **never throws** (LD3).
  */
 
 import { compress, type OpenAIMessage } from "headroom-ai";
-import { applyCompressedText, isPiFormat, type PiMessage, piToOpenAI } from "./pi-format.js";
+import {
+  applyCompressedText,
+  isPiFormat,
+  type PiMessage,
+  piToOpenAI,
+  reinsertSystemMessages,
+  splitSystemMessages,
+} from "./pi-format.js";
 
 export interface CompressMessagesOptions {
   /** Model id used by the proxy for tokenization (optional). */
@@ -39,10 +44,20 @@ function normalizeSaved(value: number): number {
 }
 
 /**
- * Compress a conversation, preserving its format. Pi conversations are converted
- * to OpenAI, compressed, and swapped back in place (LD8); non-Pi conversations
- * are compressed directly. Returns the original messages unchanged with
- * `tokensSaved: 0` on any passthrough or failure — and never throws (LD3).
+ * Build the payload handed to `compress()`. Synchronous and pure: drops
+ * `role: "system"` messages, then converts Pi conversations to OpenAI.
+ */
+export function compressPayload(messages: readonly PiMessage[]): OpenAIMessage[] | PiMessage[] {
+  const { kept } = splitSystemMessages(messages);
+  if (isPiFormat(messages)) return piToOpenAI(kept);
+  return kept;
+}
+
+/**
+ * Compress a conversation, preserving its format. System messages are stripped
+ * before `compress()` and spliced back afterward. Returns the original messages
+ * unchanged with `tokensSaved: 0` on any passthrough or failure — and never
+ * throws (LD3).
  */
 export async function compressMessages(
   messages: readonly PiMessage[],
@@ -58,26 +73,26 @@ export async function compressMessages(
       fallback: true,
     };
 
+    const { kept, removed } = splitSystemMessages(messages);
+    const result = await compress(compressPayload(messages), compressOptions);
+
+    // Proxy down / nothing compressed (fallback returned input) → passthrough.
+    if (!result.compressed) return { messages: original, tokensSaved: 0 };
+
     if (isPiFormat(messages)) {
-      const openAIMessages = piToOpenAI(messages);
-      const result = await compress(openAIMessages, compressOptions);
-
-      // Proxy down / nothing compressed (fallback returned input) → passthrough.
-      if (!result.compressed) return { messages: original, tokensSaved: 0 };
-
-      const swapped = applyCompressedText(messages, result.messages as OpenAIMessage[]);
-      if (swapped === null || swapped.length !== messages.length) {
+      const swapped = applyCompressedText(kept, result.messages as OpenAIMessage[]);
+      if (swapped === null || swapped.length !== kept.length) {
         return { messages: original, tokensSaved: 0 };
       }
 
-      return { messages: swapped, tokensSaved: normalizeSaved(result.tokensSaved) };
+      return {
+        messages: reinsertSystemMessages(swapped, removed),
+        tokensSaved: normalizeSaved(result.tokensSaved),
+      };
     }
 
-    // Non-Pi input: Headroom recognizes the format natively.
-    const result = await compress(original, compressOptions);
-    if (!result.compressed) return { messages: original, tokensSaved: 0 };
     return {
-      messages: result.messages as PiMessage[],
+      messages: reinsertSystemMessages(result.messages as PiMessage[], removed),
       tokensSaved: normalizeSaved(result.tokensSaved),
     };
   } catch {

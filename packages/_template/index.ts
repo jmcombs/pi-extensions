@@ -14,6 +14,7 @@
  *   - https://pi.dev/docs/extensions
  */
 
+import type { JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
@@ -31,6 +32,8 @@ const exampleToolSchema = Type.Object({
 
 export type ExampleToolInput = Static<typeof exampleToolSchema>;
 
+export type ExampleToolDetails = { received: string };
+
 // ── Extension factory ──────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
@@ -45,9 +48,11 @@ export default function (pi: ExtensionAPI): void {
     // should be `async`. The skeleton returns synchronously to keep the
     // example minimal; replace this body with your actual implementation.
     execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      // Details must be JSON-compatible: no unknown, any,
+      // Record<string, unknown>, or [key: string]: unknown, and no explicit undefined.
       return Promise.resolve({
         content: [{ type: "text", text: `Echo: ${params.message}` }],
-        details: { received: params.message },
+        details: { received: params.message } satisfies ExampleToolDetails satisfies JsonValue,
       });
     },
   });

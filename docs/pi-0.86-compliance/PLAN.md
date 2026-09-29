@@ -665,7 +665,7 @@ comparison passes on the unfixed tree.
 
 ### Actionable TODOs
 
-- [ ] `packages/better-toolsy/index.ts`: delete `ToolResult.details:
+- [x] `packages/better-toolsy/index.ts`: delete `ToolResult.details:
       Record<string, unknown>`. Import `JsonValue` as a type. Every returned
       `details` object must be `satisfies JsonValue`. Where `params.path` is
       optional, store `params.path ?? "."` instead of `params.path`. Change
@@ -684,7 +684,7 @@ comparison passes on the unfixed tree.
       `details: { error: true, query: params.pattern, path: params.path }`.
       Store `path: params.path ?? "."`.
       The `ls` success return already uses `params.path ?? "."`. Leave it.
-- [ ] `packages/better-toolsy/index.test.ts`: add a test titled
+- [x] `packages/better-toolsy/index.test.ts`: add a test titled
       `ls and grep details round-trip as JSON`. This test fails on the unfixed
       tree and passes on the fixed one. Do not delete the working directory.
       `safeResolve`'s default root is `process.cwd()`, and that call throws
@@ -712,46 +712,46 @@ comparison passes on the unfixed tree.
       the `0o000` chmod, `chmod` the child back to `0o700`, `chdir` to the
       saved cwd, then remove the parent. An explicit `path` cannot fail this
       bug and is not a substitute.
-- [ ] `packages/context7/index.ts`: delete both `[key: string]: unknown` index
+- [x] `packages/context7/index.ts`: delete both `[key: string]: unknown` index
       signatures. Export `isJsonValue`. `details.raw` is the guarded `JsonValue`,
       not `Context7SearchResponse` / `Context7DocsResponse`. `formatDocs` reads
       `codeSnippets` and `infoSnippets` by narrowing that `JsonValue`. Invalid
       JSON uses `details: { error: "invalid_json" }`.
-- [ ] `packages/context7/index.test.ts`: call `isJsonValue` on a fixture object,
+- [x] `packages/context7/index.test.ts`: call `isJsonValue` on a fixture object,
       an array, `null`, a string, `undefined`, and `{ path: undefined }`. The
       last two are `false`. Test title: `context7 isJsonValue rejects undefined`.
-- [ ] `packages/grok-search/index.ts`: export `isJsonValue` with the same
+- [x] `packages/grok-search/index.ts`: export `isJsonValue` with the same
       contract. `const data: unknown = await response.json()` stays unknown
       until the guard. `details.raw` is `JsonValue`. `source` stays
       `"oauth" | "api_key"`. Invalid JSON uses
       `details: { error: "invalid_json", source: auth.source }` and no `raw`.
-- [ ] `packages/grok-search/index.test.ts`: same `isJsonValue` cases as
+- [x] `packages/grok-search/index.test.ts`: same `isJsonValue` cases as
       context7. Test title: `grok-search isJsonValue rejects undefined`.
-- [ ] `packages/tavily-search/index.ts`: keep the closed `TavilySearchResult` /
+- [x] `packages/tavily-search/index.ts`: keep the closed `TavilySearchResult` /
       `TavilySearchResponse` interfaces. Do not add an index signature. Export
       `isJsonValue`. Replace `as TavilySearchResponse` with the guard, then copy
       only `query`, `answer`, and `results` title/url/content/score/raw_content
       into the closed type for `formatResults`. `details.raw` is the guarded
       `JsonValue`. Invalid JSON uses `details: { error: "invalid_json" }`.
-- [ ] `packages/tavily-search/index.test.ts`: same `isJsonValue` cases. Test
+- [x] `packages/tavily-search/index.test.ts`: same `isJsonValue` cases. Test
       title: `tavily-search isJsonValue rejects undefined`.
-- [ ] `packages/headroom/index.ts`: in `fullRetrieveResult`, both query-match
+- [x] `packages/headroom/index.ts`: in `fullRetrieveResult`, both query-match
       returns, the no-original-content return, and the `catch` details, include
       `query` only when it is a string. `retrieveExecute({ hash })` must produce
       details with no `query` key. Do not assign `query: undefined`.
-- [ ] `packages/headroom/index.test.ts`: using the existing no-network
+- [x] `packages/headroom/index.test.ts`: using the existing no-network
       `createRetrieveStub`, call `retrieveExecute({ hash: "h123" }, { client })`
       and a throwing client with no query. Assert `!("query" in result.details)`
       and that `JSON.parse(JSON.stringify(result.details))` deep-equals
       `details`. Test title: `retrieve omits query when the caller omits it`.
-- [ ] `packages/headroom/pi-format.ts`: export `splitSystemMessages` and
+- [x] `packages/headroom/pi-format.ts`: export `splitSystemMessages` and
       `reinsertSystemMessages`. `splitSystemMessages` removes `role: "system"`
       messages and records their original indexes. `piToOpenAI` must not convert
       those messages to `role: "user"` and must not include their text in its
       return value. `reinsertSystemMessages` splices the original system
       message objects back so a leading system message is byte-identical
       (`JSON.stringify` equal to the input).
-- [ ] `packages/headroom/compress.ts`: export
+- [x] `packages/headroom/compress.ts`: export
       `compressPayload(messages: readonly PiMessage[]): OpenAIMessage[] | PiMessage[]`.
       It is synchronous and pure. It does not call `compress()`. Body:
       drop `role: "system"` messages via `splitSystemMessages`, then if
@@ -767,7 +767,7 @@ comparison passes on the unfixed tree.
       On the non-Pi success path, reinsert those same original system message
       objects into the compressed kept messages. `compress()` must not receive
       a system message on either path.
-- [ ] `packages/headroom/compress.test.ts`: add a test titled
+- [x] `packages/headroom/compress.test.ts`: add a test titled
       `compress payload omits system messages on both paths`. Do not put this
       test in `packages/headroom/index.test.ts`. Do not call `vi.mock`. Do not
       mock `headroom-ai`. Do not call `compress()` or `compressMessages()`.
@@ -785,7 +785,7 @@ comparison passes on the unfixed tree.
       contain `compress(original`, `compress(piToOpenAI(`, or
       `compress(openAIMessages`. This test fails on the unfixed tree because
       `compressPayload` is not exported and `compress(original` is present.
-- [ ] `packages/headroom/index.test.ts`: add a test titled
+- [x] `packages/headroom/index.test.ts`: add a test titled
       `leading system message comes back byte-identical`. This test is not
       sufficient by itself. Build a leading
       `{ role: "system", content: "SYSTEM PROMPT BYTES" }` plus a user message.
@@ -793,18 +793,18 @@ comparison passes on the unfixed tree.
       Assert `reinsertSystemMessages` after `splitSystemMessages` returns a
       leading message whose `JSON.stringify` equals the input system message.
       Do not call `compress()` and do not mock `headroom-ai`.
-- [ ] `packages/_template/index.ts`: export `ExampleToolDetails` as
+- [x] `packages/_template/index.ts`: export `ExampleToolDetails` as
       `{ received: string }`. The `example_echo` details object is
       `satisfies ExampleToolDetails` and `satisfies JsonValue` via a type-only
       import. A comment states that details must be JSON-compatible: no
       `unknown`, `any`, `Record<string, unknown>`, or `[key: string]: unknown`,
       and no explicit `undefined`. `parameters` stays `exampleToolSchema`
       (`Type.Object`).
-- [ ] `TEMPLATE.md`: under Conventions, replace the `{ content, details }`
+- [x] `TEMPLATE.md`: under Conventions, replace the `{ content, details }`
       bullet so it states the same JSON rule and that `registerTool`
       `parameters` must be a TypeBox `Type.Object`. Do not change the secrets
       bullet.
-- [ ] `scripts/tsconfig.pi-contracts.json`: a standalone config, not an extend
+- [x] `scripts/tsconfig.pi-contracts.json`: a standalone config, not an extend
       of the root config (the root `exclude` drops `packages/_template/**`).
       `files` is `["../packages/_template/index.ts", "./register-tool-parameters.test.ts"]`.
       `compilerOptions` match the root `tsconfig.json`: `target` `ES2022`,
@@ -814,7 +814,7 @@ comparison passes on the unfixed tree.
       `esModuleInterop` true, `forceConsistentCasingInFileNames` true,
       `resolveJsonModule` true, `skipLibCheck` true, `allowJs` false, `noEmit`
       true, `isolatedModules` true, `verbatimModuleSyntax` false. No `exclude`.
-- [ ] `scripts/register-tool-parameters.test.ts`: import each default factory
+- [x] `scripts/register-tool-parameters.test.ts`: import each default factory
       from `packages/better-toolsy`, `context7`, `grok-search`, `headroom`,
       `tavily-search`, `notify`, `blue-psl-10k`, `prompt-enhancer`, `steward`,
       `relay`, and `_template`, using `.js` specifiers. Do not import the
@@ -1240,7 +1240,7 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
 Verifier-ticked. One checkbox per phase.
 
 - [x] Phase 1 — Pi 0.87.1 floor, 1password pin, and relay transcript readers
-- [ ] Phase 2 — Tool result details, parameter schemas, and headroom compress payload
+- [x] Phase 2 — Tool result details, parameter schemas, and headroom compress payload
 - [ ] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
 - [ ] Phase 4 — Steward quant label
 

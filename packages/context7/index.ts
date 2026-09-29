@@ -16,6 +16,7 @@
  *    3. `/context7_setup` runs the same onboarding flow on demand.
  */
 
+import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
 import { type Static, Type } from "typebox";
@@ -31,22 +32,6 @@ interface CodeSnippet {
 
 interface InfoSnippet {
   content?: string;
-}
-
-interface Context7SearchResult {
-  id: string;
-  title: string;
-  [key: string]: unknown;
-}
-
-interface Context7SearchResponse {
-  results?: Context7SearchResult[];
-}
-
-interface Context7DocsResponse {
-  codeSnippets?: CodeSnippet[];
-  infoSnippets?: InfoSnippet[];
-  [key: string]: unknown;
 }
 
 // -- Tool parameter schemas
@@ -75,8 +60,57 @@ export type Context7GetDocsInput = Static<typeof context7GetDocsSchema>;
 
 // -- Helpers
 
-function formatDocs(data: Context7DocsResponse, query: string): string {
-  const { codeSnippets = [], infoSnippets = [] } = data;
+export function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return true;
+    case "object": {
+      if (Array.isArray(value)) return value.every(isJsonValue);
+      const nested: unknown[] = Object.values(value);
+      return nested.every(isJsonValue);
+    }
+    default:
+      return false;
+  }
+}
+
+function asJsonObject(value: JsonValue): JsonObject | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value as JsonObject;
+}
+
+function formatDocs(data: JsonValue, query: string): string {
+  const obj = asJsonObject(data);
+  const codeSnippetsRaw = obj && Array.isArray(obj.codeSnippets) ? obj.codeSnippets : [];
+  const infoSnippetsRaw = obj && Array.isArray(obj.infoSnippets) ? obj.infoSnippets : [];
+  const codeSnippets: CodeSnippet[] = [];
+  for (const snippet of codeSnippetsRaw) {
+    const item = asJsonObject(snippet);
+    if (!item) continue;
+    const next: CodeSnippet = {};
+    if (typeof item.codeTitle === "string") next.codeTitle = item.codeTitle;
+    if (Array.isArray(item.codeList)) {
+      next.codeList = item.codeList.flatMap((entry) => {
+        const codeItem = asJsonObject(entry);
+        if (!codeItem) return [];
+        const language = typeof codeItem.language === "string" ? codeItem.language : undefined;
+        const code = typeof codeItem.code === "string" ? codeItem.code : undefined;
+        return [{ language, code }];
+      });
+    }
+    codeSnippets.push(next);
+  }
+  const infoSnippets: InfoSnippet[] = [];
+  for (const snippet of infoSnippetsRaw) {
+    const item = asJsonObject(snippet);
+    if (!item) continue;
+    const next: InfoSnippet = {};
+    if (typeof item.content === "string") next.content = item.content;
+    infoSnippets.push(next);
+  }
 
   if (codeSnippets.length === 0 && infoSnippets.length === 0) {
     return `No documentation snippets found for ${query}.`;
@@ -212,8 +246,24 @@ export default function (pi: ExtensionAPI): void {
           };
         }
 
-        const data = (await response.json()) as Context7SearchResponse;
-        const libs = data.results ?? [];
+        const parsed: unknown = await response.json();
+        if (!isJsonValue(parsed)) {
+          return {
+            content: [{ type: "text", text: "Context7 API returned invalid JSON." }],
+            details: { error: "invalid_json" },
+          };
+        }
+        const data = parsed;
+        const obj = asJsonObject(data);
+        const libsRaw = obj && Array.isArray(obj.results) ? obj.results : [];
+        const libs: { id: string; title: string }[] = [];
+        for (const lib of libsRaw) {
+          const item = asJsonObject(lib);
+          if (!item) continue;
+          if (typeof item.id === "string" && typeof item.title === "string") {
+            libs.push({ id: item.id, title: item.title });
+          }
+        }
 
         if (libs.length === 0) {
           return {
@@ -346,7 +396,14 @@ export default function (pi: ExtensionAPI): void {
           };
         }
 
-        const data = (await response.json()) as Context7DocsResponse;
+        const parsed: unknown = await response.json();
+        if (!isJsonValue(parsed)) {
+          return {
+            content: [{ type: "text", text: "Context7 API returned invalid JSON." }],
+            details: { error: "invalid_json" },
+          };
+        }
+        const data = parsed;
         return {
           content: [{ type: "text", text: formatDocs(data, params.query) }],
           details: { libraryId: params.libraryId, query: params.query, raw: data },

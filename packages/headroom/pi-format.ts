@@ -73,6 +73,41 @@ function joinText(content: unknown): string {
  * `role: "toolResult"`, or any content part of type `toolCall` / `thinking`.
  * These markers are unique to Pi among Headroom's recognized formats.
  */
+/** A system message removed from a conversation together with its original index. */
+export interface RemovedSystemMessage {
+  index: number;
+  message: PiMessage;
+}
+
+/** Drop `role: "system"` messages and remember where they sat. */
+export function splitSystemMessages(messages: readonly PiMessage[]): {
+  kept: PiMessage[];
+  removed: RemovedSystemMessage[];
+} {
+  const kept: PiMessage[] = [];
+  const removed: RemovedSystemMessage[] = [];
+  messages.forEach((message, index) => {
+    if (roleOf(message) === "system") {
+      removed.push({ index, message });
+    } else {
+      kept.push(message);
+    }
+  });
+  return { kept, removed };
+}
+
+/** Splice the original system message objects back at their recorded indexes. */
+export function reinsertSystemMessages(
+  kept: readonly PiMessage[],
+  removed: readonly RemovedSystemMessage[],
+): PiMessage[] {
+  const result = [...kept];
+  for (const { index, message } of removed) {
+    result.splice(index, 0, message);
+  }
+  return result;
+}
+
 export function isPiFormat(messages: readonly PiMessage[]): boolean {
   for (const message of messages) {
     if (roleOf(message) === "toolResult") return true;
@@ -134,6 +169,8 @@ export function piToOpenAI(messages: readonly PiMessage[]): OpenAIMessage[] {
       result.push({ role: "tool", content: joinText(content), tool_call_id: toolCallId });
       continue;
     }
+
+    if (role === "system") continue;
 
     // user + any other/custom role → preserve the slot as a user message.
     result.push({ role: "user", content: joinText(content) });

@@ -9,7 +9,7 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { type TavilySearchInput } from "./index.js";
+import factory, { isJsonValue, type TavilySearchInput } from "./index.js";
 
 interface CapturedCommand {
   name: string;
@@ -110,5 +110,14 @@ describe("@jmcombs/pi-tavily-search", () => {
     // ever drifts from its actual schema shape.
     const sample: TavilySearchInput = { query: "pi coding agent" };
     expect(sample.query).toBe("pi coding agent");
+  });
+
+  it("tavily-search isJsonValue rejects undefined", () => {
+    expect(isJsonValue({ ok: true, n: 1 })).toBe(true);
+    expect(isJsonValue([1, "two", null])).toBe(true);
+    expect(isJsonValue(null)).toBe(true);
+    expect(isJsonValue("hello")).toBe(true);
+    expect(isJsonValue(undefined)).toBe(false);
+    expect(isJsonValue({ path: undefined })).toBe(false);
   });
 });

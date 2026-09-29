@@ -27,7 +27,18 @@ interface RegistrationLog {
   events: string[];
 }
 
-function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
+interface CapturedTool {
+  name: string;
+  execute: (
+    toolCallId: string,
+    params: object,
+  ) => Promise<{
+    content: { type: "text"; text?: string }[];
+    details: { path?: string };
+  }>;
+}
+
+function createApiStub(): { api: ExtensionAPI; log: RegistrationLog; tools: CapturedTool[] } {
   const log: RegistrationLog = {
     tools: [],
     commands: [],
@@ -35,6 +46,7 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     flags: [],
     events: [],
   };
+  const tools: CapturedTool[] = [];
 
   const notImplemented =
     (method: string): (() => never) =>
@@ -46,8 +58,9 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     on: ((_event: string) => {
       log.events.push(_event);
     }) as unknown as ExtensionAPI["on"],
-    registerTool: ((_tool: { name: string }) => {
-      log.tools.push(_tool.name);
+    registerTool: ((tool: CapturedTool) => {
+      log.tools.push(tool.name);
+      tools.push(tool);
     }) as unknown as ExtensionAPI["registerTool"],
     registerCommand: ((_name: string) => {
       log.commands.push(_name);
@@ -74,7 +87,7 @@ function createApiStub(): { api: ExtensionAPI; log: RegistrationLog } {
     setModel: notImplemented("setModel"),
   } as unknown as ExtensionAPI;
 
-  return { api, log };
+  return { api, log, tools };
 }
 
 describe("@jmcombs/pi-better-toolsy", () => {
@@ -211,6 +224,47 @@ describe("grepTool", () => {
       expect(text).toContain("Path not found");
       expect(text).not.toMatch(/ENOTDIR/);
     });
+  });
+});
+
+describe("JSON-compatible error details", () => {
+  it("ls and grep details round-trip as JSON", async () => {
+    const savedCwd = process.cwd();
+    const parent = await fsPromises.mkdtemp(join(tmpdir(), "better-toolsy-json-"));
+    const child = join(parent, "child");
+    await fsPromises.mkdir(child);
+    try {
+      await fsPromises.chmod(child, 0o100);
+      process.chdir(child);
+
+      const { api, tools } = createApiStub();
+      factory(api);
+      const ls = tools.find((tool) => tool.name === "ls");
+      if (!ls) throw new Error("ls tool not registered");
+      const lsResult = await ls.execute("id", {});
+      const lsText = lsResult.content[0]?.text ?? "";
+      expect(lsText).toContain("Error listing directory: EACCES: permission denied, scandir");
+      expect(lsResult.details.path).toBe(".");
+      expect(JSON.stringify(lsResult.details)).toContain('"path":"."');
+      for (const value of Object.values(lsResult.details)) {
+        expect(value).not.toBeUndefined();
+      }
+
+      await fsPromises.chmod(parent, 0o000);
+      const grepResult = await grepTool("id", { pattern: "needle" });
+      const grepText = grepResult.content[0]?.text ?? "";
+      expect(grepText).toContain("Error searching: EACCES: permission denied, stat");
+      expect(grepResult.details.path).toBe(".");
+      expect(JSON.stringify(grepResult.details)).toContain('"path":"."');
+      for (const value of Object.values(grepResult.details)) {
+        expect(value).not.toBeUndefined();
+      }
+    } finally {
+      await fsPromises.chmod(parent, 0o700);
+      await fsPromises.chmod(child, 0o700);
+      process.chdir(savedCwd);
+      await fsPromises.rm(parent, { recursive: true, force: true });
+    }
   });
 });
 
