@@ -230,11 +230,14 @@ const FLASH_LABELS: Record<ModelInfo["flashAttn"], string> = {
 
 /**
  * The `Quant` field: `4-bit (Q4_0)` — the bit-depth reading leads, the raw code
- * rides beside it. {@link NA} when unconfirmed, or when the code carries no
- * digits to read a depth from (a bare code is the noise this field translates).
+ * rides beside it. A `UD-` code and a ` - ` file-type label return `mixed` and
+ * do not take the first digit run. {@link NA} when unconfirmed, or when the
+ * code carries no digits to read a depth from (a bare code is the noise this
+ * field translates).
  */
 export function formatQuantField(quant: string, confirmed: boolean): string {
   if (!confirmed) return NA;
+  if (quant.startsWith("UD-") || quant.includes(" - ")) return "mixed";
   const bits = bitsFromCode(quant);
   return bits === "" ? NA : `${bits} (${quant})`;
 }

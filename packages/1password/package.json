@@ -18,7 +18,9 @@
   "types": "./index.ts",
   "files": [
     "index.ts",
+    "bash-env.ts",
     "credential-api.ts",
+    "op-account.ts",
     "data/",
     "ui/",
     "README.md",
@@ -47,8 +49,8 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@earendil-works/pi-coding-agent": "^0.99.1",
     "@earendil-works/pi-tui": "*",
-    "typebox": "^1.3.27"
+    "typebox": "^1.3.34"
   }
 }
