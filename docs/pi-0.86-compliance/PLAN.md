@@ -1141,13 +1141,13 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
 
 ### Actionable TODOs
 
-- [ ] `packages/steward/core/llama-models.ts`: change `QUANT_PATTERN` to
+- [x] `packages/steward/core/llama-models.ts`: change `QUANT_PATTERN` to
       `/\b((?:UD-)?(?:IQ\d+_[A-Z0-9]+|Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)?|Q\d+_\d+|Q\d+|F16|F32|BF16))\b/`.
       Keep it case-sensitive. The comment above it must say a leading `UD-` is
       part of the token, and that longest-first still lets `Q4_K_M` beat `Q4`.
       `quantFromArgs` still calls `quantFromId` on the `--model` / `-m`
       basename. Do not add a second scanner. Do not export `quantFromId`.
-- [ ] `packages/steward/core/llama-models.ts`: in `parseModel`, replace
+- [x] `packages/steward/core/llama-models.ts`: in `parseModel`, replace
       `const quant = ftype ?? (argQuant !== "" ? argQuant : quantFromId(id))`
       with `const idQuant = quantFromId(id)`,
       `const filenameQuant = argQuant !== "" ? argQuant : idQuant`, and
@@ -1158,18 +1158,18 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
       `meta.ftype` is stored only when both filename tokens are empty. It must
       not say the quant prefers `ftype`. Do not change `sizeBytes`,
       `nativeCtx`, or `meta.n_ctx` parsing. `shortName(id, quant)` stays.
-- [ ] `packages/steward/core/types.ts`: the `ModelInfo.quant` comment must say
+- [x] `packages/steward/core/types.ts`: the `ModelInfo.quant` comment must say
       a non-empty filename token from `quantFromArgs` or `quantFromId` wins
       over `meta.ftype`, and that a `UD-` token or a file-type label
       containing ` - ` displays as `mixed`. Do not add a field.
-- [ ] `packages/steward/core/format.ts`: `formatQuantField` returns `n/a` when
+- [x] `packages/steward/core/format.ts`: `formatQuantField` returns `n/a` when
       `confirmed` is false. When confirmed, a quant that starts with `UD-`, or
       a quant that contains ` - `, returns exactly `mixed`. Those checks run
       before `bitsFromCode`. Every other confirmed code keeps today's rule.
       Update the doc comment that says the field is `4-bit (Q4_0)` so it also
       says a `UD-` code and a ` - ` file-type label return `mixed` and do not
       take the first digit run. Do not change `bitsFromCode`.
-- [ ] `packages/steward/core/llama-models.test.ts`: add a test titled
+- [x] `packages/steward/core/llama-models.test.ts`: add a test titled
       `filename token wins when meta.ftype disagrees`. Inline records only. Do
       not add a tensor-count key. Do not edit
       `packages/steward/core/__fixtures__/llama/models-loaded.json`. This test
@@ -1186,14 +1186,14 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
       `quant` is `"Q4_K - Medium"` because both filename tokens are empty.
       5. `parseModels({ object: "list", data: [LOADED] })` still has `quant`
       `Q4_0`.
-- [ ] `packages/steward/core/llama-models.test.ts`: add a test titled
+- [x] `packages/steward/core/llama-models.test.ts`: add a test titled
       `UD quant token keeps the UD- prefix`. id
       `Llama-3.1-8B-UD-Q4_K_XL`, `status.value` `loaded`, `status.args`
       `["--model", "/models/Llama-3.1-8B-UD-Q4_K_XL.gguf"]`, `meta.ftype`
       `"Q4_K - Medium"`. `quant` is `UD-Q4_K_XL`. `short` is `Llama-3.1-8B`.
       `quant` is not `Q4_K_XL` and not `"Q4_K - Medium"`. This test fails on
       the unfixed tree because `QUANT_PATTERN` drops `UD-` and `ftype` wins.
-- [ ] `packages/steward/core/format.test.ts`: add a test titled
+- [x] `packages/steward/core/format.test.ts`: add a test titled
       `formatQuantField does not claim ftype bit depth`.
       `formatQuantField("Q4_K - Medium", true)` is `mixed`.
       `formatQuantField("UD-Q4_K_XL", true)` is `mixed`.
@@ -1204,7 +1204,7 @@ Root `PLAN.md`. Merging a Release Please pull request. `notify`,
       mixed result equals `4-bit (Q4_K - Medium)`. This test fails on the
       unfixed tree because `bitsFromCode` turns `"Q4_K - Medium"` into
       `4-bit`.
-- [ ] `packages/steward/core/select.test.ts`: add a test titled
+- [x] `packages/steward/core/select.test.ts`: add a test titled
       `dashboard Quant field does not show ftype bit depth`. Use the file's
       `snapshot`, `selectDashboard`, `MODELS`, `NOW`, and `initialUiState`.
       Do not add `fetch`. Do not edit `packages/steward/core/select.ts`.
@@ -1242,7 +1242,7 @@ Verifier-ticked. One checkbox per phase.
 - [x] Phase 1 — Pi 0.87.1 floor, 1password pin, and relay transcript readers
 - [x] Phase 2 — Tool result details, parameter schemas, and headroom compress payload
 - [x] Phase 3 — 1password JSON details, user_bash, and pre-existing shell env
-- [ ] Phase 4 — Steward quant label
+- [x] Phase 4 — Steward quant label
 
 ## Appendix D — Definition of Done
 
