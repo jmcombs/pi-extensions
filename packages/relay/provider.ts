@@ -23,9 +23,13 @@
  *
  * ── Persona + skills (context → inlined content) ──
  * pi-subagents assembles the subagent persona body + a skill INJECTION into the
- * child pi's system prompt, which arrives here as `context.systemPrompt`. pi
- * injects skills as `<available_skills>` *references* (name/description/location),
- * expecting an on-demand `Read`. A headless CLI run may never read them, so we
+ * child pi's system prompt. On pi 0.86+ that prompt and the tool list arrive on
+ * transcript system messages (`getCurrentSystemPrompt` / `getCurrentTools`).
+ * oh-my-pi still passes `context.systemPrompt` (a `string[]`) and `context.tools`.
+ * {@link readHostPromptAndTools} uses the transcript readers when those keys are
+ * absent, otherwise the legacy fields. pi injects skills as `<available_skills>`
+ * *references* (name/description/location), expecting an on-demand `Read`. A
+ * headless CLI run may never read them, so we
  * {@link expandSkillReferences | inline each referenced `SKILL.md`'s full body}
  * before relaying the prompt to the backend via its own system-prompt mechanism
  * (deterministic; no re-echo, no drift). See `roles/resolver.ts` for the off-path
@@ -47,6 +51,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as piAi from "@earendil-works/pi-ai";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { type AgentDriver, claudeDriver } from "./drivers/claude.js";
@@ -62,6 +67,54 @@ type RelayContext = Parameters<StreamSimpleFn>[1];
 type RelayStreamOptions = Parameters<StreamSimpleFn>[2];
 type RelayStreamReturn = ReturnType<StreamSimpleFn>;
 type RelayAssistantMessage = Awaited<ReturnType<RelayStreamReturn["result"]>>;
+
+/** Host tool entries may be pi `Tool`s or a looser oh-my-pi shape. */
+interface HostTool {
+  readonly name?: unknown;
+}
+
+/**
+ * Boundary view over {@link RelayContext}: pi 0.86+ `TranscriptContext` plus the
+ * optional legacy `systemPrompt` / `tools` keys oh-my-pi still passes.
+ */
+type HostContextView = RelayContext & {
+  readonly systemPrompt?: string | readonly string[];
+  readonly tools?: readonly HostTool[];
+};
+
+interface HostPromptAndTools {
+  readonly systemPrompt: string;
+  readonly tools: readonly HostTool[];
+}
+
+/**
+ * Resolve the host prompt and tool list.
+ *
+ * When `getCurrentSystemPrompt` and `getCurrentTools` are functions and the
+ * context owns neither `systemPrompt` nor `tools`, read them from transcript
+ * system messages. Otherwise use the legacy fields (an owned key wins even if
+ * `messages` also contains a system message).
+ */
+export function readHostPromptAndTools(context: RelayContext): HostPromptAndTools {
+  const host = context as HostContextView;
+  const getCurrentSystemPrompt = piAi.getCurrentSystemPrompt;
+  const getCurrentTools = piAi.getCurrentTools;
+  if (
+    typeof getCurrentSystemPrompt === "function" &&
+    typeof getCurrentTools === "function" &&
+    !Object.hasOwn(host, "systemPrompt") &&
+    !Object.hasOwn(host, "tools")
+  ) {
+    return {
+      systemPrompt: expandSkillReferences(getCurrentSystemPrompt(host.messages)),
+      tools: getCurrentTools(host.messages),
+    };
+  }
+  return {
+    systemPrompt: expandSkillReferences(host.systemPrompt),
+    tools: host.tools ?? [],
+  };
+}
 
 /** The pi provider name. `model: relay-claude/<id>` routes to this provider. */
 export const RELAY_CLAUDE_PROVIDER = "relay-claude";
@@ -323,7 +376,7 @@ function extractTask(context: RelayContext): string {
  * not treat the assistant's text as terminal, and instead waits for a call to its
  * own local `yield` tool. Without one it injects a reminder and re-runs the whole
  * request — a fresh headless CLI invocation each time. pi has no such tool, so the
- * tool's presence in `context.tools` is what tells us we're on omp.
+ * tool's presence in the host tool list is what tells us we're on omp.
  *
  * `yield` is deliberately absent from every driver's tool-name map, so it is
  * dropped by `mapToolNames` / Cursor's permission map and never reaches
@@ -353,11 +406,15 @@ let terminalYieldCallSeq = 0;
  * throw a provider that would otherwise have run.
  */
 function terminalYieldToolName(context: RelayContext): string | undefined {
-  return (context.tools ?? []).find(
-    (tool) =>
+  for (const tool of readHostPromptAndTools(context).tools) {
+    if (
       typeof tool?.name === "string" &&
-      tool.name.trim().toLowerCase() === RELAY_TERMINAL_YIELD_TOOL,
-  )?.name;
+      tool.name.trim().toLowerCase() === RELAY_TERMINAL_YIELD_TOOL
+    ) {
+      return tool.name;
+    }
+  }
+  return undefined;
 }
 
 interface AssistantMessageOptions {
@@ -515,7 +572,8 @@ export function streamViaDriver(
   // system prompt (fidelity), then relay it to `claude` via --system-prompt-file.
   let systemPromptFile: string | undefined;
   let tempDir: string | undefined;
-  const systemPrompt = expandSkillReferences(context.systemPrompt).trim();
+  const host = readHostPromptAndTools(context);
+  const systemPrompt = host.systemPrompt.trim();
   if (systemPrompt.length > 0) {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-relay-"));
     systemPromptFile = path.join(tempDir, "system-prompt.md");
@@ -531,7 +589,7 @@ export function streamViaDriver(
   };
 
   // pi-neutral tool names; the driver applies the pi→backend tool map (D10).
-  const tools = (context.tools ?? []).map((tool) => tool.name);
+  const tools = host.tools.flatMap((tool) => (typeof tool?.name === "string" ? [tool.name] : []));
 
   const invocation = {
     task: extractTask(context),
