@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v3.0.0...tavily-search/v3.0.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* make tool details and parameter schemas JSON-safe ([#287](https://github.com/jmcombs/pi-extensions/issues/287)) ([2d8b72c](https://github.com/jmcombs/pi-extensions/commit/2d8b72c63da173239668ccd21982f2d50b46c072))
+
 ## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/tavily-search/v2.1.0...tavily-search/v3.0.0) (2026-07-19)
 
 
