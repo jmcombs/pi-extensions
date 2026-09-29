@@ -4,9 +4,13 @@
  * Phase 3 adds the 1password factory to this file.
  */
 
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import template from "../packages/_template/index.js";
+import onePassword from "../packages/1password/index.js";
 import betterToolsy from "../packages/better-toolsy/index.js";
 import bluePsl10k from "../packages/blue-psl-10k/index.js";
 import context7 from "../packages/context7/index.js";
@@ -86,4 +90,24 @@ describe("registerTool object parameter schemas", () => {
       }
     });
   }
+
+  it("Type.Object parameters: 1password", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "1p-schema-"));
+    const savedHome = process.env.HOME;
+    const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
+    process.env.HOME = tmp;
+    process.env.PI_CODING_AGENT_DIR = tmp;
+    try {
+      const tools = await loadFactory(onePassword);
+      expect(tools.map((tool) => tool.name)).toEqual(["bash", "1p_diagnose"]);
+      for (const tool of tools) {
+        assertObjectParameterSchema(tool.parameters);
+      }
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
+    }
+  }, 30000);
 });
