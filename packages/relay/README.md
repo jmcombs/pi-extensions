@@ -13,8 +13,9 @@
 > on an **external coding agent** instead of a local model — just by setting its
 > `model`. Relay registers pi **providers** (`relay-claude`, `relay-grok`,
 > `relay-cursor`); a subagent whose `model` is `relay-claude/opus`,
-> `relay-grok/grok-4.5`, `relay-cursor/cursor`, `relay-cursor/opus-4.8`, or
-> `relay-cursor/opus-5.5` routes through relay to a headless **Claude** (`claude -p`),
+> `relay-claude/sonnet-5.5`, `relay-grok/grok-4.5`, `relay-cursor/cursor`,
+> `relay-cursor/opus-4.8`, `relay-cursor/opus-5.5`, or `relay-cursor/sonnet-5.5`
+> routes through relay to a headless **Claude** (`claude -p`),
 > **Grok Build** (`grok -p`), or **Cursor Agent** (`cursor-agent -p`), which runs its
 > own tool loop and returns the final result.
 
@@ -37,12 +38,13 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
 `SKILL.md`s). Nothing about the subagent changes except the processor:
 
 - **Trigger + model** — set a subagent's `model` to `relay-claude/opus`,
-  `relay-claude/opus-5.5`, `relay-grok/grok-4.5`, `relay-cursor/cursor`,
-  `relay-cursor/opus-4.8`, or `relay-cursor/opus-5.5`. pi's native `resolveModel` routes
+  `relay-claude/opus-5.5`, `relay-claude/sonnet-5.5`, `relay-grok/grok-4.5`,
+  `relay-cursor/cursor`, `relay-cursor/opus-4.8`, `relay-cursor/opus-5.5`, or
+  `relay-cursor/sonnet-5.5`. pi's native `resolveModel` routes
   the completion to relay's registered provider → `claudeDriver` / `grokDriver` /
-  `cursorDriver` → `claude -p … --model opus|claude-opus-5-5 --effort <level>` /
+  `cursorDriver` → `claude -p … --model opus|claude-opus-5-5|claude-sonnet-5-5 --effort <level>` /
   `grok -p … --model grok-4.5 --reasoning-effort <level>` /
-  `cursor-agent -p … --model composer-2.5|claude-opus-4-8-thinking-high|claude-opus-5-5-medium`
+  `cursor-agent -p … --model composer-2.5|claude-opus-4-8-thinking-high|claude-opus-5-5-medium|claude-sonnet-5-5-medium`
   (Pi thinking selects Claude/Grok effort flags, or the listed Cursor id).
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
   a skill injection into the (child) session's system prompt, where skills are
@@ -102,6 +104,7 @@ passed. Pi model → Cursor `--model` map:
 | `relay-cursor/cursor` | `composer-2.5` | Cursor's own Composer 2.5 model |
 | `relay-cursor/opus-4.8` | `claude-opus-4-8-high` | Renamed from `opus`; `:high` → `…-thinking-high` |
 | `relay-cursor/opus-5.5` | `claude-opus-5-5-medium` | Effort baked into the listed id; `:high` → `…-high` |
+| `relay-cursor/sonnet-5.5` | `claude-sonnet-5-5-medium` | Claude Code 2.1.284 default effort is medium; `:high` → `…-high` |
 
 The mapper strips the `relay-cursor/` provider prefix first; an id that does not
 resolve to a listed id is rejected up front rather than forwarded. Legacy
@@ -119,11 +122,13 @@ Claude Code and Cursor name the same Anthropic models differently:
 | --- | --- | --- |
 | Opus 4.8 | `--model opus` or `--model claude-opus-4-8` + optional `--effort` | Listed id `claude-opus-4-8-high` / `claude-opus-4-8-thinking-<level>` |
 | Opus 5.5 Medium | `--model claude-opus-5-5 --effort medium` | Listed id `claude-opus-5-5-medium` |
+| Sonnet 5.5 Medium | `--model claude-sonnet-5-5 --effort medium` | Listed id `claude-sonnet-5-5-medium` |
 | Composer 2.5 | n/a | `--model composer-2.5` |
 
 Confirm Cursor account availability with an authenticated `cursor-agent --list-models`
-(catalog is server-driven). Claude Code 2.1.280+ accepts `claude-opus-5-5`; the rolling
-`opus` alias remains Opus 4.8 on the Anthropic API per Claude Code model-config docs.
+(catalog is server-driven). Claude Code 2.1.284's baked catalog lists `claude-sonnet-5-5`
+(1M context, 128K max output, `default_effort: medium`, thinking cannot be disabled).
+The rolling `sonnet` alias resolves to that id on the first-party provider.
 
 Claude and Grok keep `--model` as the alias / pinned id and apply Pi thinking as
 `--effort` / `--reasoning-effort`. Relay catalogs these models with
@@ -186,16 +191,19 @@ you use any of them by pointing a subagent (or a whole session) at it through
 # Route a whole session through the relay provider
 pi --model relay-claude/opus "…"
 pi --model relay-claude/opus-5.5 "…"
+pi --model relay-claude/sonnet-5.5 "…"
 pi --model relay-grok/grok-4.5 "…"
 pi --model relay-cursor/auto "…"
 pi --model relay-cursor/cursor "…"
 pi --model relay-cursor/opus-4.8 "…"
 pi --model relay-cursor/opus-5.5 "…"
+pi --model relay-cursor/sonnet-5.5 "…"
 ```
 
 To run an existing subagent through relay, set its `model` frontmatter to
-`relay-claude/opus`, `relay-claude/opus-5.5`, `relay-grok/grok-4.5`,
-`relay-cursor/cursor`, `relay-cursor/opus-4.8`, or `relay-cursor/opus-5.5` and make
+`relay-claude/opus`, `relay-claude/opus-5.5`, `relay-claude/sonnet-5.5`,
+`relay-grok/grok-4.5`, `relay-cursor/cursor`, `relay-cursor/opus-4.8`,
+`relay-cursor/opus-5.5`, or `relay-cursor/sonnet-5.5` and make
 relay discoverable in the subagent's child pi (an installed package, or the agent's
 `extensions` field).
 
