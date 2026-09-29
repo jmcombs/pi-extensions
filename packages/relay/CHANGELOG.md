@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.5.0...relay/v1.6.0) (2026-09-29)
+
+
+### Features
+
+* **relay:** add Sonnet 5.5 to Claude and Cursor providers ([#276](https://github.com/jmcombs/pi-extensions/issues/276)) ([a00c474](https://github.com/jmcombs/pi-extensions/commit/a00c474ea40a3bd732a996535b470b164a184e06))
+
 ## [1.5.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.4.0...relay/v1.5.0) (2026-09-23)
 
 
