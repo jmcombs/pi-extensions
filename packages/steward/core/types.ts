@@ -74,7 +74,11 @@ export interface ModelInfo {
    * the detail line; it is not a guess at what the operator uses it for.
    */
   embedding: boolean;
-  /** Quantisation label, e.g. `Q4_0`. Best-effort from the id when unloaded. */
+  /**
+   * Quantisation label, e.g. `Q4_0`. A non-empty filename token from
+   * `quantFromArgs` or `quantFromId` wins over `meta.ftype`. A `UD-` token or a
+   * file-type label containing ` - ` displays as `mixed`.
+   */
   quant: string;
   /**
    * Size on disk, or `null` when the model is not loaded: llama.cpp only
