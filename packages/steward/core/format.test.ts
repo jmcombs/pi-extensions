@@ -242,6 +242,17 @@ describe("formatQuantField", () => {
     expect(formatQuantField("", true)).toBe(NA);
     expect(formatQuantField("IQ", true)).toBe(NA);
   });
+
+  it("formatQuantField does not claim ftype bit depth", () => {
+    expect(formatQuantField("Q4_K - Medium", true)).toBe("mixed");
+    expect(formatQuantField("UD-Q4_K_XL", true)).toBe("mixed");
+    expect(formatQuantField("Q4_K_M", true)).toBe("4-bit (Q4_K_M)");
+    expect(formatQuantField("Q4_0", true)).toBe("4-bit (Q4_0)");
+    expect(formatQuantField("UD-Q4_K_XL", false)).toBe(NA);
+    expect(formatQuantField("Q4_K - Medium", false)).toBe(NA);
+    expect(formatQuantField("Q4_K - Medium", true)).not.toBe("4-bit (Q4_K - Medium)");
+    expect(formatQuantField("UD-Q4_K_XL", true)).not.toBe("4-bit (Q4_K - Medium)");
+  });
 });
 
 describe("formatSizeField", () => {

@@ -29,7 +29,7 @@ const CHAT = "qwen3.6-moe-a3b-instruct-q4_k_m";
 const REASON = "qwen3.6-moe-30b-thinking-q5_k_m";
 const EMBED = "nomic-embed-text-v1.5-f16";
 
-const MODELS: ModelInfo[] = [
+const MODELS: [ModelInfo, ModelInfo, ModelInfo] = [
   {
     id: CHAT,
     short: "qwen3.6-moe-a3b-instruct",
@@ -679,6 +679,32 @@ describe("model cards", () => {
     ]);
     // A confirmed field is never dimmed.
     expect(vm.models[0]?.fields.every((f) => f.na === false)).toBe(true);
+  });
+
+  it("dashboard Quant field does not show ftype bit depth", () => {
+    const ud = selectDashboard(
+      snapshot({
+        models: [{ ...MODELS[0], quant: "UD-Q4_K_XL" }, MODELS[1], MODELS[2]],
+      }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(ud.models[0]?.fields.find((f) => f.label === "Quant")?.value).toBe("mixed");
+
+    const ftype = selectDashboard(
+      snapshot({
+        models: [{ ...MODELS[0], quant: "Q4_K - Medium" }, MODELS[1], MODELS[2]],
+      }),
+      initialUiState("light"),
+      NOW,
+    );
+    expect(ftype.models[0]?.fields.find((f) => f.label === "Quant")?.value).toBe("mixed");
+    expect(ftype.models[0]?.fields.find((f) => f.label === "Quant")?.value).not.toBe(
+      "4-bit (Q4_K - Medium)",
+    );
+
+    const chat = selectDashboard(snapshot(), initialUiState("light"), NOW);
+    expect(chat.models[0]?.fields.find((f) => f.label === "Quant")?.value).toBe("4-bit (Q4_K_M)");
   });
 
   it("reads every field but Type as n/a on an unloaded card, and marks them dimmed", () => {
