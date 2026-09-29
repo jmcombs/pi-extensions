@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.6.0...relay/v1.6.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **relay:** pin pi 0.87.1, including 1password, and read transcript prompts ([#282](https://github.com/jmcombs/pi-extensions/issues/282)) ([46b71db](https://github.com/jmcombs/pi-extensions/commit/46b71db34bb39e0471311a066b5457ad1863e108))
+
 ## [1.6.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.5.0...relay/v1.6.0) (2026-09-29)
 
 
