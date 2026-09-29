@@ -30,6 +30,8 @@
  * Opus 5.5 / Composer catalog and the prior live Opus 4.8 verify:
  *   - Pi `opus-4.8` (legacy alias `opus`) → `claude-opus-4-8-high` / `…-thinking-*`
  *   - Pi `opus-5.5` → `claude-opus-5-5-medium` (default) / `claude-opus-5-5-<level>`
+ *   - Pi `sonnet-5.5` → `claude-sonnet-5-5-high` (Anthropic default effort) /
+ *     `claude-sonnet-5-5-<level>`
  *   - Pi `cursor` → `composer-2.5` (Cursor's own agentic model)
  *   - Pi `auto` → `auto`
  * `resolveCursorModel` strips `relay-cursor/` and uses the Pi thinking suffix to
@@ -80,6 +82,8 @@ export const CURSOR_MODEL_MAP: Readonly<Record<string, string>> = {
   opus: "claude-opus-4-8-high",
   /** Default Opus 5.5 effort (medium). Thinking remaps via {@link CURSOR_OPUS_55_BY_THINKING}. */
   "opus-5.5": "claude-opus-5-5-medium",
+  /** Default Sonnet 5.5 effort (high). Thinking remaps via {@link CURSOR_SONNET_55_BY_THINKING}. */
+  "sonnet-5.5": "claude-sonnet-5-5-high",
 };
 
 /**
@@ -122,11 +126,29 @@ export const CURSOR_OPUS_55_BY_THINKING: Readonly<Record<PiThinkingLevel, string
   max: "claude-opus-5-5-max",
 };
 
+/**
+ * Pi thinking → Cursor listed Sonnet 5.5 id. Same shape as Opus 5.5 (effort
+ * baked into `claude-sonnet-5-5-<level>`, no `-thinking-` infix, no `-fast`).
+ * Anthropic's default effort for Sonnet 5.5 is high, so `off` maps to high.
+ * `minimal` clamps to low. Confirmed with `cursor-agent --list-models` on
+ * cursor-agent 2026.09.26-dd393fe.
+ */
+export const CURSOR_SONNET_55_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> = {
+  off: "claude-sonnet-5-5-high",
+  minimal: "claude-sonnet-5-5-low",
+  low: "claude-sonnet-5-5-low",
+  medium: "claude-sonnet-5-5-medium",
+  high: "claude-sonnet-5-5-high",
+  xhigh: "claude-sonnet-5-5-xhigh",
+  max: "claude-sonnet-5-5-max",
+};
+
 /** The Cursor `--model` values this driver may emit, accepted verbatim on input. */
 const CURSOR_LISTED_IDS: ReadonlySet<string> = new Set([
   ...Object.values(CURSOR_MODEL_MAP),
   ...Object.values(CURSOR_OPUS_48_BY_THINKING),
   ...Object.values(CURSOR_OPUS_55_BY_THINKING),
+  ...Object.values(CURSOR_SONNET_55_BY_THINKING),
 ]);
 
 /**
@@ -147,10 +169,11 @@ export function resolveCursorModel(piId: string, thinking?: PiThinkingLevel): st
   if (id === "cursor") return "composer-2.5";
   if (id === "opus" || id === "opus-4.8") return CURSOR_OPUS_48_BY_THINKING[level];
   if (id === "opus-5.5") return CURSOR_OPUS_55_BY_THINKING[level];
+  if (id === "sonnet-5.5") return CURSOR_SONNET_55_BY_THINKING[level];
   if (CURSOR_LISTED_IDS.has(id)) return id;
   throw new Error(
     `relay-cursor: \`${piId}\` is not a supported relay-cursor model. ` +
-      `Use one of: auto, cursor, opus-4.8, opus-5.5 (legacy alias: opus).`,
+      `Use one of: auto, cursor, opus-4.8, opus-5.5, sonnet-5.5 (legacy alias: opus).`,
   );
 }
 

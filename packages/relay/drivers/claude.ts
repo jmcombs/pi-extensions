@@ -28,18 +28,20 @@ import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
  * Pi model id → Claude Code `--model` value.
  *
  * Claude Code accepts aliases (`opus`, `sonnet`, `haiku`) and full ids
- * (`claude-opus-5-5`). Confirmed in Claude Code 2.1.280 package strings and
- * docs (`code.claude.com/docs/en/model-config`): `opus` is still the rolling
- * Opus alias (Opus 4.8 on the Anthropic API as of that doc); pin Opus 5.5 with
- * `claude-opus-5-5` and control depth via `--effort` (default medium on 5.5).
- * `opus-4.8` pins `claude-opus-4-8`. Unknown ids are passed through so a future
- * Claude alias does not need a relay release to reach `--model`.
+ * (`claude-opus-5-5`, `claude-sonnet-5-5`). Pin Opus 5.5 with `claude-opus-5-5`
+ * and Sonnet 5.5 with `claude-sonnet-5-5` (Anthropic model card, 1M / 128K,
+ * default effort high). Depth is `--effort` (omitted on `off`, so the CLI
+ * default applies). `opus-4.8` pins `claude-opus-4-8`. Unknown ids are passed
+ * through so a future Claude alias does not need a relay release to reach
+ * `--model`. Claude Code 2.1.283's baked catalog does not yet list
+ * `claude-sonnet-5-5`; the pin still matches the API id.
  */
 export const CLAUDE_MODEL_MAP: Readonly<Record<string, string>> = {
   opus: "opus",
   "opus-4.8": "claude-opus-4-8",
   "opus-5.5": "claude-opus-5-5",
   sonnet: "sonnet",
+  "sonnet-5.5": "claude-sonnet-5-5",
   haiku: "haiku",
 };
 

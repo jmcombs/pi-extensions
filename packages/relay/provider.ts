@@ -148,7 +148,8 @@ function toProviderModels(
  *
  * Catalog windows from live `claude -p --model <alias> --output-format json`
  * `modelUsage` (Claude Code 2.1.266): opus/sonnet → 1M / 64K, haiku → 200K / 32K.
- * Opus 5.5 is 1M / 128K per Anthropic's model card.
+ * Opus 5.5 and Sonnet 5.5 are 1M / 128K per Anthropic's model cards. Sonnet 5.5
+ * default effort is high (Opus 5.5 is medium); both are steered with `--effort`.
  */
 const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
   {
@@ -177,6 +178,13 @@ const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
     name: "Relay Claude Sonnet",
     contextWindow: 1_000_000,
     maxTokens: 64_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  },
+  {
+    id: "sonnet-5.5",
+    name: "Relay Claude Sonnet 5.5",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP,
   },
   {
@@ -220,8 +228,9 @@ export const RELAY_CURSOR_PROVIDER = "relay-cursor";
 /**
  * Models exposed by the provider. Pi `auto` → Cursor `--model auto`. Pi `cursor`
  * → Composer 2.5. Pi `opus-4.8` (legacy catalog id `opus` removed — driver still
- * accepts the alias) and `opus-5.5` map by thinking onto Cursor listed ids
- * (`claude-opus-4-8-high`, `claude-opus-5-5-medium`, …).
+ * accepts the alias), `opus-5.5`, and `sonnet-5.5` map by thinking onto Cursor
+ * listed ids (`claude-opus-4-8-high`, `claude-opus-5-5-medium`,
+ * `claude-sonnet-5-5-high`, …).
  */
 const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
   {
@@ -248,6 +257,13 @@ const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
   {
     id: "opus-5.5",
     name: "Relay Cursor Opus 5.5 Medium",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    thinkingLevelMap: CURSOR_THINKING_MAP,
+  },
+  {
+    id: "sonnet-5.5",
+    name: "Relay Cursor Sonnet 5.5 High",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     thinkingLevelMap: CURSOR_THINKING_MAP,
