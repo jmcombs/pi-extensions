@@ -419,6 +419,13 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/postgresql"
   },
   {
+    "name": "postman",
+    "slug": "postman",
+    "envVars": ["POSTMAN_API_KEY"],
+    "primaryEnvVar": "POSTMAN_API_KEY",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/postman"
+  },
+  {
     "name": "Pulumi",
     "slug": "pulumi",
     "envVars": ["PULUMI_ACCESS_TOKEN", "PULUMI_BACKEND_URL"],
@@ -501,6 +508,20 @@
     "envVars": ["SRC_ACCESS_TOKEN", "SRC_ENDPOINT"],
     "primaryEnvVar": "SRC_ACCESS_TOKEN",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/sourcegraph"
+  },
+  {
+    "name": "Spacelift",
+    "slug": "spacelift",
+    "envVars": ["SPACELIFT_API_KEY_ENDPOINT", "SPACELIFT_API_KEY_ID", "SPACELIFT_API_KEY_SECRET"],
+    "primaryEnvVar": "SPACELIFT_API_KEY_ID",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/spacelift"
+  },
+  {
+    "name": "Stackhero",
+    "slug": "stackhero",
+    "envVars": ["STACKHERO_TOKEN"],
+    "primaryEnvVar": "STACKHERO_TOKEN",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/stackhero"
   },
   {
     "name": "Stripe",
