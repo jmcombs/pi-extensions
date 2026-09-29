@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.1.0...grok-search/v2.1.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* make tool details and parameter schemas JSON-safe ([#287](https://github.com/jmcombs/pi-extensions/issues/287)) ([2d8b72c](https://github.com/jmcombs/pi-extensions/commit/2d8b72c63da173239668ccd21982f2d50b46c072))
+
 ## [2.1.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.0.0...grok-search/v2.1.0) (2026-09-13)
 
 
