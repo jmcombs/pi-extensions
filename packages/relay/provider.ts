@@ -148,8 +148,9 @@ function toProviderModels(
  *
  * Catalog windows from live `claude -p --model <alias> --output-format json`
  * `modelUsage` (Claude Code 2.1.266): opus/sonnet → 1M / 64K, haiku → 200K / 32K.
- * Opus 5.5 and Sonnet 5.5 are 1M / 128K per Anthropic's model cards. Sonnet 5.5
- * default effort is high (Opus 5.5 is medium); both are steered with `--effort`.
+ * Opus 5.5 and Sonnet 5.5 are 1M / 128K. Claude Code 2.1.284's Sonnet 5.5 card
+ * sets `default_effort` to medium (same as Opus 5.5); both are steered with
+ * `--effort`.
  */
 const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
   {
@@ -263,7 +264,7 @@ const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
   },
   {
     id: "sonnet-5.5",
-    name: "Relay Cursor Sonnet 5.5 High",
+    name: "Relay Cursor Sonnet 5.5 Medium",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     thinkingLevelMap: CURSOR_THINKING_MAP,

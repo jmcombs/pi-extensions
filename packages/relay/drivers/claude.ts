@@ -29,12 +29,12 @@ import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
  *
  * Claude Code accepts aliases (`opus`, `sonnet`, `haiku`) and full ids
  * (`claude-opus-5-5`, `claude-sonnet-5-5`). Pin Opus 5.5 with `claude-opus-5-5`
- * and Sonnet 5.5 with `claude-sonnet-5-5` (Anthropic model card, 1M / 128K,
- * default effort high). Depth is `--effort` (omitted on `off`, so the CLI
- * default applies). `opus-4.8` pins `claude-opus-4-8`. Unknown ids are passed
- * through so a future Claude alias does not need a relay release to reach
- * `--model`. Claude Code 2.1.283's baked catalog does not yet list
- * `claude-sonnet-5-5`; the pin still matches the API id.
+ * and Sonnet 5.5 with `claude-sonnet-5-5`. Claude Code 2.1.284's baked catalog
+ * lists Sonnet 5.5 as 1M / 128K with `default_effort: "medium"` and
+ * `rejects_disabled_thinking`. Depth is `--effort` (omitted on `off`, so that
+ * CLI default applies). `opus-4.8` pins `claude-opus-4-8`. Unknown ids are
+ * passed through so a future Claude alias does not need a relay release to
+ * reach `--model`.
  */
 export const CLAUDE_MODEL_MAP: Readonly<Record<string, string>> = {
   opus: "opus",

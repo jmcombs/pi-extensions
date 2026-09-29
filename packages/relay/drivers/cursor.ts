@@ -30,7 +30,7 @@
  * Opus 5.5 / Composer catalog and the prior live Opus 4.8 verify:
  *   - Pi `opus-4.8` (legacy alias `opus`) → `claude-opus-4-8-high` / `…-thinking-*`
  *   - Pi `opus-5.5` → `claude-opus-5-5-medium` (default) / `claude-opus-5-5-<level>`
- *   - Pi `sonnet-5.5` → `claude-sonnet-5-5-high` (Anthropic default effort) /
+ *   - Pi `sonnet-5.5` → `claude-sonnet-5-5-medium` (Claude Code 2.1.284 default) /
  *     `claude-sonnet-5-5-<level>`
  *   - Pi `cursor` → `composer-2.5` (Cursor's own agentic model)
  *   - Pi `auto` → `auto`
@@ -82,8 +82,8 @@ export const CURSOR_MODEL_MAP: Readonly<Record<string, string>> = {
   opus: "claude-opus-4-8-high",
   /** Default Opus 5.5 effort (medium). Thinking remaps via {@link CURSOR_OPUS_55_BY_THINKING}. */
   "opus-5.5": "claude-opus-5-5-medium",
-  /** Default Sonnet 5.5 effort (high). Thinking remaps via {@link CURSOR_SONNET_55_BY_THINKING}. */
-  "sonnet-5.5": "claude-sonnet-5-5-high",
+  /** Default Sonnet 5.5 effort (medium). Thinking remaps via {@link CURSOR_SONNET_55_BY_THINKING}. */
+  "sonnet-5.5": "claude-sonnet-5-5-medium",
 };
 
 /**
@@ -129,12 +129,12 @@ export const CURSOR_OPUS_55_BY_THINKING: Readonly<Record<PiThinkingLevel, string
 /**
  * Pi thinking → Cursor listed Sonnet 5.5 id. Same shape as Opus 5.5 (effort
  * baked into `claude-sonnet-5-5-<level>`, no `-thinking-` infix, no `-fast`).
- * Anthropic's default effort for Sonnet 5.5 is high, so `off` maps to high.
- * `minimal` clamps to low. Confirmed with `cursor-agent --list-models` on
- * cursor-agent 2026.09.26-dd393fe.
+ * Claude Code 2.1.284's model card sets `default_effort` to medium and rejects
+ * disabled thinking, so `off` maps to medium. `minimal` clamps to low. Listed
+ * ids confirmed with `cursor-agent --list-models` on 2026.09.26-dd393fe.
  */
 export const CURSOR_SONNET_55_BY_THINKING: Readonly<Record<PiThinkingLevel, string>> = {
-  off: "claude-sonnet-5-5-high",
+  off: "claude-sonnet-5-5-medium",
   minimal: "claude-sonnet-5-5-low",
   low: "claude-sonnet-5-5-low",
   medium: "claude-sonnet-5-5-medium",

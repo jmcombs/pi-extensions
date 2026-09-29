@@ -44,7 +44,7 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
   the completion to relay's registered provider → `claudeDriver` / `grokDriver` /
   `cursorDriver` → `claude -p … --model opus|claude-opus-5-5|claude-sonnet-5-5 --effort <level>` /
   `grok -p … --model grok-4.5 --reasoning-effort <level>` /
-  `cursor-agent -p … --model composer-2.5|claude-opus-4-8-thinking-high|claude-opus-5-5-medium|claude-sonnet-5-5-high`
+  `cursor-agent -p … --model composer-2.5|claude-opus-4-8-thinking-high|claude-opus-5-5-medium|claude-sonnet-5-5-medium`
   (Pi thinking selects Claude/Grok effort flags, or the listed Cursor id).
 - **Persona + skills** — when pi runs a subagent it assembles the persona body +
   a skill injection into the (child) session's system prompt, where skills are
@@ -104,7 +104,7 @@ passed. Pi model → Cursor `--model` map:
 | `relay-cursor/cursor` | `composer-2.5` | Cursor's own Composer 2.5 model |
 | `relay-cursor/opus-4.8` | `claude-opus-4-8-high` | Renamed from `opus`; `:high` → `…-thinking-high` |
 | `relay-cursor/opus-5.5` | `claude-opus-5-5-medium` | Effort baked into the listed id; `:high` → `…-high` |
-| `relay-cursor/sonnet-5.5` | `claude-sonnet-5-5-high` | Anthropic default effort is high; `:medium` → `…-medium` |
+| `relay-cursor/sonnet-5.5` | `claude-sonnet-5-5-medium` | Claude Code 2.1.284 default effort is medium; `:high` → `…-high` |
 
 The mapper strips the `relay-cursor/` provider prefix first; an id that does not
 resolve to a listed id is rejected up front rather than forwarded. Legacy
@@ -122,13 +122,13 @@ Claude Code and Cursor name the same Anthropic models differently:
 | --- | --- | --- |
 | Opus 4.8 | `--model opus` or `--model claude-opus-4-8` + optional `--effort` | Listed id `claude-opus-4-8-high` / `claude-opus-4-8-thinking-<level>` |
 | Opus 5.5 Medium | `--model claude-opus-5-5 --effort medium` | Listed id `claude-opus-5-5-medium` |
-| Sonnet 5.5 High | `--model claude-sonnet-5-5 --effort high` | Listed id `claude-sonnet-5-5-high` |
+| Sonnet 5.5 Medium | `--model claude-sonnet-5-5 --effort medium` | Listed id `claude-sonnet-5-5-medium` |
 | Composer 2.5 | n/a | `--model composer-2.5` |
 
 Confirm Cursor account availability with an authenticated `cursor-agent --list-models`
-(catalog is server-driven). Claude Code accepts `claude-opus-5-5`. Sonnet 5.5's API id
-is `claude-sonnet-5-5` (1M / 128K, default effort high). Claude Code 2.1.283's baked
-catalog does not yet list that id; the pin is still forwarded.
+(catalog is server-driven). Claude Code 2.1.284's baked catalog lists `claude-sonnet-5-5`
+(1M context, 128K max output, `default_effort: medium`, thinking cannot be disabled).
+The rolling `sonnet` alias resolves to that id on the first-party provider.
 
 Claude and Grok keep `--model` as the alias / pinned id and apply Pi thinking as
 `--effort` / `--reasoning-effort`. Relay catalogs these models with

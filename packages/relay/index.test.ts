@@ -238,13 +238,13 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     });
     expect(cursorOpus55.thinkingLevelMap?.medium).toBe("medium");
     expect(cursorSonnet55).toMatchObject({
-      name: "Relay Cursor Sonnet 5.5 High",
+      name: "Relay Cursor Sonnet 5.5 Medium",
       reasoning: true,
       input: ["text"],
       contextWindow: 1_000_000,
       maxTokens: 128_000,
     });
-    expect(cursorSonnet55.thinkingLevelMap?.high).toBe("high");
+    expect(cursorSonnet55.thinkingLevelMap?.medium).toBe("medium");
   });
 });
 
@@ -900,10 +900,17 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     const sonnet55 = claudeDriver.buildArgs({
       task: "t",
       model: "relay-claude/sonnet-5.5",
-      thinking: "high",
+      thinking: "medium",
     });
     expect(sonnet55[sonnet55.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
-    expect(sonnet55[sonnet55.indexOf("--effort") + 1]).toBe("high");
+    expect(sonnet55[sonnet55.indexOf("--effort") + 1]).toBe("medium");
+    const sonnet55Off = claudeDriver.buildArgs({
+      task: "t",
+      model: "sonnet-5.5",
+      thinking: "off",
+    });
+    expect(sonnet55Off[sonnet55Off.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
+    expect(sonnet55Off).not.toContain("--effort");
 
     const pinned48 = claudeDriver.buildArgs({ task: "t", model: "opus-4.8", thinking: "off" });
     expect(pinned48[pinned48.indexOf("--model") + 1]).toBe("claude-opus-4-8");
@@ -1176,11 +1183,11 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     expect(resolveCursorModel("AUTO")).toBe("auto");
     expect(resolveCursorModel("cursor")).toBe("composer-2.5");
     expect(resolveCursorModel("opus-5.5")).toBe("claude-opus-5-5-medium");
-    expect(resolveCursorModel("sonnet-5.5")).toBe("claude-sonnet-5-5-high");
+    expect(resolveCursorModel("sonnet-5.5")).toBe("claude-sonnet-5-5-medium");
     expect(resolveCursorModel("claude-opus-4-8-high")).toBe("claude-opus-4-8-high");
     expect(resolveCursorModel("composer-2.5")).toBe("composer-2.5");
     expect(resolveCursorModel("claude-opus-5-5-medium")).toBe("claude-opus-5-5-medium");
-    expect(resolveCursorModel("claude-sonnet-5-5-high")).toBe("claude-sonnet-5-5-high");
+    expect(resolveCursorModel("claude-sonnet-5-5-medium")).toBe("claude-sonnet-5-5-medium");
   });
 
   // Pi hands the driver the model string as written in the role file, so the
@@ -1205,8 +1212,8 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
     expect(resolveCursorModel("opus-5.5:high")).toBe("claude-opus-5-5-high");
     expect(resolveCursorModel("opus-5.5:low")).toBe("claude-opus-5-5-low");
     expect(resolveCursorModel("opus-5.5", "max")).toBe("claude-opus-5-5-max");
-    expect(resolveCursorModel("relay-cursor/sonnet-5.5")).toBe("claude-sonnet-5-5-high");
-    expect(resolveCursorModel("relay-cursor/sonnet-5.5:off")).toBe("claude-sonnet-5-5-high");
+    expect(resolveCursorModel("relay-cursor/sonnet-5.5")).toBe("claude-sonnet-5-5-medium");
+    expect(resolveCursorModel("relay-cursor/sonnet-5.5:off")).toBe("claude-sonnet-5-5-medium");
     expect(resolveCursorModel("sonnet-5.5:medium")).toBe("claude-sonnet-5-5-medium");
     expect(resolveCursorModel("sonnet-5.5:high")).toBe("claude-sonnet-5-5-high");
     expect(resolveCursorModel("sonnet-5.5:low")).toBe("claude-sonnet-5-5-low");
