@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jmcombs/pi-extensions/compare/steward/v1.0.1...steward/v1.1.0) (2026-09-30)
+
+
+### Features
+
+* **steward:** warn when models-dir and models-preset overlap ([#305](https://github.com/jmcombs/pi-extensions/issues/305)) ([933ee1c](https://github.com/jmcombs/pi-extensions/commit/933ee1cb42f235b75344f65ce7924b64b6024f33))
+
 ## [1.0.1](https://github.com/jmcombs/pi-extensions/compare/steward/v1.0.0...steward/v1.0.1) (2026-09-29)
 
 
