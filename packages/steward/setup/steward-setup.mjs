@@ -220,6 +220,12 @@ export function checkLaunchArgv(argv) {
   const flagName = (token) => (token.includes("=") ? token.slice(0, token.indexOf("=")) : token);
   const names = new Set(tokens.map(flagName));
 
+  const hasModelsDir =
+    names.has("--models-dir") || tokens.some((token) => token.includes("LLAMA_ARG_MODELS_DIR"));
+  const hasModelsPreset =
+    names.has("--models-preset") ||
+    tokens.some((token) => token.includes("LLAMA_ARG_MODELS_PRESET"));
+
   const single = tokens.filter((token) => SINGLE_MODEL_FLAGS.has(flagName(token)));
   if (single.length > 0) {
     findings.push(
@@ -229,8 +235,22 @@ export function checkLaunchArgv(argv) {
           "--models-dir / --models-preset and no -m / --model / -hf.",
       ),
     );
-  } else if (names.has("--models-dir") || names.has("--models-preset")) {
+  } else if (hasModelsDir || hasModelsPreset) {
     findings.push(ok("router mode — serves a model directory or preset file"));
+    if (hasModelsDir && hasModelsPreset) {
+      findings.push(
+        warn(
+          "--models-dir and --models-preset are both set",
+          "llama.cpp lists every GGUF under --models-dir, then lists each named section in\n" +
+            "the preset file as another model. A file that already has a section shows up\n" +
+            "twice — once as the filename, once as the preset name — and only the preset\n" +
+            "name gets those extra knobs. If you do not want that, pick one source: drop\n" +
+            "--models-dir and give every GGUF a section in the ini (a section that only has\n" +
+            "the path is enough), or keep the folder scan and do not add a named section\n" +
+            "for a file that already lives there.",
+        ),
+      );
+    }
   } else {
     // Absence of -m is not presence of a router. A bare `llama-server` has
     // neither, and used to pass this check as "router mode" on the strength of

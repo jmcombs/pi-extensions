@@ -288,6 +288,36 @@ describe("plan", () => {
     expect(result.stdout).toContain("not router mode");
   });
 
+  it("warns in the proposal review when launch argv has both model sources", () => {
+    const result = run([
+      "plan",
+      "--input",
+      fixture(
+        "proposal.json",
+        proposal({
+          llama: {
+            launchArgv: [
+              "llama-server",
+              "--models-dir",
+              "/models",
+              "--models-preset",
+              "/models.ini",
+              "--metrics",
+            ],
+            mechanism: "launchd",
+          },
+        }),
+      ),
+      "--config",
+      join(dir, "steward.json"),
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Proposal review");
+    expect(result.stdout).toContain("--models-dir and --models-preset are both set");
+    expect(result.stdout).toContain("drop");
+    expect(result.stdout).toContain("Diff");
+  });
+
   it("warns statically about the two collector shapes that emit nothing", () => {
     // Both are reviewed without running anything: jq block-buffers behind a pipe
     // and produces zero lines, and `-s 1` exits after one sample instead of
@@ -724,5 +754,53 @@ describe("router mode is asserted, not merely inferred from absence", () => {
   it("confirms router mode when a model source is present", () => {
     const result = run(["check-argv", "--argv-json", fixture("argv.json", COMPLIANT_ARGV)]);
     expect(result.stdout).toContain("serves a model directory or preset");
+  });
+
+  it("warns when --models-dir and --models-preset are both set, without failing", () => {
+    const argv = [
+      "/opt/homebrew/bin/llama-server",
+      "--models-dir",
+      "/models",
+      "--models-preset",
+      "/models.ini",
+      "--metrics",
+    ];
+    const result = run(["check-argv", "--argv-json", fixture("argv.json", argv)]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("serves a model directory or preset");
+    expect(result.stdout).toContain("--models-dir and --models-preset are both set");
+    expect(result.stdout).toContain("shows up");
+    expect(result.stdout).toContain("drop");
+  });
+
+  it("catches the overlap in equals-form and environment-variable spellings", () => {
+    const equalsForm = [
+      "llama-server",
+      "--models-dir=/models",
+      "--models-preset=/models.ini",
+      "--metrics",
+    ];
+    const equals = run(["check-argv", "--argv-json", fixture("equals.json", equalsForm)]);
+    expect(equals.status).toBe(0);
+    expect(equals.stdout).toContain("--models-dir and --models-preset are both set");
+
+    const envForm = [
+      "env",
+      "LLAMA_ARG_MODELS_DIR=/models",
+      "LLAMA_ARG_MODELS_PRESET=/models.ini",
+      "llama-server",
+      "--metrics",
+    ];
+    const env = run(["check-argv", "--argv-json", fixture("env.json", envForm)]);
+    expect(env.status).toBe(0);
+    expect(env.stdout).toContain("--models-dir and --models-preset are both set");
+  });
+
+  it("does not warn when only --models-preset is present", () => {
+    const argv = ["/opt/homebrew/bin/llama-server", "--models-preset", "/models.ini", "--metrics"];
+    const result = run(["check-argv", "--argv-json", fixture("argv.json", argv)]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("serves a model directory or preset");
+    expect(result.stdout).not.toContain("--models-dir and --models-preset are both set");
   });
 });

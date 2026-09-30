@@ -85,7 +85,8 @@ below, establish whether this machine already delivers it, and propose the small
 
 1. **A model catalogue, and load/unload.** \`llama-server\` must run in **router mode** — serving a
    models directory and/or a preset file, with no \`-m\`/\`--model\`/\`-hf\`. Pi's llama.cpp provider
-   throws outright on a single-model server.
+   throws outright on a single-model server. Both flags together is still router mode; the helper
+   WARNs, because the catalogue can then list the same GGUF twice. Put that warning in the Plan.
 2. **Throughput and request counters.** These come from llama.cpp's Prometheus \`/metrics\`, which is
    **off by default**.
 3. **Per-slot context fill and the busy count.** From \`/slots\`, on unless disabled.
@@ -138,6 +139,14 @@ that looks healthy. Everything else here you can verify yourself; these you cann
 - **\`--log-file\` corrupts the log in router mode.** It is a real, documented flag, which is why it
   looks right. The router copies it into every child, each opens it truncate-not-append, and they
   write at independent offsets. Never propose it.
+- **\`--models-dir\` plus \`--models-preset\` lists some models twice.** Both flags together still look
+  like a healthy router: \`/models\` returns a list, load works, Steward draws a card per name.
+  llama.cpp does not collapse a directory row when a preset uses that same file, so a GGUF with its
+  own ini section appears once as the filename and once as the preset name, and only the preset name
+  gets those extra knobs. The helper WARNs when a proposed argv has both — put that warning in the
+  Plan. If that double listing is not wanted, drop \`--models-dir\` and give every GGUF a section in
+  the ini (a section that only has the path is enough), or keep the folder scan and do not add a
+  named section for a file already in that folder. Do not hide the extra names in the dashboard.
 - **stdout alone gives you an empty log.** llama.cpp writes every levelled line — including every
   error — to **stderr**, and only the forwarded child lines to **stdout**. Redirecting stdout only
   yields a running server with a silent, often 0-byte log. Both streams must reach **one** file, however this
