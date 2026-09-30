@@ -21,7 +21,29 @@ import { spawnSync } from "node:child_process";
 import { isExpired } from "./exception-expiry.mjs";
 
 /** @type {{id: string, package: string, reason: string, expires: string}[]} */
-const ALLOWLIST = [];
+const ALLOWLIST = [
+  {
+    id: "GHSA-q2hr-2g5m-vwhr",
+    package: "brace-expansion",
+    reason:
+      "@earendil-works/pi-coding-agent@0.99.1 shrinkwrap pins brace-expansion@5.0.9; patched in 5.0.12. Root overrides cannot pierce the shrinkwrap.",
+    expires: "2026-10-10",
+  },
+  {
+    id: "GHSA-qhr7-859c-m2p7",
+    package: "brace-expansion",
+    reason:
+      "@earendil-works/pi-coding-agent@0.99.1 shrinkwrap pins brace-expansion@5.0.9; patched in 5.0.12. Root overrides cannot pierce the shrinkwrap.",
+    expires: "2026-10-10",
+  },
+  {
+    id: "GHSA-6j4f-fj2g-mc7p",
+    package: "brace-expansion",
+    reason:
+      "@earendil-works/pi-coding-agent@0.99.1 shrinkwrap pins brace-expansion@5.0.9; patched in 5.0.12. Root overrides cannot pierce the shrinkwrap.",
+    expires: "2026-10-10",
+  },
+];
 
 const result = spawnSync("npm", ["audit", "--omit=dev", "--json"], {
   encoding: "utf8",
