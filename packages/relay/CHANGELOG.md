@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/jmcombs/pi-extensions/compare/relay/v1.6.1...relay/v1.6.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* **relay:** pre-approve Claude bash without prompting ([#319](https://github.com/jmcombs/pi-extensions/issues/319)) ([db8ab6a](https://github.com/jmcombs/pi-extensions/commit/db8ab6abab15de642ab301544b79ab389e096e51))
+
 ## [1.6.1](https://github.com/jmcombs/pi-extensions/compare/relay/v1.6.0...relay/v1.6.1) (2026-09-29)
 
 
