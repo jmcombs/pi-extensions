@@ -276,8 +276,8 @@ Add `"appearance": "light"` to the Blue PSL theme file and assert it in the exis
 
 ### Actionable TODOs
 
-- [ ] `packages/blue-psl-10k/themes/blue-psl-10k.json` must contain `"appearance": "light"` as a sibling of `"name"`. Every other key must be unchanged.
-- [ ] `packages/blue-psl-10k/index.test.ts` must read `themes/blue-psl-10k.json` and expect `appearance` to be `light`. Keep the existing `setFooter` smoke test.
+- [x] `packages/blue-psl-10k/themes/blue-psl-10k.json` must contain `"appearance": "light"` as a sibling of `"name"`. Every other key must be unchanged.
+- [x] `packages/blue-psl-10k/index.test.ts` must read `themes/blue-psl-10k.json` and expect `appearance` to be `light`. Keep the existing `setFooter` smoke test.
 
 ### Testing Gates
 
@@ -315,7 +315,7 @@ Verifier-ticked. One line per phase.
 - [x] Phase 2 — Bump earendil host pins
 - [x] Phase 3 — Notify on idle
 - [x] Phase 4 — Search-tool annotations and mirrored output
-- [ ] Phase 5 — Declare Blue PSL appearance light
+- [x] Phase 5 — Declare Blue PSL appearance light
 
 ## Appendix D — Definition of Done
 
@@ -335,3 +335,5 @@ Verifier-ticked. One line per phase.
 | PR linked and required checks green | Phase 1 | github-pr | human | OPEN |
 | Fullscreen smoke after the pin bump | Phase 2 | pi-fullscreen | human | OPEN |
 | PR linked and required checks green | Phase 2 | github-pr | human | OPEN |
+| Fullscreen smoke after notify and theme | Phase 5 | pi-fullscreen | human | DISCHARGED |
+| PR linked and required checks green | Phase 5 | github-pr | human | DISCHARGED |
