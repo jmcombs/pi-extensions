@@ -16,6 +16,8 @@ import {
   type AgentDriver,
   claudeDriver,
   mapClaudeEffort,
+  mapClaudePermissionRule,
+  mapClaudePermissionRules,
   mapToolName,
   mapToolNames,
   resolveClaudeModel,
@@ -963,7 +965,21 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     expect(mapToolNames(["read", "bash", "subagent", "read"])).toEqual(["Read", "Bash"]);
   });
 
-  it("buildArgs emits `--allowedTools` from the neutral pi tool list", () => {
+  it("maps bash to a pre-approving permission rule, not a bare tool name", () => {
+    expect(mapClaudePermissionRule("bash")).toBe("Bash(*)");
+    expect(mapClaudePermissionRule("BASH")).toBe("Bash(*)");
+    expect(mapClaudePermissionRule("read")).toBe("Read");
+    expect(mapClaudePermissionRule("edit")).toBe("Edit");
+    expect(mapClaudePermissionRule("write")).toBe("Write");
+    expect(mapClaudePermissionRule("find")).toBe("Glob");
+    expect(mapClaudePermissionRule("subagent")).toBeUndefined();
+    expect(mapClaudePermissionRules(["read", "bash", "subagent", "bash"])).toEqual([
+      "Read",
+      "Bash(*)",
+    ]);
+  });
+
+  it("buildArgs emits comma-separated permission rules from the neutral pi tool list", () => {
     const args = claudeDriver.buildArgs({
       task: "t",
       model: "opus",
@@ -971,9 +987,13 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     });
     const idx = args.indexOf("--allowedTools");
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe("Read Bash Grep Glob");
+    expect(args[idx + 1]).toBe("Read,Bash(*),Grep,Glob");
+    expect(args).toContain("--permission-mode");
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+    expect(args[args.indexOf("--permission-prompts") + 1]).toBe("none");
     // D2: never a permission-skip flag.
     expect(args).not.toContain("--dangerously-skip-permissions");
+    expect(args).not.toContain("bypassPermissions");
   });
 
   it("buildArgs uses stream-json + --verbose and never a permission-skip flag", () => {
@@ -988,6 +1008,8 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     expect(args).toContain("--include-partial-messages");
     expect(args[args.indexOf("--effort") + 1]).toBe("high");
     expect(args).not.toContain("--dangerously-skip-permissions");
+    expect(args).not.toContain("bypassPermissions");
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
   });
 
   it("maps Pi thinking onto `--effort` and resolves pinned Opus model ids", () => {
@@ -1058,9 +1080,35 @@ describe("claudeDriver — read-only by declaration, NO OS sandbox (D12)", () =>
     // Read-only is by declaration: only the mapped read-only tools are allowed.
     const idx = args.indexOf("--allowedTools");
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe("Read Bash Grep Glob");
+    expect(args[idx + 1]).toBe("Read,Bash(*),Grep,Glob");
+    expect(args[idx + 1]).not.toContain("Edit");
+    expect(args[idx + 1]).not.toContain("Write");
     // D2 still holds: never a permission-skip flag.
     expect(args).not.toContain("--dangerously-skip-permissions");
+    expect(args).not.toContain("bypassPermissions");
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+  });
+
+  it("includes Edit only when the role declares it, and never Write unless declared", () => {
+    const args = claudeDriver.buildArgs({
+      task: "t",
+      model: "opus",
+      tools: ["read", "bash", "edit"],
+    });
+    expect(args[args.indexOf("--allowedTools") + 1]).toBe("Read,Bash(*),Edit");
+  });
+
+  it("still fail-closes when the role declares no tools", () => {
+    const args = claudeDriver.buildArgs({ task: "t", model: "opus" });
+    expect(args).not.toContain("--allowedTools");
+    expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+    expect(args[args.indexOf("--permission-prompts") + 1]).toBe("none");
+  });
+
+  it("disables interactive permission hooks in every environment", () => {
+    expect(claudeDriver.env?.({ task: "t", model: "opus" })).toEqual({
+      CMUX_CLAUDE_HOOKS_DISABLED: "1",
+    });
   });
 });
 

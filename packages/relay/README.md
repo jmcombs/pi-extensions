@@ -61,10 +61,12 @@ A **relay role** is an existing pi-subagent (its persona `.md` + referenced
 - **Tools** — each driver maps the subagent's pi tools onto its backend's own
   permission model (`read → Read`, `bash → Bash`, `edit → Edit`, `write → Write`,
   `grep → Grep`, `find → Glob`); pi-only tools with no external equivalent (e.g.
-  `subagent`, `ls`) are dropped. Claude gets `--allowedTools`; Grok gets one
-  `--allow <Tool>` flag per tool plus `--permission-mode dontAsk` (fail-closed —
-  unlisted tools are silently declined, never a hang or a blanket bypass). The map
-  is a **driver** function (D10). Cursor has no `--allowedTools` argv flag;
+  `subagent`, `ls`) are dropped. Claude gets `--permission-mode dontAsk`,
+  `--permission-prompts none`, and a comma-separated `--allowedTools` rule list
+  (`bash` → `Bash(*)`, not bare `Bash`). Grok gets one `--allow <Tool>` flag per
+  tool plus `--permission-mode dontAsk` (fail-closed — unlisted tools are silently
+  declined, never a hang or a blanket bypass). The map is a **driver** function
+  (D10). Cursor has no `--allowedTools` argv flag;
   `cursorDriver` maps the same pi names onto allow/deny rules (`Read(**/*)`,
   `Shell(*)`, `Write(**/*)`), copies the user's Cursor config home into a temp dir,
   overlays those rules on `cli-config.json`, and points `CURSOR_CONFIG_DIR` at it.
@@ -84,9 +86,13 @@ no inline prompt.
 The **verify** quality bar is **Claude Opus only** (D1), reached through the
 subscription `claude -p` CLI (billed to your Claude subscription via
 `oauthAccount` — never the Anthropic API, never a local model). The verify role
-is **read-only**: `claude` is invoked with a scoped `--allowedTools` allowlist and
-**never** with `--dangerously-skip-permissions`. On a cut run (idle-cap or abort)
-relay surfaces an **UNVERIFIED** error result — it **never** auto-passes.
+is **read-only**: `claude` is invoked with scoped `--allowedTools` rules
+(`Bash(*)` when bash is declared) plus `--permission-mode dontAsk` and
+`--permission-prompts none`, and **never** with `--dangerously-skip-permissions`
+or `bypassPermissions`. The child sets `CMUX_CLAUDE_HOOKS_DISABLED=1` so a
+terminal permission hook cannot stall a headless run; the real `claude` binary
+ignores that variable. On a cut run (idle-cap or abort) relay surfaces an
+**UNVERIFIED** error result — it **never** auto-passes.
 
 `relay-grok` (Grok Build, `grok -p`) is a second live driver available for generic
 subagent dispatch — it does **not** change the verify quality bar. Per D1, a new

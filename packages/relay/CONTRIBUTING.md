@@ -63,9 +63,14 @@ interface DriverResult {
 pi tools have **neutral** names (`read`, `bash`, `edit`, `write`, `grep`, `find`). Mapping them onto a
 backend is a **driver** concern, because backends express permissions differently:
 
-- **Claude** has a per-tool allowlist → `claudeDriver` maps `read→Read, bash→Bash, edit→Edit,
-  write→Write, grep→Grep, find→Glob` and passes `--allowedTools "<names>"`. pi-only tools with no
-  Claude equivalent (`subagent`, `ls`) are dropped.
+- **Claude** has a per-tool allowlist → `claudeDriver` maps `read→Read, bash→Bash(*), edit→Edit,
+  write→Write, grep→Grep, find→Glob` and passes one comma-separated `--allowedTools` value.
+  Bare `Bash` is not enough: Claude Code 2.1 prompts per command unless a pattern pre-approves it.
+  Every headless run also passes `--permission-mode dontAsk` and `--permission-prompts none`
+  (deny if not pre-approved; never wait on a print-mode host) and sets
+  `CMUX_CLAUDE_HOOKS_DISABLED=1` so a terminal UI hook cannot stall the child. That variable is
+  ignored outside cmux. pi-only tools with no Claude equivalent (`subagent`, `ls`) are dropped.
+  Never `--dangerously-skip-permissions` or `--permission-mode bypassPermissions`.
 - **Codex** has *no* per-tool allowlist; its read-only guarantee is the **sandbox** (`-s read-only`),
   so the neutral list is advisory. See `drivers/codex.ts` for the full field-by-field mapping.
 - **Grok Build** uses the *same* capitalized tool names as Claude, but through permission **rule**

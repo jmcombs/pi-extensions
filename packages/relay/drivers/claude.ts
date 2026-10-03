@@ -12,14 +12,18 @@
  * `VERDICT: PASS|FAIL` line) is the caller's job.
  *
  * D2 is preserved structurally: the driver always passes a SCOPED `--allowedTools`
- * allowlist and NEVER `--dangerously-skip-permissions`. The verify role supplies a
- * read-only tool set (pi `read, bash, grep, find`); the driver maps those neutral
- * names to Claude's (`Read Bash Grep Glob`) and adds no privilege-escalating flags.
+ * rule list and NEVER `--dangerously-skip-permissions` or `--permission-mode
+ * bypassPermissions`. Headless runs do not wait on a person: `--permission-mode
+ * dontAsk` denies anything not pre-approved, and `--permission-prompts none`
+ * denies a leftover print-mode prompt instead of waiting on a host. The verify
+ * role supplies a read-only tool set (pi `read, bash, grep, find`); the driver
+ * maps those to Claude permission rules (`Read,Bash(*),Grep,Glob`).
  *
  * ── Tool-name map lives HERE (D10) ──
  * Mapping pi's neutral tool names to a backend's tool names is a DRIVER concern,
- * not the resolver's. `claudeDriver` maps them to `claude`'s `--allowedTools`
- * names; a future `codexDriver` maps the same neutral list to its sandbox (`-s`).
+ * not the resolver's. `claudeDriver` maps them to Claude permission rules
+ * (`bash` → `Bash(*)`, not bare `Bash`); a future `codexDriver` maps the same
+ * neutral list to its sandbox (`-s`).
  */
 
 import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
@@ -113,7 +117,33 @@ export function mapToolNames(piNames: readonly string[]): string[] {
   const out: string[] = [];
   for (const name of piNames) {
     const mapped = mapToolName(name);
-    if (mapped && !out.includes(mapped)) out.push(mapped);
+    if (mapped !== undefined && !out.includes(mapped)) out.push(mapped);
+  }
+  return out;
+}
+
+/**
+ * Pi tool → Claude permission rule. Bare `Bash` only exposes the tool; Claude Code
+ * 2.1 still prompts per command unless a pattern pre-approves it. `Bash(*)` is the
+ * scoped form of "this role's bash tool may run." Other mapped tools stay bare
+ * names. Unmapped pi-only tools are dropped.
+ */
+export function mapClaudePermissionRule(piName: string): string | undefined {
+  const tool = mapToolName(piName);
+  if (tool === undefined) return undefined;
+  if (tool === "Bash") return "Bash(*)";
+  return tool;
+}
+
+/**
+ * Map pi tool names to comma-ready Claude permission rules, dropping unmapped
+ * names and de-duplicating while preserving order.
+ */
+export function mapClaudePermissionRules(piNames: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const name of piNames) {
+    const mapped = mapClaudePermissionRule(name);
+    if (mapped !== undefined && !out.includes(mapped)) out.push(mapped);
   }
   return out;
 }
@@ -275,14 +305,30 @@ export const claudeDriver: AgentDriver = {
       );
     }
 
-    // D10: the pi→Claude tool-name map is applied HERE, in the driver.
-    const allowedTools = mapToolNames(invocation.tools ?? []);
+    // Headless in every environment: a plain terminal, a Pi child, CI, and cmux.
+    // dontAsk denies anything not pre-approved. It is not a permission bypass.
+    // permission-prompts none denies a leftover print-mode prompt instead of
+    // waiting on an SDK host that relay does not implement.
+    args.push("--permission-mode", "dontAsk", "--permission-prompts", "none");
+
+    // D10: the pi→Claude permission-rule map is applied HERE, in the driver.
+    const allowedTools = mapClaudePermissionRules(invocation.tools ?? []);
     if (allowedTools.length > 0) {
       // D2: a SCOPED allowlist only. Never --dangerously-skip-permissions.
-      args.push("--allowedTools", allowedTools.join(" "));
+      // Comma-separated so a rule that contains a space cannot be split.
+      args.push("--allowedTools", allowedTools.join(","));
     }
 
     return args;
+  },
+
+  /**
+   * Headless children must not block on an interactive permission UI. cmux's
+   * wrapper injects a 125s PermissionRequest hook unless this is set; the real
+   * `claude` binary ignores the variable, so it is a no-op outside cmux.
+   */
+  env(_invocation: DriverInvocation): Readonly<Record<string, string>> {
+    return { CMUX_CLAUDE_HOOKS_DISABLED: "1" };
   },
 
   parseResult(stdout: string): DriverResult {
