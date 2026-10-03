@@ -34,6 +34,19 @@ const tavilySearchSchema = Type.Object({
 
 export type TavilySearchInput = Static<typeof tavilySearchSchema>;
 
+const tavilySearchOutputSchema = Type.Union([
+  Type.Object({
+    error: Type.String(),
+  }),
+  Type.Object({
+    status: Type.Number(),
+    body: Type.String(),
+  }),
+  Type.Object({
+    raw: Type.Unknown(),
+  }),
+]);
+
 // ── Tavily API response types ──────────────────────────────────────────
 //
 // Documented at https://docs.tavily.com/documentation/api-reference/endpoint/search
@@ -145,6 +158,8 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Performs a web search using the Tavily API to get real-time information from the internet.",
     parameters: tavilySearchSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    outputSchema: tavilySearchOutputSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let apiKey = (await resolveSecret("tavily")) ?? process.env.TAVILY_API_KEY;
 
@@ -160,6 +175,7 @@ export default function (pi: ExtensionAPI): void {
         return {
           content: [{ type: "text", text: "Search cancelled: no Tavily API key provided." }],
           details: { error: "missing_api_key" },
+          structuredContent: { error: "missing_api_key" } as JsonObject,
         };
       }
 
@@ -186,6 +202,7 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
+            structuredContent: { status: response.status, body: errorText } as JsonObject,
           };
         }
 
@@ -194,6 +211,7 @@ export default function (pi: ExtensionAPI): void {
           return {
             content: [{ type: "text", text: "Tavily API returned invalid JSON." }],
             details: { error: "invalid_json" },
+            structuredContent: { error: "invalid_json" } as JsonObject,
           };
         }
         const data = parsed;
@@ -202,12 +220,14 @@ export default function (pi: ExtensionAPI): void {
             { type: "text", text: formatResults(toTavilySearchResponse(data), params.query) },
           ],
           details: { raw: data },
+          structuredContent: { raw: data } as JsonObject,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
           content: [{ type: "text", text: `Error performing Tavily search: ${message}` }],
           details: { error: message },
+          structuredContent: { error: message } as JsonObject,
         };
       }
     },

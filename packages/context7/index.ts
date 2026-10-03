@@ -58,6 +58,41 @@ const context7GetDocsSchema = Type.Object({
 });
 export type Context7GetDocsInput = Static<typeof context7GetDocsSchema>;
 
+const context7SearchOutputSchema = Type.Union([
+  Type.Object({
+    error: Type.String(),
+  }),
+  Type.Object({
+    status: Type.Number(),
+  }),
+  Type.Object({
+    status: Type.Number(),
+    body: Type.String(),
+  }),
+  Type.Object({
+    libraryName: Type.String(),
+    raw: Type.Unknown(),
+  }),
+]);
+
+const context7GetDocsOutputSchema = Type.Union([
+  Type.Object({
+    error: Type.String(),
+  }),
+  Type.Object({
+    status: Type.Number(),
+  }),
+  Type.Object({
+    status: Type.Number(),
+    body: Type.String(),
+  }),
+  Type.Object({
+    libraryId: Type.String(),
+    query: Type.String(),
+    raw: Type.Unknown(),
+  }),
+]);
+
 // -- Helpers
 
 export function isJsonValue(value: unknown): value is JsonValue {
@@ -168,6 +203,9 @@ export default function (pi: ExtensionAPI): void {
       "Call this when the user needs up-to-date documentation, code examples, configuration guidance, or implementation details for something like Supabase, React, Rust, Tailwind, Prisma, or any other programming language, framework, or library. " +
       "Always prefer this tool over general web search when you need accurate, version-aware information for coding or development tasks.",
     parameters: context7SearchSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    namespace: { name: "context7" },
+    outputSchema: context7SearchOutputSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let apiKey = await resolveSecret("context7");
       if (!apiKey) {
@@ -185,6 +223,7 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: "missing_api_key" },
+          structuredContent: { error: "missing_api_key" } as JsonObject,
         };
       }
 
@@ -212,6 +251,7 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 401 },
+              structuredContent: { status: 401 } as JsonObject,
             };
           }
           if (response.status === 429) {
@@ -225,6 +265,7 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 429 },
+              structuredContent: { status: 429 } as JsonObject,
             };
           }
 
@@ -243,6 +284,7 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
+            structuredContent: { status: response.status, body: errorText } as JsonObject,
           };
         }
 
@@ -251,6 +293,7 @@ export default function (pi: ExtensionAPI): void {
           return {
             content: [{ type: "text", text: "Context7 API returned invalid JSON." }],
             details: { error: "invalid_json" },
+            structuredContent: { error: "invalid_json" } as JsonObject,
           };
         }
         const data = parsed;
@@ -274,6 +317,7 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { libraryName: params.libraryName, raw: data },
+            structuredContent: { libraryName: params.libraryName, raw: data } as JsonObject,
           };
         }
 
@@ -294,6 +338,7 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { libraryName: params.libraryName, raw: data },
+          structuredContent: { libraryName: params.libraryName, raw: data } as JsonObject,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -305,6 +350,7 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: message },
+          structuredContent: { error: message } as JsonObject,
         };
       }
     },
@@ -319,6 +365,9 @@ export default function (pi: ExtensionAPI): void {
       "Call this when the user needs implementation details, code snippets, configuration examples, best practices, or answers to technical questions about a specific language, framework, or library. " +
       "You should usually call context7_search first to obtain the correct Library ID. Prefer this tool when you need reliable, current technical documentation rather than general explanations.",
     parameters: context7GetDocsSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    namespace: { name: "context7" },
+    outputSchema: context7GetDocsOutputSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let apiKey = await resolveSecret("context7");
       if (!apiKey) {
@@ -336,6 +385,7 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: "missing_api_key" },
+          structuredContent: { error: "missing_api_key" } as JsonObject,
         };
       }
 
@@ -362,6 +412,7 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 401 },
+              structuredContent: { status: 401 } as JsonObject,
             };
           }
           if (response.status === 429) {
@@ -375,6 +426,7 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 429 },
+              structuredContent: { status: 429 } as JsonObject,
             };
           }
 
@@ -393,6 +445,7 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText },
+            structuredContent: { status: response.status, body: errorText } as JsonObject,
           };
         }
 
@@ -401,12 +454,18 @@ export default function (pi: ExtensionAPI): void {
           return {
             content: [{ type: "text", text: "Context7 API returned invalid JSON." }],
             details: { error: "invalid_json" },
+            structuredContent: { error: "invalid_json" } as JsonObject,
           };
         }
         const data = parsed;
         return {
           content: [{ type: "text", text: formatDocs(data, params.query) }],
           details: { libraryId: params.libraryId, query: params.query, raw: data },
+          structuredContent: {
+            libraryId: params.libraryId,
+            query: params.query,
+            raw: data,
+          } as JsonObject,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -418,6 +477,7 @@ export default function (pi: ExtensionAPI): void {
             },
           ],
           details: { error: message },
+          structuredContent: { error: message } as JsonObject,
         };
       }
     },

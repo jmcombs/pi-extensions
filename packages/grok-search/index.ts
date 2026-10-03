@@ -41,6 +41,31 @@ const grokSearchSchema = Type.Object({
 
 export type GrokSearchInput = Static<typeof grokSearchSchema>;
 
+const grokCredentialSourceSchema = Type.Union([Type.Literal("oauth"), Type.Literal("api_key")]);
+
+const grokSearchOutputSchema = Type.Union([
+  Type.Object({
+    error: Type.String(),
+  }),
+  Type.Object({
+    status: Type.Number(),
+    source: grokCredentialSourceSchema,
+  }),
+  Type.Object({
+    status: Type.Number(),
+    body: Type.String(),
+    source: grokCredentialSourceSchema,
+  }),
+  Type.Object({
+    error: Type.String(),
+    source: grokCredentialSourceSchema,
+  }),
+  Type.Object({
+    raw: Type.Unknown(),
+    source: grokCredentialSourceSchema,
+  }),
+]);
+
 export function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;
   switch (typeof value) {
@@ -90,6 +115,7 @@ function formatResults(content: string, query: string): string {
 function missingCredentialResult(preference: "oauth" | undefined): {
   content: [{ type: "text"; text: string }];
   details: { error: string };
+  structuredContent: { error: string };
 } {
   if (preference === "oauth") {
     return {
@@ -102,6 +128,7 @@ function missingCredentialResult(preference: "oauth" | undefined): {
         },
       ],
       details: { error: "missing_oauth" },
+      structuredContent: { error: "missing_oauth" },
     };
   }
   return {
@@ -112,6 +139,7 @@ function missingCredentialResult(preference: "oauth" | undefined): {
       },
     ],
     details: { error: "missing_api_key" },
+    structuredContent: { error: "missing_api_key" },
   };
 }
 
@@ -132,6 +160,8 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Performs real-time web research using xAI Grok. Call this to get up-to-date information on topics beyond your training cutoff, verify facts, or perform complex synthesis of live web data when reasoning and multi-source analysis are required.",
     parameters: grokSearchSchema,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+    outputSchema: grokSearchOutputSchema,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
       let auth = await resolveGrokAuth(signal);
 
@@ -176,6 +206,7 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 401, source: auth.source },
+              structuredContent: { status: 401, source: auth.source } as JsonObject,
             };
           }
           if (response.status === 429) {
@@ -189,6 +220,7 @@ export default function (pi: ExtensionAPI): void {
                 },
               ],
               details: { status: 429, source: auth.source },
+              structuredContent: { status: 429, source: auth.source } as JsonObject,
             };
           }
 
@@ -201,6 +233,11 @@ export default function (pi: ExtensionAPI): void {
               },
             ],
             details: { status: response.status, body: errorText, source: auth.source },
+            structuredContent: {
+              status: response.status,
+              body: errorText,
+              source: auth.source,
+            } as JsonObject,
           };
         }
 
@@ -209,18 +246,21 @@ export default function (pi: ExtensionAPI): void {
           return {
             content: [{ type: "text", text: "xAI API returned invalid JSON." }],
             details: { error: "invalid_json", source: auth.source },
+            structuredContent: { error: "invalid_json", source: auth.source } as JsonObject,
           };
         }
         const content = grokMessageText(data);
         return {
           content: [{ type: "text", text: formatResults(content, params.query) }],
           details: { raw: data, source: auth.source },
+          structuredContent: { raw: data, source: auth.source } as JsonObject,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return {
           content: [{ type: "text", text: `Error performing Grok search: ${message}` }],
           details: { error: message, source: auth.source },
+          structuredContent: { error: message, source: auth.source } as JsonObject,
         };
       }
     },
