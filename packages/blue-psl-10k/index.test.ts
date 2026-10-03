@@ -3,6 +3,7 @@
  * the footer via setFooter.
  */
 
+import { readFileSync } from "node:fs";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -10,6 +11,20 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import factory from "./index.js";
+
+interface BluePslThemeFile {
+  appearance?: unknown;
+}
+
+function readBluePslTheme(): BluePslThemeFile {
+  const parsed: unknown = JSON.parse(
+    readFileSync(new URL("./themes/blue-psl-10k.json", import.meta.url), "utf8"),
+  );
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("themes/blue-psl-10k.json must be an object");
+  }
+  return parsed as BluePslThemeFile;
+}
 
 interface RegistrationLog {
   events: string[];
@@ -99,5 +114,9 @@ describe("@jmcombs/pi-blue-psl-10k", () => {
     handler?.({ type: "session_start", reason: "startup" } satisfies SessionStartEvent, ctx);
 
     expect(ctx.ui.setFooter).toHaveBeenCalledOnce();
+  });
+
+  it("declares appearance light", () => {
+    expect(readBluePslTheme().appearance).toBe("light");
   });
 });
