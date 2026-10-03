@@ -236,12 +236,12 @@ Union members, one `Type.Object` per key-set:
 
 ### Actionable TODOs
 
-- [ ] `packages/context7/index.ts` must set the annotations above and `namespace: { name: "context7" }` on both `context7_search` and `context7_get_docs`, set each tool's `outputSchema` to the union listed for that tool, and write a matching `structuredContent: {` object literal beside each of the 15 `details: {` sites. Do not hoist.
-- [ ] `packages/tavily-search/index.ts` must set the annotations above on `tavily_search`, set `outputSchema` to that tool's union, write a matching `structuredContent: {` object literal beside each of the 5 `details: {` sites, do not hoist, and must not set `namespace`.
-- [ ] `packages/grok-search/index.ts` must set the annotations above on `grok_search`, set `outputSchema` to that tool's union, and write a matching `structuredContent: {` beside every `details: {`, including the `missingCredentialResult` return type and both of its returned objects (9 `details: {` sites today, including that type). Do not hoist. It must not set `namespace` and must not set `isError`.
-- [ ] `packages/context7/index.test.ts` must record the registered tool objects and assert both tools have the exact annotations, `namespace.name === "context7"`, and an `outputSchema`. The test title must be `context7 tools are read-only open-world and share namespace context7`. Do not call the Context7 API.
-- [ ] `packages/tavily-search/index.test.ts` must record `annotations` and `outputSchema` for `tavily_search` and assert the exact annotations and that `namespace` is absent. The test title must be `tavily_search is read-only open-world and mirrors details in outputSchema`. Do not call the Tavily API.
-- [ ] `packages/grok-search/index.test.ts` must record the registered tool and assert the exact annotations, an `outputSchema`, and that `namespace` is absent. The test title must be `grok_search is read-only open-world and mirrors details in outputSchema`. Do not call the xAI API.
+- [x] `packages/context7/index.ts` must set the annotations above and `namespace: { name: "context7" }` on both `context7_search` and `context7_get_docs`, set each tool's `outputSchema` to the union listed for that tool, and write a matching `structuredContent: {` object literal beside each of the 15 `details: {` sites. Do not hoist.
+- [x] `packages/tavily-search/index.ts` must set the annotations above on `tavily_search`, set `outputSchema` to that tool's union, write a matching `structuredContent: {` object literal beside each of the 5 `details: {` sites, do not hoist, and must not set `namespace`.
+- [x] `packages/grok-search/index.ts` must set the annotations above on `grok_search`, set `outputSchema` to that tool's union, and write a matching `structuredContent: {` beside every `details: {`, including the `missingCredentialResult` return type and both of its returned objects (9 `details: {` sites today, including that type). Do not hoist. It must not set `namespace` and must not set `isError`.
+- [x] `packages/context7/index.test.ts` must record the registered tool objects and assert both tools have the exact annotations, `namespace.name === "context7"`, and an `outputSchema`. The test title must be `context7 tools are read-only open-world and share namespace context7`. Do not call the Context7 API.
+- [x] `packages/tavily-search/index.test.ts` must record `annotations` and `outputSchema` for `tavily_search` and assert the exact annotations and that `namespace` is absent. The test title must be `tavily_search is read-only open-world and mirrors details in outputSchema`. Do not call the Tavily API.
+- [x] `packages/grok-search/index.test.ts` must record the registered tool and assert the exact annotations, an `outputSchema`, and that `namespace` is absent. The test title must be `grok_search is read-only open-world and mirrors details in outputSchema`. Do not call the xAI API.
 
 ### Testing Gates
 
@@ -314,7 +314,7 @@ Verifier-ticked. One line per phase.
 - [x] Phase 1 — Deprecate and remove better-toolsy
 - [x] Phase 2 — Bump earendil host pins
 - [x] Phase 3 — Notify on idle
-- [ ] Phase 4 — Search-tool annotations and mirrored output
+- [x] Phase 4 — Search-tool annotations and mirrored output
 - [ ] Phase 5 — Declare Blue PSL appearance light
 
 ## Appendix D — Definition of Done

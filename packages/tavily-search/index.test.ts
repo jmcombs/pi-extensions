@@ -21,6 +21,30 @@ interface CapturedTool {
   label?: string;
   description?: string;
   parameters: unknown;
+  annotations?: {
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+  outputSchema?: unknown;
+  namespace?: {
+    name: string;
+    description?: string;
+    instructions?: string;
+  };
+}
+
+function unionMemberKeys(schema: unknown): string[][] {
+  expect(schema).toEqual(expect.objectContaining({ anyOf: expect.any(Array) }));
+  const anyOf = (schema as { anyOf: unknown[] }).anyOf;
+  return anyOf.map((member) => {
+    expect(member).toEqual(
+      expect.objectContaining({ type: "object", required: expect.any(Array) }),
+    );
+    const required = (member as { required: string[] }).required;
+    return [...required].sort();
+  });
 }
 
 function createApiStub(): {
@@ -44,6 +68,9 @@ function createApiStub(): {
         label: tool.label,
         description: tool.description,
         parameters: tool.parameters,
+        annotations: tool.annotations,
+        outputSchema: tool.outputSchema,
+        namespace: tool.namespace,
       });
     }) as unknown as ExtensionAPI["registerTool"],
     registerCommand: ((name: string, opts: { description?: string }) => {
@@ -87,6 +114,21 @@ describe("@jmcombs/pi-tavily-search", () => {
     expect(commands).toHaveLength(1);
     expect(commands[0]?.name).toBe("tavily_setup");
     expect(commands[0]?.description).toMatch(/tavily/i);
+  });
+
+  it("tavily_search is read-only open-world and mirrors details in outputSchema", () => {
+    const { api, tools } = createApiStub();
+    factory(api);
+
+    const tool = tools.find((entry) => entry.name === "tavily_search");
+    expect(tool?.annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: true,
+    });
+    expect(tool?.namespace).toBeUndefined();
+    expect(tool?.outputSchema).toBeDefined();
+    expect(unionMemberKeys(tool?.outputSchema)).toEqual([["error"], ["body", "status"], ["raw"]]);
   });
 
   it("declares a TypeBox schema requiring a non-empty query string", () => {
