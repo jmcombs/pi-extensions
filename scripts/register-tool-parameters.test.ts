@@ -11,7 +11,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import template from "../packages/_template/index.js";
 import onePassword from "../packages/1password/index.js";
-import betterToolsy from "../packages/better-toolsy/index.js";
 import bluePsl10k from "../packages/blue-psl-10k/index.js";
 import context7 from "../packages/context7/index.js";
 import grokSearch from "../packages/grok-search/index.js";
@@ -63,11 +62,6 @@ const cases: {
   factory: (pi: ExtensionAPI) => void | Promise<void>;
   names: string[];
 }[] = [
-  {
-    dir: "better-toolsy",
-    factory: betterToolsy,
-    names: ["ls", "read", "grep", "find", "edit", "write"],
-  },
   { dir: "context7", factory: context7, names: ["context7_search", "context7_get_docs"] },
   { dir: "grok-search", factory: grokSearch, names: ["grok_search"] },
   { dir: "headroom", factory: headroom, names: ["headroom_retrieve"] },

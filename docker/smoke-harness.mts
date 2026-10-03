@@ -88,7 +88,6 @@ export interface Expected {
 // | package         | tools                             | commands                                                   | handlers                                                 | shortcuts / providers                 |
 // | --------------- | --------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- |
 // | 1password       | bash, 1p_diagnose                 | 1password_diagnose, 1password_setup                        | session_start (both) + user_bash (PI-ONLY)               | —                                     |
-// | better-toolsy   | ls, read, grep, find, edit, write | —                                                          | tool_call                                                | —                                     |
 // | blue-psl-10k    | —                                 | blue-psl-restore-footer                                    | session_start, model_select, turn_end, thinking_level_select | —                                 |
 // | context7        | context7_search, context7_get_docs| context7_setup                                             | —                                                        | —                                     |
 // | grok-search     | grok_search                       | grok_setup                                                 | —                                                        | —                                     |
@@ -105,11 +104,6 @@ export const EXPECTED: Record<string, Expected> = {
     commands: ["1password_diagnose", "1password_setup"],
     handlers: { both: ["session_start"], piOnly: ["user_bash"] },
     note: "tools bash + 1p_diagnose; commands 1password_diagnose + 1password_setup; session_start handler; user_bash handler pi-only (feature-detected)",
-  },
-  "better-toolsy": {
-    tools: ["ls", "read", "grep", "find", "edit", "write"],
-    handlers: ["tool_call"],
-    note: "tools ls/read/grep/find/edit/write; tool_call handler",
   },
   "blue-psl-10k": {
     commands: ["blue-psl-restore-footer"],
