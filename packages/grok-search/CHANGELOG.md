@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.1.1...grok-search/v2.2.0) (2026-10-03)
+
+
+### Features
+
+* add search-tool annotations and mirrored output schemas ([#317](https://github.com/jmcombs/pi-extensions/issues/317)) ([63474fa](https://github.com/jmcombs/pi-extensions/commit/63474fab84f9118ffc0074290af4924579195f15))
+
 ## [2.1.1](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.1.0...grok-search/v2.1.1) (2026-09-29)
 
 

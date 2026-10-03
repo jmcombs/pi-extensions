@@ -3,7 +3,7 @@
   "packages/tavily-search": "3.1.0",
   "packages/prompt-enhancer": "4.0.0",
   "packages/notify": "2.0.0",
-  "packages/grok-search": "2.1.1",
+  "packages/grok-search": "2.2.0",
   "packages/context7": "2.1.0",
   "packages/blue-psl-10k": "1.1.1",
   "packages/headroom": "2.0.1",
