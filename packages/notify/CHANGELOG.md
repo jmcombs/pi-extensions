@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/notify/v1.2.0...notify/v2.0.0) (2026-10-03)
+
+
+### ⚠ BREAKING CHANGES
+
+* **notify:** completion notifications fire on agent_settled, not on each agent_end.
+
+### Bug Fixes
+
+* **notify:** send completion OSC on agent_settled ([#314](https://github.com/jmcombs/pi-extensions/issues/314)) ([f5d092a](https://github.com/jmcombs/pi-extensions/commit/f5d092a04cb6f229283892057c7e705ecace4b39))
+
 ## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/notify/v1.1.0...notify/v1.2.0) (2026-09-23)
 
 
