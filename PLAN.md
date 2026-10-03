@@ -186,12 +186,12 @@ Move the completion OSC from `agent_end` to `agent_settled`. Keep the `tool_exec
 
 ### Actionable TODOs
 
-- [ ] `packages/notify/index.ts` must subscribe to `agent_settled` for the completion OSC and must not call `pi.on("agent_end"`. The header comment must say the completion notification is idle `agent_settled`, not each `agent_end`. Keep `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, the wait-tool hook, and `formatAgentEndMessage`.
-- [ ] `packages/notify/index.test.ts` must expect the subscribed events to equal `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled`, and must not expect or invoke `agent_end`. The completed-run test must call `handlers.get("agent_settled")` and still expect the OSC payload to contain `Done —`, `1 turn`, and `1 tool call`. The `ask_user` `tool_execution_start` test must still expect `Waiting for your input`.
-- [ ] `packages/notify/README.md` must document the completion hook as `agent_settled` (one notification when Pi is idle), not a ping each time `agent_end` fires. The wait-tool section must still document `tool_execution_start` and `ask_user`. The `PI_NOTIFY_WAIT_TOOLS=` comment must not say `agent_end only`.
-- [ ] `docker/smoke-harness.mts` `EXPECTED.notify.handlers` must equal `["agent_start", "turn_end", "tool_execution_start", "tool_execution_end", "agent_settled"]`. The notify comment-table row must list that same set and must not list `agent_end`.
-- [ ] `CONTRIBUTING.md` notify expected-surface row must list handlers `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled` and must not list `agent_end`.
-- [ ] `README.md` notify package-row description must say the OSC notification is when Pi is idle, not when Pi finishes a turn.
+- [x] `packages/notify/index.ts` must subscribe to `agent_settled` for the completion OSC and must not call `pi.on("agent_end"`. The header comment must say the completion notification is idle `agent_settled`, not each `agent_end`. Keep `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, the wait-tool hook, and `formatAgentEndMessage`.
+- [x] `packages/notify/index.test.ts` must expect the subscribed events to equal `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled`, and must not expect or invoke `agent_end`. The completed-run test must call `handlers.get("agent_settled")` and still expect the OSC payload to contain `Done —`, `1 turn`, and `1 tool call`. The `ask_user` `tool_execution_start` test must still expect `Waiting for your input`.
+- [x] `packages/notify/README.md` must document the completion hook as `agent_settled` (one notification when Pi is idle), not a ping each time `agent_end` fires. The wait-tool section must still document `tool_execution_start` and `ask_user`. The `PI_NOTIFY_WAIT_TOOLS=` comment must not say `agent_end only`.
+- [x] `docker/smoke-harness.mts` `EXPECTED.notify.handlers` must equal `["agent_start", "turn_end", "tool_execution_start", "tool_execution_end", "agent_settled"]`. The notify comment-table row must list that same set and must not list `agent_end`.
+- [x] `CONTRIBUTING.md` notify expected-surface row must list handlers `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled` and must not list `agent_end`.
+- [x] `README.md` notify package-row description must say the OSC notification is when Pi is idle, not when Pi finishes a turn.
 
 ### Testing Gates
 
@@ -313,7 +313,7 @@ Verifier-ticked. One line per phase.
 
 - [x] Phase 1 — Deprecate and remove better-toolsy
 - [x] Phase 2 — Bump earendil host pins
-- [ ] Phase 3 — Notify on idle
+- [x] Phase 3 — Notify on idle
 - [ ] Phase 4 — Search-tool annotations and mirrored output
 - [ ] Phase 5 — Declare Blue PSL appearance light
 
