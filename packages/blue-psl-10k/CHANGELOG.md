@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jmcombs/pi-extensions/compare/blue-psl-10k/v1.1.1...blue-psl-10k/v1.2.0) (2026-10-03)
+
+
+### Features
+
+* **blue-psl-10k:** declare theme appearance light ([#325](https://github.com/jmcombs/pi-extensions/issues/325)) ([23cc1f7](https://github.com/jmcombs/pi-extensions/commit/23cc1f72c8214adc7bc6bf6be581f0a35b174e9d))
+
 ## [1.1.1](https://github.com/jmcombs/pi-extensions/compare/blue-psl-10k/v1.1.0...blue-psl-10k/v1.1.1) (2026-06-29)
 
 
