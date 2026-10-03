@@ -1,7 +1,6 @@
 <div align="center">
   <p>
     <a href="./packages/1password"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/1password/preview.png" width="72" height="72" alt="1password"></a>
-    <a href="./packages/better-toolsy"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/better-toolsy/preview.png" width="72" height="72" alt="better-toolsy"></a>
     <a href="./packages/blue-psl-10k"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/blue-psl-10k/preview.png" width="72" height="72" alt="blue-psl-10k"></a>
     <a href="./packages/context7"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/context7/preview.png" width="72" height="72" alt="context7"></a>
     <a href="./packages/grok-search"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/grok-search/preview.png" width="72" height="72" alt="grok-search"></a>
@@ -63,7 +62,6 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 
 | Package | Description |
 | --- | --- |
-| [`@jmcombs/pi-better-toolsy`](./packages/better-toolsy) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-better-toolsy.svg)](https://www.npmjs.com/package/@jmcombs/pi-better-toolsy) | Drop-in replacements for `ls` / `read` / `grep` / `find` / `edit` / `write` — `.gitignore` awareness, path-traversal protection, injection-safe edits. |
 | [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt rewriter: project tree, git context, referenced files, and an optional auto-enhance on Enter. |
 | [`@jmcombs/pi-notify`](./packages/notify) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify) | Terminal notifications (OSC 777/9/99) when Pi finishes a turn. Ghostty, iTerm2, WezTerm, Kitty, and more — no OS binaries. |
 

@@ -94,15 +94,15 @@ Deprecate every published version of `@jmcombs/pi-better-toolsy`, then remove th
 
 ### Actionable TODOs
 
-- [ ] `packages/better-toolsy/` must not exist. Delete `index.ts`, `index.test.ts`, `package.json`, `tsconfig.json`, `README.md`, `CHANGELOG.md`, `LICENSE`, and the directory.
-- [ ] `assets/better-toolsy/` must not exist. Delete `preview.png` and the directory.
-- [ ] `README.md` must not contain `better-toolsy` or `@jmcombs/pi-better-toolsy`. Remove the gallery anchor for `./packages/better-toolsy` and the Agent tooling row for `@jmcombs/pi-better-toolsy`. Leave every other gallery anchor and package row.
-- [ ] `CONTRIBUTING.md` expected-surface table must not contain a `better-toolsy` row. Do not edit the `notify` row in this phase.
-- [ ] `docker/smoke-harness.mts` must not contain `better-toolsy`. Delete the `EXPECTED` entry whose key is `better-toolsy` and the matching comment-table row. Leave `EXPECTED.notify.handlers` unchanged in this phase.
-- [ ] `scripts/register-tool-parameters.test.ts` must not import `../packages/better-toolsy/index.js` and must not include a cases entry with `dir: "better-toolsy"`. Keep the other cases, including the `1password` test.
-- [ ] `release-please-config.json` must not contain a `packages/better-toolsy` key. Leave the other package entries.
-- [ ] `.release-please-manifest.json` must not contain a `packages/better-toolsy` key. Leave the other version keys.
-- [ ] `package-lock.json` must be the file `npm install` writes from the repo root after the deletions, and it must not contain `better-toolsy`. Do not change the earendil version ranges in `package.json` in this phase.
+- [x] `packages/better-toolsy/` must not exist. Delete `index.ts`, `index.test.ts`, `package.json`, `tsconfig.json`, `README.md`, `CHANGELOG.md`, `LICENSE`, and the directory.
+- [x] `assets/better-toolsy/` must not exist. Delete `preview.png` and the directory.
+- [x] `README.md` must not contain `better-toolsy` or `@jmcombs/pi-better-toolsy`. Remove the gallery anchor for `./packages/better-toolsy` and the Agent tooling row for `@jmcombs/pi-better-toolsy`. Leave every other gallery anchor and package row.
+- [x] `CONTRIBUTING.md` expected-surface table must not contain a `better-toolsy` row. Do not edit the `notify` row in this phase.
+- [x] `docker/smoke-harness.mts` must not contain `better-toolsy`. Delete the `EXPECTED` entry whose key is `better-toolsy` and the matching comment-table row. Leave `EXPECTED.notify.handlers` unchanged in this phase.
+- [x] `scripts/register-tool-parameters.test.ts` must not import `../packages/better-toolsy/index.js` and must not include a cases entry with `dir: "better-toolsy"`. Keep the other cases, including the `1password` test.
+- [x] `release-please-config.json` must not contain a `packages/better-toolsy` key. Leave the other package entries.
+- [x] `.release-please-manifest.json` must not contain a `packages/better-toolsy` key. Leave the other version keys.
+- [x] `package-lock.json` must be the file `npm install` writes from the repo root after the deletions, and it must not contain `better-toolsy`. Do not change the earendil version ranges in `package.json` in this phase.
 
 ### Testing Gates
 
@@ -311,7 +311,7 @@ Add `"appearance": "light"` to the Blue PSL theme file and assert it in the exis
 
 Verifier-ticked. One line per phase.
 
-- [ ] Phase 1 — Deprecate and remove better-toolsy
+- [x] Phase 1 — Deprecate and remove better-toolsy
 - [ ] Phase 2 — Bump earendil host pins
 - [ ] Phase 3 — Notify on idle
 - [ ] Phase 4 — Search-tool annotations and mirrored output
@@ -331,3 +331,5 @@ Verifier-ticked. One line per phase.
 
 | Gate | Deferred at | Needs | Discharge by | Status |
 | --- | --- | --- | --- | --- |
+| All published versions deprecated and still installable | Phase 1 | npm-owner | human | OPEN |
+| PR linked and required checks green | Phase 1 | github-pr | human | OPEN |

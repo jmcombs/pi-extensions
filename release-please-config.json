@@ -42,12 +42,6 @@
       "package-name": "@jmcombs/pi-context7",
       "changelog-path": "CHANGELOG.md"
     },
-    "packages/better-toolsy": {
-      "release-type": "node",
-      "component": "better-toolsy",
-      "package-name": "@jmcombs/pi-better-toolsy",
-      "changelog-path": "CHANGELOG.md"
-    },
     "packages/blue-psl-10k": {
       "release-type": "node",
       "component": "blue-psl-10k",
