@@ -98,14 +98,16 @@ describe("@jmcombs/pi-notify", () => {
     expect(commands[0]).toBe("notify");
   });
 
-  it("subscribes to agent_end and tool_execution_start", () => {
+  it("subscribes to the idle completion and wait-tool events", () => {
     const { api, events } = createApiStub();
     factory(api);
-    expect(events).toContain("agent_end");
-    expect(events).toContain("tool_execution_start");
-    expect(events).toContain("tool_execution_end");
-    expect(events).toContain("agent_start");
-    expect(events).toContain("turn_end");
+    expect(events).toEqual([
+      "agent_start",
+      "turn_end",
+      "tool_execution_start",
+      "tool_execution_end",
+      "agent_settled",
+    ]);
   });
 
   it("registers no tools", () => {
@@ -146,7 +148,7 @@ describe("@jmcombs/pi-notify", () => {
 
   describe("tool_execution_start wait notifications (issue #219)", () => {
     it("emits an OSC notification when ask_user starts", () => {
-      // Reproduce: agent is blocked on ask_user so agent_end never fires;
+      // Reproduce: agent is blocked on ask_user so idle settlement never fires;
       // tool_execution_start is the only moment we can alert the user.
       delete process.env.TERM_PROGRAM;
       delete process.env.KITTY_WINDOW_ID;
@@ -196,7 +198,7 @@ describe("@jmcombs/pi-notify", () => {
       expect(write).not.toHaveBeenCalled();
     });
 
-    it("still notifies on agent_end after a completed run", () => {
+    it("notifies on agent_settled after a completed run", () => {
       delete process.env.TERM_PROGRAM;
       delete process.env.KITTY_WINDOW_ID;
       delete process.env.ITERM_SESSION_ID;
@@ -214,7 +216,7 @@ describe("@jmcombs/pi-notify", () => {
       handlers.get("agent_start")?.({}, fakeCtx());
       handlers.get("turn_end")?.({}, fakeCtx());
       handlers.get("tool_execution_end")?.({ toolName: "bash", isError: false }, fakeCtx());
-      handlers.get("agent_end")?.({}, fakeCtx());
+      handlers.get("agent_settled")?.({}, fakeCtx());
 
       const payload = writes.join("");
       expect(payload).toContain("Done —");

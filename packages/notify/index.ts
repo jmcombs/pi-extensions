@@ -1,15 +1,16 @@
 /**
  * @jmcombs/pi-notify — Terminal-emulator notifications for Pi via OSC.
  *
+ * The completion notification is idle `agent_settled`, not each `agent_end`.
  * Sends a notification using the host terminal's native notification system
  * (OSC 777/9/99 protocols) when:
- *   1. the agent finishes a turn (`agent_end`), or
+ *   1. Pi is idle (`agent_settled`) — one completion notification, or
  *   2. an interactive tool that blocks for user input starts
  *      (`tool_execution_start` for `ask_user` by default).
  *
  * Case (2) matters because while `ask_user` (from `pi-ask-user`) is open the
- * agent is still running — `agent_end` never fires — so without this hook the
- * user gets no notification at the moment they most need one.
+ * agent is still running — neither `agent_end` nor `agent_settled` fires — so
+ * without this hook the user gets no notification at the moment they most need one.
  *
  * Watched tool names default to `ask_user` and can be overridden with the
  * `PI_NOTIFY_WAIT_TOOLS` env var (comma-separated; empty disables wait hooks).
@@ -201,9 +202,9 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("tool_execution_start", (event, ctx) => {
-    // Interactive tools (e.g. ask_user) block the agent mid-run, so agent_end
-    // never fires while the prompt is open. Notify immediately so a user who
-    // switched away knows Pi is waiting on them.
+    // Interactive tools (e.g. ask_user) block the agent mid-run, so neither
+    // agent_end nor agent_settled fires while the prompt is open. Notify
+    // immediately so a user who switched away knows Pi is waiting on them.
     if (waitTools.has(event.toolName)) {
       sendNotification(TITLE, WAITING_FOR_INPUT_MESSAGE, ctx);
     }
@@ -217,7 +218,7 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
-  pi.on("agent_end", (_event, ctx) => {
+  pi.on("agent_settled", (_event, ctx) => {
     sendNotification(TITLE, formatAgentEndMessage(stats), ctx);
   });
 

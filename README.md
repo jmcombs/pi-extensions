@@ -63,7 +63,7 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 | Package | Description |
 | --- | --- |
 | [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt rewriter: project tree, git context, referenced files, and an optional auto-enhance on Enter. |
-| [`@jmcombs/pi-notify`](./packages/notify) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify) | Terminal notifications (OSC 777/9/99) when Pi finishes a turn. Ghostty, iTerm2, WezTerm, Kitty, and more — no OS binaries. |
+| [`@jmcombs/pi-notify`](./packages/notify) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify) | Terminal notifications (OSC 777/9/99) when Pi is idle. Ghostty, iTerm2, WezTerm, Kitty, and more — no OS binaries. |
 
 ### Context, models & UI
 
