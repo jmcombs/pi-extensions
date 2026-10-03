@@ -142,9 +142,9 @@ Install Pi 1.0.0 in this repo by moving the root earendil devDependency ranges a
 
 ### Actionable TODOs
 
-- [ ] `package.json` `devDependencies` must set `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` to `^1.0.0`. Do not change `scripts`, `engines`, or other dependency ranges in this file.
-- [ ] `packages/1password/package.json` `devDependencies["@earendil-works/pi-coding-agent"]` must be `^1.0.0`. `peerDependencies["@earendil-works/pi-coding-agent"]` and `peerDependencies["@earendil-works/pi-tui"]` must remain `*`. `devDependencies["@earendil-works/pi-tui"]` must remain `*`.
-- [ ] `package-lock.json` must be the file `npm install` writes after those range edits. The lockfile entries `node_modules/@earendil-works/pi-ai`, `node_modules/@earendil-works/pi-coding-agent`, and `node_modules/@earendil-works/pi-tui` must each resolve to a `1.0.x` version. Do not hand-edit versions.
+- [x] `package.json` `devDependencies` must set `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` to `^1.0.0`. Do not change `scripts`, `engines`, or other dependency ranges in this file.
+- [x] `packages/1password/package.json` `devDependencies["@earendil-works/pi-coding-agent"]` must be `^1.0.0`. `peerDependencies["@earendil-works/pi-coding-agent"]` and `peerDependencies["@earendil-works/pi-tui"]` must remain `*`. `devDependencies["@earendil-works/pi-tui"]` must remain `*`.
+- [x] `package-lock.json` must be the file `npm install` writes after those range edits. The lockfile entries `node_modules/@earendil-works/pi-ai`, `node_modules/@earendil-works/pi-coding-agent`, and `node_modules/@earendil-works/pi-tui` must each resolve to a `1.0.x` version. Do not hand-edit versions.
 
 ### Testing Gates
 
@@ -312,7 +312,7 @@ Add `"appearance": "light"` to the Blue PSL theme file and assert it in the exis
 Verifier-ticked. One line per phase.
 
 - [x] Phase 1 — Deprecate and remove better-toolsy
-- [ ] Phase 2 — Bump earendil host pins
+- [x] Phase 2 — Bump earendil host pins
 - [ ] Phase 3 — Notify on idle
 - [ ] Phase 4 — Search-tool annotations and mirrored output
 - [ ] Phase 5 — Declare Blue PSL appearance light
@@ -333,3 +333,5 @@ Verifier-ticked. One line per phase.
 | --- | --- | --- | --- | --- |
 | All published versions deprecated and still installable | Phase 1 | npm-owner | human | OPEN |
 | PR linked and required checks green | Phase 1 | github-pr | human | OPEN |
+| Fullscreen smoke after the pin bump | Phase 2 | pi-fullscreen | human | OPEN |
+| PR linked and required checks green | Phase 2 | github-pr | human | OPEN |
