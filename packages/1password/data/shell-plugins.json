@@ -89,6 +89,20 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/wrangler"
   },
   {
+    "name": "CockroachDB",
+    "slug": "cockroachdb",
+    "envVars": [
+      "COCKROACH_DATABASE",
+      "COCKROACH_HOST",
+      "COCKROACH_INSECURE",
+      "COCKROACH_PORT",
+      "COCKROACH_USER",
+      "PGPASSWORD"
+    ],
+    "primaryEnvVar": "PGPASSWORD",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/cockroachdb"
+  },
+  {
     "name": "Confluent",
     "slug": "confluent",
     "envVars": [
@@ -335,11 +349,25 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/localstack"
   },
   {
+    "name": "LocalXpose",
+    "slug": "localxpose",
+    "envVars": ["LX_ACCESS_TOKEN"],
+    "primaryEnvVar": "LX_ACCESS_TOKEN",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/localxpose"
+  },
+  {
     "name": "MongoDB Atlas",
     "slug": "atlas",
     "envVars": ["MONGODB_ATLAS_PRIVATE_API_KEY", "MONGODB_ATLAS_PUBLIC_API_KEY"],
     "primaryEnvVar": "MONGODB_ATLAS_PRIVATE_API_KEY",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/atlas"
+  },
+  {
+    "name": "MotherDuck",
+    "slug": "motherduck",
+    "envVars": [],
+    "primaryEnvVar": null,
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/motherduck"
   },
   {
     "name": "MySQL",
