@@ -377,6 +377,13 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/mysql"
   },
   {
+    "name": "Netlify",
+    "slug": "netlify",
+    "envVars": ["NETLIFY_AUTH_TOKEN"],
+    "primaryEnvVar": "NETLIFY_AUTH_TOKEN",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/netlify"
+  },
+  {
     "name": "ngrok",
     "slug": "ngrok",
     "envVars": ["NGROK_API_KEY", "NGROK_AUTHTOKEN"],
@@ -417,6 +424,13 @@
     "envVars": ["OPENAI_API_KEY"],
     "primaryEnvVar": "OPENAI_API_KEY",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/openai"
+  },
+  {
+    "name": "OpenBao",
+    "slug": "openbao",
+    "envVars": ["BAO_ADDR", "BAO_NAMESPACE", "BAO_TOKEN"],
+    "primaryEnvVar": "BAO_TOKEN",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/openbao"
   },
   {
     "name": "OpenCode",
@@ -627,6 +641,13 @@
     "envVars": ["VULTR_API_KEY"],
     "primaryEnvVar": "VULTR_API_KEY",
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/vultr"
+  },
+  {
+    "name": "xAI Grok",
+    "slug": "grok",
+    "envVars": ["XAI_API_KEY"],
+    "primaryEnvVar": "XAI_API_KEY",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/grok"
   },
   {
     "name": "YugabyteDB",
