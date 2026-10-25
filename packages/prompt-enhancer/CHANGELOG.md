@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v4.0.0...prompt-enhancer/v4.1.0) (2026-10-25)
+
+
+### Features
+
+* **prompt-enhancer:** save the enhancer model in settings ([cb93482](https://github.com/jmcombs/pi-extensions/commit/cb93482092339762ca7b9b6322539fb3734967a3))
+
 ## [4.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v3.0.1...prompt-enhancer/v4.0.0) (2026-08-29)
 
 
