@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/relay/v1.6.2...relay/v2.0.0) (2026-10-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **relay:** Unversioned relay ids (opus, sonnet, haiku, cursor) and dotted ids such as opus-4.8 no longer run a model. Use hyphenated versioned ids such as opus-4-8 and opus-5-5. The unversioned ids stay listed as 0 context, 0 max-out, thinking=no and are rejected without spawning a CLI.
+
+### Bug Fixes
+
+* **relay:** pin versioned Claude and Cursor model ids ([1f9644a](https://github.com/jmcombs/pi-extensions/commit/1f9644a16b2df41f78ad8d5ea144241399ce0c8c)), closes [#340](https://github.com/jmcombs/pi-extensions/issues/340)
+
 ## [1.6.2](https://github.com/jmcombs/pi-extensions/compare/relay/v1.6.1...relay/v1.6.2) (2026-10-03)
 
 
