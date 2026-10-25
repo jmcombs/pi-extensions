@@ -26,6 +26,7 @@ const WIDGET_COLORS = {
   auto: "#2f7d20", // green — auto-enhance on Enter is armed
   status: "#179299", // teal — transient feedback
   enhancing: "#df8e1d", // yellow — a rewrite is in flight
+  thinking: "#8839ef", // mauve — explicit thinking override
 } as const;
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -72,6 +73,11 @@ export interface WidgetState {
   enhancing?: boolean;
   /** `provider/id` when a model is resolved, else undefined. */
   model?: string;
+  /**
+   * Thinking level to show. Omit when the enhancer is using the model's
+   * default or the session thinking level.
+   */
+  thinking?: string;
   /** When true, Enter will try to enhance before sending. */
   auto?: boolean;
   /** Soft status (cancelled, enhanced, …). Omitted when idle. */
@@ -101,6 +107,10 @@ export function formatStatusWidget(state: WidgetState): string {
     segments.push({ text: "no model", bg: WIDGET_COLORS.missing });
   } else {
     segments.push({ text: state.model, bg: WIDGET_COLORS.model });
+  }
+
+  if (state.thinking !== undefined && state.thinking.length > 0) {
+    segments.push({ text: state.thinking, bg: WIDGET_COLORS.thinking });
   }
 
   if (state.status !== undefined && state.status.length > 0) {

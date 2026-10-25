@@ -37,10 +37,10 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@jmcombs/pi-1password": "^1.0.2 || ^2.0.0"
+    "@jmcombs/pi-1password": "^2.4.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*"
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "typebox": "^1.4.3"
   }
 }

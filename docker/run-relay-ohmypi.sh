@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
 # Launch STOCK oh-my-pi (omp) with the LOCAL
-# `packages/relay` extension loaded and the `relay-claude/opus` model preselected,
+# `packages/relay` extension loaded and the `relay-claude/opus-5-5` model preselected,
 # ready for the maintainer's LIVE subscription-Opus dispatch under omp (the human
 # `claude-sub` gate). This script does NOT run the dispatch — the maintainer sends
 # a prompt at the omp prompt and confirms Opus returns.
 #
 # What relay does: it registers pi PROVIDERS (`relay-claude`, `relay-grok`). With
-# model `relay-claude/opus`, omp's `resolveModel` routes a turn to relay's
+# model `relay-claude/opus-5-5`, omp's `resolveModel` routes a turn to relay's
 # `streamSimple`, which shells out to `claude -p <task> --output-format json
-# --model opus` and streams the final assistant text back. relay passes NO auth —
+# --model claude-opus-5-5` and streams the final assistant text back. relay passes NO auth —
 # the `claude` CLI authenticates via its OWN login (subscription oauthAccount, D1)
 # or `ANTHROPIC_API_KEY`. So this exercises the real omp -> relay -> `claude -p`
 # path end-to-end.
@@ -66,16 +66,16 @@ fi
 echo "omp $(omp --version)  |  claude $(claude --version 2>/dev/null | head -1)"
 echo "agent dir: $PI_CODING_AGENT_DIR  |  op: $(command -v op || echo ABSENT)  |  auth: $AUTH"
 echo "Loaded extension (LOCAL workspace copy): /app/packages/relay/index.ts"
-echo "Model preselected: relay-claude/opus (Relay Claude Opus)."
+echo "Model preselected: relay-claude/opus-5-5 (Relay Claude Opus 5.5)."
 echo
 echo "TO DISPATCH: press enter to skip the intro, then just type a prompt and submit"
 echo "  (e.g. 'Reply with exactly: RELAY-OMP-OK'). The turn routes through relay to"
 echo "  'claude -p' and the final Opus text streams back. If the model isn't active,"
-echo "  open the model picker (Ctrl+P) and choose 'Relay Claude Opus'."
+echo "  open the model picker (Ctrl+P) and choose 'Relay Claude Opus 5.5'."
 echo
 
 exec omp \
   -e /app/packages/relay/index.ts \
-  --model relay-claude/opus \
+  --model relay-claude/opus-5-5 \
   --no-session \
   "$@"

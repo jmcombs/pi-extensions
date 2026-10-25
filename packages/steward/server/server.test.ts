@@ -693,13 +693,15 @@ describe("the console's own text contrast", () => {
     // chrome ground in Latte, at 10.5px. Every cell has to be pinned back.
     const css = readFileSync(path.join(PACKAGE_ROOT, "ui", "steward.css"), "utf8");
     // The one block that pins them, and every cell the header renders.
-    const pinned = [...css.matchAll(/((?:\.console__head\s+\.log-row__[a-z]+,?\s*)+)\{([^}]*)\}/g)]
+    const pinned = [
+      ...css.matchAll(/((?:\.log-row\.console__head\s+\.log-row__[a-z]+,?\s*)+)\{([^}]*)\}/g),
+    ]
       .filter(([, , body]) => /(?:^|[;\s])color:\s*var\(--text-secondary\)/.test(body ?? ""))
       .map(([, selector]) => selector ?? "")
       .join(" ");
     for (const cell of ["ts", "level", "model", "task", "msg"]) {
       expect(pinned, `header cell ${cell} is not pinned to a legible token`).toContain(
-        `.console__head .log-row__${cell}`,
+        `.log-row.console__head .log-row__${cell}`,
       );
     }
   });

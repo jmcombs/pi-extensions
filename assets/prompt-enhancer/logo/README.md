@@ -25,12 +25,12 @@ and Steward).
 
 ## Color
 
-| Role | Light backgrounds | Dark backgrounds |
-| --- | --- | --- |
-| Caret + bar (ink) | `#4c4f69` | `#cdd6f4` |
-| Spark (accent) | `#3465a4` Path Blue | `#8caaee` |
-| Underline bar opacity | 0.40 | 0.35 |
-| Surface (icon tile) | `#3465a4` with white mark | `#1e1e2e` with `#8caaee` spark |
+| Role                  | Light backgrounds         | Dark backgrounds               |
+| --------------------- | ------------------------- | ------------------------------ |
+| Caret + bar (ink)     | `#4c4f69`                 | `#cdd6f4`                      |
+| Spark (accent)        | `#3465a4` Path Blue       | `#8caaee`                      |
+| Underline bar opacity | 0.40                      | 0.35                           |
+| Surface (icon tile)   | `#3465a4` with white mark | `#1e1e2e` with `#8caaee` spark |
 
 The mark's caret and bar use `currentColor`, so in HTML it inherits the surrounding
 text color; only the spark is hard-coded to the accent. Swap the accent to `#8caaee`

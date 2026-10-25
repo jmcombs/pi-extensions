@@ -7,10 +7,10 @@ no volume mounts).
 
 There are **two levels** of validation:
 
-| Level | Image | Proves |
-| --- | --- | --- |
-| Credential **logic** (fast, automated gate) | `offline-creds.Dockerfile` | The credential API degrades correctly with `op` absent — by calling the functions directly (stubbed UI). |
-| **Real pi + oh-my-pi onboarding** | `interactive-onboarding.Dockerfile` | Real pi **and** real oh-my-pi load the **LOCAL** headroom extension and a human can complete `/headroom_setup` with `op` absent. |
+| Level                                       | Image                               | Proves                                                                                                                           |
+| ------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Credential **logic** (fast, automated gate) | `offline-creds.Dockerfile`          | The credential API degrades correctly with `op` absent — by calling the functions directly (stubbed UI).                         |
+| **Real pi + oh-my-pi onboarding**           | `interactive-onboarding.Dockerfile` | Real pi **and** real oh-my-pi load the **LOCAL** headroom extension and a human can complete `/headroom_setup` with `op` absent. |
 
 ---
 
@@ -23,7 +23,7 @@ bash scripts/test-offline-credentials.sh
 # → PASS: offline credential path validated with op absent.
 ```
 
-This validates the *logic* (`is1PasswordAvailable`, `onboardSecret`,
+This validates the _logic_ (`is1PasswordAvailable`, `onboardSecret`,
 `resolveSecret`, keyless `resolveConfig`) with `op` absent. It does **not** launch
 real pi — use the interactive rig below for that.
 
@@ -66,8 +66,8 @@ are gates: they prove real pi and **stock** oh-my-pi load **every** non-private
 register each package's expected, platform-aware surface from the workspace copies.
 Discovery + the expected-surface table live in `docker/smoke-harness.mts`.
 
-> **Registration ≠ TUI routing.** These smokes prove the commands *register*; they
-> do not prove the running TUI *surfaces and routes* them. That is the interactive
+> **Registration ≠ TUI routing.** These smokes prove the commands _register_; they
+> do not prove the running TUI _surfaces and routes_ them. That is the interactive
 > walkthrough below (PTY-verified: `/context7_setup` + `/headroom_setup` open the
 > masked manual-entry UI on both agents). A launch-flag gotcha matters here — see
 > the omp note below.
@@ -99,7 +99,7 @@ docker run --rm -it pi-ext-interactive:latest bash docker/run-ohmypi.sh
 ```
 
 > **omp launch-flag gotcha.** `run-ohmypi.sh` must **not** pass `--no-extensions`.
-> Unlike pi (where `-ne` keeps explicit `-e` paths), omp *discards* the `-e` paths
+> Unlike pi (where `-ne` keeps explicit `-e` paths), omp _discards_ the `-e` paths
 > when `--no-extensions` is set (`cliExtensionPaths = noExtensions ? [] : extensions`,
 > omp `src/cli/models-cli.ts`) — so the extensions never load and `/context7_setup` /
 > `/headroom_setup` fall through to the model as chat. The script omits the flag; the

@@ -4,9 +4,9 @@
  * Relay registers pi **providers** (`relay-claude`, `relay-grok`, `relay-cursor`).
  * A pi-subagent runs on a headless external agent — subscription **Claude Opus via
  * `claude -p`**, **Grok Build via `grok -p`**, or **Cursor Agent via
- * `cursor-agent -p`** — simply by setting its `model` to `relay-claude/opus`,
- * `relay-claude/sonnet-5.5`, `relay-grok/grok-4.5`, `relay-cursor/cursor`,
- * `relay-cursor/opus-4.8`, `relay-cursor/opus-5.5`, or `relay-cursor/sonnet-5.5`:
+ * `cursor-agent -p`** — simply by setting its `model` to `relay-claude/opus-5-5`,
+ * `relay-claude/sonnet-5-5`, `relay-grok/grok-4.5`, `relay-cursor/composer-2-5`,
+ * `relay-cursor/opus-4-8`, `relay-cursor/opus-5-5`, or `relay-cursor/sonnet-5-5`:
  * pi's native `resolveModel` routes
  * the completion to relay's `streamSimple` handler, which runs ONE headless CLI
  * invocation and streams the external agent's final assistant text back. Persona +
@@ -15,7 +15,7 @@
  * Grok, prepend-to-prompt for Cursor — no re-echo, no drift).
  *
  * The flagship consumer is phase **verification**: the `verifier` subagent runs as
- * a relayed subagent (`model: relay-claude/opus`, read-only tools per D2) through
+ * a relayed subagent (`model: relay-claude/opus-5-5`, read-only tools per D2) through
  * pi's native subagent-async layer — no bespoke tool, no inline prompt. This
  * supersedes the Phase-1/2 `verify_phase`/`dispatch` tools and their custom
  * `sendMessage` pushback.

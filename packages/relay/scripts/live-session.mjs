@@ -9,7 +9,7 @@
  *
  * Phase 3 (Relay Roles) removed that bespoke substrate. Relay is now a registered
  * pi PROVIDER (`relay-claude`): a subagent runs on an external agent by setting
- * `model: relay-claude/opus`, and pi's OWN native subagent-async layer delivers
+ * `model: relay-claude/opus-5-5`, and pi's OWN native subagent-async layer delivers
  * the result — there is no relay-side `triggerTurn` pushback left to prove here.
  *
  * The live provider path (one completion == one full `claude -p` run) is proven by

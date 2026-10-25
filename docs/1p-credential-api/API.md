@@ -48,7 +48,7 @@ Entries are **provider-shaped** and keyed by a **logical name**:
   "context7": { "type": "api_key", "key": "!op read 'op://Vault/Item/field'" },
 
   // Manually entered literal key (when `op` is unavailable):
-  "tavily":   { "type": "api_key", "key": "tvly-xxxxxxxxxxxxxxxx" }
+  "tavily": { "type": "api_key", "key": "tvly-xxxxxxxxxxxxxxxx" }
 }
 ```
 
@@ -69,7 +69,7 @@ load so the OS-level 1Password biometric prompt lands once, at startup.
 ## `resolveSecret(name)`
 
 ```ts
-function resolveSecret(name: string): Promise<string | undefined>
+function resolveSecret(name: string): Promise<string | undefined>;
 ```
 
 Reads `auth.json` fresh, takes `parsed[name]`, and resolves it. Handles **both** a
@@ -96,16 +96,23 @@ if (!apiKey) {
 // handler ctx, or a bare `{ ui }` test double.
 type UiContext = Pick<ExtensionContext, "ui">;
 
-interface OnboardOptions { name: string; label: string; overwrite?: boolean }
-interface OnboardResult  { ok: boolean; message: string }
+interface OnboardOptions {
+  name: string;
+  label: string;
+  overwrite?: boolean;
+}
+interface OnboardResult {
+  ok: boolean;
+  message: string;
+}
 
-function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>
+function onboardSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>;
 ```
 
 Interactively onboards a secret:
 
 1. **Existing-key gate first.** If `name` already has a value and `overwrite` isn't
-   set, the user is asked to *Replace it* or *Keep the current key*; keeping (or
+   set, the user is asked to _Replace it_ or _Keep the current key_; keeping (or
    Esc) returns `{ ok: false, message: "Kept your existing {label} key. Nothing
    changed." }` without touching anything.
 2. **Branches on 1Password availability** (`is1PasswordAvailable()`):
@@ -134,7 +141,7 @@ Interactively onboards a secret:
 ## `changeSecret(ctx, opts)`
 
 ```ts
-function changeSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>
+function changeSecret(ctx: UiContext, opts: OnboardOptions): Promise<OnboardResult>;
 ```
 
 Same as `onboardSecret` with `overwrite: true` — runs the identical
@@ -144,9 +151,13 @@ Returns `{ ok, message }`.
 ## `verifySecret(name)`
 
 ```ts
-interface VerifyResult { ok: boolean; resolved: boolean; error?: string }
+interface VerifyResult {
+  ok: boolean;
+  resolved: boolean;
+  error?: string;
+}
 
-function verifySecret(name: string): Promise<VerifyResult>
+function verifySecret(name: string): Promise<VerifyResult>;
 ```
 
 Resolves `name` and reports **whether** it yields a non-empty value **without ever
@@ -160,9 +171,11 @@ returning the value**.
 ## `deleteSecret(name)`
 
 ```ts
-interface DeleteResult { ok: boolean }
+interface DeleteResult {
+  ok: boolean;
+}
 
-function deleteSecret(name: string): Promise<DeleteResult>
+function deleteSecret(name: string): Promise<DeleteResult>;
 ```
 
 Removes `parsed[name]` from `auth.json` under the file lock.
@@ -173,7 +186,7 @@ Removes `parsed[name]` from `auth.json` under the file lock.
 ## `is1PasswordAvailable()`
 
 ```ts
-function is1PasswordAvailable(): Promise<boolean>
+function is1PasswordAvailable(): Promise<boolean>;
 ```
 
 Whether 1Password vault integration is usable: the `op` CLI is installed **and**

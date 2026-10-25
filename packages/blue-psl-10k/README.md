@@ -33,21 +33,21 @@ The footer renders two lines pinned to the bottom of the terminal.
 
 **Line 1** — left: path and git status; right: cost, thinking level, model
 
-| Segment | What it shows |
-| ------- | ------------- |
-| Path | Truncated CWD (`…/parent/leaf`) |
-| Git | Branch name with OMP-style dirty indicators (`+` staged, `!` unstaged, `?` untracked) and ahead/behind counts (`↓2/↑1`) — background color: green (clean), yellow (dirty), sky (ahead only), red (diverged) |
-| Cost | Accumulated session cost — hidden when $0 (local/free models) |
-| Thinking | Active thinking level (`min` `low` `med` `high` `max`) — hidden when off; color-coded muted → blue → teal → sky → mauve |
-| Model | Active model ID |
+| Segment  | What it shows                                                                                                                                                                                               |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Path     | Truncated CWD (`…/parent/leaf`)                                                                                                                                                                             |
+| Git      | Branch name with OMP-style dirty indicators (`+` staged, `!` unstaged, `?` untracked) and ahead/behind counts (`↓2/↑1`) — background color: green (clean), yellow (dirty), sky (ahead only), red (diverged) |
+| Cost     | Accumulated session cost — hidden when $0 (local/free models)                                                                                                                                               |
+| Thinking | Active thinking level (`min` `low` `med` `high` `max`) — hidden when off; color-coded muted → blue → teal → sky → mauve                                                                                     |
+| Model    | Active model ID                                                                                                                                                                                             |
 
 **Line 2** — right-aligned: token I/O, cache efficiency, context fill
 
-| Segment | What it shows |
-| ------- | ------------- |
-| Tokens | `↓` read (input + cache-read) and `↑` write (output + cache-write) counts — hidden at session start |
-| Cache | Cache hit rate — works for Anthropic server-side prompt cache and llama.cpp KV cache; hidden when 0% |
-| Context | Context window fill — green (<50%) → yellow (≥50%) → orange (≥80%) → red (≥90%) |
+| Segment | What it shows                                                                                        |
+| ------- | ---------------------------------------------------------------------------------------------------- |
+| Tokens  | `↓` read (input + cache-read) and `↑` write (output + cache-write) counts — hidden at session start  |
+| Cache   | Cache hit rate — works for Anthropic server-side prompt cache and llama.cpp KV cache; hidden when 0% |
+| Context | Context window fill — green (<50%) → yellow (≥50%) → orange (≥80%) → red (≥90%)                      |
 
 Line 2 is omitted entirely before the first model response.
 
@@ -63,8 +63,8 @@ The theme also sets a warm peach tint on user message backgrounds to distinguish
 
 ## Commands
 
-| Command | Description |
-| ------- | ----------- |
+| Command                    | Description                                          |
+| -------------------------- | ---------------------------------------------------- |
 | `/blue-psl-restore-footer` | Remove the Powerline footer and restore Pi's default |
 
 ## Development

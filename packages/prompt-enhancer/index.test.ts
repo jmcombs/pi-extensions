@@ -26,6 +26,8 @@ import { Editor } from "@earendil-works/pi-tui";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import factory, {
   allocateConventionsBudget,
+  baselineEnhancerThinking,
+  buildEnhancerPickerItems,
   buildEnhancerUserMessage,
   buildProjectConventions,
   buildRecentTurns,
@@ -38,8 +40,11 @@ import factory, {
   type EnhancerContext,
   editorHoldsOurText,
   enhancedStatusText,
+  enhancerRequestThinking,
+  FOLLOW_SESSION_VALUE,
   filterPickerItems,
   formatEnhancementFailure,
+  formatEnhancerPickerHelp,
   formatRetryStatus,
   formatSkippedFiles,
   gatherEnhancerContext,
@@ -52,6 +57,7 @@ import factory, {
   TRANSIENT_FAILURE_STATUS_MS,
   TRANSIENT_STATUS_MS,
   toEditorText,
+  visibleEnhancerThinking,
 } from "./index.js";
 import { ENHANCING_SEGMENT } from "./widget.js";
 
@@ -115,9 +121,44 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
       "prompt_enhance_auto",
       "prompt_enhance_model",
       "prompt_enhance_revert",
+      "prompt_enhance_thinking",
     ]);
     expect(log.shortcuts.sort()).toEqual(["ctrl+shift+e", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);
+  });
+
+  it("does not throw /prompt_enhance_thinking when getSettings is missing", async () => {
+    const handlers = new Map<string, (args: string, ctx: unknown) => Promise<void>>();
+    const api = {
+      on: () => undefined,
+      registerTool: () => undefined,
+      registerShortcut: () => undefined,
+      registerCommand: (
+        name: string,
+        command: { handler: (args: string, ctx: unknown) => Promise<void> },
+      ) => {
+        handlers.set(name, command.handler);
+      },
+    } as unknown as ExtensionAPI;
+    factory(api);
+    const handler = handlers.get("prompt_enhance_thinking");
+    if (!handler) throw new Error("prompt_enhance_thinking was not registered");
+    const notices: string[] = [];
+    await handler("", {
+      hasUI: true,
+      model: { provider: "anthropic", id: "claude-sonnet-5", reasoning: false },
+      modelRegistry: {
+        getAvailable: () => [{ provider: "anthropic", id: "claude-sonnet-5", reasoning: false }],
+      },
+      ui: {
+        notify: (message: string) => {
+          notices.push(message);
+        },
+        custom: async () => undefined,
+      },
+      thinkingLevel: "medium",
+    });
+    expect(notices.join("\n")).not.toMatch(/getSettings/);
   });
 
   it("subscribes to all events needed for footer + widget lifecycle", () => {
@@ -132,6 +173,7 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     expect(log.events).toContain("session_start");
     expect(log.events).toContain("session_shutdown");
     expect(log.events).toContain("model_select");
+    expect(log.events).toContain("thinking_level_select");
     expect(log.events).toContain("input");
   });
 });
@@ -252,7 +294,8 @@ describe("createEnhancerModelSelector", () => {
     expect(lines.some((line) => line.includes("(current)"))).toBe(true);
     expect(lines.some((line) => /\(\d+\/\d+\)/.test(line))).toBe(true);
     expect(lines.some((line) => line.includes("> "))).toBe(true);
-    expect(lines.some((line) => line.includes("type to filter"))).toBe(true);
+    expect(lines.some((line) => line.includes("to select"))).toBe(true);
+    expect(lines.some((line) => line.includes("to cancel"))).toBe(true);
   });
 
   it("narrows the list as you type, like /model", () => {
@@ -274,6 +317,39 @@ describe("createEnhancerModelSelector", () => {
     expect(lines).not.toContain("gemini-2.5-pro");
   });
 
+  it("saves Follow session model with the keybindings Pi passes in", () => {
+    const choices: Array<{ value: string; persist: boolean } | undefined> = [];
+    const keybindings = {
+      matches: (data: string, id: string): boolean =>
+        (data === "\u0013" && id === "app.models.save") ||
+        (data === "\r" && id === "tui.select.confirm") ||
+        (data === "\u001b" && id === "tui.select.cancel"),
+      getKeys: (id: string): readonly string[] =>
+        id === "app.models.save"
+          ? ["ctrl+s"]
+          : id === "tui.select.confirm"
+            ? ["enter"]
+            : ["escape"],
+    };
+    const picker = createEnhancerModelSelector(
+      { terminal: { rows: 24 }, requestRender: () => {} },
+      identityTheme,
+      [
+        { value: FOLLOW_SESSION_VALUE, label: "Follow session model" },
+        { value: "anthropic/claude-sonnet-5-5", label: "anthropic/claude-sonnet-5-5" },
+      ],
+      (choice) => {
+        choices.push(choice);
+      },
+      0,
+      "app.models.save",
+      keybindings,
+    );
+    expect(picker.render(80).some((line) => line.includes("ctrl+s to set as default"))).toBe(true);
+    picker.handleInput("\u0013");
+    expect(choices).toEqual([{ value: FOLLOW_SESSION_VALUE, persist: true }]);
+  });
+
   it("shows No matching models when the query matches nothing", () => {
     const picker = createEnhancerModelSelector(
       { terminal: { rows: 24 }, requestRender: () => {} },
@@ -283,6 +359,99 @@ describe("createEnhancerModelSelector", () => {
     );
     picker.handleInput("zzzz");
     expect(picker.render(80).some((line) => line.includes("No matching models"))).toBe(true);
+  });
+});
+
+describe("buildEnhancerPickerItems", () => {
+  it("puts Follow session model first and marks it current when nothing is saved", () => {
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: "anthropic/claude-sonnet-5",
+      availableLabels: ["openai/gpt", "anthropic/claude-sonnet-5"],
+      savedAvailable: false,
+    });
+    expect(picker.items[0]).toMatchObject({
+      value: FOLLOW_SESSION_VALUE,
+      label: "Follow session model",
+      description: "anthropic/claude-sonnet-5 · current",
+    });
+    expect(picker.selectedIndex).toBe(0);
+    expect(picker.items.map((item) => item.label)).toEqual([
+      "Follow session model",
+      "anthropic/claude-sonnet-5",
+      "openai/gpt",
+    ]);
+  });
+
+  it("marks a saved available model current and default, and does not mark the follow row current", () => {
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: "openai/gpt",
+      availableLabels: ["openai/gpt", "anthropic/claude-sonnet-5"],
+      savedKey: "anthropic/claude-sonnet-5",
+      savedAvailable: true,
+    });
+    expect(picker.items[0]?.description).toBe("openai/gpt");
+    expect(picker.items.find((item) => item.value === "anthropic/claude-sonnet-5")).toMatchObject({
+      description: "current · default",
+    });
+    expect(picker.selectedIndex).toBe(
+      picker.items.findIndex((item) => item.value === "anthropic/claude-sonnet-5"),
+    );
+  });
+
+  it("keeps a saved model as default when Enter chose follow for this session", () => {
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: "openai/gpt",
+      availableLabels: ["openai/gpt", "anthropic/claude-sonnet-5"],
+      sessionChoice: FOLLOW_SESSION_VALUE,
+      savedKey: "anthropic/claude-sonnet-5",
+      savedAvailable: true,
+    });
+    expect(picker.items[0]?.description).toBe("openai/gpt · current");
+    expect(
+      picker.items.find((item) => item.value === "anthropic/claude-sonnet-5")?.description,
+    ).toBe("default");
+    expect(picker.selectedIndex).toBe(0);
+  });
+
+  it("does not mark default when the saved model is unavailable", () => {
+    const picker = buildEnhancerPickerItems({
+      availableLabels: ["openai/gpt"],
+      savedKey: "missing/model",
+      savedAvailable: false,
+    });
+    expect(picker.items[0]?.description).toBe(
+      "no session model · saved model unavailable · current",
+    );
+    expect(picker.items.some((item) => item.description?.includes("default"))).toBe(false);
+    expect(picker.items.some((item) => item.value === "missing/model")).toBe(false);
+  });
+});
+
+describe("visibleEnhancerThinking", () => {
+  it("hides a level that matches the model default or the session level", () => {
+    expect(baselineEnhancerThinking("high", "medium")).toBe("high");
+    expect(baselineEnhancerThinking(undefined, "medium")).toBe("medium");
+    expect(visibleEnhancerThinking(undefined, "medium")).toBeUndefined();
+    expect(visibleEnhancerThinking("high", "high")).toBeUndefined();
+    expect(visibleEnhancerThinking("low", "high")).toBe("low");
+    expect(visibleEnhancerThinking("low", "medium")).toBe("low");
+  });
+});
+
+describe("enhancerRequestThinking", () => {
+  it("does not send the model default when Follow default is selected", () => {
+    expect(enhancerRequestThinking(undefined, "high")).toBeUndefined();
+    expect(enhancerRequestThinking("low", "high")).toBe("low");
+    expect(enhancerRequestThinking("off", "high")).toBe("off");
+  });
+});
+
+describe("formatEnhancerPickerHelp", () => {
+  it("uses Pi's select / save / cancel wording and omits save when unbound", () => {
+    expect(formatEnhancerPickerHelp("Enter", "Ctrl+s", "Esc")).toBe(
+      "Enter to select · Ctrl+s to set as default · Esc to cancel",
+    );
+    expect(formatEnhancerPickerHelp("Enter", "", "Esc")).toBe("Enter to select · Esc to cancel");
   });
 });
 
@@ -845,17 +1014,29 @@ const ESCAPE = "\x1b";
  * once.
  */
 let hostCwd = "";
+let previousAgentDir: string | undefined;
 
 // `BorderedLoader` renders pi's own cancel key hint, which reads the global
 // theme. Pinned to the built-in "dark" so the tests never depend on the
-// developer's configured theme.
+// developer's configured theme. The agent dir is isolated so a developer's
+// saved promptEnhancerModel is not loaded during session_start.
 beforeAll(async () => {
   initTheme("dark", false);
   hostCwd = await fs.mkdtemp(path.join(os.tmpdir(), "pi-prompt-enhancer-tests-"));
+  previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = await fs.mkdtemp(
+    path.join(os.tmpdir(), "pi-prompt-enhancer-agent-"),
+  );
 });
 
 afterAll(async () => {
   if (hostCwd) await fs.rm(hostCwd, { recursive: true, force: true });
+  const agentDir = process.env.PI_CODING_AGENT_DIR;
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  if (agentDir && agentDir !== previousAgentDir) {
+    await fs.rm(agentDir, { recursive: true, force: true });
+  }
 });
 
 interface HostLog {

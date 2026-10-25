@@ -78,9 +78,11 @@ For the desktop notification to appear as a banner:
    notifications. Set Alert Style to "Banners" (temporary) or "Alerts"
    (persistent).
 2. **(Optional) Config**: Add to your Ghostty config if you had disabled it:
+
    ```
    desktop-notifications = true
    ```
+
    (Restart Ghostty or use `ghostty +reload-config` after changes.)
 3. **Testing**: Run `/notify Test Notification`. Banners typically only appear
    when the Ghostty window is _unfocused_ (background). When focused, check

@@ -2,10 +2,10 @@
 
 This page explains every automated check in this repository: what triggers it, what
 it actually runs, and — for each one — what a green result **proves** and, just as
-importantly, what it does **not** prove. Use it to answer "is this a *helpful* green?"
+importantly, what it does **not** prove. Use it to answer "is this a _helpful_ green?"
 before you trust a checkmark.
 
-The authoritative list of which checks are *required* to merge lives in
+The authoritative list of which checks are _required_ to merge lives in
 [`CONTRIBUTING.md` → Branch Protection](../CONTRIBUTING.md#branch-protection) (the
 "Protect main" ruleset). This document does not duplicate that table — it references
 it as the source of truth and explains what each check exercises.
@@ -33,14 +33,14 @@ direct push.
 
 ## At a glance
 
-| Workflow | File | Trigger | Required? | A green proves… |
-| --- | --- | --- | --- | --- |
-| Quality Gate | [`ci.yml`](../.github/workflows/ci.yml) | PR → `main` | **Yes** — `Quality Gate (Node 22)`, `Quality Gate (Node 24)` | the whole tree lints/formats/typechecks/tests clean on the pinned Node matrix, versions conform, no secret hits, no known prod-dep vulns |
-| Commit Messages | [`ci.yml`](../.github/workflows/ci.yml) | PR → `main` | **Yes** — `Commit Messages` | every commit in the PR range matches Conventional Commits |
-| Extension Load Check | [`extension-load.yml`](../.github/workflows/extension-load.yml) | PR → `main` **or** `feat/1password-credential-api` | No — **advisory** | every non-private extension loads + registers exactly its declared surface on pi and oh-my-pi with `op` absent |
-| Release Please | [`release-please.yml`](../.github/workflows/release-please.yml) | push → `main` (on `packages/**` etc.) | n/a — post-merge automation | only that the release *mechanics* ran; **not** that any code is valid |
-| 1Password shell-plugins updater | [`update-1p-shell-plugins.yml`](../.github/workflows/update-1p-shell-plugins.yml) | weekly schedule + manual dispatch | n/a — opens a PR | nothing directly; the PR it opens is gated like any other |
-| Dependabot | [`dependabot.yml`](../.github/dependabot.yml) | weekly schedule | n/a — opens PRs | nothing directly; each PR it opens runs the full gate |
+| Workflow                        | File                                                                              | Trigger                                            | Required?                                                    | A green proves…                                                                                                                          |
+| ------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Quality Gate                    | [`ci.yml`](../.github/workflows/ci.yml)                                           | PR → `main`                                        | **Yes** — `Quality Gate (Node 22)`, `Quality Gate (Node 24)` | the whole tree lints/formats/typechecks/tests clean on the pinned Node matrix, versions conform, no secret hits, no known prod-dep vulns |
+| Commit Messages                 | [`ci.yml`](../.github/workflows/ci.yml)                                           | PR → `main`                                        | **Yes** — `Commit Messages`                                  | every commit in the PR range matches Conventional Commits                                                                                |
+| Extension Load Check            | [`extension-load.yml`](../.github/workflows/extension-load.yml)                   | PR → `main` **or** `feat/1password-credential-api` | No — **advisory**                                            | every non-private extension loads + registers exactly its declared surface on pi and oh-my-pi with `op` absent                           |
+| Release Please                  | [`release-please.yml`](../.github/workflows/release-please.yml)                   | push → `main` (on `packages/**` etc.)              | n/a — post-merge automation                                  | only that the release _mechanics_ ran; **not** that any code is valid                                                                    |
+| 1Password shell-plugins updater | [`update-1p-shell-plugins.yml`](../.github/workflows/update-1p-shell-plugins.yml) | weekly schedule + manual dispatch                  | n/a — opens a PR                                             | nothing directly; the PR it opens is gated like any other                                                                                |
+| Dependabot                      | [`dependabot.yml`](../.github/dependabot.yml)                                     | weekly schedule                                    | n/a — opens PRs                                              | nothing directly; each PR it opens runs the full gate                                                                                    |
 
 ## Quality Gate
 
@@ -87,7 +87,7 @@ sequenceDiagram
 **A green here PROVES:** the whole tree lints, formats, and typechecks; import order is
 clean; the test suite passes; every package conforms to the version/registration
 conventions; `secretlint` finds no secret hits; and `npm audit` finds no known
-**production**-dependency vulnerabilities — on *both* pinned Node versions.
+**production**-dependency vulnerabilities — on _both_ pinned Node versions.
 
 **It does NOT prove:** that the extensions actually load on pi or oh-my-pi; any
 runtime, tool, or command behavior; that `op`-backed credential resolution works;
@@ -125,14 +125,14 @@ still fail the Quality Gate.
 
 Defined in [`extension-load.yml`](../.github/workflows/extension-load.yml) as the job
 surfaced under the context **`Extensions load + register (pi + oh-my-pi, no op)`**. This
-check is **advisory**: it is deliberately *not* in the "Protect main" required-check set,
+check is **advisory**: it is deliberately _not_ in the "Protect main" required-check set,
 so it can inform a review without ever blocking a merge. It triggers on PRs into `main`
 **and** into the `feat/1password-credential-api` integration branch, so it guards both
 while that migration is in flight.
 
 In CI the check is **runner-native** — it drives each host's real loader directly on the
 runner, with the 1Password CLI (`op`) absent. (The local
-`npm run validate:extension-load` command is the *only* variant that builds a Docker
+`npm run validate:extension-load` command is the _only_ variant that builds a Docker
 image; the CI job does **not** use Docker.)
 
 The harness ([`docker/smoke-harness.mts`](../docker/smoke-harness.mts), driven by
@@ -145,7 +145,7 @@ The harness ([`docker/smoke-harness.mts`](../docker/smoke-harness.mts), driven b
    startup).
 3. **Loads on stock oh-my-pi** via that fork's own `loadExtensions`, running under Bun.
 4. **Compares each surface STRICTLY (exact-set):** for every category (tools, commands,
-   handlers, shortcuts, providers) the registered members must *equal* the expected set —
+   handlers, shortcuts, providers) the registered members must _equal_ the expected set —
    anything **missing** and anything **extra** both fail. Platform-aware differences are
    part of the expectation: `@jmcombs/pi-1password`'s `user_bash` handler is asserted
    **present on pi** (its host API exists) and **absent on oh-my-pi** (its compat shim
@@ -174,7 +174,7 @@ sequenceDiagram
 ```
 
 **A green here PROVES:** every non-private shipped extension links, loads, and registers
-*exactly* its declared, platform-aware surface on both pi and stock oh-my-pi, with `op`
+_exactly_ its declared, platform-aware surface on both pi and stock oh-my-pi, with `op`
 **absent** — so nothing is missing and nothing rogue was registered.
 
 **It does NOT prove:** that `op`-backed credential **resolution** works (fetching a real
@@ -186,12 +186,12 @@ does **not** stop the merge; treat it as a signal to investigate.
 
 Defined in [`release-please.yml`](../.github/workflows/release-please.yml). It triggers
 on **pushes to `main`** that touch `packages/**` (or the release config/manifest/workflow
-files) — i.e. *after* a PR has already merged.
+files) — i.e. _after_ a PR has already merged.
 
 It parses the Conventional Commits since the last release, opens or updates a per-package
 release PR (bumping the version and updating that package's CHANGELOG), and then waits.
 Nothing publishes until a **maintainer manually approves and merges** the release PR —
-the release bot is intentionally *not* in the branch-protection bypass list, so every
+the release bot is intentionally _not_ in the branch-protection bypass list, so every
 publish is gated by an explicit human approval. Merging the release PR creates a git tag
 and a GitHub Release, which triggers the `publish` job: `npm publish --provenance` via
 **OIDC Trusted Publishing** (no stored `NPM_TOKEN`).
@@ -213,7 +213,7 @@ sequenceDiagram
     Note over Pub,NPM: no lint / type / test / load here
 ```
 
-**What this AUTOMATES:** the release *mechanics* — version bumps, CHANGELOG entries,
+**What this AUTOMATES:** the release _mechanics_ — version bumps, CHANGELOG entries,
 tags, GitHub Releases, and provenance-signed npm publishes.
 
 **What it does NOT do:** any lint, typecheck, test, or extension-load validation. Release
