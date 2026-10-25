@@ -45,13 +45,13 @@ model you save with `/prompt_enhance_model`.
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
-| `/prompt_enhance_model` | Pick the enhancer model for this session, or save it as the default. |
-| `/prompt_enhance_thinking` | Pick the enhancer thinking level for this session, or save it as the default. |
-| `/prompt_enhance_revert` | Put back the last prompt you wrote and enhanced. Once only; also clears when you send a prompt. |
-| `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
+| Command                    | What it does                                                                                    |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| `/prompt_enhance [text]`   | Rewrite the text you pass, or whatever is already in the editor.                                |
+| `/prompt_enhance_model`    | Pick the enhancer model for this session, or save it as the default.                            |
+| `/prompt_enhance_thinking` | Pick the enhancer thinking level for this session, or save it as the default.                   |
+| `/prompt_enhance_revert`   | Put back the last prompt you wrote and enhanced. Once only; also clears when you send a prompt. |
+| `/prompt_enhance_auto`     | Turn auto-enhance on or off for the current session. Off until you do.                          |
 
 The model picker follows Pi's model selector. Confirm selects the highlighted row for this session. The save key (`app.models.save`, `Ctrl+S` unless rebound) writes it to `promptEnhancerModel` in the user `settings.json`. Choose **Follow session model** and save to clear that key. A saved model that is no longer available is left in settings; the enhancer uses the session model until you save a new choice.
 
@@ -67,7 +67,7 @@ also says `Enter to send`. Press **Esc** to cancel an enhance that is still
 running.
 
 Press `Ctrl+Shift+E` again on a rewrite you have not touched and you get another
-rewrite of your *original* prompt, not a rewrite of the rewrite — press it a few
+rewrite of your _original_ prompt, not a rewrite of the rewrite — press it a few
 times to see different approaches to the same request. The footer says
 `Re-enhanced your original prompt` when that is what happened, since a second
 rewrite can read much like the first. Edit the rewrite first and enhancing takes
@@ -160,12 +160,12 @@ Nothing to enhance (editor is empty).
 
 ## Requirements
 
-| | |
-| --- | --- |
-| **Node** | ≥ 22.19.0 |
-| **[Pi](https://pi.dev)** | any recent version |
+|                                              |                                        |
+| -------------------------------------------- | -------------------------------------- |
+| **Node**                                     | ≥ 22.19.0                              |
+| **[Pi](https://pi.dev)**                     | any recent version                     |
 | **A [Nerd Font](https://www.nerdfonts.com)** | for the status bar mark and separators |
-| **A configured model** | at least one Pi model with an API key |
+| **A configured model**                       | at least one Pi model with an API key  |
 
 ## Development
 

@@ -108,13 +108,13 @@ invoked with `--output-format stream-json` and `--trust` (skip the workspace-tru
 `--force` / `--yolo` (Cursor's permission bypass) and `--sandbox` are **never**
 passed. Pi model → Cursor `--model` map:
 
-| Pi id | Cursor `--model` at Pi `off` | Other Pi levels |
-| --- | --- | --- |
-| `relay-cursor/auto` | `auto` | No thinking axis; only Pi `off` is offered |
-| `relay-cursor/composer-2-5` | `composer-2.5` | No thinking axis; only Pi `off` is offered |
-| `relay-cursor/opus-4-8` | `claude-opus-4-8-high` | `claude-opus-4-8-thinking-<level>` |
-| `relay-cursor/opus-5-5` | `claude-opus-5-5-low` | `claude-opus-5-5-<level>` (`off` clamps to `low`) |
-| `relay-cursor/sonnet-5-5` | `claude-sonnet-5-5-low` | `claude-sonnet-5-5-<level>` (`off` clamps to `low`) |
+| Pi id                       | Cursor `--model` at Pi `off` | Other Pi levels                                     |
+| --------------------------- | ---------------------------- | --------------------------------------------------- |
+| `relay-cursor/auto`         | `auto`                       | No thinking axis; only Pi `off` is offered          |
+| `relay-cursor/composer-2-5` | `composer-2.5`               | No thinking axis; only Pi `off` is offered          |
+| `relay-cursor/opus-4-8`     | `claude-opus-4-8-high`       | `claude-opus-4-8-thinking-<level>`                  |
+| `relay-cursor/opus-5-5`     | `claude-opus-5-5-low`        | `claude-opus-5-5-<level>` (`off` clamps to `low`)   |
+| `relay-cursor/sonnet-5-5`   | `claude-sonnet-5-5-low`      | `claude-sonnet-5-5-<level>` (`off` clamps to `low`) |
 
 The mapper strips the `relay-cursor/` provider prefix first; an id that does not
 resolve to a listed id is rejected up front rather than forwarded. Dotted ids
@@ -130,13 +130,13 @@ so Cursor cannot fall through to `~/.cursor`.
 
 Claude Code and Cursor name the same Anthropic models differently:
 
-| Goal | Claude Code (`claude -p`) | Cursor Agent (`cursor-agent -p`) |
-| --- | --- | --- |
-| Opus 4.8 | `--model claude-opus-4-8` + `--effort <level>` (omitted on Pi `off`) | `claude-opus-4-8-high` on Pi `off`, else `claude-opus-4-8-thinking-<level>` |
-| Opus 5.5 | `--model claude-opus-5-5 --effort <level>` (Pi `off` → `low`) | `claude-opus-5-5-<level>` (Pi `off` → `low`) |
-| Sonnet 5.5 | `--model claude-sonnet-5-5 --effort <level>` (Pi `off` → `low`) | `claude-sonnet-5-5-<level>` (Pi `off` → `low`) |
-| Haiku 5.5 | `--model claude-haiku-5-5 --effort <level>` (Pi `off` → `low`) | n/a |
-| Composer 2.5 | n/a | `--model composer-2.5` (thinking does not change the id) |
+| Goal         | Claude Code (`claude -p`)                                            | Cursor Agent (`cursor-agent -p`)                                            |
+| ------------ | -------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Opus 4.8     | `--model claude-opus-4-8` + `--effort <level>` (omitted on Pi `off`) | `claude-opus-4-8-high` on Pi `off`, else `claude-opus-4-8-thinking-<level>` |
+| Opus 5.5     | `--model claude-opus-5-5 --effort <level>` (Pi `off` → `low`)        | `claude-opus-5-5-<level>` (Pi `off` → `low`)                                |
+| Sonnet 5.5   | `--model claude-sonnet-5-5 --effort <level>` (Pi `off` → `low`)      | `claude-sonnet-5-5-<level>` (Pi `off` → `low`)                              |
+| Haiku 5.5    | `--model claude-haiku-5-5 --effort <level>` (Pi `off` → `low`)       | n/a                                                                         |
+| Composer 2.5 | n/a                                                                  | `--model composer-2.5` (thinking does not change the id)                    |
 
 Confirm Cursor account availability with an authenticated `cursor-agent --list-models`
 (catalog is server-driven). Claude Code 2.1.295's baked catalog lists Opus 5.5,
