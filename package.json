@@ -46,6 +46,9 @@
   "engines": {
     "node": ">=22.19.0"
   },
+  "overrides": {
+    "undici": "8.12.3"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@commitlint/cli": "^21.2.3",
