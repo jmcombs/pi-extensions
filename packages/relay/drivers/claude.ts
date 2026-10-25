@@ -26,32 +26,87 @@
  * neutral list to its sandbox (`-s`).
  */
 
-import { type PiThinkingLevel, parseModelThinking } from "./thinking.js";
+import {
+  clampToSupported,
+  type PiThinkingLevel,
+  parseModelThinking,
+  piThinkingMap,
+} from "./thinking.js";
+
+/** Pi levels Opus 4.8 can express. `off` omits `--effort` (Claude has no off flag). */
+const CLAUDE_EFFORT_LEVELS: readonly PiThinkingLevel[] = [
+  "off",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+/**
+ * Pi levels for models that reject disabled thinking (Opus 5.5, Sonnet 5.5,
+ * Haiku 5.5). `off` is hidden; a session left on off clamps to `low`.
+ */
+const CLAUDE_EFFORT_NO_OFF: readonly PiThinkingLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** Catalog map for Claude models that can omit `--effort` on Pi `off`. */
+export const CLAUDE_THINKING_MAP = piThinkingMap(CLAUDE_EFFORT_LEVELS);
+
+/** Catalog map for Claude models that reject disabled thinking. */
+export const CLAUDE_THINKING_MAP_NO_OFF = piThinkingMap(CLAUDE_EFFORT_NO_OFF);
 
 /**
  * Pi model id → Claude Code `--model` value.
  *
- * Claude Code accepts aliases (`opus`, `sonnet`, `haiku`) and full ids
- * (`claude-opus-5-5`, `claude-sonnet-5-5`). Pin Opus 5.5 with `claude-opus-5-5`
- * and Sonnet 5.5 with `claude-sonnet-5-5`. Claude Code 2.1.284's baked catalog
- * lists Sonnet 5.5 as 1M / 128K with `default_effort: "medium"` and
- * `rejects_disabled_thinking`. Depth is `--effort` (omitted on `off`, so that
- * CLI default applies). `opus-4.8` pins `claude-opus-4-8`. Unknown ids are
- * passed through so a future Claude alias does not need a relay release to
- * reach `--model`.
+ * Listed ids are versioned (`opus-4-8`, `opus-5-5`, `sonnet-5-5`, `haiku-5-5`)
+ * and pin the first-party id (`claude-opus-4-8`, `claude-opus-5-5`, …).
+ * Unversioned aliases (`opus`, `sonnet`, `haiku`) and dotted ids (`opus-4.8`,
+ * `opus-5.5`, `sonnet-5.5`) are rejected. Unknown ids are passed through so a
+ * future Claude id does not need a relay release to reach `--model`.
  */
 export const CLAUDE_MODEL_MAP: Readonly<Record<string, string>> = {
-  opus: "opus",
-  "opus-4.8": "claude-opus-4-8",
-  "opus-5.5": "claude-opus-5-5",
-  sonnet: "sonnet",
-  "sonnet-5.5": "claude-sonnet-5-5",
-  haiku: "haiku",
+  "opus-4-8": "claude-opus-4-8",
+  "opus-5-5": "claude-opus-5-5",
+  "sonnet-5-5": "claude-sonnet-5-5",
+  "haiku-5-5": "claude-haiku-5-5",
 };
+
+/** Retired Pi ids. Rejected so they cannot fall through to `--model` passthrough. */
+const RETIRED_CLAUDE_IDS: ReadonlySet<string> = new Set([
+  "opus",
+  "opus-4.8",
+  "opus-5.5",
+  "sonnet",
+  "sonnet-5.5",
+  "haiku",
+]);
+
+/** Backend ids whose model card sets `rejects_disabled_thinking`. */
+const CLAUDE_REJECTS_DISABLED_THINKING: ReadonlySet<string> = new Set([
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
+]);
+
+/**
+ * Pi levels this Claude `--model` id can express. Unknown ids return `undefined`
+ * so a passthrough id is not clamped onto a family it may not belong to.
+ */
+export function claudeSupportedLevels(backendId: string): readonly PiThinkingLevel[] | undefined {
+  if (backendId === "claude-opus-4-8") return CLAUDE_EFFORT_LEVELS;
+  if (CLAUDE_REJECTS_DISABLED_THINKING.has(backendId)) return CLAUDE_EFFORT_NO_OFF;
+  return undefined;
+}
 
 /** Resolve a pi model id to the Claude Code `--model` value (strips provider/thinking). */
 export function resolveClaudeModel(piId: string): string {
   const id = parseModelThinking(piId).bareId;
+  if (RETIRED_CLAUDE_IDS.has(id)) {
+    throw new Error(
+      `relay-claude: \`${piId}\` is not a supported relay-claude model. ` +
+        `Use one of: opus-4-8, opus-5-5, sonnet-5-5, haiku-5-5.`,
+    );
+  }
   return CLAUDE_MODEL_MAP[id] ?? id;
 }
 
@@ -63,7 +118,7 @@ export function resolveClaudeModel(piId: string): string {
 export interface DriverInvocation {
   /** The task / final user message text handed to the external agent. */
   readonly task: string;
-  /** External model id parsed from the pi model id (e.g. `relay-claude/opus` → `opus`). */
+  /** External model id parsed from the pi model id (e.g. `relay-claude/opus-5-5` → `opus-5-5`). */
   readonly model: string;
   /**
    * Pi thinking level for this run (`off`…`max`). When omitted, the driver
@@ -280,7 +335,11 @@ export const claudeDriver: AgentDriver = {
 
   buildArgs(invocation: DriverInvocation): string[] {
     const parsed = parseModelThinking(invocation.model);
-    const effort = mapClaudeEffort(invocation.thinking ?? parsed.thinking);
+    const backendId = resolveClaudeModel(invocation.model);
+    const supported = claudeSupportedLevels(backendId);
+    const requested = invocation.thinking ?? parsed.thinking;
+    const level = supported === undefined ? requested : clampToSupported(requested, supported);
+    const effort = mapClaudeEffort(level);
     const args = [
       "-p",
       invocation.task,
@@ -289,7 +348,7 @@ export const claudeDriver: AgentDriver = {
       "--verbose",
       "--include-partial-messages",
       "--model",
-      resolveClaudeModel(invocation.model),
+      backendId,
     ];
     if (effort !== undefined) args.push("--effort", effort);
 
