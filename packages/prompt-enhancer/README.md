@@ -33,8 +33,8 @@ pi install npm:@jmcombs/pi-prompt-enhancer
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 path, project-scoped install, and filtering options.
 
-No extra API keys. It uses the model already active in your session, or one
-you pick with `/prompt_enhance_model`.
+No extra API keys. It uses the model already active in your session, or a
+model you save with `/prompt_enhance_model`.
 
 ## Quick start
 
@@ -48,9 +48,14 @@ you pick with `/prompt_enhance_model`.
 | Command | What it does |
 | --- | --- |
 | `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
-| `/prompt_enhance_model` | Pick the enhancer model for the current session. Resets when Pi restarts. |
+| `/prompt_enhance_model` | Pick the enhancer model for this session, or save it as the default. |
+| `/prompt_enhance_thinking` | Pick the enhancer thinking level for this session, or save it as the default. |
 | `/prompt_enhance_revert` | Put back the last prompt you wrote and enhanced. Once only; also clears when you send a prompt. |
 | `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
+
+The model picker follows Pi's model selector. Confirm selects the highlighted row for this session. The save key (`app.models.save`, `Ctrl+S` unless rebound) writes it to `promptEnhancerModel` in the user `settings.json`. Choose **Follow session model** and save to clear that key. A saved model that is no longer available is left in settings; the enhancer uses the session model until you save a new choice.
+
+`/prompt_enhance_thinking` uses the same gestures with `app.thinking.save`. Confirm applies the level for this session. Save writes `promptEnhancerThinking`. **Follow default** does not send a thinking override: the call stays on `complete()` with no reasoning option. The baseline is display-only. It is that model's `modelThinkingLevels` entry when Pi has one, otherwise the session thinking level. The status bar shows a level only when an explicit enhancer level differs from that baseline.
 
 **Shortcuts** (also listed in `/hotkeys`):
 

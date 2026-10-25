@@ -73,6 +73,15 @@ describe("formatStatusWidget", () => {
     expect(at(ENHANCING_SEGMENT)).toBeLessThan(at(base.model as string));
   });
 
+  it("shows a thinking block only when a thinking level is provided", () => {
+    const hidden = formatStatusWidget(base);
+    const shown = formatStatusWidget({ ...base, thinking: "high" });
+    expect(hidden).not.toContain(" high ");
+    expect(shown).toContain(" high ");
+    expect(shown).toContain("48;2;136;57;239");
+    expect(shown.indexOf(" high ")).toBeGreaterThan(shown.indexOf(base.model as string));
+  });
+
   it("inserts a green auto block only when auto-enhance is armed", () => {
     const off = formatStatusWidget(base);
     const on = formatStatusWidget({ ...base, auto: true });

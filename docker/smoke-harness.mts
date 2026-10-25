@@ -93,7 +93,7 @@ export interface Expected {
 // | grok-search     | grok_search                       | grok_setup                                                 | —                                                        | —                                     |
 // | headroom        | headroom_retrieve                 | headroom-status, headroom_setup, headroom-stats, headroom-simulate | context, session_start                          | —                                     |
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_start, tool_execution_end, agent_settled | —                   |
-// | prompt-enhancer | —                                 | prompt_enhance, prompt_enhance_model, prompt_enhance_revert, prompt_enhance_auto | session_start, session_shutdown, model_select, input | shortcuts ctrl+shift+e, ctrl+shift+z  |
+// | prompt-enhancer | —                                 | prompt_enhance, prompt_enhance_model, prompt_enhance_thinking, prompt_enhance_revert, prompt_enhance_auto | session_start, session_shutdown, model_select, thinking_level_select, input | shortcuts ctrl+shift+e, ctrl+shift+z  |
 // | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok, relay-cursor (via stub) |
 // | steward         | —                                 | steward_start, steward_dashboard, steward_stop, steward_initialize | session_start, turn_start, turn_end, session_shutdown | —                                     |
 // | tavily-search   | tavily_search                     | tavily_setup                                               | —                                                        | —                                     |
@@ -141,10 +141,17 @@ export const EXPECTED: Record<string, Expected> = {
     commands: [
       "prompt_enhance",
       "prompt_enhance_model",
+      "prompt_enhance_thinking",
       "prompt_enhance_revert",
       "prompt_enhance_auto",
     ],
-    handlers: ["session_start", "session_shutdown", "model_select", "input"],
+    handlers: [
+      "session_start",
+      "session_shutdown",
+      "model_select",
+      "thinking_level_select",
+      "input",
+    ],
     shortcuts: ["ctrl+shift+e", "ctrl+shift+z"],
     note: "commands + handlers + shortcuts, no tools",
   },
