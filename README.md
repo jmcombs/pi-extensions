@@ -46,33 +46,33 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 
 ### Credentials
 
-| Package | Description |
-| --- | --- |
+| Package                                                                                                                                                               | Description                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@jmcombs/pi-1password`](./packages/1password) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-1password.svg)](https://www.npmjs.com/package/@jmcombs/pi-1password) | Transparent 1Password credential injection so bare `gh`, `aws`, and friends work inside Pi — tokens never reach the LLM. Shared credential API for other extensions. |
 
 ### Search & documentation
 
-| Package | Description |
-| --- | --- |
-| [`@jmcombs/pi-context7`](./packages/context7) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-context7.svg)](https://www.npmjs.com/package/@jmcombs/pi-context7) | Real-time, version-accurate library docs via [Context7](https://context7.com). |
-| [`@jmcombs/pi-tavily-search`](./packages/tavily-search) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-tavily-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-tavily-search) | Real-time web search via the [Tavily](https://tavily.com) API. |
-| [`@jmcombs/pi-grok-search`](./packages/grok-search) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-grok-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-grok-search) | Real-time web search via the [xAI Grok](https://x.ai) API. |
+| Package                                                                                                                                                                               | Description                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [`@jmcombs/pi-context7`](./packages/context7) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-context7.svg)](https://www.npmjs.com/package/@jmcombs/pi-context7)                     | Real-time, version-accurate library docs via [Context7](https://context7.com). |
+| [`@jmcombs/pi-tavily-search`](./packages/tavily-search) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-tavily-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-tavily-search) | Real-time web search via the [Tavily](https://tavily.com) API.                 |
+| [`@jmcombs/pi-grok-search`](./packages/grok-search) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-grok-search.svg)](https://www.npmjs.com/package/@jmcombs/pi-grok-search)         | Real-time web search via the [xAI Grok](https://x.ai) API.                     |
 
 ### Agent tooling
 
-| Package | Description |
-| --- | --- |
+| Package                                                                                                                                                                                       | Description                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | [`@jmcombs/pi-prompt-enhancer`](./packages/prompt-enhancer) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-prompt-enhancer.svg)](https://www.npmjs.com/package/@jmcombs/pi-prompt-enhancer) | Codebase-aware prompt rewriter: project tree, git context, referenced files, and an optional auto-enhance on Enter. |
-| [`@jmcombs/pi-notify`](./packages/notify) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify) | Terminal notifications (OSC 777/9/99) when Pi is idle. Ghostty, iTerm2, WezTerm, Kitty, and more — no OS binaries. |
+| [`@jmcombs/pi-notify`](./packages/notify) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-notify.svg)](https://www.npmjs.com/package/@jmcombs/pi-notify)                                     | Terminal notifications (OSC 777/9/99) when Pi is idle. Ghostty, iTerm2, WezTerm, Kitty, and more — no OS binaries.  |
 
 ### Context, models & UI
 
-| Package | Description |
-| --- | --- |
-| [`@jmcombs/pi-headroom`](./packages/headroom) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-headroom.svg)](https://www.npmjs.com/package/@jmcombs/pi-headroom) | Whole-conversation context compression via a local [Headroom](https://www.npmjs.com/package/headroom-ai) proxy, with graceful passthrough when unreachable. |
-| [`@jmcombs/pi-relay`](./packages/relay) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-relay.svg)](https://www.npmjs.com/package/@jmcombs/pi-relay) | Run any Pi subagent on an external coding agent (headless Claude / Grok) by setting its `model` — provider seam, no local model required. |
-| [`@jmcombs/pi-steward`](./packages/steward) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-steward.svg)](https://www.npmjs.com/package/@jmcombs/pi-steward) | The llama.cpp control panel for Pi — local browser dashboard for service control, resident models, host health, and streamed logs. |
-| [`@jmcombs/pi-blue-psl-10k`](./packages/blue-psl-10k) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-blue-psl-10k.svg)](https://www.npmjs.com/package/@jmcombs/pi-blue-psl-10k) | Powerline-styled status footer (Blue PSL 10K theme) — git, context usage, token counts, and cost. |
+| Package                                                                                                                                                                           | Description                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@jmcombs/pi-headroom`](./packages/headroom) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-headroom.svg)](https://www.npmjs.com/package/@jmcombs/pi-headroom)                 | Whole-conversation context compression via a local [Headroom](https://www.npmjs.com/package/headroom-ai) proxy, with graceful passthrough when unreachable. |
+| [`@jmcombs/pi-relay`](./packages/relay) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-relay.svg)](https://www.npmjs.com/package/@jmcombs/pi-relay)                             | Run any Pi subagent on an external coding agent (headless Claude / Grok) by setting its `model` — provider seam, no local model required.                   |
+| [`@jmcombs/pi-steward`](./packages/steward) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-steward.svg)](https://www.npmjs.com/package/@jmcombs/pi-steward)                     | The llama.cpp control panel for Pi — local browser dashboard for service control, resident models, host health, and streamed logs.                          |
+| [`@jmcombs/pi-blue-psl-10k`](./packages/blue-psl-10k) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-blue-psl-10k.svg)](https://www.npmjs.com/package/@jmcombs/pi-blue-psl-10k) | Powerline-styled status footer (Blue PSL 10K theme) — git, context usage, token counts, and cost.                                                           |
 
 ## 1Password credential API
 
@@ -91,7 +91,7 @@ If these extensions save you time, tokens, or friction — a sponsorship is the 
   <a href="https://ko-fi.com/jmcombs"><img src="https://img.shields.io/badge/Tip_on_Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Tip on Ko-fi"></a>
 </p>
 
-- **[GitHub Sponsors](https://github.com/sponsors/jmcombs)** — one-time *and* monthly; **0%** platform fee on personal sponsorships; shows up natively on the repo
+- **[GitHub Sponsors](https://github.com/sponsors/jmcombs)** — one-time _and_ monthly; **0%** platform fee on personal sponsorships; shows up natively on the repo
 - **[Ko-fi](https://ko-fi.com/jmcombs)** — simple one-time tips if you prefer a tip jar outside GitHub
 
 ## Requirements

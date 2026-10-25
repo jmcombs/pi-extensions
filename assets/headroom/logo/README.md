@@ -1,7 +1,7 @@
 # Headroom — Logo ("Raise the ceiling")
 
 The mark is an upward arrow lifting a ceiling bar, with clear space opening between
-them — the literal meaning of *headroom*: room created above. Built on the brand's
+them — the literal meaning of _headroom_: room created above. Built on the brand's
 Path Blue and Manrope.
 
 ## Files
@@ -42,10 +42,18 @@ text is real, selectable, and always crisp.
 </a>
 ```
 ```css
-.headroom-logo{ display:inline-flex; align-items:center; gap:10px; text-decoration:none; }
-.headroom-logo span{
-  font-family:'Manrope',sans-serif; font-weight:800;
-  font-size:26px; letter-spacing:-0.03em; color:#4c4f69;
+.headroom-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.headroom-logo span {
+  font-family: "Manrope", sans-serif;
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.03em;
+  color: #4c4f69;
 }
 /* On a dark surface: swap to headroom-mark-white.svg and color:#eff1f5 */
 ```

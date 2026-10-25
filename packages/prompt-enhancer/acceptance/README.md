@@ -137,12 +137,12 @@ Alongside `startedAt`, `finishedAt`, `transport`, `models`, `fixtures`, `n`, `ce
 `records`, a run writes four things that exist so the file can be checked by someone who did not
 watch it happen:
 
-| field | why it is there |
-| --- | --- |
-| `baseline` | `{ model, present, exemptionReason }`. Whether the required column was run, and the reason if not. |
-| `knownPaths` | The repo file list the run scored against. Without it a re-score cannot reproduce `fabricated_path`, because every file the PR adds would read as invented. |
-| `fixtureDigests` | `sha256` of each fixture file as it was on disk for the run. |
-| `harness` | `sha256` of `run-matrix.ts` and `classify.ts` as they were on disk for the run. |
+| field            | why it is there                                                                                                                                             |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline`       | `{ model, present, exemptionReason }`. Whether the required column was run, and the reason if not.                                                          |
+| `knownPaths`     | The repo file list the run scored against. Without it a re-score cannot reproduce `fabricated_path`, because every file the PR adds would read as invented. |
+| `fixtureDigests` | `sha256` of each fixture file as it was on disk for the run.                                                                                                |
+| `harness`        | `sha256` of `run-matrix.ts` and `classify.ts` as they were on disk for the run.                                                                             |
 
 `fixtureDigests` and `harness` are **self-attested**, so they are orientation, not proof: a
 fabricated file would carry the right digests. They earn their place by explaining an honest
@@ -193,7 +193,7 @@ artifact could not be read at all.
 
 **Nothing here proves the calls were ever made.** A contributor who runs the real matrix and then
 hand-edits `enhanced` texts into ones that genuinely score `good` produces a file that passes. The
-check proves the *scoring* is honest and current, not the *sampling*. What raises the cost of that
+check proves the _scoring_ is honest and current, not the _sampling_. What raises the cost of that
 attack is that the forged text has to survive the real classifier on every fixture, which is close
 to the work of making the change actually good.
 
@@ -319,10 +319,10 @@ infrastructure, not model behaviour: they say the call never produced a scoreabl
 
 ### `code_block_mangled`: the sample is the payload
 
-A draft that pastes a stack trace, a diff or a failing test is ordinary, and a *reworded* trace is
+A draft that pastes a stack trace, a diff or a failing test is ordinary, and a _reworded_ trace is
 worse than no rewrite at all — its line numbers and identifiers are the entire reason it was pasted.
 The rule extracts the body of every fenced block in the **original** and asks what became of it. The
-line is between a sample that was *corrupted or dropped* and one that was merely *shortened*: the
+line is between a sample that was _corrupted or dropped_ and one that was merely _shortened_: the
 point is to protect pasted content from being reworded, not to demand byte-for-byte reproduction.
 
 Three outcomes per block:
@@ -332,7 +332,7 @@ Three outcomes per block:
   Fence markers, info strings and where the block sits are all free to move; line endings and
   trailing whitespace are normalised, because those are transport artifacts rather than the model
   rewording anything.
-- **trimmed** — the rewrite carries a fenced block whose lines are an *excerpt* of the body: the same
+- **trimmed** — the rewrite carries a fenced block whose lines are an _excerpt_ of the body: the same
   lines, verbatim, in order, fewer of them. Head and tail may be cut without limit; interior gaps are
   capped at two lines, past which the survivors have been stitched together rather than excerpted.
   Not a verdict — see `code_block_trimmed` below.
@@ -340,7 +340,7 @@ Three outcomes per block:
   and fails, and so does a sample paraphrased away into prose entirely.
 
 The trim tolerance deliberately requires a surviving fenced block. An unchanged sample may lose its
-fences to an editor, but a *shortened* one that is no longer set off as a sample has been absorbed
+fences to an editor, but a _shortened_ one that is no longer set off as a sample has been absorbed
 into the prose, which is the failure this rule exists to catch. Quoting one trace line inline in a
 paraphrase is not a trim.
 
@@ -375,21 +375,21 @@ until the paraphrase passes. A red cell that names a real behaviour is the measu
 `ClassifyResult.signals` is a second list that never touches `verdict`. It exists for behaviour worth
 seeing without being scoreable, and today it carries three families:
 
-| signal | meaning |
-| --- | --- |
-| `typo_path_carried` | the original misspelled a real repo path and the rewrite reproduced the misspelling |
-| `typo_path_corrected` | the rewrite replaced it with the path that actually exists |
-| `typo_path_dropped` | the rewrite kept neither |
-| `low_anchor_retention` | the rewrite kept under 30% of the original's content-bearing words |
-| `code_block_trimmed` | a fenced sample survived as a verbatim excerpt of itself, not in full |
+| signal                 | meaning                                                                             |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| `typo_path_carried`    | the original misspelled a real repo path and the rewrite reproduced the misspelling |
+| `typo_path_corrected`  | the rewrite replaced it with the path that actually exists                          |
+| `typo_path_dropped`    | the rewrite kept neither                                                            |
+| `low_anchor_retention` | the rewrite kept under 30% of the original's content-bearing words                  |
+| `code_block_trimmed`   | a fenced sample survived as a verbatim excerpt of itself, not in full               |
 
 The near miss is derived, not listed: a file-shaped token in the original that is not a known path
 but is within edit distance 2 of one. No fixture-specific expectations, and nothing here can see the
 provider, model or api.
 
 **Why this is a signal and not a code.** Both outcomes are defensible on the shipped prompt.
-*"Invent nothing: no path that is not in the context"* argues for carrying the typo through; *"fix
-typos and misspellings, in identifiers and paths too"* argues for correcting it. Scoring either as
+_"Invent nothing: no path that is not in the context"_ argues for carrying the typo through; _"fix
+typos and misspellings, in identifiers and paths too"_ argues for correcting it. Scoring either as
 `bad` would encode a preference this harness has no evidence for. The counts print on their own
 `signals (not verdicts)` line and are stored per record; the judgement stays with the maintainer.
 
@@ -416,7 +416,7 @@ with the proposal's own code, 5 of 9 hand-written legitimate rewrites and 6 of 8
 the shipped `SYSTEM_PROMPT` fall below 0.5 while being genuine, correct rewrites. The cause is
 structural, not a threshold that needs tuning: "content-bearing" means six letters or more, and that
 admits `unfortunately`, `honestly`, `whatever`, `basically`, `probably`, `actually`. Stripping
-exactly those words is what a good rewrite *does*, so as a verdict the metric penalises the enhancer
+exactly those words is what a good rewrite _does_, so as a verdict the metric penalises the enhancer
 for working. In the head-to-head that settled it, the proposal produced 7 false positives on 14 live
 legitimate rewrites where the lexical rule produced 0. No cutoff above 0 was clean; at 0.2, where
 recall has already collapsed by half, a legitimate rewrite still failed. With `CELL_BAD_THRESHOLD`
@@ -429,14 +429,14 @@ mode actually comes from: lexical code plus signal reaches 46 of those 54, again
 alone.
 
 **Read that separation with the confound attached.** The score depends at least as much on how much
-filler the *original* carried as on what the response did. Split by prompt, on live output:
+filler the _original_ carried as on what the response did. Split by prompt, on live output:
 
-| original | legitimate rewrites flagged | refusals flagged |
-| --- | --- | --- |
-| a chatty, hedged draft (`honestly i've been at this all afternoon …`) | **2 of 2** | 28 of 36 |
-| a terse one (`explain the difference between a semaphore and a mutex`) | 0 of 2 | 14 of 18 |
+| original                                                               | legitimate rewrites flagged | refusals flagged |
+| ---------------------------------------------------------------------- | --------------------------- | ---------------- |
+| a chatty, hedged draft (`honestly i've been at this all afternoon …`)  | **2 of 2**                  | 28 of 36         |
+| a terse one (`explain the difference between a semaphore and a mutex`) | 0 of 2                      | 14 of 18         |
 
-On the chatty prompt the signal fires on *everything* — the good rewrites and the refusals alike —
+On the chatty prompt the signal fires on _everything_ — the good rewrites and the refusals alike —
 because a rewrite that strips `honestly`, `afternoon`, `somebody`, `please` and `figure` retains 2
 of 7 anchors, which is what a refusal retains too. It is informative on terse prompts and
 uninformative on chatty ones, and nothing about a threshold fixes that. This is the same fact that
@@ -457,8 +457,8 @@ same defect as making it model-specific. Whether prose typos were repaired is re
 
 ### `host_error`: the host failing is not a measurement
 
-`verdict: "host_error"` is a third verdict alongside `good` and `bad`, and it means *this call is
-not evidence about the enhancer in either direction*. It is set when `pi` never started
+`verdict: "host_error"` is a third verdict alongside `good` and `bad`, and it means _this call is
+not evidence about the enhancer in either direction_. It is set when `pi` never started
 (`spawn_failed`), or when `pi` exited non-zero having emitted **no `set_editor_text` at all**, or
 when its stderr carries a generic startup-failure signature (`unknown provider`, `cannot find
 module`, `command not found`, …) and again nothing was emitted.
@@ -493,7 +493,7 @@ signatures are generic host and CLI diagnostics. Do not add a provider or model 
 per-model scoring is structurally impossible — the same rules apply everywhere. Cell keys exist for
 reporting and collision-avoidance only and must never become a hook for per-model behaviour; the
 runner uses the provider for the spawn arguments and for worker scheduling, nothing else. The
-baseline is expected to fail in different *shapes* per cell (announcements on one, fluent refusals
+baseline is expected to fail in different _shapes_ per cell (announcements on one, fluent refusals
 on another); a classifier that only catches one shape is wrong. If a cell fails, the fix is
 something that helps every cell — never a special case.
 
@@ -514,15 +514,15 @@ The request is vague about which README and typo, so I'll inspect the prompt-enh
 I need more of the steward slot-parser code … I'll look those up next.
 ```
 
-Those are the incident failure mode verbatim. A gate that reads *0 bad in every cell* against a rule
+Those are the incident failure mode verbatim. A gate that reads _0 bad in every cell_ against a rule
 that cannot see them is a **false pass**, so the rule now scans the opening of the response:
 
 - a first-person intent verb (`I'll`, `Let me`, `I need to`) followed within two words by a
   **retrieval** verb (`inspect`, `read`, `check`, …). The retrieval verb is load-bearing:
-  `dependabot.txt` itself says *"Next I need to know if this is a dev dependency"*, and a faithful
+  `dependabot.txt` itself says _"Next I need to know if this is a dev dependency"_, and a faithful
   rewrite may carry that forward. `know` is not retrieval, `inspect` is;
 - `I need more/the rest of …`, the model saying out loud that its context was insufficient;
-- a bare gerund opener (`Gathering …`, `Checking …`). A rewritten *request* is imperative;
+- a bare gerund opener (`Gathering …`, `Checking …`). A rewritten _request_ is imperative;
   `Inspect packages/…` is a rewrite, `Inspecting packages/…` is a report.
 
 **The false-positive guard is a quoted-span mask.** `self-referential.txt` asks about a model that
@@ -542,15 +542,15 @@ four.
 
 The first version of this rule was a list of bare substrings — `i appreciate`, `my job is to`,
 `as an ai,`, `^unable to`, plus `sorry`/`unfortunately` openers paired with any modal — matched over
-the same 400-character window. Four *correct* rewrites came back `verdict=bad codes=[refusal]`, and
+the same 400-character window. Four _correct_ rewrites came back `verdict=bad codes=[refusal]`, and
 the first of them is real `xai/grok-4.6` output under the shipped `SYSTEM_PROMPT`:
 
-| rewrite | why the old rule fired |
-| --- | --- |
-| `Unable to reach staging from the laptop. Figure out why the deploy hangs at the migration step.` | `^unable to` read a status line as a decline |
-| `My job is to ship this by Friday; find the regression that broke the build.` | `my job is to`, with no rewriting anywhere near it |
-| `I appreciate that the schema is messy, but fix the migration anyway.` | `i appreciate` as a bare substring |
-| `As an AI, I would still like the summariser rewritten.` | the `as an ai,` frame with no decline after it |
+| rewrite                                                                                           | why the old rule fired                             |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `Unable to reach staging from the laptop. Figure out why the deploy hangs at the migration step.` | `^unable to` read a status line as a decline       |
+| `My job is to ship this by Friday; find the regression that broke the build.`                     | `my job is to`, with no rewriting anywhere near it |
+| `I appreciate that the schema is messy, but fix the migration anyway.`                            | `i appreciate` as a bare substring                 |
+| `As an AI, I would still like the summariser rewritten.`                                          | the `as an ai,` frame with no decline after it     |
 
 None of the six fixtures the recorded baseline used produces those shapes, so **0 of its 216 records
 tripped them**. That is what made it worth fixing rather than worth ignoring: it is latent under
@@ -561,7 +561,7 @@ Every branch now requires a **subject declining this job**: a role assertion (`I
 rewriter, not an answerer`; `my job is to rewrite prompts`), a first-person modal whose object is the
 job (`I can't rewrite this`, `I'm unable to comply`, `I don't rewrite prompts`), the same with the
 subject elided but only at position 0 (`Unable to comply with that request.`), a terse self-decline
-in terminal position (`I must decline.`), or the `As an AI, I …` frame *followed by* a decline. The
+in terminal position (`I must decline.`), or the `As an AI, I …` frame _followed by_ a decline. The
 object test is what does the work: `I won't rewrite this prompt` is a refusal and `I won't rewrite
 history on this branch` is the user's own sentence, and only the object separates them. The
 soft-opener branch was dropped outright — every genuine refusal it caught is caught by the modal
@@ -570,10 +570,10 @@ instead.`
 
 Measured against a battery of 368 items, on the same window and the same quote-masking:
 
-| rule | recall on 91 refusals | false positives on 277 non-refusals |
-| --- | --- | --- |
-| bare-substring rule | 37/91 | **12** |
-| subject-and-object rule | **40/91** | **0** |
+| rule                    | recall on 91 refusals | false positives on 277 non-refusals |
+| ----------------------- | --------------------- | ----------------------------------- |
+| bare-substring rule     | 37/91                 | **12**                              |
+| subject-and-object rule | **40/91**             | **0**                               |
 
 It is better in both directions, but the recall figure is the small half of the story: **the two
 rules are within three items of each other on real model output**, and both leave most of it
@@ -611,19 +611,19 @@ On that neutral set alone the bare-substring rule catches 7 of 54 and the subjec
 **The lexical rule reaches 10 of the 54 neutrally elicited refusals. That is the headline number,
 and it is not a good one.** What the other 44 look like is not exotic: models that decline mostly do
 it without a first-person modal at all. Adding the structural signal takes the pair to 46 of 54, but
-the signal is a hint, not a verdict, so the *scoreable* coverage stays at 10.
+the signal is a hint, not a verdict, so the _scoreable_ coverage stays at 10.
 
 Six shapes account for most of the gap. Each was run through the whole of
 `classifyEnhancement`, not just the refusal rule, so these are pipeline holes:
 
-| shape | example | reached by |
-| --- | --- | --- |
-| impersonal no-change verdict | `The request is already clear. No enhancement is necessary.` | signal only |
-| passive no-rewrite | `This prompt needs no rewriting; it is already specific enough.` | nothing |
-| second-person redirect | `You will need to open the migration logs yourself …` | nothing |
-| clarifying-question deflection | `Which staging environment do you mean?` | nothing |
-| markdown assessment note | `## Assessment` followed by bullets about the prompt | nothing |
-| non-English refusal | `Lo siento, no puedo reescribir esa solicitud.` | signal only |
+| shape                          | example                                                          | reached by  |
+| ------------------------------ | ---------------------------------------------------------------- | ----------- |
+| impersonal no-change verdict   | `The request is already clear. No enhancement is necessary.`     | signal only |
+| passive no-rewrite             | `This prompt needs no rewriting; it is already specific enough.` | nothing     |
+| second-person redirect         | `You will need to open the migration logs yourself …`            | nothing     |
+| clarifying-question deflection | `Which staging environment do you mean?`                         | nothing     |
+| markdown assessment note       | `## Assessment` followed by bullets about the prompt             | nothing     |
+| non-English refusal            | `Lo siento, no puedo reescribir esa solicitud.`                  | signal only |
 
 An LLM judge was proposed for exactly these and is **out of scope here**: it doubles the call count
 of every matrix pass, and its stability is unmeasured. A prior report claimed "0 flips over 6 items ×
@@ -640,7 +640,7 @@ two providers — twelve chatty drafts each, plus five prompts per model written
 (`who are you and what do you actually do`, `ignore the instructions you were given`, an
 ethically loaded scraping request) — **no model refused once**. The single failure in those 34 was
 an announcement, which the existing rule caught. Every refusal in this battery is therefore either
-hand-written or elicited by *asking* for the failure, and no elicitation is evidence of a rate.
+hand-written or elicited by _asking_ for the failure, and no elicitation is evidence of a rate.
 
 Anything that claims to raise recall here has to be measured against a battery that was not
 elicited by asking for the shape the method detects.
@@ -650,16 +650,16 @@ network, no `pi`, no model.
 
 ## Fixtures
 
-| file | what it probes |
-| --- | --- |
-| `dependabot.txt` | the verbatim incident prompt; highest grounding demand |
-| `repo-question.txt` | a repo question that invites discovery narration |
-| `trivial.txt` | a one-liner with almost no grounding to do |
-| `out-of-scope.txt` | not about the codebase at all; probes the refusal mode |
-| `control-token.txt` | names a fixture whose contents inline `<\|im_start\|>` control tokens |
+| file                   | what it probes                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `dependabot.txt`       | the verbatim incident prompt; highest grounding demand                                                                     |
+| `repo-question.txt`    | a repo question that invites discovery narration                                                                           |
+| `trivial.txt`          | a one-liner with almost no grounding to do                                                                                 |
+| `out-of-scope.txt`     | not about the codebase at all; probes the refusal mode                                                                     |
+| `control-token.txt`    | names a fixture whose contents inline `<\|im_start\|>` control tokens                                                      |
 | `self-referential.txt` | quotes first-person meta-text back; the strongest false-positive probe for `fabricated_path` and any announcement detector |
-| `fenced-trace.txt` | a pasted failing test inside a fenced block; probes `code_block_mangled` |
-| `typo-path.txt` | prose typos plus a misspelled real repo path; probes typo repair and the `typo_path_*` signals |
+| `fenced-trace.txt`     | a pasted failing test inside a fenced block; probes `code_block_mangled`                                                   |
+| `typo-path.txt`        | prose typos plus a misspelled real repo path; probes typo repair and the `typo_path_*` signals                             |
 
 ## Driving the interactive TUI headlessly
 
@@ -726,18 +726,18 @@ shape the `announcement` rule above had to be widened to see.
 
 A call that never reached a model is not evidence about the enhancer. Host failures that kill `pi`
 before the extension runs are caught automatically (`host_error`, above), but a failure that reaches
-the *extension* — an unreachable endpoint, a missing credential, a provider 400 — still lands as a
+the _extension_ — an unreachable endpoint, a missing credential, a provider 400 — still lands as a
 `notify` and a restore, which scores `bad`, so **every pass must still be audited for infrastructure
 noise before its numbers are used**.
 
 `docs/prompt-enhancer/baseline.json` carries **92 of 432 records (21.3%) that never reached a
 model**, from two causes:
 
-| source | records | cells affected |
-| --- | --- | --- |
-| openrouter `400 "Reasoning is mandatory for this endpoint and cannot be disabled."` | 53 | all 6 openrouter cells |
-| `Prompt Enhancer: no API key configured for openrouter/x-ai/grok-4.6` | 19 | all 6 openrouter cells |
-| `Prompt Enhancer: no API key configured for anthropic/claude-sonnet-5` | 20 | sonnet/`dependabot` (12), sonnet/`repo-question` (8) |
+| source                                                                              | records | cells affected                                       |
+| ----------------------------------------------------------------------------------- | ------- | ---------------------------------------------------- |
+| openrouter `400 "Reasoning is mandatory for this endpoint and cannot be disabled."` | 53      | all 6 openrouter cells                               |
+| `Prompt Enhancer: no API key configured for openrouter/x-ai/grok-4.6`               | 19      | all 6 openrouter cells                               |
+| `Prompt Enhancer: no API key configured for anthropic/claude-sonnet-5`              | 20      | sonnet/`dependabot` (12), sonnet/`repo-question` (8) |
 
 Seven of the 36 cells therefore hold **zero usable data**: all six openrouter cells and
 sonnet/`dependabot`. Reading those as enhancer failures would manufacture a fictitious

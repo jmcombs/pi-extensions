@@ -1305,16 +1305,16 @@ button {
   color: var(--text-muted);
 }
 
-.chip__label + .chip__count {
-  margin-left: 6px;
-}
-
 /* The count segment is muted in every chip state. A zero must never read as a
    tick — llama-server logs nothing at all for a rejected request, so `ERROR 0`
    is a fact about the file and not a health check. */
 .chip__count {
   color: var(--text-secondary);
   font-weight: 400;
+}
+
+.chip__label + .chip__count {
+  margin-left: 6px;
 }
 
 /* The proxied toggle sits with the level group, so it inherits the chip's
@@ -1583,12 +1583,13 @@ button.log-row__task:hover {
    colours. `--text-subtle` (time) is 1.97:1 and `--text-muted` (model) 2.42:1
    on the chrome ground in Latte, and these are 10.5px labels. They are text
    here, not decoration, so every cell is pinned to the same legible token.
-   Declared after the cells themselves so specificity and source order agree. */
-.console__head .log-row__ts,
-.console__head .log-row__level,
-.console__head .log-row__model,
-.console__head .log-row__task,
-.console__head .log-row__msg {
+   Repeating `.log-row` matches the cell rules' specificity, so this later
+   rule wins any shared property instead of losing to an earlier one. */
+.log-row.console__head .log-row__ts,
+.log-row.console__head .log-row__level,
+.log-row.console__head .log-row__model,
+.log-row.console__head .log-row__task,
+.log-row.console__head .log-row__msg {
   color: var(--text-secondary);
   font-weight: 400;
   font-style: normal;

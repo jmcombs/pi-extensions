@@ -33,6 +33,7 @@ Get transparent credential injection in under a minute:
    ```
 
 3. In any Pi chat, type:
+
    ```
    /1password_setup
    ```

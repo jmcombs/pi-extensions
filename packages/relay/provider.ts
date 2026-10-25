@@ -339,7 +339,7 @@ function heartbeatMs(): number {
   if (raw === undefined) return DEFAULT_HEARTBEAT_MS;
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_HEARTBEAT_MS;
-  return parsed > 0 ? parsed : 0;
+  return Math.max(parsed, 0);
 }
 
 /** Best-effort rm of a relay-owned temp dir (`pi-relay-*` under os.tmpdir()). */

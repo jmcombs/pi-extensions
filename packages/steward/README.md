@@ -11,7 +11,7 @@
 
 # @jmcombs/pi-steward
 
-> **Steward — the llama.cpp control panel for [Pi](https://pi.dev).** *How may we serve your models?*
+> **Steward — the llama.cpp control panel for [Pi](https://pi.dev).** _How may we serve your models?_
 
 A single-page operator dashboard for the local `llama-server` behind Pi's llama.cpp provider, plus a
 status bar inside Pi itself. It answers four questions at a glance, and lets you act on all of them
@@ -30,12 +30,12 @@ Start, stop and restart the service; load and unload models; watch the log — a
 
 ## Requirements
 
-| | |
-| --- | --- |
-| **Node** | ≥ 22.13 |
-| **[Pi](https://pi.dev)** | any recent version |
-| **`llama-server`** | running in **router mode** — `--models-dir` and/or `--models-preset`, with no `-m`/`--model`/`-hf`. Pi's own llama.cpp provider requires this too. |
-| **A [Nerd Font](https://www.nerdfonts.com)** | for the status bar's mark and separators. Set `STEWARD_GLYPH=""` to drop the mark if you would rather not install one. |
+|                                              |                                                                                                                                                    |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Node**                                     | ≥ 22.13                                                                                                                                            |
+| **[Pi](https://pi.dev)**                     | any recent version                                                                                                                                 |
+| **`llama-server`**                           | running in **router mode** — `--models-dir` and/or `--models-preset`, with no `-m`/`--model`/`-hf`. Pi's own llama.cpp provider requires this too. |
+| **A [Nerd Font](https://www.nerdfonts.com)** | for the status bar's mark and separators. Set `STEWARD_GLYPH=""` to drop the mark if you would rather not install one.                             |
 
 `/steward_initialize` checks everything else — metrics, slots, log capture, host sensors — and offers
 to fix whatever is missing.
@@ -68,12 +68,12 @@ That is the whole path. Step 1 is once per machine; steps 2 and 3 are once per s
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
+| Command               | What it does                                                                                                                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/steward_initialize` | Connects this machine to Steward. Works out how `llama-server` runs here, proposes the changes it needs, and writes `steward.json` — **asking before every change**. Run once per machine, or again whenever the setup moves. |
-| `/steward_start` | Starts the dashboard service on `127.0.0.1:8788` for this session. Prints the URL and opens nothing — useful on a headless box, or when you only want the status bar. |
-| `/steward_dashboard` | Opens the dashboard in your browser, starting the service first if it is not already running. |
-| `/steward_stop` | Stops the dashboard service. It also stops on its own when the Pi session ends. |
+| `/steward_start`      | Starts the dashboard service on `127.0.0.1:8788` for this session. Prints the URL and opens nothing — useful on a headless box, or when you only want the status bar.                                                         |
+| `/steward_dashboard`  | Opens the dashboard in your browser, starting the service first if it is not already running.                                                                                                                                 |
+| `/steward_stop`       | Stops the dashboard service. It also stops on its own when the Pi session ends.                                                                                                                                               |
 
 ## The status bar
 
@@ -115,12 +115,12 @@ that file if it is not owned by you or is world-writable, because it is a code-e
 
 ### Environment variables
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `STEWARD_CONFIG` | `~/.config/steward/steward.json` | Where the artifact lives. |
-| `STEWARD_PORT` | `8788` | Dashboard port. `0` asks the OS for any free port; a port already taken costs an ephemeral one, not the dashboard. |
-| `STEWARD_LOG_FILE` | — | Overrides the recorded `log.path` for the log console. |
-| `STEWARD_GLYPH` | `󰢍` | The status bar's mark. `""` drops it; any other value replaces it. |
+| Variable           | Default                          | Purpose                                                                                                            |
+| ------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `STEWARD_CONFIG`   | `~/.config/steward/steward.json` | Where the artifact lives.                                                                                          |
+| `STEWARD_PORT`     | `8788`                           | Dashboard port. `0` asks the OS for any free port; a port already taken costs an ephemeral one, not the dashboard. |
+| `STEWARD_LOG_FILE` | —                                | Overrides the recorded `log.path` for the log console.                                                             |
+| `STEWARD_GLYPH`    | `󰢍`                              | The status bar's mark. `""` drops it; any other value replaces it.                                                 |
 
 
 ## Development

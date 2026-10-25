@@ -32,10 +32,10 @@ the API is always importable at runtime.
 
 Two functions carry the whole adoption path:
 
-| Function | You call it… | It does… |
-| --- | --- | --- |
-| `resolveSecret(name)` | every time a tool needs the key | reads `auth.json` fresh, resolves the stored entry (a literal key **or** an `!op read 'op://…'` reference), returns the secret or `undefined` |
-| `onboardSecret(ctx, { name, label })` | from a `<slug>_setup` command, and on a resolve miss | runs the interactive onboarding UI (vault picker when `op` is available, masked manual entry otherwise), writes the entry, verifies it |
+| Function                              | You call it…                                         | It does…                                                                                                                                      |
+| ------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveSecret(name)`                 | every time a tool needs the key                      | reads `auth.json` fresh, resolves the stored entry (a literal key **or** an `!op read 'op://…'` reference), returns the secret or `undefined` |
+| `onboardSecret(ctx, { name, label })` | from a `<slug>_setup` command, and on a resolve miss | runs the interactive onboarding UI (vault picker when `op` is available, masked manual entry otherwise), writes the entry, verifies it        |
 
 Everything else in the API — `changeSecret`, `verifySecret`, `deleteSecret`,
 `is1PasswordAvailable` — is internal/advanced. No shipped consumer calls those
@@ -291,17 +291,17 @@ touches `op`), and any failure fails **closed** — `resolveShellValue` returns
 
 The credential API is **runtime-agnostic**: `resolveSecret` and `onboardSecret`
 work identically on pi and on oh-my-pi, and existing `auth.json` keys resolve on
-both. For *writing* extensions that are omp-compatible (feature-detecting host
+both. For _writing_ extensions that are omp-compatible (feature-detecting host
 APIs and the like), see [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| `resolveSecret` returns `undefined` for an `!op read` entry | `op` is not signed in / the account is locked | The startup **warm-on-load** runs one `op read` to trigger the biometric unlock. If you hit a tool before that lands, unlock 1Password (Touch ID) and retry; the next `resolveSecret` succeeds. |
-| `resolveSecret` returns `undefined` for a key you thought you set | No entry under that logical `name` in `auth.json` | Run `<slug>_setup`, or confirm the key name matches what your tool resolves (e.g. `resolveSecret("context7")` needs a `"context7"` entry). |
-| Onboarding never shows the vault picker, only manual entry | `is1PasswordAvailable()` is `false` — `op` isn't installed or no account is configured | Install the 1Password CLI and configure an account (service-account token, Connect env, or `op account list`), then re-run onboarding. |
-| First tool call of a session prompts for Touch ID | Expected — the **warm-on-load** unlock triggers the single OS-level prompt so later calls don't | Approve it once at startup; the biometric session then covers the rest of the session. |
+| Symptom                                                           | Cause                                                                                           | Fix                                                                                                                                                                                             |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resolveSecret` returns `undefined` for an `!op read` entry       | `op` is not signed in / the account is locked                                                   | The startup **warm-on-load** runs one `op read` to trigger the biometric unlock. If you hit a tool before that lands, unlock 1Password (Touch ID) and retry; the next `resolveSecret` succeeds. |
+| `resolveSecret` returns `undefined` for a key you thought you set | No entry under that logical `name` in `auth.json`                                               | Run `<slug>_setup`, or confirm the key name matches what your tool resolves (e.g. `resolveSecret("context7")` needs a `"context7"` entry).                                                      |
+| Onboarding never shows the vault picker, only manual entry        | `is1PasswordAvailable()` is `false` — `op` isn't installed or no account is configured          | Install the 1Password CLI and configure an account (service-account token, Connect env, or `op account list`), then re-run onboarding.                                                          |
+| First tool call of a session prompts for Touch ID                 | Expected — the **warm-on-load** unlock triggers the single OS-level prompt so later calls don't | Approve it once at startup; the biometric session then covers the rest of the session.                                                                                                          |
 
 ## Advanced and reference
 

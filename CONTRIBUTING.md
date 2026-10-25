@@ -34,14 +34,14 @@ npm run check
 
 ## The Quality Gate (`npm run check`)
 
-| Step     | Command                  | Purpose                                                                                  |
-| -------- | ------------------------ | ---------------------------------------------------------------------------------------- |
-| Lint     | `npm run lint`           | Biome `check` — linter (recommended rules, incl. security) + formatter + import sorting  |
-| Format   | `npm run format:check`   | Biome formatter check (fix with `npm run format`)                                        |
-| Types    | `npm run typecheck`      | `tsc --noEmit` against the root `tsconfig.json`                                          |
-| Tests    | `npm run test`           | Vitest (only meaningful tests; see "Testing" below)                                      |
-| Versions | `npm run check:versions` | Validates each package follows project conventions                                       |
-| Security | `npm run security`       | `secretlint` + `npm audit --omit=dev`                                                    |
+| Step     | Command                  | Purpose                                                                                 |
+| -------- | ------------------------ | --------------------------------------------------------------------------------------- |
+| Lint     | `npm run lint`           | Biome `check` — linter (recommended rules, incl. security) + formatter + import sorting |
+| Format   | `npm run format:check`   | Biome formatter check (fix with `npm run format`)                                       |
+| Types    | `npm run typecheck`      | `tsc --noEmit` against the root `tsconfig.json`                                         |
+| Tests    | `npm run test`           | Vitest (only meaningful tests; see "Testing" below)                                     |
+| Versions | `npm run check:versions` | Validates each package follows project conventions                                      |
+| Security | `npm run security`       | `secretlint` + `npm audit --omit=dev`                                                   |
 
 All steps must pass on Node 22 and Node 24 in CI.
 
@@ -161,18 +161,18 @@ This is the **complete** registered surface of each extension — the validation
 exact-set, so anything **missing or extra** fails. The only per-host difference is
 `1password`'s `user_bash` handler (pi-only; see gotcha 2).
 
-| Extension         | Tools                                     | Commands                                                              | Handlers                                                       | Shortcuts / Providers                              |
-| ----------------- | ----------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------- |
-| `1password`       | `bash`, `1p_diagnose`                     | `1password_diagnose`, `1password_setup`                              | `session_start`; `user_bash` **on pi only**                    | —                                                  |
-| `blue-psl-10k`    | —                                         | `blue-psl-restore-footer`                                            | `session_start`, `model_select`, `turn_end`, `thinking_level_select` | —                                          |
-| `context7`        | `context7_search`, `context7_get_docs`    | `context7_setup`                                                     | —                                                              | —                                                  |
-| `grok-search`     | `grok_search`                             | `grok_setup`                                                         | —                                                              | —                                                  |
-| `headroom`        | `headroom_retrieve`                       | `headroom-status`, `headroom_setup`, `headroom-stats`, `headroom-simulate` | `context`, `session_start`                               | —                                                  |
-| `notify`          | —                                         | `notify`                                                             | `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled` | —                                    |
-| `prompt-enhancer` | —                                         | `prompt_enhance`, `prompt_enhance_model`, `prompt_enhance_revert`, `prompt_enhance_auto` | `session_start`, `session_shutdown`, `model_select`, `input`   | shortcuts `ctrl+shift+e`, `ctrl+shift+z`           |
-| `relay`           | —                                         | —                                                                   | —                                                              | providers `relay-claude`, `relay-grok`, `relay-cursor` (via a stub host API — providers are not exposed by the loader result) |
-| `steward`         | —                                         | `steward`, `steward-stop`                                           | `session_shutdown`                                             | —                                                  |
-| `tavily-search`   | `tavily_search`                           | `tavily_setup`                                                      | —                                                              | —                                                  |
+| Extension         | Tools                                  | Commands                                                                                 | Handlers                                                                                 | Shortcuts / Providers                                                                                                         |
+| ----------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `1password`       | `bash`, `1p_diagnose`                  | `1password_diagnose`, `1password_setup`                                                  | `session_start`; `user_bash` **on pi only**                                              | —                                                                                                                             |
+| `blue-psl-10k`    | —                                      | `blue-psl-restore-footer`                                                                | `session_start`, `model_select`, `turn_end`, `thinking_level_select`                     | —                                                                                                                             |
+| `context7`        | `context7_search`, `context7_get_docs` | `context7_setup`                                                                         | —                                                                                        | —                                                                                                                             |
+| `grok-search`     | `grok_search`                          | `grok_setup`                                                                             | —                                                                                        | —                                                                                                                             |
+| `headroom`        | `headroom_retrieve`                    | `headroom-status`, `headroom_setup`, `headroom-stats`, `headroom-simulate`               | `context`, `session_start`                                                               | —                                                                                                                             |
+| `notify`          | —                                      | `notify`                                                                                 | `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled` | —                                                                                                                             |
+| `prompt-enhancer` | —                                      | `prompt_enhance`, `prompt_enhance_model`, `prompt_enhance_revert`, `prompt_enhance_auto` | `session_start`, `session_shutdown`, `model_select`, `input`                             | shortcuts `ctrl+shift+e`, `ctrl+shift+z`                                                                                      |
+| `relay`           | —                                      | —                                                                                        | —                                                                                        | providers `relay-claude`, `relay-grok`, `relay-cursor` (via a stub host API — providers are not exposed by the loader result) |
+| `steward`         | —                                      | `steward`, `steward-stop`                                                                | `session_shutdown`                                                                       | —                                                                                                                             |
+| `tavily-search`   | `tavily_search`                        | `tavily_setup`                                                                           | —                                                                                        | —                                                                                                                             |
 
 The table lives in the harness (`docker/smoke-harness.mts`) as the data it validates
 against; keep it in sync when you add or change a package's surface — because the check
@@ -190,7 +190,7 @@ is exact-set, an incomplete entry fails rather than silently passing on a subset
 2. **Extensions must feature-detect optional host APIs.** oh-my-pi remaps every
    `@earendil-works/pi-coding-agent` import to its own compatibility shim, which exports
    only a subset of pi's runtime — and there is no override. A **static named import** of a
-   symbol the shim lacks fails the module link and takes down the *entire* extension (and
+   symbol the shim lacks fails the module link and takes down the _entire_ extension (and
    every extension that imports it) on oh-my-pi. So reach optional host APIs through a
    **namespace import plus a runtime check**, never a static named import. For example,
    `@jmcombs/pi-1password` accesses `createLocalBashOperations` this way and registers its
