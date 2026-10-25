@@ -108,6 +108,12 @@ describe("@jmcombs/pi-relay — provider registration", () => {
       "sonnet",
       "haiku",
     ]);
+    const traps = (provider.config.models ?? []).filter((m) =>
+      ["opus", "sonnet", "haiku"].includes(m.id),
+    );
+    expect(
+      traps.every((m) => m.contextWindow === 0 && m.maxTokens === 0 && m.reasoning === false),
+    ).toBe(true);
   });
 
   it("registers the relay-grok provider with a custom streamSimple and grok-4.5 model", () => {
@@ -145,6 +151,13 @@ describe("@jmcombs/pi-relay — provider registration", () => {
       "sonnet-5-5",
       "cursor",
       "opus",
+    ]);
+    const traps = (provider.config.models ?? []).filter(
+      (m) => m.id === "cursor" || m.id === "opus",
+    );
+    expect(traps).toEqual([
+      expect.objectContaining({ id: "cursor", contextWindow: 0, maxTokens: 0, reasoning: false }),
+      expect.objectContaining({ id: "opus", contextWindow: 0, maxTokens: 0, reasoning: false }),
     ]);
   });
 

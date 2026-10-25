@@ -66,9 +66,15 @@ cmd_catalog() {
   expect_catalog_row relay-cursor sonnet-5-5 1M 128K yes
   expect_catalog_row relay-cursor composer-2-5 200K 64K yes
   expect_catalog_row relay-cursor auto 200K 64K yes
+  expect_catalog_row relay-claude opus 0 0 no
+  expect_catalog_row relay-claude sonnet 0 0 no
+  expect_catalog_row relay-claude haiku 0 0 no
+  expect_catalog_row relay-cursor cursor 0 0 no
+  expect_catalog_row relay-cursor opus 0 0 no
   expect_catalog_row relay-grok grok-composer-2.5-fast 200K 64K yes
-  if printf '%s\n' "$CATALOG" | awk '$5=="no"{exit 0} END{exit 1}'; then
-    die "a relay model still has thinking=no (old 1.2.1 catalog)"
+  # Exact-match traps (opus, sonnet, haiku, cursor) are listed as 0/0 thinking=no.
+  if printf '%s\n' "$CATALOG" | awk '$2 !~ /^(opus|sonnet|haiku|cursor)$/ && $5=="no"{exit 0} END{exit 1}'; then
+    die "a supported relay model still has thinking=no (old 1.2.1 catalog)"
   fi
   ok "catalog matches empirical / agreed numbers"
 }

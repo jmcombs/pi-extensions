@@ -163,6 +163,8 @@ interface RelayCatalogModel {
   readonly contextWindow: number;
   readonly maxTokens: number;
   readonly thinkingLevelMap: Readonly<Record<string, string | null>>;
+  /** False only for exact-match traps. Real models stay reasoning-capable. */
+  readonly reasoning?: boolean;
 }
 
 function toProviderModels(
@@ -171,7 +173,7 @@ function toProviderModels(
   return models.map((m) => ({
     id: m.id,
     name: m.name,
-    reasoning: true,
+    reasoning: m.reasoning !== false,
     thinkingLevelMap: m.thinkingLevelMap,
     input: TEXT_ONLY,
     cost: { ...ZERO_COST },
@@ -199,9 +201,10 @@ function rejectedModel(id: string, useInstead: string): RelayCatalogModel {
   return {
     id,
     name: `Rejected. Use ${useInstead}`,
-    contextWindow: 1_000_000,
-    maxTokens: 64_000,
-    thinkingLevelMap: CLAUDE_THINKING_MAP,
+    contextWindow: 0,
+    maxTokens: 0,
+    reasoning: false,
+    thinkingLevelMap: { off: null },
   };
 }
 
