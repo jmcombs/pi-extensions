@@ -1355,18 +1355,13 @@ export function formatEnhancerPickerHelp(confirm: string, save: string, cancel: 
   return `${confirm} to select · ${save} to set as default · ${cancel} to cancel`;
 }
 
-function bindingKeys(id: string): readonly string[] {
-  const manager = getKeybindings() as {
-    getKeys(keybinding: string): readonly string[];
-  };
-  return manager.getKeys(id);
+export interface EnhancerKeybindings {
+  matches(data: string, keybinding: string): boolean;
+  getKeys(keybinding: string): readonly string[];
 }
 
-function matchesBinding(data: string, id: string): boolean {
-  const manager = getKeybindings() as {
-    matches(data: string, keybinding: string): boolean;
-  };
-  return manager.matches(data, id);
+function bindingKeys(id: string, keybindings: EnhancerKeybindings): readonly string[] {
+  return keybindings.getKeys(id);
 }
 
 function formatBindingKeys(keys: readonly string[]): string {
@@ -1382,12 +1377,16 @@ function formatBindingKeys(keys: readonly string[]): string {
     .join("/");
 }
 
-function pickerHelpLine(saveBinding: string): string {
+function pickerHelpLine(saveBinding: string, keybindings: EnhancerKeybindings): string {
   return formatEnhancerPickerHelp(
-    formatBindingKeys(bindingKeys("tui.select.confirm")),
-    formatBindingKeys(bindingKeys(saveBinding)),
-    formatBindingKeys(bindingKeys("tui.select.cancel")),
+    formatBindingKeys(bindingKeys("tui.select.confirm", keybindings)),
+    formatBindingKeys(bindingKeys(saveBinding, keybindings)),
+    formatBindingKeys(bindingKeys("tui.select.cancel", keybindings)),
   );
+}
+
+function resolveKeybindings(keybindings?: EnhancerKeybindings): EnhancerKeybindings {
+  return keybindings ?? (getKeybindings() as EnhancerKeybindings);
 }
 
 export interface EnhancerModelPickerHandle {
@@ -1409,7 +1408,9 @@ export function createEnhancerModelSelector(
   done: (choice: EnhancerPickerChoice | undefined) => void,
   selectedIndex = 0,
   saveBinding: string = MODEL_SAVE_BINDING,
+  keybindings?: EnhancerKeybindings,
 ): EnhancerModelPickerHandle {
+  const kb = resolveKeybindings(keybindings);
   const listTheme = {
     selectedPrefix: (t: string) => theme.fg("accent", t),
     selectedText: (t: string) => theme.fg("accent", t),
@@ -1458,7 +1459,7 @@ export function createEnhancerModelSelector(
   container.addChild(new Text(theme.fg("accent", theme.bold(PICKER_TITLE)), 1, 0));
   container.addChild(searchInput);
   container.addChild(listContainer);
-  const help = new Text(theme.fg("dim", pickerHelpLine(saveBinding)), 1, 0);
+  const help = new Text(theme.fg("dim", pickerHelpLine(saveBinding, kb)), 1, 0);
   container.addChild(help);
   container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
@@ -1468,8 +1469,7 @@ export function createEnhancerModelSelector(
       container.invalidate();
     },
     handleInput: (data: string): void => {
-      const kb = getKeybindings();
-      if (matchesBinding(data, saveBinding)) {
+      if (kb.matches(data, saveBinding)) {
         if (highlighted) done({ value: highlighted.value, persist: true });
       } else if (
         kb.matches(data, "tui.select.up") ||
@@ -2248,8 +2248,16 @@ export default function (pi: ExtensionAPI): void {
       savedKey,
       savedAvailable: savedModel !== undefined,
     });
-    const choice = await ctx.ui.custom<EnhancerPickerChoice | undefined>((tui, theme, _kb, done) =>
-      createEnhancerModelSelector(tui, theme, picker.items, done, picker.selectedIndex),
+    const choice = await ctx.ui.custom<EnhancerPickerChoice | undefined>((tui, theme, kb, done) =>
+      createEnhancerModelSelector(
+        tui,
+        theme,
+        picker.items,
+        done,
+        picker.selectedIndex,
+        MODEL_SAVE_BINDING,
+        kb,
+      ),
     );
     if (choice === undefined) return;
     await applyEnhancerChoice(ctx, choice, byLabel);
@@ -2348,8 +2356,16 @@ export default function (pi: ExtensionAPI): void {
         (item) => item.value === (explicit === undefined ? FOLLOW_DEFAULT_THINKING_VALUE : current),
       ),
     );
-    const choice = await ctx.ui.custom<EnhancerPickerChoice | undefined>((tui, theme, _kb, done) =>
-      createEnhancerModelSelector(tui, theme, items, done, selectedIndex, THINKING_SAVE_BINDING),
+    const choice = await ctx.ui.custom<EnhancerPickerChoice | undefined>((tui, theme, kb, done) =>
+      createEnhancerModelSelector(
+        tui,
+        theme,
+        items,
+        done,
+        selectedIndex,
+        THINKING_SAVE_BINDING,
+        kb,
+      ),
     );
     if (choice === undefined) return;
     await applyEnhancerThinkingChoice(ctx, choice);

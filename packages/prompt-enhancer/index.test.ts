@@ -316,6 +316,39 @@ describe("createEnhancerModelSelector", () => {
     expect(lines).not.toContain("gemini-2.5-pro");
   });
 
+  it("saves Follow session model with the keybindings Pi passes in", () => {
+    const choices: Array<{ value: string; persist: boolean } | undefined> = [];
+    const keybindings = {
+      matches: (data: string, id: string): boolean =>
+        (data === "\u0013" && id === "app.models.save") ||
+        (data === "\r" && id === "tui.select.confirm") ||
+        (data === "\u001b" && id === "tui.select.cancel"),
+      getKeys: (id: string): readonly string[] =>
+        id === "app.models.save"
+          ? ["ctrl+s"]
+          : id === "tui.select.confirm"
+            ? ["enter"]
+            : ["escape"],
+    };
+    const picker = createEnhancerModelSelector(
+      { terminal: { rows: 24 }, requestRender: () => {} },
+      identityTheme,
+      [
+        { value: FOLLOW_SESSION_VALUE, label: "Follow session model" },
+        { value: "anthropic/claude-sonnet-5-5", label: "anthropic/claude-sonnet-5-5" },
+      ],
+      (choice) => {
+        choices.push(choice);
+      },
+      0,
+      "app.models.save",
+      keybindings,
+    );
+    expect(picker.render(80).some((line) => line.includes("ctrl+s to set as default"))).toBe(true);
+    picker.handleInput("\u0013");
+    expect(choices).toEqual([{ value: FOLLOW_SESSION_VALUE, persist: true }]);
+  });
+
   it("shows No matching models when the query matches nothing", () => {
     const picker = createEnhancerModelSelector(
       { terminal: { rows: 24 }, requestRender: () => {} },
@@ -972,17 +1005,29 @@ const ESCAPE = "\x1b";
  * once.
  */
 let hostCwd = "";
+let previousAgentDir: string | undefined;
 
 // `BorderedLoader` renders pi's own cancel key hint, which reads the global
 // theme. Pinned to the built-in "dark" so the tests never depend on the
-// developer's configured theme.
+// developer's configured theme. The agent dir is isolated so a developer's
+// saved promptEnhancerModel is not loaded during session_start.
 beforeAll(async () => {
   initTheme("dark", false);
   hostCwd = await fs.mkdtemp(path.join(os.tmpdir(), "pi-prompt-enhancer-tests-"));
+  previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = await fs.mkdtemp(
+    path.join(os.tmpdir(), "pi-prompt-enhancer-agent-"),
+  );
 });
 
 afterAll(async () => {
   if (hostCwd) await fs.rm(hostCwd, { recursive: true, force: true });
+  const agentDir = process.env.PI_CODING_AGENT_DIR;
+  if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+  if (agentDir && agentDir !== previousAgentDir) {
+    await fs.rm(agentDir, { recursive: true, force: true });
+  }
 });
 
 interface HostLog {
