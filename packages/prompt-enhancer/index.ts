@@ -5,6 +5,7 @@
  *   - /prompt_enhance [text]  — rewrite the editor (or supplied text) using live
  *                          codebase context and load the result into the editor.
  *   - /prompt_enhance_model   — pick the enhancer model for this session, or save it.
+ *   - /prompt_enhance_thinking — pick the enhancer thinking level, or save it.
  *   - /prompt_enhance_revert  — restore the editor to the pre-enhance text.
  *   - /prompt_enhance_auto    — toggle auto-enhance on Enter (off by default).
  *   - Ctrl+Shift+E / Ctrl+Shift+Z — enhance / revert shortcuts.
@@ -38,11 +39,13 @@ import {
   type Api,
   type AssistantMessage,
   complete,
+  completeSimple,
   type Message,
   type Model,
   type RetryCallbacks,
   type RetryPolicy,
 } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import {
   BorderedLoader,
   DynamicBorder,
@@ -63,8 +66,13 @@ import {
 import { shouldSkipAutoEnhance } from "./auto.js";
 import {
   clearPromptEnhancerModel,
+  clearPromptEnhancerThinking,
+  type EnhancerThinkingLevel,
+  isEnhancerThinkingLevel,
   readPromptEnhancerModel,
+  readPromptEnhancerThinking,
   writePromptEnhancerModel,
+  writePromptEnhancerThinking,
 } from "./settings.js";
 import { formatStatusWidget } from "./widget.js";
 
@@ -338,7 +346,10 @@ const PICKER_NO_MATCH = "  No matching models";
 const FOLLOW_SESSION_LABEL = "Follow session model";
 /** Sentinel value. Not a provider/id. */
 export const FOLLOW_SESSION_VALUE = "\0follow-session";
-const SAVE_BINDING = "app.models.save";
+const MODEL_SAVE_BINDING = "app.models.save";
+const THINKING_SAVE_BINDING = "app.thinking.save";
+const FOLLOW_DEFAULT_THINKING_VALUE = "\0follow-default-thinking";
+const FOLLOW_DEFAULT_THINKING_LABEL = "Follow default";
 const SAVED_KEY_NOTIFY_MAX = 120;
 
 // ── Session-scoped state ────────────────────────────────────────────────
@@ -348,9 +359,16 @@ type SessionChoice =
   | { readonly kind: "follow" }
   | { readonly kind: "model"; readonly model: Model<Api> };
 
+type SessionThinkingChoice =
+  | { readonly kind: "unset" }
+  | { readonly kind: "follow" }
+  | { readonly kind: "level"; readonly level: EnhancerThinkingLevel };
+
 let sessionChoice: SessionChoice = { kind: "unset" };
 let savedModel: Model<Api> | undefined;
 let savedKey: string | undefined;
+let sessionThinkingChoice: SessionThinkingChoice = { kind: "unset" };
+let savedThinking: EnhancerThinkingLevel | undefined;
 
 /**
  * The last text the user actually wrote — the prompt this chain re-rolls.
@@ -1175,6 +1193,64 @@ async function loadSavedEnhancerModel(ctx: ExtensionContext): Promise<void> {
   );
 }
 
+let readPiThinking = (): {
+  modelThinkingLevels?: Readonly<Record<string, unknown>>;
+  sessionLevel?: EnhancerThinkingLevel;
+} => ({});
+
+function explicitEnhancerThinking(): EnhancerThinkingLevel | undefined {
+  if (sessionThinkingChoice.kind === "level") return sessionThinkingChoice.level;
+  if (sessionThinkingChoice.kind === "follow") return undefined;
+  return savedThinking;
+}
+
+function sessionThinkingLevel(ctx: ExtensionContext): EnhancerThinkingLevel {
+  if (isEnhancerThinkingLevel(ctx.thinkingLevel)) return ctx.thinkingLevel;
+  return readPiThinking().sessionLevel ?? "medium";
+}
+
+function modelDefaultThinking(model: Model<Api>): EnhancerThinkingLevel | undefined {
+  const value = readPiThinking().modelThinkingLevels?.[modelLabel(model)];
+  return isEnhancerThinkingLevel(value) ? value : undefined;
+}
+
+/** Model default if Pi has one for this id, otherwise the session thinking level. */
+export function baselineEnhancerThinking(
+  modelDefault: EnhancerThinkingLevel | undefined,
+  sessionLevel: EnhancerThinkingLevel,
+): EnhancerThinkingLevel {
+  return modelDefault ?? sessionLevel;
+}
+
+/** Hide a level that still matches the model default or the session level. */
+export function visibleEnhancerThinking(
+  explicit: EnhancerThinkingLevel | undefined,
+  baseline: EnhancerThinkingLevel,
+): EnhancerThinkingLevel | undefined {
+  if (explicit === undefined || explicit === baseline) return undefined;
+  return explicit;
+}
+
+function resolvedBaseline(ctx: ExtensionContext, model: Model<Api>): EnhancerThinkingLevel {
+  return clampThinkingLevel(
+    model,
+    baselineEnhancerThinking(modelDefaultThinking(model), sessionThinkingLevel(ctx)),
+  );
+}
+
+function resolvedExplicitThinking(model: Model<Api>): EnhancerThinkingLevel | undefined {
+  const explicit = explicitEnhancerThinking();
+  if (explicit === undefined) return undefined;
+  return clampThinkingLevel(model, explicit);
+}
+
+async function loadSavedEnhancerThinking(): Promise<void> {
+  savedThinking = undefined;
+  const stored = await readPromptEnhancerThinking();
+  if (stored.kind !== "model" || !isEnhancerThinkingLevel(stored.id)) return;
+  savedThinking = stored.id;
+}
+
 function modelLabel(model: Model<Api>): string {
   return `${model.provider}/${model.id}`;
 }
@@ -1306,10 +1382,10 @@ function formatBindingKeys(keys: readonly string[]): string {
     .join("/");
 }
 
-function pickerHelpLine(): string {
+function pickerHelpLine(saveBinding: string): string {
   return formatEnhancerPickerHelp(
     keyText("tui.select.confirm"),
-    formatBindingKeys(bindingKeys(SAVE_BINDING)),
+    formatBindingKeys(bindingKeys(saveBinding)),
     keyText("tui.select.cancel"),
   );
 }
@@ -1332,6 +1408,7 @@ export function createEnhancerModelSelector(
   items: SelectItem[],
   done: (choice: EnhancerPickerChoice | undefined) => void,
   selectedIndex = 0,
+  saveBinding: string = MODEL_SAVE_BINDING,
 ): EnhancerModelPickerHandle {
   const listTheme = {
     selectedPrefix: (t: string) => theme.fg("accent", t),
@@ -1381,7 +1458,7 @@ export function createEnhancerModelSelector(
   container.addChild(new Text(theme.fg("accent", theme.bold(PICKER_TITLE)), 1, 0));
   container.addChild(searchInput);
   container.addChild(listContainer);
-  const help = new Text(theme.fg("dim", pickerHelpLine()), 1, 0);
+  const help = new Text(theme.fg("dim", pickerHelpLine(saveBinding)), 1, 0);
   container.addChild(help);
   container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
@@ -1392,7 +1469,7 @@ export function createEnhancerModelSelector(
     },
     handleInput: (data: string): void => {
       const kb = getKeybindings();
-      if (matchesBinding(data, SAVE_BINDING)) {
+      if (matchesBinding(data, saveBinding)) {
         if (highlighted) done({ value: highlighted.value, persist: true });
       } else if (
         kb.matches(data, "tui.select.up") ||
@@ -1426,9 +1503,15 @@ export function createEnhancerModelSelector(
 
 function renderWidgetLine(ctx: ExtensionContext, transientStatus?: string): string {
   const model = resolveEnhancerModel(ctx);
+  const explicit = model ? resolvedExplicitThinking(model) : undefined;
+  const thinking =
+    model && explicit !== undefined
+      ? visibleEnhancerThinking(explicit, resolvedBaseline(ctx, model))
+      : undefined;
   return formatStatusWidget({
     enhancing: enhancingInFlight,
     model: model ? modelLabel(model) : undefined,
+    thinking,
     auto: autoEnhanceEnabled,
     status: transientStatus,
   });
@@ -1610,10 +1693,12 @@ async function performEnhancement(
      * backoff; the headless path leaves them out and nothing is reported.
      */
     retryCallbacks?: RetryCallbacks;
+    /** Set only when the user chose an enhancer thinking level. */
+    thinking?: EnhancerThinkingLevel;
   },
   signal: AbortSignal,
 ): Promise<EnhancementOutcome> {
-  const { cwd, model, auth, originalPrompt, history, retryCallbacks } = params;
+  const { cwd, model, auth, originalPrompt, history, retryCallbacks, thinking } = params;
 
   const context = await gatherEnhancerContext(originalPrompt, cwd, signal);
   if (signal.aborted) return { ok: false, reason: "cancelled" };
@@ -1628,11 +1713,23 @@ async function performEnhancement(
 
   const response = await completeWithRetry(
     () =>
-      complete(
-        model,
-        { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
-        { apiKey: auth.apiKey, headers: auth.headers, signal },
-      ),
+      thinking === undefined
+        ? complete(
+            model,
+            { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+            { apiKey: auth.apiKey, headers: auth.headers, signal },
+          )
+        : completeSimple(
+            model,
+            { systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
+            {
+              apiKey: auth.apiKey,
+              headers: auth.headers,
+              signal,
+              // `off` is omitted: simple-stream treats a missing reasoning level as thinking disabled.
+              ...(thinking === "off" ? {} : { reasoning: thinking }),
+            },
+          ),
     signal,
     // Left undefined so the ENHANCER_RETRY_POLICY default binding applies —
     // the only production call site, and what the default-binding test pins.
@@ -1814,6 +1911,7 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
       auth,
       originalPrompt,
       history: gatherSessionHistory(ctx),
+      thinking: resolvedExplicitThinking(model),
     };
 
     if (wantsCustomUI) {
@@ -2012,6 +2110,14 @@ export function lastAssistantAskedQuestion(ctx: ExtensionContext): boolean {
 // ── Extension factory ───────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
+  readPiThinking = () => {
+    const level = pi.getThinkingLevel();
+    return {
+      modelThinkingLevels: pi.getSettings().modelThinkingLevels,
+      sessionLevel: isEnhancerThinkingLevel(level) ? level : undefined,
+    };
+  };
+
   // session_start paints the persistent widget and clears any stale revert
   // chip from a previous session. Enhance is not advertised as a footer chip.
   pi.on("session_start", async (_event, ctx) => {
@@ -2021,8 +2127,10 @@ export default function (pi: ExtensionAPI): void {
     autoEnhanceEnabled = false;
     enhancingInFlight = false;
     sessionChoice = { kind: "unset" };
+    sessionThinkingChoice = { kind: "unset" };
     clearTransientStatusTimer();
     await loadSavedEnhancerModel(ctx);
+    await loadSavedEnhancerThinking();
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
     updateWidget(ctx);
@@ -2040,6 +2148,11 @@ export default function (pi: ExtensionAPI): void {
   pi.on("model_select", (_event, ctx) => {
     activeCtx = ctx;
     if (followsSessionModel()) updateWidget(ctx);
+  });
+
+  pi.on("thinking_level_select", (_event, ctx) => {
+    activeCtx = ctx;
+    updateWidget(ctx);
   });
 
   // Enter: if auto-enhance is on and this draft is a real request, rewrite
@@ -2096,6 +2209,14 @@ export default function (pi: ExtensionAPI): void {
       "Prompt Enhancer: pick the enhancer model for this session, or save it as the default.",
     handler: async (_args, ctx) => {
       await handleEnhanceModel(ctx);
+    },
+  });
+
+  pi.registerCommand("prompt_enhance_thinking", {
+    description:
+      "Prompt Enhancer: pick the enhancer thinking level for this session, or save it as the default.",
+    handler: async (_args, ctx) => {
+      await handleEnhanceThinking(ctx);
     },
   });
 
@@ -2180,6 +2301,100 @@ export default function (pi: ExtensionAPI): void {
       choice.persist
         ? `Saved enhancer model: ${modelLabel(picked)}.`
         : `Enhancer model: ${modelLabel(picked)} (this session).`,
+    );
+  }
+
+  async function handleEnhanceThinking(ctx: ExtensionContext): Promise<void> {
+    const model = resolveEnhancerModel(ctx);
+    if (!model) {
+      ctx.ui.notify("Prompt Enhancer: no active model. Pick one with /model first.", "error");
+      return;
+    }
+    if (!ctx.hasUI) {
+      ctx.ui.notify("Prompt Enhancer thinking picker requires interactive mode.", "warning");
+      return;
+    }
+
+    const supported = getSupportedThinkingLevels(model).filter(isEnhancerThinkingLevel);
+    const levels: EnhancerThinkingLevel[] = supported.length > 0 ? supported : ["off"];
+    const baseline = resolvedBaseline(ctx, model);
+    const explicit = resolvedExplicitThinking(model);
+    const savedLevel =
+      savedThinking !== undefined && levels.includes(savedThinking) ? savedThinking : undefined;
+    const current = explicit ?? baseline;
+    const items: SelectItem[] = [
+      {
+        value: FOLLOW_DEFAULT_THINKING_VALUE,
+        label: FOLLOW_DEFAULT_THINKING_LABEL,
+        description: explicit === undefined ? `${baseline} · current` : baseline,
+      },
+      ...levels.map((level) => ({
+        value: level,
+        label: level,
+        description:
+          level === current && level === savedLevel
+            ? "current · default"
+            : level === current && explicit !== undefined
+              ? "current"
+              : level === savedLevel
+                ? "default"
+                : undefined,
+      })),
+    ];
+    const selectedIndex = Math.max(
+      0,
+      items.findIndex(
+        (item) => item.value === (explicit === undefined ? FOLLOW_DEFAULT_THINKING_VALUE : current),
+      ),
+    );
+    const choice = await ctx.ui.custom<EnhancerPickerChoice | undefined>((tui, theme, _kb, done) =>
+      createEnhancerModelSelector(tui, theme, items, done, selectedIndex, THINKING_SAVE_BINDING),
+    );
+    if (choice === undefined) return;
+    await applyEnhancerThinkingChoice(ctx, choice);
+  }
+
+  async function applyEnhancerThinkingChoice(
+    ctx: ExtensionContext,
+    choice: EnhancerPickerChoice,
+  ): Promise<void> {
+    if (choice.value === FOLLOW_DEFAULT_THINKING_VALUE) {
+      if (choice.persist) {
+        try {
+          await clearPromptEnhancerThinking();
+        } catch {
+          ctx.ui.notify("Prompt Enhancer: could not save settings.", "error");
+          return;
+        }
+        savedThinking = undefined;
+      }
+      sessionThinkingChoice = { kind: "follow" };
+      updateWidget(ctx);
+      showTransientStatus(
+        ctx,
+        choice.persist
+          ? "Enhancer thinking follows the default."
+          : "Enhancer thinking follows the default (this session).",
+      );
+      return;
+    }
+    if (!isEnhancerThinkingLevel(choice.value)) return;
+    if (choice.persist) {
+      try {
+        await writePromptEnhancerThinking(choice.value);
+      } catch {
+        ctx.ui.notify("Prompt Enhancer: could not save settings.", "error");
+        return;
+      }
+      savedThinking = choice.value;
+    }
+    sessionThinkingChoice = { kind: "level", level: choice.value };
+    updateWidget(ctx);
+    showTransientStatus(
+      ctx,
+      choice.persist
+        ? `Saved enhancer thinking: ${choice.value}.`
+        : `Enhancer thinking: ${choice.value} (this session).`,
     );
   }
 

@@ -11,6 +11,25 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const PROMPT_ENHANCER_MODEL_KEY = "promptEnhancerModel";
+export const PROMPT_ENHANCER_THINKING_KEY = "promptEnhancerThinking";
+
+export const ENHANCER_THINKING_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+
+export type EnhancerThinkingLevel = (typeof ENHANCER_THINKING_LEVELS)[number];
+
+export function isEnhancerThinkingLevel(value: unknown): value is EnhancerThinkingLevel {
+  return (
+    typeof value === "string" && (ENHANCER_THINKING_LEVELS as readonly string[]).includes(value)
+  );
+}
 
 export type StoredEnhancerModel =
   | { readonly kind: "inherit" }
@@ -109,10 +128,39 @@ export async function writePromptEnhancerModel(id: string): Promise<void> {
 }
 
 export async function clearPromptEnhancerModel(): Promise<void> {
+  await clearSettingsKey(PROMPT_ENHANCER_MODEL_KEY);
+}
+
+export function interpretPromptEnhancerThinking(
+  present: boolean,
+  value: unknown,
+): StoredEnhancerModel {
+  if (!present || value === null || value === "") return { kind: "inherit" };
+  if (isEnhancerThinkingLevel(value)) return { kind: "model", id: value };
+  return { kind: "invalid" };
+}
+
+export async function readPromptEnhancerThinking(): Promise<StoredEnhancerModel> {
+  const parsed = await readJsonObject(settingsPath());
+  if (!parsed || !Object.hasOwn(parsed, PROMPT_ENHANCER_THINKING_KEY)) {
+    return { kind: "inherit" };
+  }
+  return interpretPromptEnhancerThinking(true, parsed[PROMPT_ENHANCER_THINKING_KEY]);
+}
+
+export async function writePromptEnhancerThinking(level: EnhancerThinkingLevel): Promise<void> {
+  await mutateSettings((current) => ({ ...current, [PROMPT_ENHANCER_THINKING_KEY]: level }));
+}
+
+export async function clearPromptEnhancerThinking(): Promise<void> {
+  await clearSettingsKey(PROMPT_ENHANCER_THINKING_KEY);
+}
+
+async function clearSettingsKey(key: string): Promise<void> {
   await mutateSettings((current) => {
-    if (!Object.hasOwn(current, PROMPT_ENHANCER_MODEL_KEY)) return current;
+    if (!Object.hasOwn(current, key)) return current;
     const next = { ...current };
-    delete next[PROMPT_ENHANCER_MODEL_KEY];
+    delete next[key];
     return next;
   });
 }

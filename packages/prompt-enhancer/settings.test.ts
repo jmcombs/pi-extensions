@@ -4,10 +4,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   clearPromptEnhancerModel,
+  clearPromptEnhancerThinking,
   interpretPromptEnhancerModel,
+  interpretPromptEnhancerThinking,
   PROMPT_ENHANCER_MODEL_KEY,
+  PROMPT_ENHANCER_THINKING_KEY,
   readPromptEnhancerModel,
+  readPromptEnhancerThinking,
   writePromptEnhancerModel,
+  writePromptEnhancerThinking,
 } from "./settings.js";
 
 let dir: string;
@@ -69,5 +74,22 @@ describe("promptEnhancerModel settings.json", () => {
 
   it("inherits when settings.json is missing", async () => {
     expect(await readPromptEnhancerModel()).toEqual({ kind: "inherit" });
+    expect(await readPromptEnhancerThinking()).toEqual({ kind: "inherit" });
+  });
+
+  it("stores a thinking level without removing the model key", async () => {
+    await writePromptEnhancerModel("anthropic/claude-sonnet-5");
+    await writePromptEnhancerThinking("high");
+    expect(await readPromptEnhancerThinking()).toEqual({ kind: "model", id: "high" });
+    expect(await readPromptEnhancerModel()).toEqual({
+      kind: "model",
+      id: "anthropic/claude-sonnet-5",
+    });
+    expect(interpretPromptEnhancerThinking(true, "nope")).toEqual({ kind: "invalid" });
+
+    await clearPromptEnhancerThinking();
+    const cleared = await readSettings();
+    expect(cleared[PROMPT_ENHANCER_MODEL_KEY]).toBe("anthropic/claude-sonnet-5");
+    expect(Object.hasOwn(cleared, PROMPT_ENHANCER_THINKING_KEY)).toBe(false);
   });
 });

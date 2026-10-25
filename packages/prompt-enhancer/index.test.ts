@@ -26,6 +26,7 @@ import { Editor } from "@earendil-works/pi-tui";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import factory, {
   allocateConventionsBudget,
+  baselineEnhancerThinking,
   buildEnhancerPickerItems,
   buildEnhancerUserMessage,
   buildProjectConventions,
@@ -55,6 +56,7 @@ import factory, {
   TRANSIENT_FAILURE_STATUS_MS,
   TRANSIENT_STATUS_MS,
   toEditorText,
+  visibleEnhancerThinking,
 } from "./index.js";
 import { ENHANCING_SEGMENT } from "./widget.js";
 
@@ -118,6 +120,7 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
       "prompt_enhance_auto",
       "prompt_enhance_model",
       "prompt_enhance_revert",
+      "prompt_enhance_thinking",
     ]);
     expect(log.shortcuts.sort()).toEqual(["ctrl+shift+e", "ctrl+shift+z"]);
     expect(log.tools).toEqual([]);
@@ -135,6 +138,7 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     expect(log.events).toContain("session_start");
     expect(log.events).toContain("session_shutdown");
     expect(log.events).toContain("model_select");
+    expect(log.events).toContain("thinking_level_select");
     expect(log.events).toContain("input");
   });
 });
@@ -352,6 +356,17 @@ describe("buildEnhancerPickerItems", () => {
     );
     expect(picker.items.some((item) => item.description?.includes("default"))).toBe(false);
     expect(picker.items.some((item) => item.value === "missing/model")).toBe(false);
+  });
+});
+
+describe("visibleEnhancerThinking", () => {
+  it("hides a level that matches the model default or the session level", () => {
+    expect(baselineEnhancerThinking("high", "medium")).toBe("high");
+    expect(baselineEnhancerThinking(undefined, "medium")).toBe("medium");
+    expect(visibleEnhancerThinking(undefined, "medium")).toBeUndefined();
+    expect(visibleEnhancerThinking("high", "high")).toBeUndefined();
+    expect(visibleEnhancerThinking("low", "high")).toBe("low");
+    expect(visibleEnhancerThinking("low", "medium")).toBe("low");
   });
 });
 

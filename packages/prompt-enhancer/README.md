@@ -49,10 +49,13 @@ model you save with `/prompt_enhance_model`.
 | --- | --- |
 | `/prompt_enhance [text]` | Rewrite the text you pass, or whatever is already in the editor. |
 | `/prompt_enhance_model` | Pick the enhancer model for this session, or save it as the default. |
+| `/prompt_enhance_thinking` | Pick the enhancer thinking level for this session, or save it as the default. |
 | `/prompt_enhance_revert` | Put back the last prompt you wrote and enhanced. Once only; also clears when you send a prompt. |
 | `/prompt_enhance_auto` | Turn auto-enhance on or off for the current session. Off until you do. |
 
-The picker follows Pi's model selector. Confirm selects the highlighted row for this session. The save key (`app.models.save`, `Ctrl+S` unless rebound) writes it to `promptEnhancerModel` in the user `settings.json`. Choose **Follow session model** and save to clear that key. A saved model that is no longer available is left in settings; the enhancer uses the session model until you save a new choice.
+The model picker follows Pi's model selector. Confirm selects the highlighted row for this session. The save key (`app.models.save`, `Ctrl+S` unless rebound) writes it to `promptEnhancerModel` in the user `settings.json`. Choose **Follow session model** and save to clear that key. A saved model that is no longer available is left in settings; the enhancer uses the session model until you save a new choice.
+
+`/prompt_enhance_thinking` uses the same gestures with `app.thinking.save`. Confirm applies the level for this session. Save writes `promptEnhancerThinking`. **Follow default** uses that model's `modelThinkingLevels` entry when Pi has one, otherwise the session thinking level. The status bar shows the level only when the enhancer level is different from that default.
 
 **Shortcuts** (also listed in `/hotkeys`):
 
