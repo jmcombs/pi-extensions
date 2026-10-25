@@ -69,3 +69,59 @@ export function resolveThinkingLevel(
   if (fromOptions !== undefined) return fromOptions;
   return parseModelThinking(modelId).thinking;
 }
+
+const PI_THINKING_ORDER: readonly PiThinkingLevel[] = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
+/**
+ * Pi thinking-level map for a model. A supported level's provider value is the
+ * Pi level itself (the driver applies that level). `null` hides a level Pi
+ * cannot drive on this model.
+ */
+export function piThinkingMap(
+  supported: readonly PiThinkingLevel[],
+): Record<PiThinkingLevel, string | null> {
+  const allowed = new Set<PiThinkingLevel>(supported);
+  return {
+    off: allowed.has("off") ? "off" : null,
+    minimal: allowed.has("minimal") ? "minimal" : null,
+    low: allowed.has("low") ? "low" : null,
+    medium: allowed.has("medium") ? "medium" : null,
+    high: allowed.has("high") ? "high" : null,
+    xhigh: allowed.has("xhigh") ? "xhigh" : null,
+    max: allowed.has("max") ? "max" : null,
+  };
+}
+
+/**
+ * Clamp a requested Pi level onto one this model can express.
+ *
+ * Matches Pi's `clampThinkingLevel`: an unsupported level walks upward, then
+ * downward. A missing request is Pi `off` (`options.reasoning` is omitted when
+ * the session thinking level is off).
+ */
+export function clampToSupported(
+  level: PiThinkingLevel | undefined,
+  supported: readonly PiThinkingLevel[],
+): PiThinkingLevel {
+  const requested = level ?? "off";
+  if (supported.includes(requested)) return requested;
+  const requestedIndex = PI_THINKING_ORDER.indexOf(requested);
+  if (requestedIndex === -1) return supported[0] ?? "off";
+  for (let i = requestedIndex + 1; i < PI_THINKING_ORDER.length; i++) {
+    const candidate = PI_THINKING_ORDER[i];
+    if (candidate !== undefined && supported.includes(candidate)) return candidate;
+  }
+  for (let i = requestedIndex - 1; i >= 0; i--) {
+    const candidate = PI_THINKING_ORDER[i];
+    if (candidate !== undefined && supported.includes(candidate)) return candidate;
+  }
+  return supported[0] ?? "off";
+}
