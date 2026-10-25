@@ -38,20 +38,20 @@ import * as piAiCompat from "@earendil-works/pi-ai/compat";
 import {
   type Api,
   type AssistantMessage,
+  clampThinkingLevel,
   complete,
   completeSimple,
+  getSupportedThinkingLevels,
   type Message,
   type Model,
   type RetryCallbacks,
   type RetryPolicy,
 } from "@earendil-works/pi-ai/compat";
-import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import {
   BorderedLoader,
   DynamicBorder,
   type ExtensionAPI,
   type ExtensionContext,
-  keyText,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -1384,9 +1384,9 @@ function formatBindingKeys(keys: readonly string[]): string {
 
 function pickerHelpLine(saveBinding: string): string {
   return formatEnhancerPickerHelp(
-    keyText("tui.select.confirm"),
+    formatBindingKeys(bindingKeys("tui.select.confirm")),
     formatBindingKeys(bindingKeys(saveBinding)),
-    keyText("tui.select.cancel"),
+    formatBindingKeys(bindingKeys("tui.select.cancel")),
   );
 }
 
@@ -2111,9 +2111,10 @@ export function lastAssistantAskedQuestion(ctx: ExtensionContext): boolean {
 
 export default function (pi: ExtensionAPI): void {
   readPiThinking = () => {
-    const level = pi.getThinkingLevel();
+    const settings = typeof pi.getSettings === "function" ? pi.getSettings() : undefined;
+    const level = typeof pi.getThinkingLevel === "function" ? pi.getThinkingLevel() : undefined;
     return {
-      modelThinkingLevels: pi.getSettings().modelThinkingLevels,
+      modelThinkingLevels: settings?.modelThinkingLevels,
       sessionLevel: isEnhancerThinkingLevel(level) ? level : undefined,
     };
   };

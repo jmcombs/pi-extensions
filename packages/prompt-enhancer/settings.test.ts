@@ -92,4 +92,15 @@ describe("promptEnhancerModel settings.json", () => {
     expect(cleared[PROMPT_ENHANCER_MODEL_KEY]).toBe("anthropic/claude-sonnet-5");
     expect(Object.hasOwn(cleared, PROMPT_ENHANCER_THINKING_KEY)).toBe(false);
   });
+
+  it("clears a stale directory lock instead of hanging", async () => {
+    await mkdir(join(dir, "settings.json.lock"));
+    const started = Date.now();
+    await writePromptEnhancerModel("anthropic/claude-sonnet-5");
+    expect(Date.now() - started).toBeLessThan(8000);
+    expect(await readPromptEnhancerModel()).toEqual({
+      kind: "model",
+      id: "anthropic/claude-sonnet-5",
+    });
+  }, 8000);
 });

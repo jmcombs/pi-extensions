@@ -6,7 +6,7 @@
  * picker cannot clear.
  */
 
-import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
@@ -79,11 +79,8 @@ async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST") throw error;
       if (Date.now() - start > timeoutMs) {
-        try {
-          await unlink(lockPath);
-        } catch {
-          // Someone else cleared it.
-        }
+        // Pi's proper-lockfile can leave a directory. unlink() does not remove it.
+        await rm(lockPath, { recursive: true, force: true });
       }
       await new Promise((resolve) => setTimeout(resolve, 25));
     }

@@ -126,6 +126,40 @@ describe("@jmcombs/pi-prompt-enhancer", () => {
     expect(log.tools).toEqual([]);
   });
 
+  it("does not throw /prompt_enhance_thinking when getSettings is missing", async () => {
+    const handlers = new Map<string, (args: string, ctx: unknown) => Promise<void>>();
+    const api = {
+      on: () => undefined,
+      registerTool: () => undefined,
+      registerShortcut: () => undefined,
+      registerCommand: (
+        name: string,
+        command: { handler: (args: string, ctx: unknown) => Promise<void> },
+      ) => {
+        handlers.set(name, command.handler);
+      },
+    } as unknown as ExtensionAPI;
+    factory(api);
+    const handler = handlers.get("prompt_enhance_thinking");
+    if (!handler) throw new Error("prompt_enhance_thinking was not registered");
+    const notices: string[] = [];
+    await handler("", {
+      hasUI: true,
+      model: { provider: "anthropic", id: "claude-sonnet-5", reasoning: false },
+      modelRegistry: {
+        getAvailable: () => [{ provider: "anthropic", id: "claude-sonnet-5", reasoning: false }],
+      },
+      ui: {
+        notify: (message: string) => {
+          notices.push(message);
+        },
+        custom: async () => undefined,
+      },
+      thinkingLevel: "medium",
+    });
+    expect(notices.join("\n")).not.toMatch(/getSettings/);
+  });
+
   it("subscribes to all events needed for footer + widget lifecycle", () => {
     const { api, log } = createApiStub();
     factory(api);
