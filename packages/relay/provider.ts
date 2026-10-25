@@ -184,9 +184,10 @@ function toProviderModels(
  * Models exposed by the provider. Listed ids are versioned (`opus-4-8`,
  * `opus-5-5`, `sonnet-5-5`, `haiku-5-5`) and pin Claude Code `--model` to the
  * first-party id. Claude Code 2.1.295's first-party alias defaults are Opus 5.5,
- * Sonnet 5.5, and Haiku 5.5 — the old unversioned `opus` / `sonnet` / `haiku`
- * ids are not listed (they were the same models, mislabeled). Opus 4.8 stays
- * because it is a distinct already-listed model. No new families are added.
+ * Sonnet 5.5, and Haiku 5.5. The old unversioned ids are registered only so
+ * Pi's exact match wins over its fuzzy match; the driver rejects them and does
+ * not spawn a CLI. Opus 4.8 stays because it is a distinct already-listed model.
+ * No new families are added.
  *
  * Windows from Claude Code 2.1.295's baked cards: Opus 4.8 is 1M / 64K default
  * (upper 128K); Opus 5.5, Sonnet 5.5, and Haiku 5.5 are 1M / 128K.
@@ -194,6 +195,16 @@ function toProviderModels(
  * `off` is hidden and clamps to `low`. Opus 4.8 can omit `--effort` on Pi `off`.
  * Every other Pi level is sent as `--effort <level>`.
  */
+function rejectedModel(id: string, useInstead: string): RelayCatalogModel {
+  return {
+    id,
+    name: `Rejected. Use ${useInstead}`,
+    contextWindow: 1_000_000,
+    maxTokens: 64_000,
+    thinkingLevelMap: CLAUDE_THINKING_MAP,
+  };
+}
+
 const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
   {
     id: "opus-4-8",
@@ -223,6 +234,10 @@ const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
     maxTokens: 128_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP_NO_OFF,
   },
+  // Exact ids so `relay-claude/opus` does not fuzzy-resolve to `opus-5-5`.
+  rejectedModel("opus", "opus-5-5"),
+  rejectedModel("sonnet", "sonnet-5-5"),
+  rejectedModel("haiku", "haiku-5-5"),
 ];
 
 /** The pi provider name. `model: relay-grok/<id>` routes to this provider. */
@@ -260,7 +275,9 @@ export const RELAY_CURSOR_PROVIDER = "relay-cursor";
  * Pi `opus-4-8`, `opus-5-5`, and `sonnet-5-5` map by the Pi thinking level onto
  * Cursor listed ids. `auto` and Composer only advertise Pi `off`, because Cursor
  * lists no thinking variant for them. Opus 5.5 and Sonnet 5.5 hide `off` (thinking
- * cannot be disabled) and clamp it to `low`.
+ * cannot be disabled) and clamp it to `low`. Unversioned `cursor` and `opus`
+ * are registered only so Pi cannot fuzzy-match them onto a versioned id; the
+ * driver rejects them.
  */
 const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
   {
@@ -298,6 +315,8 @@ const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
     maxTokens: 128_000,
     thinkingLevelMap: CURSOR_EFFORT_THINKING_MAP,
   },
+  rejectedModel("cursor", "composer-2-5"),
+  rejectedModel("opus", "opus-4-8"),
 ];
 
 /** Resolve the configured idle-cap in milliseconds (D6). Any stdout/stderr byte resets it. */

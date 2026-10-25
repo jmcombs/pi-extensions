@@ -117,9 +117,10 @@ passed. Pi model → Cursor `--model` map:
 | `relay-cursor/sonnet-5-5` | `claude-sonnet-5-5-low` | `claude-sonnet-5-5-<level>` (`off` clamps to `low`) |
 
 The mapper strips the `relay-cursor/` provider prefix first; an id that does not
-resolve to a listed id is rejected up front rather than forwarded. Unversioned
-and dotted ids (`opus`, `cursor`, `opus-4.8`, `opus-5.5`, `sonnet-5.5`) are
-not accepted. Cursor has no system-prompt flag, so persona +
+resolve to a listed id is rejected up front rather than forwarded. Dotted ids
+(`opus-4.8`, `opus-5.5`, `sonnet-5.5`) are not accepted. Unversioned ids
+(`opus`, `sonnet`, `haiku`, `cursor`) are registered only so Pi's exact match
+beats its fuzzy match; the driver rejects them and does not spawn a CLI. Cursor has no system-prompt flag, so persona +
 skills are prepended onto the user prompt. Tool scoping overlays allow/deny rules
 on a **seeded** temp `CURSOR_CONFIG_DIR` (copy of the user's Cursor config home,
 not a lone `cli-config.json` — that hangs headless tool calls until the wall-cap;

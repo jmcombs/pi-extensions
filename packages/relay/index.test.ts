@@ -99,10 +99,15 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     expect(provider.config.baseUrl).toBeTruthy();
     expect(provider.config.apiKey).toBeTruthy();
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
-    expect(modelIds).toEqual(["opus-4-8", "opus-5-5", "sonnet-5-5", "haiku-5-5"]);
-    expect(modelIds).not.toContain("opus");
-    expect(modelIds).not.toContain("sonnet");
-    expect(modelIds).not.toContain("haiku");
+    expect(modelIds).toEqual([
+      "opus-4-8",
+      "opus-5-5",
+      "sonnet-5-5",
+      "haiku-5-5",
+      "opus",
+      "sonnet",
+      "haiku",
+    ]);
   });
 
   it("registers the relay-grok provider with a custom streamSimple and grok-4.5 model", () => {
@@ -132,9 +137,15 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     expect(provider.config.baseUrl).toBeTruthy();
     expect(provider.config.apiKey).toBeTruthy();
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
-    expect(modelIds).toEqual(["auto", "composer-2-5", "opus-4-8", "opus-5-5", "sonnet-5-5"]);
-    expect(modelIds).not.toContain("cursor");
-    expect(modelIds).not.toContain("opus");
+    expect(modelIds).toEqual([
+      "auto",
+      "composer-2-5",
+      "opus-4-8",
+      "opus-5-5",
+      "sonnet-5-5",
+      "cursor",
+      "opus",
+    ]);
   });
 
   it("catalogs context, max-out, thinking, and text-only input per backend", () => {
