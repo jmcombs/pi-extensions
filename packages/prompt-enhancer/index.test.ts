@@ -40,6 +40,7 @@ import factory, {
   type EnhancerContext,
   editorHoldsOurText,
   enhancedStatusText,
+  enhancerRequestThinking,
   FOLLOW_SESSION_VALUE,
   filterPickerItems,
   formatEnhancementFailure,
@@ -434,6 +435,14 @@ describe("visibleEnhancerThinking", () => {
     expect(visibleEnhancerThinking("high", "high")).toBeUndefined();
     expect(visibleEnhancerThinking("low", "high")).toBe("low");
     expect(visibleEnhancerThinking("low", "medium")).toBe("low");
+  });
+});
+
+describe("enhancerRequestThinking", () => {
+  it("does not send the model default when Follow default is selected", () => {
+    expect(enhancerRequestThinking(undefined, "high")).toBeUndefined();
+    expect(enhancerRequestThinking("low", "high")).toBe("low");
+    expect(enhancerRequestThinking("off", "high")).toBe("off");
   });
 });
 

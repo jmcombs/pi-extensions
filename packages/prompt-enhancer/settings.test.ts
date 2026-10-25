@@ -93,6 +93,14 @@ describe("promptEnhancerModel settings.json", () => {
     expect(Object.hasOwn(cleared, PROMPT_ENHANCER_THINKING_KEY)).toBe(false);
   });
 
+  it("does not overwrite settings.json that Pi cannot parse", async () => {
+    const raw = '{\n  "defaultModel": "x",\n  "packages": ["npm:a"],\n}\n';
+    await writeFile(join(dir, "settings.json"), raw);
+    await expect(writePromptEnhancerModel("stub/alpha")).rejects.toThrow(/not valid JSON/);
+    await expect(clearPromptEnhancerModel()).rejects.toThrow(/not valid JSON/);
+    expect(await readFile(join(dir, "settings.json"), "utf8")).toBe(raw);
+  });
+
   it("clears a stale directory lock instead of hanging", async () => {
     await mkdir(join(dir, "settings.json.lock"));
     const started = Date.now();

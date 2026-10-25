@@ -1244,6 +1244,17 @@ function resolvedExplicitThinking(model: Model<Api>): EnhancerThinkingLevel | un
   return clampThinkingLevel(model, explicit);
 }
 
+/**
+ * Thinking sent on the enhancer call. Follow default is `undefined`: the
+ * baseline is for the status bar only and is not forwarded.
+ */
+export function enhancerRequestThinking(
+  explicit: EnhancerThinkingLevel | undefined,
+  _baseline: EnhancerThinkingLevel,
+): EnhancerThinkingLevel | undefined {
+  return explicit;
+}
+
 async function loadSavedEnhancerThinking(): Promise<void> {
   savedThinking = undefined;
   const stored = await readPromptEnhancerThinking();
@@ -1911,7 +1922,10 @@ async function runEnhancer(ctx: ExtensionContext, providedText: string | undefin
       auth,
       originalPrompt,
       history: gatherSessionHistory(ctx),
-      thinking: resolvedExplicitThinking(model),
+      thinking: enhancerRequestThinking(
+        resolvedExplicitThinking(model),
+        resolvedBaseline(ctx, model),
+      ),
     };
 
     if (wantsCustomUI) {

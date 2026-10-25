@@ -87,6 +87,27 @@ async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
   }
 }
 
+async function readSettingsForMutation(path: string): Promise<Record<string, unknown>> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw error;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`settings.json is not valid JSON: ${detail}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("settings.json is not a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
 async function mutateSettings(
   mutator: (current: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<void> {
@@ -94,7 +115,7 @@ async function mutateSettings(
   await mkdir(getAgentDir(), { recursive: true });
   const release = await acquireLock(`${path}.lock`);
   try {
-    const current = (await readJsonObject(path)) ?? {};
+    const current = await readSettingsForMutation(path);
     const next = mutator(current);
     const tmpPath = `${path}.tmp.${String(process.pid)}`;
     try {

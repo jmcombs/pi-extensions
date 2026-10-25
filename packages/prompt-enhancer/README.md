@@ -55,7 +55,7 @@ model you save with `/prompt_enhance_model`.
 
 The model picker follows Pi's model selector. Confirm selects the highlighted row for this session. The save key (`app.models.save`, `Ctrl+S` unless rebound) writes it to `promptEnhancerModel` in the user `settings.json`. Choose **Follow session model** and save to clear that key. A saved model that is no longer available is left in settings; the enhancer uses the session model until you save a new choice.
 
-`/prompt_enhance_thinking` uses the same gestures with `app.thinking.save`. Confirm applies the level for this session. Save writes `promptEnhancerThinking`. **Follow default** uses that model's `modelThinkingLevels` entry when Pi has one, otherwise the session thinking level. The status bar shows the level only when the enhancer level is different from that default.
+`/prompt_enhance_thinking` uses the same gestures with `app.thinking.save`. Confirm applies the level for this session. Save writes `promptEnhancerThinking`. **Follow default** does not send a thinking override: the call stays on `complete()` with no reasoning option. The baseline is display-only. It is that model's `modelThinkingLevels` entry when Pi has one, otherwise the session thinking level. The status bar shows a level only when an explicit enhancer level differs from that baseline.
 
 **Shortcuts** (also listed in `/hotkeys`):
 
