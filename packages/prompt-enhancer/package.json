@@ -19,6 +19,7 @@
   "files": [
     "index.ts",
     "auto.ts",
+    "settings.ts",
     "widget.ts",
     "README.md",
     "LICENSE"

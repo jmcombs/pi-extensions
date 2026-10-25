@@ -26,6 +26,7 @@ import { Editor } from "@earendil-works/pi-tui";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import factory, {
   allocateConventionsBudget,
+  buildEnhancerPickerItems,
   buildEnhancerUserMessage,
   buildProjectConventions,
   buildRecentTurns,
@@ -38,8 +39,10 @@ import factory, {
   type EnhancerContext,
   editorHoldsOurText,
   enhancedStatusText,
+  FOLLOW_SESSION_VALUE,
   filterPickerItems,
   formatEnhancementFailure,
+  formatEnhancerPickerHelp,
   formatRetryStatus,
   formatSkippedFiles,
   gatherEnhancerContext,
@@ -252,7 +255,8 @@ describe("createEnhancerModelSelector", () => {
     expect(lines.some((line) => line.includes("(current)"))).toBe(true);
     expect(lines.some((line) => /\(\d+\/\d+\)/.test(line))).toBe(true);
     expect(lines.some((line) => line.includes("> "))).toBe(true);
-    expect(lines.some((line) => line.includes("type to filter"))).toBe(true);
+    expect(lines.some((line) => line.includes("to select"))).toBe(true);
+    expect(lines.some((line) => line.includes("to cancel"))).toBe(true);
   });
 
   it("narrows the list as you type, like /model", () => {
@@ -283,6 +287,80 @@ describe("createEnhancerModelSelector", () => {
     );
     picker.handleInput("zzzz");
     expect(picker.render(80).some((line) => line.includes("No matching models"))).toBe(true);
+  });
+});
+
+describe("buildEnhancerPickerItems", () => {
+  it("puts Follow session model first and marks it current when nothing is saved", () => {
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: "anthropic/claude-sonnet-5",
+      availableLabels: ["openai/gpt", "anthropic/claude-sonnet-5"],
+      savedAvailable: false,
+    });
+    expect(picker.items[0]).toMatchObject({
+      value: FOLLOW_SESSION_VALUE,
+      label: "Follow session model",
+      description: "anthropic/claude-sonnet-5 · current",
+    });
+    expect(picker.selectedIndex).toBe(0);
+    expect(picker.items.map((item) => item.label)).toEqual([
+      "Follow session model",
+      "anthropic/claude-sonnet-5",
+      "openai/gpt",
+    ]);
+  });
+
+  it("marks a saved available model current and default, and does not mark the follow row current", () => {
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: "openai/gpt",
+      availableLabels: ["openai/gpt", "anthropic/claude-sonnet-5"],
+      savedKey: "anthropic/claude-sonnet-5",
+      savedAvailable: true,
+    });
+    expect(picker.items[0]?.description).toBe("openai/gpt");
+    expect(picker.items.find((item) => item.value === "anthropic/claude-sonnet-5")).toMatchObject({
+      description: "current · default",
+    });
+    expect(picker.selectedIndex).toBe(
+      picker.items.findIndex((item) => item.value === "anthropic/claude-sonnet-5"),
+    );
+  });
+
+  it("keeps a saved model as default when Enter chose follow for this session", () => {
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: "openai/gpt",
+      availableLabels: ["openai/gpt", "anthropic/claude-sonnet-5"],
+      sessionChoice: FOLLOW_SESSION_VALUE,
+      savedKey: "anthropic/claude-sonnet-5",
+      savedAvailable: true,
+    });
+    expect(picker.items[0]?.description).toBe("openai/gpt · current");
+    expect(
+      picker.items.find((item) => item.value === "anthropic/claude-sonnet-5")?.description,
+    ).toBe("default");
+    expect(picker.selectedIndex).toBe(0);
+  });
+
+  it("does not mark default when the saved model is unavailable", () => {
+    const picker = buildEnhancerPickerItems({
+      availableLabels: ["openai/gpt"],
+      savedKey: "missing/model",
+      savedAvailable: false,
+    });
+    expect(picker.items[0]?.description).toBe(
+      "no session model · saved model unavailable · current",
+    );
+    expect(picker.items.some((item) => item.description?.includes("default"))).toBe(false);
+    expect(picker.items.some((item) => item.value === "missing/model")).toBe(false);
+  });
+});
+
+describe("formatEnhancerPickerHelp", () => {
+  it("uses Pi's select / save / cancel wording and omits save when unbound", () => {
+    expect(formatEnhancerPickerHelp("Enter", "Ctrl+s", "Esc")).toBe(
+      "Enter to select · Ctrl+s to set as default · Esc to cancel",
+    );
+    expect(formatEnhancerPickerHelp("Enter", "", "Esc")).toBe("Enter to select · Esc to cancel");
   });
 });
 

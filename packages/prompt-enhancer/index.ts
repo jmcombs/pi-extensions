@@ -4,7 +4,7 @@
  * Registers:
  *   - /prompt_enhance [text]  — rewrite the editor (or supplied text) using live
  *                          codebase context and load the result into the editor.
- *   - /prompt_enhance_model   — pick the Prompt Enhancer model for this session.
+ *   - /prompt_enhance_model   — pick the enhancer model for this session, or save it.
  *   - /prompt_enhance_revert  — restore the editor to the pre-enhance text.
  *   - /prompt_enhance_auto    — toggle auto-enhance on Enter (off by default).
  *   - Ctrl+Shift+E / Ctrl+Shift+Z — enhance / revert shortcuts.
@@ -48,6 +48,7 @@ import {
   DynamicBorder,
   type ExtensionAPI,
   type ExtensionContext,
+  keyText,
   type Theme,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -60,6 +61,11 @@ import {
   Text,
 } from "@earendil-works/pi-tui";
 import { shouldSkipAutoEnhance } from "./auto.js";
+import {
+  clearPromptEnhancerModel,
+  readPromptEnhancerModel,
+  writePromptEnhancerModel,
+} from "./settings.js";
 import { formatStatusWidget } from "./widget.js";
 
 export { shouldSkipAutoEnhance } from "./auto.js";
@@ -328,12 +334,23 @@ export const TRANSIENT_FAILURE_STATUS_MS = 15000;
 const PICKER_CHROME_LINES = 6;
 const PICKER_MIN_VISIBLE = 3;
 const PICKER_TITLE = "Pick Prompt Enhancer model";
-const PICKER_HELP = "↑↓ navigate • type to filter • enter select • esc cancel";
 const PICKER_NO_MATCH = "  No matching models";
+const FOLLOW_SESSION_LABEL = "Follow session model";
+/** Sentinel value. Not a provider/id. */
+export const FOLLOW_SESSION_VALUE = "\0follow-session";
+const SAVE_BINDING = "app.models.save";
+const SAVED_KEY_NOTIFY_MAX = 120;
 
 // ── Session-scoped state ────────────────────────────────────────────────
 
-let enhancerModelOverride: Model<Api> | undefined;
+type SessionChoice =
+  | { readonly kind: "unset" }
+  | { readonly kind: "follow" }
+  | { readonly kind: "model"; readonly model: Model<Api> };
+
+let sessionChoice: SessionChoice = { kind: "unset" };
+let savedModel: Model<Api> | undefined;
+let savedKey: string | undefined;
 
 /**
  * The last text the user actually wrote — the prompt this chain re-rolls.
@@ -1118,8 +1135,44 @@ export function buildEnhancerUserMessage(originalPrompt: string, context: Enhanc
 
 // ── Model resolution ────────────────────────────────────────────────────
 
+function findAvailableModel(ctx: ExtensionContext, id: string): Model<Api> | undefined {
+  return ctx.modelRegistry.getAvailable().find((model) => modelLabel(model) === id);
+}
+
+function followsSessionModel(): boolean {
+  if (sessionChoice.kind === "follow") return true;
+  if (sessionChoice.kind === "model") return false;
+  return savedModel === undefined;
+}
+
 function resolveEnhancerModel(ctx: ExtensionContext): Model<Api> | undefined {
-  return enhancerModelOverride ?? ctx.model;
+  if (sessionChoice.kind === "model") return sessionChoice.model;
+  if (sessionChoice.kind === "follow") return ctx.model;
+  if (savedModel) return savedModel;
+  return ctx.model;
+}
+
+function capSavedKey(key: string): string {
+  if (key.length <= SAVED_KEY_NOTIFY_MAX) return key;
+  return `${key.slice(0, SAVED_KEY_NOTIFY_MAX - 1)}…`;
+}
+
+async function loadSavedEnhancerModel(ctx: ExtensionContext): Promise<void> {
+  savedModel = undefined;
+  savedKey = undefined;
+  const stored = await readPromptEnhancerModel();
+  if (stored.kind !== "model") return;
+  savedKey = stored.id;
+  const found = findAvailableModel(ctx, stored.id);
+  if (found) {
+    savedModel = found;
+    return;
+  }
+  if (!ctx.hasUI) return;
+  ctx.ui.notify(
+    `Prompt Enhancer: saved model ${capSavedKey(stored.id)} is unavailable. Using the session model.`,
+    "error",
+  );
 }
 
 function modelLabel(model: Model<Api>): string {
@@ -1144,10 +1197,132 @@ export function filterPickerItems(items: readonly SelectItem[], query: string): 
   return fuzzyFilter([...items], q, (item) => item.label);
 }
 
+export interface EnhancerPickerState {
+  readonly sessionModelLabel?: string;
+  readonly availableLabels: readonly string[];
+  /** Enter pick this session: a provider/id, or follow. Absent means unset. */
+  readonly sessionChoice?: string;
+  readonly savedKey?: string;
+  readonly savedAvailable: boolean;
+}
+
+export interface EnhancerPickerItems {
+  readonly items: SelectItem[];
+  readonly selectedIndex: number;
+}
+
+function rowTags(current: boolean, isDefault: boolean): string | undefined {
+  if (current && isDefault) return "current · default";
+  if (current) return "current";
+  if (isDefault) return "default";
+  return undefined;
+}
+
+export function buildEnhancerPickerItems(state: EnhancerPickerState): EnhancerPickerItems {
+  const available = new Set(state.availableLabels);
+  const sessionChoice = state.sessionChoice;
+  const following = sessionChoice === FOLLOW_SESSION_VALUE;
+  const chosenLabel =
+    sessionChoice !== undefined &&
+    sessionChoice !== FOLLOW_SESSION_VALUE &&
+    available.has(sessionChoice)
+      ? sessionChoice
+      : undefined;
+  const savedLabel =
+    state.savedAvailable && state.savedKey !== undefined && available.has(state.savedKey)
+      ? state.savedKey
+      : undefined;
+  const effectiveLabel = chosenLabel ?? (following ? undefined : savedLabel);
+  const followIsCurrent = effectiveLabel === undefined;
+
+  const ordered: string[] = [];
+  if (effectiveLabel !== undefined) ordered.push(effectiveLabel);
+  if (savedLabel !== undefined && savedLabel !== effectiveLabel) ordered.push(savedLabel);
+  const rest = [...available]
+    .filter((label) => !ordered.includes(label))
+    .sort((a, b) => a.localeCompare(b));
+  ordered.push(...rest);
+
+  const followDescription = [
+    state.sessionModelLabel ?? "no session model",
+    followIsCurrent && state.savedKey !== undefined && !state.savedAvailable
+      ? "saved model unavailable"
+      : undefined,
+    followIsCurrent ? "current" : undefined,
+  ]
+    .filter((part) => part !== undefined)
+    .join(" · ");
+
+  const items: SelectItem[] = [
+    {
+      value: FOLLOW_SESSION_VALUE,
+      label: FOLLOW_SESSION_LABEL,
+      description: followDescription,
+    },
+    ...ordered.map((label) => ({
+      value: label,
+      label,
+      description: rowTags(label === effectiveLabel, label === savedLabel),
+    })),
+  ];
+  const selectedIndex = Math.max(
+    0,
+    items.findIndex((item) =>
+      followIsCurrent ? item.value === FOLLOW_SESSION_VALUE : item.value === effectiveLabel,
+    ),
+  );
+  return { items, selectedIndex };
+}
+
+export function formatEnhancerPickerHelp(confirm: string, save: string, cancel: string): string {
+  if (save.length === 0) return `${confirm} to select · ${cancel} to cancel`;
+  return `${confirm} to select · ${save} to set as default · ${cancel} to cancel`;
+}
+
+function bindingKeys(id: string): readonly string[] {
+  const manager = getKeybindings() as {
+    getKeys(keybinding: string): readonly string[];
+  };
+  return manager.getKeys(id);
+}
+
+function matchesBinding(data: string, id: string): boolean {
+  const manager = getKeybindings() as {
+    matches(data: string, keybinding: string): boolean;
+  };
+  return manager.matches(data, id);
+}
+
+function formatBindingKeys(keys: readonly string[]): string {
+  return keys
+    .map((key) =>
+      key
+        .split("+")
+        .map((part) =>
+          process.platform === "darwin" && part.toLowerCase() === "alt" ? "option" : part,
+        )
+        .join("+"),
+    )
+    .join("/");
+}
+
+function pickerHelpLine(): string {
+  return formatEnhancerPickerHelp(
+    keyText("tui.select.confirm"),
+    formatBindingKeys(bindingKeys(SAVE_BINDING)),
+    keyText("tui.select.cancel"),
+  );
+}
+
 export interface EnhancerModelPickerHandle {
   render(width: number): string[];
   invalidate(): void;
   handleInput(data: string): void;
+}
+
+export interface EnhancerPickerChoice {
+  readonly value: string;
+  readonly persist: boolean;
 }
 
 /** Official Pattern 1 selector: DynamicBorder + SelectList, editor-replace. */
@@ -1155,7 +1330,8 @@ export function createEnhancerModelSelector(
   tui: { terminal?: { rows?: number }; requestRender: () => void },
   theme: Pick<Theme, "fg" | "bold">,
   items: SelectItem[],
-  done: (value: string | undefined) => void,
+  done: (choice: EnhancerPickerChoice | undefined) => void,
+  selectedIndex = 0,
 ): EnhancerModelPickerHandle {
   const listTheme = {
     selectedPrefix: (t: string) => theme.fg("accent", t),
@@ -1170,18 +1346,26 @@ export function createEnhancerModelSelector(
 
   const listContainer = new Container();
   let selectList: SelectList | undefined;
+  let highlighted: SelectItem | undefined;
 
-  const buildList = (visible: SelectItem[]): void => {
+  const buildList = (visible: SelectItem[], index = 0): void => {
     listContainer.clear();
     if (visible.length === 0) {
       selectList = undefined;
+      highlighted = undefined;
       listContainer.addChild(new Text(theme.fg("warning", PICKER_NO_MATCH), 1, 0));
       return;
     }
     const maxVisible = computePickerMaxVisible(tui.terminal?.rows ?? 24, visible.length);
     const list = new SelectList(visible, maxVisible, listTheme);
+    const selected = Math.max(0, Math.min(index, visible.length - 1));
+    list.setSelectedIndex(selected);
+    highlighted = visible[selected];
+    list.onSelectionChange = (item: SelectItem): void => {
+      highlighted = item;
+    };
     list.onSelect = (item: SelectItem): void => {
-      done(item.value);
+      done({ value: item.value, persist: false });
     };
     list.onCancel = (): void => {
       done(undefined);
@@ -1190,14 +1374,15 @@ export function createEnhancerModelSelector(
     listContainer.addChild(list);
   };
 
-  buildList(items);
+  buildList(items, selectedIndex);
 
   const container = new Container();
   container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
   container.addChild(new Text(theme.fg("accent", theme.bold(PICKER_TITLE)), 1, 0));
   container.addChild(searchInput);
   container.addChild(listContainer);
-  container.addChild(new Text(theme.fg("dim", PICKER_HELP), 1, 0));
+  const help = new Text(theme.fg("dim", pickerHelpLine()), 1, 0);
+  container.addChild(help);
   container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
 
   return {
@@ -1207,7 +1392,9 @@ export function createEnhancerModelSelector(
     },
     handleInput: (data: string): void => {
       const kb = getKeybindings();
-      if (
+      if (matchesBinding(data, SAVE_BINDING)) {
+        if (highlighted) done({ value: highlighted.value, persist: true });
+      } else if (
         kb.matches(data, "tui.select.up") ||
         kb.matches(data, "tui.select.down") ||
         kb.matches(data, "tui.select.confirm") ||
@@ -1827,13 +2014,15 @@ export function lastAssistantAskedQuestion(ctx: ExtensionContext): boolean {
 export default function (pi: ExtensionAPI): void {
   // session_start paints the persistent widget and clears any stale revert
   // chip from a previous session. Enhance is not advertised as a footer chip.
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     activeCtx = ctx;
     lastOriginalPrompt = undefined;
     lastEnhancedText = undefined;
     autoEnhanceEnabled = false;
     enhancingInFlight = false;
+    sessionChoice = { kind: "unset" };
     clearTransientStatusTimer();
+    await loadSavedEnhancerModel(ctx);
     if (!ctx.hasUI) return;
     ctx.ui.setStatus(STATUS_KEY_REVERT_HINT, undefined);
     updateWidget(ctx);
@@ -1846,11 +2035,11 @@ export default function (pi: ExtensionAPI): void {
     activeCtx = undefined;
   });
 
-  // The user changed the active Pi model. If we don't have a /prompt_enhance_model
-  // override in place, the widget's Model line should reflect the change.
+  // Repaint only while the enhancer is following the session model. A saved
+  // model, or an Enter pick of a concrete model, stays put.
   pi.on("model_select", (_event, ctx) => {
     activeCtx = ctx;
-    if (enhancerModelOverride === undefined) updateWidget(ctx);
+    if (followsSessionModel()) updateWidget(ctx);
   });
 
   // Enter: if auto-enhance is on and this draft is a real request, rewrite
@@ -1903,7 +2092,8 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("prompt_enhance_model", {
-    description: "Prompt Enhancer: pick the enhancer model for this session (resets on restart).",
+    description:
+      "Prompt Enhancer: pick the enhancer model for this session, or save it as the default.",
     handler: async (_args, ctx) => {
       await handleEnhanceModel(ctx);
     },
@@ -1918,54 +2108,79 @@ export default function (pi: ExtensionAPI): void {
       );
       return;
     }
-
-    // Order so the currently-active model appears first. Pi's selector
-    // scrolls to the matching item; if the active model happens to fall
-    // alphabetically near the bottom, the picker would otherwise open
-    // already scrolled to the bottom of a long list.
-    const isActive = (m: Model<Api>): boolean => {
-      if (enhancerModelOverride !== undefined) {
-        return enhancerModelOverride.provider === m.provider && enhancerModelOverride.id === m.id;
-      }
-      return ctx.model?.provider === m.provider && ctx.model.id === m.id;
-    };
-    const sortedAvailable = [...available].sort((a, b) => {
-      const aActive = isActive(a);
-      const bActive = isActive(b);
-      if (aActive !== bActive) return aActive ? -1 : 1;
-      return modelLabel(a).localeCompare(modelLabel(b));
-    });
-    const choices = sortedAvailable.map((m) => {
-      const base = modelLabel(m);
-      const tag = isActive(m)
-        ? enhancerModelOverride !== undefined
-          ? " (current)"
-          : " (session default)"
-        : "";
-      return { label: `${base}${tag}`, model: m };
-    });
-
     if (!ctx.hasUI) {
       ctx.ui.notify("Prompt Enhancer model picker requires interactive mode.", "warning");
       return;
     }
 
-    // Official Pattern 1: SelectList + DynamicBorder via ctx.ui.custom
-    // (editor-replace, no overlay). Overlay maxHeight only clips; SelectList
-    // sizes its viewport from tui.terminal.rows so the highlight stays on screen.
-    const items: SelectItem[] = choices.map((c) => ({
-      value: modelLabel(c.model),
-      label: c.label,
-    }));
-    const choice = await ctx.ui.custom<string | undefined>((tui, theme, _kb, done) =>
-      createEnhancerModelSelector(tui, theme, items, done),
+    const byLabel = new Map(available.map((model) => [modelLabel(model), model]));
+    const picker = buildEnhancerPickerItems({
+      sessionModelLabel: ctx.model ? modelLabel(ctx.model) : undefined,
+      availableLabels: [...byLabel.keys()],
+      sessionChoice:
+        sessionChoice.kind === "follow"
+          ? FOLLOW_SESSION_VALUE
+          : sessionChoice.kind === "model"
+            ? modelLabel(sessionChoice.model)
+            : undefined,
+      savedKey,
+      savedAvailable: savedModel !== undefined,
+    });
+    const choice = await ctx.ui.custom<EnhancerPickerChoice | undefined>((tui, theme, _kb, done) =>
+      createEnhancerModelSelector(tui, theme, picker.items, done, picker.selectedIndex),
     );
     if (choice === undefined) return;
-    const picked = choices.find((c) => modelLabel(c.model) === choice)?.model;
+    await applyEnhancerChoice(ctx, choice, byLabel);
+  }
+
+  async function applyEnhancerChoice(
+    ctx: ExtensionContext,
+    choice: EnhancerPickerChoice,
+    byLabel: ReadonlyMap<string, Model<Api>>,
+  ): Promise<void> {
+    if (choice.value === FOLLOW_SESSION_VALUE) {
+      if (choice.persist) {
+        try {
+          await clearPromptEnhancerModel();
+        } catch {
+          ctx.ui.notify("Prompt Enhancer: could not save settings.", "error");
+          return;
+        }
+        savedKey = undefined;
+        savedModel = undefined;
+      }
+      sessionChoice = { kind: "follow" };
+      updateWidget(ctx);
+      showTransientStatus(
+        ctx,
+        choice.persist
+          ? "Enhancer follows the session model."
+          : "Enhancer follows the session model (this session).",
+      );
+      return;
+    }
+
+    const picked = byLabel.get(choice.value);
     if (!picked) return;
-    enhancerModelOverride = picked;
+    if (choice.persist) {
+      const id = modelLabel(picked);
+      try {
+        await writePromptEnhancerModel(id);
+      } catch {
+        ctx.ui.notify("Prompt Enhancer: could not save settings.", "error");
+        return;
+      }
+      savedKey = id;
+      savedModel = picked;
+    }
+    sessionChoice = { kind: "model", model: picked };
     updateWidget(ctx);
-    showTransientStatus(ctx, `Now using ${modelLabel(picked)}.`);
+    showTransientStatus(
+      ctx,
+      choice.persist
+        ? `Saved enhancer model: ${modelLabel(picked)}.`
+        : `Enhancer model: ${modelLabel(picked)} (this session).`,
+    );
   }
 
   const handleRevert = (_args: string, ctx: ExtensionContext): Promise<void> => {
