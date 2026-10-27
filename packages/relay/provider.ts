@@ -2,8 +2,8 @@
  * provider.ts — registers the `relay-claude`, `relay-grok`, and `relay-cursor` pi providers.
  *
  * A pi-subagent runs on an external coding agent simply by setting its `model` to
- * `relay-claude/<id>` (e.g. `relay-claude/opus-5-5`), `relay-grok/<id>` (e.g.
- * `relay-grok/grok-4.5`), or `relay-cursor/<id>` (e.g. `relay-cursor/opus-4-8`). pi's
+ * `relay-claude/<id>` (e.g. `relay-claude/claude-opus-5-5`), `relay-grok/<id>` (e.g.
+ * `relay-grok/grok-4.5`), or `relay-cursor/<id>` (e.g. `relay-cursor/claude-opus-4-8`). pi's
  * native `resolveModel` routes that model to the custom `streamSimple` handler
  * registered here; the handler runs ONE headless CLI invocation through the
  * backend's {@link AgentDriver} (`claudeDriver`/`grokDriver`/`cursorDriver`) and
@@ -60,12 +60,7 @@ import {
   CLAUDE_THINKING_MAP_NO_OFF,
   claudeDriver,
 } from "./drivers/claude.js";
-import {
-  CURSOR_EFFORT_THINKING_MAP,
-  CURSOR_FIXED_THINKING_MAP,
-  CURSOR_OPUS_48_THINKING_MAP,
-  cursorDriver,
-} from "./drivers/cursor.js";
+import { CURSOR_LISTED_MODELS, cursorDriver } from "./drivers/cursor.js";
 import { grokDriver } from "./drivers/grok.js";
 import { resolveThinkingLevel } from "./drivers/thinking.js";
 import { expandSkillReferences } from "./roles/resolver.js";
@@ -163,8 +158,6 @@ interface RelayCatalogModel {
   readonly contextWindow: number;
   readonly maxTokens: number;
   readonly thinkingLevelMap: Readonly<Record<string, string | null>>;
-  /** False only for exact-match traps. Real models stay reasoning-capable. */
-  readonly reasoning?: boolean;
 }
 
 function toProviderModels(
@@ -173,7 +166,7 @@ function toProviderModels(
   return models.map((m) => ({
     id: m.id,
     name: m.name,
-    reasoning: m.reasoning !== false,
+    reasoning: true,
     thinkingLevelMap: m.thinkingLevelMap,
     input: TEXT_ONLY,
     cost: { ...ZERO_COST },
@@ -183,13 +176,9 @@ function toProviderModels(
 }
 
 /**
- * Models exposed by the provider. Listed ids are versioned (`opus-4-8`,
- * `opus-5-5`, `sonnet-5-5`, `haiku-5-5`) and pin Claude Code `--model` to the
- * first-party id. Claude Code 2.1.295's first-party alias defaults are Opus 5.5,
- * Sonnet 5.5, and Haiku 5.5. The old unversioned ids are registered only so
- * Pi's exact match wins over its fuzzy match; the driver rejects them and does
- * not spawn a CLI. Opus 4.8 stays because it is a distinct already-listed model.
- * No new families are added.
+ * Models exposed by the provider. Each id is the Claude Code model id, sent
+ * unchanged as `--model`. Unversioned aliases (`opus`, `sonnet`, `haiku`) are
+ * not models. No partial id is rewritten into a Claude id.
  *
  * Windows from Claude Code 2.1.295's baked cards: Opus 4.8 is 1M / 64K default
  * (upper 128K); Opus 5.5, Sonnet 5.5, and Haiku 5.5 are 1M / 128K.
@@ -197,50 +186,35 @@ function toProviderModels(
  * `off` is hidden and clamps to `low`. Opus 4.8 can omit `--effort` on Pi `off`.
  * Every other Pi level is sent as `--effort <level>`.
  */
-function rejectedModel(id: string, useInstead: string): RelayCatalogModel {
-  return {
-    id,
-    name: `Rejected. Use ${useInstead}`,
-    contextWindow: 0,
-    maxTokens: 0,
-    reasoning: false,
-    thinkingLevelMap: { off: null },
-  };
-}
-
 const RELAY_CLAUDE_MODELS: readonly RelayCatalogModel[] = [
   {
-    id: "opus-4-8",
+    id: "claude-opus-4-8",
     name: "Relay Claude Opus 4.8",
     contextWindow: 1_000_000,
     maxTokens: 64_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP,
   },
   {
-    id: "opus-5-5",
+    id: "claude-opus-5-5",
     name: "Relay Claude Opus 5.5",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP_NO_OFF,
   },
   {
-    id: "sonnet-5-5",
+    id: "claude-sonnet-5-5",
     name: "Relay Claude Sonnet 5.5",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP_NO_OFF,
   },
   {
-    id: "haiku-5-5",
+    id: "claude-haiku-5-5",
     name: "Relay Claude Haiku 5.5",
     contextWindow: 1_000_000,
     maxTokens: 128_000,
     thinkingLevelMap: CLAUDE_THINKING_MAP_NO_OFF,
   },
-  // Exact ids so `relay-claude/opus` does not fuzzy-resolve to `opus-5-5`.
-  rejectedModel("opus", "opus-5-5"),
-  rejectedModel("sonnet", "sonnet-5-5"),
-  rejectedModel("haiku", "haiku-5-5"),
 ];
 
 /** The pi provider name. `model: relay-grok/<id>` routes to this provider. */
@@ -273,54 +247,17 @@ const RELAY_GROK_MODELS: readonly RelayCatalogModel[] = [
 export const RELAY_CURSOR_PROVIDER = "relay-cursor";
 
 /**
- * Models exposed by the provider. Pi `auto` → Cursor `--model auto` (no thinking
- * axis). Pi `composer-2-5` → Composer 2.5 (no thinking axis).
- * Pi `opus-4-8`, `opus-5-5`, and `sonnet-5-5` map by the Pi thinking level onto
- * Cursor listed ids. `auto` and Composer only advertise Pi `off`, because Cursor
- * lists no thinking variant for them. Opus 5.5 and Sonnet 5.5 hide `off` (thinking
- * cannot be disabled) and clamp it to `low`. Unversioned `cursor` and `opus`
- * are registered only so Pi cannot fuzzy-match them onto a versioned id; the
- * driver rejects them.
+ * Models exposed by the provider. Claude family ids are the base id
+ * (`claude-opus-4-8`, `claude-opus-5-5`, `claude-sonnet-5-5`). The driver maps
+ * Pi thinking onto the listed Cursor id. Fuzzy ids are not models.
  */
-const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = [
-  {
-    id: "auto",
-    name: "Relay Cursor Auto",
-    contextWindow: 200_000,
-    maxTokens: 64_000,
-    thinkingLevelMap: CURSOR_FIXED_THINKING_MAP,
-  },
-  {
-    id: "composer-2-5",
-    name: "Relay Cursor Composer 2.5",
-    contextWindow: 200_000,
-    maxTokens: 64_000,
-    thinkingLevelMap: CURSOR_FIXED_THINKING_MAP,
-  },
-  {
-    id: "opus-4-8",
-    name: "Relay Cursor Opus 4.8",
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-    thinkingLevelMap: CURSOR_OPUS_48_THINKING_MAP,
-  },
-  {
-    id: "opus-5-5",
-    name: "Relay Cursor Opus 5.5",
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-    thinkingLevelMap: CURSOR_EFFORT_THINKING_MAP,
-  },
-  {
-    id: "sonnet-5-5",
-    name: "Relay Cursor Sonnet 5.5",
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-    thinkingLevelMap: CURSOR_EFFORT_THINKING_MAP,
-  },
-  rejectedModel("cursor", "composer-2-5"),
-  rejectedModel("opus", "opus-4-8"),
-];
+const RELAY_CURSOR_MODELS: readonly RelayCatalogModel[] = CURSOR_LISTED_MODELS.map((model) => ({
+  id: model.id,
+  name: model.name,
+  contextWindow: model.contextWindow,
+  maxTokens: model.maxTokens,
+  thinkingLevelMap: model.thinkingLevelMap,
+}));
 
 /** Resolve the configured idle-cap in milliseconds (D6). Any stdout/stderr byte resets it. */
 function wallCapMs(): number {

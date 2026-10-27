@@ -56,24 +56,19 @@ cmd_catalog() {
   [[ -n "$CATALOG" ]] || die "no relay-* rows from pi --list-models (published 1.2.1 still loaded?)"
   printf '%s\n' "$CATALOG"
   printf '\n'
-  expect_catalog_row relay-claude opus-4-8 1M 64K yes
-  expect_catalog_row relay-claude opus-5-5 1M 128K yes
-  expect_catalog_row relay-claude sonnet-5-5 1M 128K yes
-  expect_catalog_row relay-claude haiku-5-5 1M 128K yes
+  expect_catalog_row relay-claude claude-opus-4-8 1M 64K yes
+  expect_catalog_row relay-claude claude-opus-5-5 1M 128K yes
+  expect_catalog_row relay-claude claude-sonnet-5-5 1M 128K yes
+  expect_catalog_row relay-claude claude-haiku-5-5 1M 128K yes
   expect_catalog_row relay-grok grok-4.5 500K 500K yes
-  expect_catalog_row relay-cursor opus-4-8 1M 128K yes
-  expect_catalog_row relay-cursor opus-5-5 1M 128K yes
-  expect_catalog_row relay-cursor sonnet-5-5 1M 128K yes
-  expect_catalog_row relay-cursor composer-2-5 200K 64K yes
+  expect_catalog_row relay-cursor claude-opus-4-8 1M 128K yes
+  expect_catalog_row relay-cursor claude-opus-5-5 1M 128K yes
+  expect_catalog_row relay-cursor claude-sonnet-5-5 1M 128K yes
+  expect_catalog_row relay-cursor composer-2.5 200K 64K yes
   expect_catalog_row relay-cursor auto 200K 64K yes
-  expect_catalog_row relay-claude opus 0 0 no
-  expect_catalog_row relay-claude sonnet 0 0 no
-  expect_catalog_row relay-claude haiku 0 0 no
-  expect_catalog_row relay-cursor cursor 0 0 no
-  expect_catalog_row relay-cursor opus 0 0 no
   expect_catalog_row relay-grok grok-composer-2.5-fast 200K 64K yes
-  # Exact-match traps (opus, sonnet, haiku, cursor) are listed as 0/0 thinking=no.
-  if printf '%s\n' "$CATALOG" | awk '$2 !~ /^(opus|sonnet|haiku|cursor)$/ && $5=="no"{exit 0} END{exit 1}'; then
+  # opus/sonnet/haiku/cursor are not models. A supported model must not have thinking=no.
+  if printf '%s\n' "$CATALOG" | awk '$5=="no"{exit 0} END{exit 1}'; then
     die "a supported relay model still has thinking=no (old 1.2.1 catalog)"
   fi
   ok "catalog matches empirical / agreed numbers"
@@ -186,16 +181,16 @@ cmd_argv() {
   install_wrappers
   export PATH="$WRAP_DIR:$PATH"
 
-  run_one "relay-claude/opus-5-5:high"
-  run_one "relay-claude/opus-5-5:off"
-  run_one "relay-claude/opus-4-8:off"
+  run_one "relay-claude/claude-opus-5-5:high"
+  run_one "relay-claude/claude-opus-5-5:off"
+  run_one "relay-claude/claude-opus-4-8:off"
   run_one "relay-grok/grok-4.5:high"
-  run_one "relay-cursor/opus-4-8:high"
-  run_one "relay-cursor/opus-4-8:off"
-  run_one "relay-cursor/opus-5-5:medium"
-  run_one "relay-cursor/opus-5-5:off"
-  run_one "relay-cursor/composer-2-5:high"
-  run_one "relay-cursor/auto:high"
+  run_one "relay-cursor/claude-opus-4-8:high"
+  run_one "relay-cursor/claude-opus-4-8:off"
+  run_one "relay-cursor/claude-opus-5-5:medium"
+  run_one "relay-cursor/claude-opus-5-5:off"
+  run_one "relay-cursor/composer-2.5"
+  run_one "relay-cursor/auto"
 
   cmd_assert
   ok "argv map matches the thinking-map spec"
@@ -204,22 +199,19 @@ cmd_argv() {
 cmd_assert() {
   [[ -f "$LOG" ]] || die "no log at $LOG — run argv first"
   printf '\n== argv assertions (from %s) ==\n' "$LOG"
-  must_have "relay-claude/opus-5-5:high" '--model claude-opus-5-5'
-  must_have "relay-claude/opus-5-5:high" '--effort high'
-  must_have "relay-claude/opus-5-5:off" '--model claude-opus-5-5'
-  must_have "relay-claude/opus-5-5:off" '--effort low'
-  must_have "relay-claude/opus-4-8:off" '--model claude-opus-4-8'
-  must_not "relay-claude/opus-4-8:off" '--effort'
+  must_have "relay-claude/claude-opus-5-5:high" '--model claude-opus-5-5'
+  must_have "relay-claude/claude-opus-5-5:high" '--effort high'
+  must_have "relay-claude/claude-opus-5-5:off" '--model claude-opus-5-5'
+  must_have "relay-claude/claude-opus-5-5:off" '--effort low'
+  must_have "relay-claude/claude-opus-4-8:off" '--model claude-opus-4-8'
+  must_not "relay-claude/claude-opus-4-8:off" '--effort'
   must_have "relay-grok/grok-4.5:high" '--reasoning-effort high'
-  must_have "relay-cursor/opus-4-8:high" '--model claude-opus-4-8-thinking-high'
-  must_not "relay-cursor/opus-4-8:high" '--model claude-opus-4-8-high'
-  must_have "relay-cursor/opus-4-8:off" '--model claude-opus-4-8-high'
-  must_not "relay-cursor/opus-4-8:off" 'thinking-high'
-  must_have "relay-cursor/opus-5-5:medium" '--model claude-opus-5-5-medium'
-  must_have "relay-cursor/opus-5-5:off" '--model claude-opus-5-5-low'
-  must_have "relay-cursor/composer-2-5:high" '--model composer-2.5'
-  must_have "relay-cursor/auto:high" '--model auto'
-  must_not "relay-cursor/auto:high" 'thinking-high'
+  must_have "relay-cursor/claude-opus-4-8:high" '--model claude-opus-4-8-thinking-high'
+  must_have "relay-cursor/claude-opus-4-8:off" '--model claude-opus-4-8-high'
+  must_have "relay-cursor/claude-opus-5-5:medium" '--model claude-opus-5-5-medium'
+  must_have "relay-cursor/claude-opus-5-5:off" '--model claude-opus-5-5-low'
+  must_have "relay-cursor/composer-2.5" '--model composer-2.5'
+  must_have "relay-cursor/auto" '--model auto'
   printf '\n== ARGV lines ==\n'
   awk '/ ARGV:/ {print substr($0,1,220)}' "$LOG"
 }

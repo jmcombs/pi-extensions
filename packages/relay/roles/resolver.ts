@@ -167,7 +167,7 @@ export interface ResolvedRole {
   readonly tools: string[];
   /** Whether the assembled prompt replaces or appends to the default. */
   readonly systemPromptMode: "replace" | "append";
-  /** Declared model id (e.g. `relay-claude/opus-5-5`), if any. */
+  /** Declared model id (e.g. `relay-claude/claude-opus-5-5`), if any. */
   readonly model?: string;
 }
 

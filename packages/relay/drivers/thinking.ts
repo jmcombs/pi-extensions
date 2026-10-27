@@ -3,7 +3,7 @@
  *
  * Pi encodes thinking two ways that both show up at this seam:
  *   1. `options.reasoning` on `streamSimple` (`minimal`…`max`; omitted when off)
- *   2. a `:<level>` suffix on the model id (`opus-5-5:high`, `relay-cursor/opus-5-5:off`)
+ *   2. a `:<level>` suffix on the model id (`opus-5-5:high`, `relay-cursor/claude-opus-5-5:off`)
  *
  * Mapping a resolved level onto a backend flag or listed `--model` id is a
  * per-driver concern (D10). This module only parses Pi's own encoding.
@@ -22,7 +22,7 @@ const PI_THINKING_LEVELS: ReadonlySet<string> = new Set([
   "max",
 ]);
 
-/** A leading `<provider>/` segment, e.g. the `relay-cursor/` in `relay-cursor/opus-5-5`. */
+/** A leading `<provider>/` segment, e.g. the `relay-cursor/` in `relay-cursor/claude-opus-5-5`. */
 const PROVIDER_PREFIX = /^[^/]*\//;
 
 /** A pi thinking level appended to the model id, e.g. the `:high` in `opus:high`. */
@@ -41,7 +41,7 @@ function asThinkingLevel(value: string): PiThinkingLevel | undefined {
 
 /**
  * Split a pi model id into the bare backend id and an optional thinking suffix.
- * Strips a `provider/` prefix first (`relay-cursor/opus-5-5:high` → `opus-5-5` + `high`).
+ * Strips a `provider/` prefix first (`relay-cursor/claude-opus-5-5:high` → `opus-5-5` + `high`).
  */
 export function parseModelThinking(modelId: string): ParsedModelId {
   const stripped = modelId.trim().toLowerCase().replace(PROVIDER_PREFIX, "");

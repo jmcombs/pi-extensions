@@ -13,7 +13,7 @@
  * authenticated (Claude via your subscription's oauthAccount; Grok via
  * `grok login` or `XAI_API_KEY`):
  *
- *   node packages/relay/scripts/harness.mjs                        # relay-claude/opus-5-5 (default)
+ *   node packages/relay/scripts/harness.mjs                        # relay-claude/claude-opus-5-5 (default)
  *   node packages/relay/scripts/harness.mjs --model relay-grok/grok-4.5
  *   node packages/relay/scripts/harness.mjs --model relay-cursor/auto
  *
@@ -32,7 +32,7 @@ const TOKEN = "RELAY_PROVIDER_OK";
 function parseModelArg(argv) {
   const idx = argv.indexOf("--model");
   if (idx >= 0 && argv[idx + 1]) return argv[idx + 1];
-  return "relay-claude/opus-5-5";
+  return "relay-claude/claude-opus-5-5";
 }
 
 function ok(pass, label) {
