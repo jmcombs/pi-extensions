@@ -38,7 +38,7 @@ result back:
 ```ts
 interface DriverInvocation {
   readonly task: string; // the final task / user message
-  readonly model: string; // id after the slash: relay-<x>/opus-5-5 → "opus-5-5"
+  readonly model: string; // id after the slash: relay-claude/claude-opus-5-5 → "claude-opus-5-5"
   readonly thinking?: PiThinkingLevel; // Pi thinking (`off`…`max`); drivers also parse `:<level>` on model
   readonly systemPromptFile?: string; // assembled persona + inlined skills (a file path)
   readonly systemPromptMode?: "replace" | "append";

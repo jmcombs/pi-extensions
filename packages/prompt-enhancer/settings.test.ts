@@ -44,9 +44,9 @@ describe("interpretPromptEnhancerModel", () => {
     expect(interpretPromptEnhancerModel(false, undefined)).toEqual({ kind: "inherit" });
     expect(interpretPromptEnhancerModel(true, null)).toEqual({ kind: "inherit" });
     expect(interpretPromptEnhancerModel(true, "")).toEqual({ kind: "inherit" });
-    expect(interpretPromptEnhancerModel(true, "relay-claude/opus-5-5")).toEqual({
+    expect(interpretPromptEnhancerModel(true, "relay-claude/claude-opus-5-5")).toEqual({
       kind: "model",
-      id: "relay-claude/opus-5-5",
+      id: "relay-claude/claude-opus-5-5",
     });
     expect(interpretPromptEnhancerModel(true, { provider: "x" })).toEqual({ kind: "invalid" });
   });

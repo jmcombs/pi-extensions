@@ -100,20 +100,12 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     expect(provider.config.apiKey).toBeTruthy();
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
     expect(modelIds).toEqual([
-      "opus-4-8",
-      "opus-5-5",
-      "sonnet-5-5",
-      "haiku-5-5",
-      "opus",
-      "sonnet",
-      "haiku",
+      "claude-opus-4-8",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
     ]);
-    const traps = (provider.config.models ?? []).filter((m) =>
-      ["opus", "sonnet", "haiku"].includes(m.id),
-    );
-    expect(
-      traps.every((m) => m.contextWindow === 0 && m.maxTokens === 0 && m.reasoning === false),
-    ).toBe(true);
+    expect(modelIds).not.toEqual(expect.arrayContaining(["opus", "sonnet", "haiku"]));
   });
 
   it("registers the relay-grok provider with a custom streamSimple and grok-4.5 model", () => {
@@ -145,20 +137,14 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     const modelIds = (provider.config.models ?? []).map((m) => m.id);
     expect(modelIds).toEqual([
       "auto",
-      "composer-2-5",
-      "opus-4-8",
-      "opus-5-5",
-      "sonnet-5-5",
-      "cursor",
-      "opus",
+      "composer-2.5",
+      "claude-opus-4-8",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
     ]);
-    const traps = (provider.config.models ?? []).filter(
-      (m) => m.id === "cursor" || m.id === "opus",
-    );
-    expect(traps).toEqual([
-      expect.objectContaining({ id: "cursor", contextWindow: 0, maxTokens: 0, reasoning: false }),
-      expect.objectContaining({ id: "opus", contextWindow: 0, maxTokens: 0, reasoning: false }),
-    ]);
+    for (const fuzzy of ["cursor", "opus", "sonnet", "haiku", "composer-2-5"]) {
+      expect(modelIds).not.toContain(fuzzy);
+    }
   });
 
   it("catalogs context, max-out, thinking, and text-only input per backend", () => {
@@ -166,16 +152,16 @@ describe("@jmcombs/pi-relay — provider registration", () => {
     factory(api);
 
     const byProvider = Object.fromEntries(providers.map((p) => [p.name, p.config.models ?? []]));
-    const claudeOpus48 = byProvider["relay-claude"]?.find((m) => m.id === "opus-4-8");
-    const claudeOpus55 = byProvider["relay-claude"]?.find((m) => m.id === "opus-5-5");
-    const claudeSonnet55 = byProvider["relay-claude"]?.find((m) => m.id === "sonnet-5-5");
-    const claudeHaiku = byProvider["relay-claude"]?.find((m) => m.id === "haiku-5-5");
+    const claudeOpus48 = byProvider["relay-claude"]?.find((m) => m.id === "claude-opus-4-8");
+    const claudeOpus55 = byProvider["relay-claude"]?.find((m) => m.id === "claude-opus-5-5");
+    const claudeSonnet55 = byProvider["relay-claude"]?.find((m) => m.id === "claude-sonnet-5-5");
+    const claudeHaiku = byProvider["relay-claude"]?.find((m) => m.id === "claude-haiku-5-5");
     const grok45 = byProvider["relay-grok"]?.find((m) => m.id === "grok-4.5");
-    const cursorOpus48 = byProvider["relay-cursor"]?.find((m) => m.id === "opus-4-8");
+    const cursorOpus48 = byProvider["relay-cursor"]?.find((m) => m.id === "claude-opus-4-8");
     const cursorAuto = byProvider["relay-cursor"]?.find((m) => m.id === "auto");
-    const cursorComposer = byProvider["relay-cursor"]?.find((m) => m.id === "composer-2-5");
-    const cursorOpus55 = byProvider["relay-cursor"]?.find((m) => m.id === "opus-5-5");
-    const cursorSonnet55 = byProvider["relay-cursor"]?.find((m) => m.id === "sonnet-5-5");
+    const cursorComposer = byProvider["relay-cursor"]?.find((m) => m.id === "composer-2.5");
+    const cursorOpus55 = byProvider["relay-cursor"]?.find((m) => m.id === "claude-opus-5-5");
+    const cursorSonnet55 = byProvider["relay-cursor"]?.find((m) => m.id === "claude-sonnet-5-5");
     if (
       !claudeOpus48 ||
       !claudeOpus55 ||
@@ -243,7 +229,7 @@ describe("@jmcombs/pi-relay — provider registration", () => {
       maxTokens: 128_000,
     });
     expect(cursorOpus48.thinkingLevelMap?.off).toBe("off");
-    expect(cursorOpus48.thinkingLevelMap?.high).toBe("high");
+    expect(cursorOpus48.thinkingLevelMap?.medium).toBe("medium");
     expect(cursorOpus48.thinkingLevelMap?.minimal).toBeNull();
     expect(cursorAuto.reasoning).toBe(true);
     expect(cursorAuto.input).toEqual(["text"]);
@@ -1011,7 +997,7 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
   it("buildArgs emits comma-separated permission rules from the neutral pi tool list", () => {
     const args = claudeDriver.buildArgs({
       task: "t",
-      model: "opus-5-5",
+      model: "claude-opus-5-5",
       tools: ["read", "bash", "grep", "find", "subagent"],
     });
     const idx = args.indexOf("--allowedTools");
@@ -1028,7 +1014,7 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
   it("buildArgs uses stream-json + --verbose and never a permission-skip flag", () => {
     const args = claudeDriver.buildArgs({
       task: "t",
-      model: "opus-5-5",
+      model: "claude-opus-5-5",
       thinking: "high",
       tools: ["read", "bash", "grep", "find"],
     });
@@ -1041,67 +1027,73 @@ describe("claudeDriver — tool-name map (D10, in the driver)", () => {
     expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
   });
 
-  it("maps Pi thinking onto `--effort` and resolves pinned Opus model ids", () => {
+  it("sends an exact Claude model id and does not construct one from an alias or partial", () => {
     expect(mapClaudeEffort("off")).toBeUndefined();
     expect(mapClaudeEffort("minimal")).toBe("low");
     expect(mapClaudeEffort("high")).toBe("high");
     expect(mapClaudeEffort("max")).toBe("max");
 
-    expect(resolveClaudeModel("opus-4-8")).toBe("claude-opus-4-8");
-    expect(resolveClaudeModel("relay-claude/opus-5-5")).toBe("claude-opus-5-5");
-    expect(resolveClaudeModel("relay-claude/sonnet-5-5")).toBe("claude-sonnet-5-5");
-    expect(resolveClaudeModel("haiku-5-5")).toBe("claude-haiku-5-5");
-    expect(() => resolveClaudeModel("opus")).toThrow(/not a supported relay-claude model/);
-    expect(() => resolveClaudeModel("opus-4.8")).toThrow(/not a supported relay-claude model/);
-    expect(() => resolveClaudeModel("relay-claude/opus-5.5")).toThrow(
-      /not a supported relay-claude model/,
-    );
-    expect(() => resolveClaudeModel("sonnet")).toThrow(/not a supported relay-claude model/);
-    expect(() => resolveClaudeModel("sonnet-5.5:high")).toThrow(
-      /not a supported relay-claude model/,
-    );
-    expect(() => resolveClaudeModel("haiku")).toThrow(/not a supported relay-claude model/);
+    expect(resolveClaudeModel("claude-opus-4-8")).toBe("claude-opus-4-8");
+    expect(resolveClaudeModel("relay-claude/claude-opus-5-5")).toBe("claude-opus-5-5");
+    expect(resolveClaudeModel("relay-claude/claude-sonnet-5-5:high")).toBe("claude-sonnet-5-5");
+    expect(resolveClaudeModel("claude-haiku-5-5")).toBe("claude-haiku-5-5");
 
-    const withSuffix = claudeDriver.buildArgs({ task: "t", model: "relay-claude/opus-5-5:high" });
+    for (const partial of [
+      "opus",
+      "sonnet",
+      "haiku",
+      "opus-4-8",
+      "opus-5-5",
+      "sonnet-5-5",
+      "haiku-5-5",
+      "fable-5",
+      "opus-4.8",
+      "claude-opus-4.8",
+      "claude-opus",
+      "claude-foo",
+      "best",
+      "sonnet[1m]",
+    ]) {
+      expect(() => resolveClaudeModel(partial)).toThrow(/not a supported relay-claude model/);
+    }
+
+    const withSuffix = claudeDriver.buildArgs({
+      task: "t",
+      model: "relay-claude/claude-opus-5-5:high",
+    });
     expect(withSuffix[withSuffix.indexOf("--model") + 1]).toBe("claude-opus-5-5");
     expect(withSuffix[withSuffix.indexOf("--effort") + 1]).toBe("high");
 
     expect(() => claudeDriver.buildArgs({ task: "t", model: "opus", thinking: "off" })).toThrow(
       /not a supported relay-claude model/,
     );
+    expect(() =>
+      claudeDriver.buildArgs({ task: "t", model: "opus-5-5", thinking: "high" }),
+    ).toThrow(/not a supported relay-claude model/);
 
     const opus55 = claudeDriver.buildArgs({
       task: "t",
-      model: "relay-claude/opus-5-5",
+      model: "relay-claude/claude-opus-5-5",
       thinking: "medium",
     });
     expect(opus55[opus55.indexOf("--model") + 1]).toBe("claude-opus-5-5");
     expect(opus55[opus55.indexOf("--effort") + 1]).toBe("medium");
 
-    const sonnet55 = claudeDriver.buildArgs({
-      task: "t",
-      model: "relay-claude/sonnet-5-5",
-      thinking: "medium",
-    });
-    expect(sonnet55[sonnet55.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
-    expect(sonnet55[sonnet55.indexOf("--effort") + 1]).toBe("medium");
     const sonnet55Off = claudeDriver.buildArgs({
       task: "t",
-      model: "sonnet-5-5",
+      model: "claude-sonnet-5-5",
       thinking: "off",
     });
     expect(sonnet55Off[sonnet55Off.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
     expect(sonnet55Off[sonnet55Off.indexOf("--effort") + 1]).toBe("low");
 
-    const pinned48 = claudeDriver.buildArgs({ task: "t", model: "opus-4-8", thinking: "off" });
+    const pinned48 = claudeDriver.buildArgs({
+      task: "t",
+      model: "claude-opus-4-8",
+      thinking: "off",
+    });
     expect(pinned48[pinned48.indexOf("--model") + 1]).toBe("claude-opus-4-8");
     expect(pinned48).not.toContain("--effort");
-    const pinned48High = claudeDriver.buildArgs({
-      task: "t",
-      model: "opus-4-8",
-      thinking: "high",
-    });
-    expect(pinned48High[pinned48High.indexOf("--effort") + 1]).toBe("high");
   });
 });
 
@@ -1116,7 +1108,7 @@ describe("claudeDriver — read-only by declaration, NO OS sandbox (D12)", () =>
   it("emits no sandbox `--settings` and no `--disallowedTools` for a read-only role", () => {
     const args = claudeDriver.buildArgs({
       task: "t",
-      model: "opus-5-5",
+      model: "claude-opus-5-5",
       tools: ["read", "bash", "grep", "find"],
     });
     expect(args).not.toContain("--settings");
@@ -1136,21 +1128,21 @@ describe("claudeDriver — read-only by declaration, NO OS sandbox (D12)", () =>
   it("includes Edit only when the role declares it, and never Write unless declared", () => {
     const args = claudeDriver.buildArgs({
       task: "t",
-      model: "opus-5-5",
+      model: "claude-opus-5-5",
       tools: ["read", "bash", "edit"],
     });
     expect(args[args.indexOf("--allowedTools") + 1]).toBe("Read,Bash(*),Edit");
   });
 
   it("still fail-closes when the role declares no tools", () => {
-    const args = claudeDriver.buildArgs({ task: "t", model: "opus-5-5" });
+    const args = claudeDriver.buildArgs({ task: "t", model: "claude-opus-5-5" });
     expect(args).not.toContain("--allowedTools");
     expect(args[args.indexOf("--permission-mode") + 1]).toBe("dontAsk");
     expect(args[args.indexOf("--permission-prompts") + 1]).toBe("none");
   });
 
   it("disables interactive permission hooks in every environment", () => {
-    expect(claudeDriver.env?.({ task: "t", model: "opus-5-5" })).toEqual({
+    expect(claudeDriver.env?.({ task: "t", model: "claude-opus-5-5" })).toEqual({
       CMUX_CLAUDE_HOOKS_DISABLED: "1",
     });
   });
@@ -1391,61 +1383,40 @@ describe("grokDriver — parseResult (D6 fail-safe)", () => {
 });
 
 describe("cursorDriver — model map + permissions (D10, in the driver)", () => {
-  it("maps versioned pi ids and rejects unversioned and dotted aliases", () => {
-    expect(resolveCursorModel("opus-4-8")).toBe("claude-opus-4-8-high");
+  it("maps Pi thinking onto the listed Cursor id and rejects fuzzy ids", () => {
     expect(resolveCursorModel("AUTO")).toBe("auto");
-    expect(resolveCursorModel("composer-2-5")).toBe("composer-2.5");
-    expect(resolveCursorModel("opus-5-5")).toBe("claude-opus-5-5-low");
-    expect(resolveCursorModel("sonnet-5-5")).toBe("claude-sonnet-5-5-low");
-    expect(resolveCursorModel("claude-opus-4-8-high")).toBe("claude-opus-4-8-high");
     expect(resolveCursorModel("composer-2.5")).toBe("composer-2.5");
-    expect(resolveCursorModel("claude-opus-5-5-medium")).toBe("claude-opus-5-5-medium");
-    expect(resolveCursorModel("claude-sonnet-5-5-medium")).toBe("claude-sonnet-5-5-medium");
-    expect(() => resolveCursorModel("opus")).toThrow(/not a supported relay-cursor model/);
-    expect(() => resolveCursorModel("opus-4.8")).toThrow(/not a supported relay-cursor model/);
-    expect(() => resolveCursorModel("cursor")).toThrow(/not a supported relay-cursor model/);
-    expect(() => resolveCursorModel("opus-5.5")).toThrow(/not a supported relay-cursor model/);
-    expect(() => resolveCursorModel("sonnet-5.5")).toThrow(/not a supported relay-cursor model/);
-  });
-
-  // Pi hands the driver the model string as written in the role file, so the
-  // `relay-cursor/` provider prefix and the thinking level pi appends when a
-  // role declares `thinking: high` both arrive here. Cursor encodes thinking in
-  // the listed `--model` id (`…-thinking-high` for 4.8, `…-5-5-high` for 5.5).
-  it("maps Pi thinking onto Cursor listed thinking ids and strips the provider prefix", () => {
-    expect(resolveCursorModel("relay-cursor/opus-4-8")).toBe("claude-opus-4-8-high");
-    expect(resolveCursorModel("relay-cursor/opus-4-8:high")).toBe("claude-opus-4-8-thinking-high");
-    expect(resolveCursorModel("relay-cursor/opus-4-8:off")).toBe("claude-opus-4-8-high");
-    expect(resolveCursorModel("opus-4-8:low")).toBe("claude-opus-4-8-thinking-low");
-    expect(resolveCursorModel("opus-4-8:max")).toBe("claude-opus-4-8-thinking-max");
-    expect(resolveCursorModel("opus-4-8", "xhigh")).toBe("claude-opus-4-8-thinking-xhigh");
-    expect(() => resolveCursorModel("relay-cursor/opus:high")).toThrow(
-      /not a supported relay-cursor model/,
+    expect(resolveCursorModel("claude-opus-4-8", "medium")).toBe("claude-opus-4-8-thinking-medium");
+    expect(resolveCursorModel("relay-cursor/claude-opus-4-8:medium")).toBe(
+      "claude-opus-4-8-thinking-medium",
     );
-    expect(resolveCursorModel("relay-cursor/auto:medium")).toBe("auto");
-    expect(resolveCursorModel("relay-cursor/composer-2-5:high")).toBe("composer-2.5");
-    expect(() => resolveCursorModel("relay-cursor/cursor:high")).toThrow(
-      /not a supported relay-cursor model/,
+    expect(resolveCursorModel("claude-opus-4-8")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("claude-opus-4-8", "off")).toBe("claude-opus-4-8-high");
+    expect(resolveCursorModel("claude-opus-5-5", "medium")).toBe("claude-opus-5-5-medium");
+    expect(resolveCursorModel("relay-cursor/claude-opus-5-5:off")).toBe("claude-opus-5-5-low");
+    expect(resolveCursorModel("claude-sonnet-5-5", "medium")).toBe("claude-sonnet-5-5-medium");
+    expect(resolveCursorModel("relay-cursor/claude-sonnet-5-5:high")).toBe(
+      "claude-sonnet-5-5-high",
     );
-    expect(resolveCursorModel("relay-cursor/opus-5-5")).toBe("claude-opus-5-5-low");
-    expect(resolveCursorModel("relay-cursor/opus-5-5:off")).toBe("claude-opus-5-5-low");
-    expect(() => resolveCursorModel("opus-5.5:medium")).toThrow(
-      /not a supported relay-cursor model/,
-    );
-    expect(resolveCursorModel("opus-5-5:high")).toBe("claude-opus-5-5-high");
-    expect(resolveCursorModel("opus-5-5:low")).toBe("claude-opus-5-5-low");
-    expect(resolveCursorModel("opus-5-5", "max")).toBe("claude-opus-5-5-max");
-    expect(resolveCursorModel("relay-cursor/sonnet-5-5")).toBe("claude-sonnet-5-5-low");
-    expect(resolveCursorModel("relay-cursor/sonnet-5-5:off")).toBe("claude-sonnet-5-5-low");
-    expect(() => resolveCursorModel("sonnet-5.5:medium")).toThrow(
-      /not a supported relay-cursor model/,
-    );
-    expect(resolveCursorModel("sonnet-5-5:high")).toBe("claude-sonnet-5-5-high");
-    expect(resolveCursorModel("sonnet-5-5:low")).toBe("claude-sonnet-5-5-low");
-    expect(resolveCursorModel("sonnet-5-5", "max")).toBe("claude-sonnet-5-5-max");
-    expect(resolveCursorModel("  RELAY-CURSOR/Opus-4-8:High  ")).toBe(
+    expect(resolveCursorModel("claude-opus-4-8-thinking-high")).toBe(
       "claude-opus-4-8-thinking-high",
     );
+    for (const fuzzy of [
+      "opus",
+      "sonnet",
+      "haiku",
+      "cursor",
+      "composer-2-5",
+      "opus-4-8",
+      "opus-5-5",
+      "sonnet-5-5",
+      "opus-4.8",
+      "relay-cursor/composer-2-5",
+      "relay-cursor/cursor",
+      "relay-cursor/opus:high",
+    ]) {
+      expect(() => resolveCursorModel(fuzzy)).toThrow(/not a supported relay-cursor model/);
+    }
   });
 
   // Forwarding an unmapped id would make Cursor reject the model only after the
@@ -1470,9 +1441,9 @@ describe("cursorDriver — model map + permissions (D10, in the driver)", () => 
   it("buildArgs emits headless stream-json + --trust and never a bypass/sandbox flag", () => {
     const args = cursorDriver.buildArgs({
       // The provider passes `model.id` straight through, so this is the shape pi
-      // sends for a `relay-cursor/opus-4-8` role with `thinking: high`.
+      // sends for a role whose model is the listed id, not a fuzzy family id.
       task: "t",
-      model: "relay-cursor/opus-4-8:high",
+      model: "relay-cursor/claude-opus-4-8:high",
       tools: ["read", "bash"],
     });
     expect(args).toEqual([
@@ -1658,12 +1629,12 @@ describe("roles resolver — frontmatter + assembly (backend-neutral)", () => {
 
   it("parses frontmatter fields and strips the block from the body", () => {
     const { frontmatter, body } = parseRoleFile(
-      "---\nname: r\nskills: a, b\ntools: read, bash\nsystemPromptMode: replace\nmodel: relay-claude/opus-5-5\n---\nPersona body here.",
+      "---\nname: r\nskills: a, b\ntools: read, bash\nsystemPromptMode: replace\nmodel: relay-claude/claude-opus-5-5\n---\nPersona body here.",
     );
     expect(frontmatter.skills).toEqual(["a", "b"]);
     expect(frontmatter.tools).toEqual(["read", "bash"]);
     expect(frontmatter.systemPromptMode).toBe("replace");
-    expect(frontmatter.model).toBe("relay-claude/opus-5-5");
+    expect(frontmatter.model).toBe("relay-claude/claude-opus-5-5");
     expect(body).toBe("Persona body here.");
   });
 

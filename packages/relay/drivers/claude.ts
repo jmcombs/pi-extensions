@@ -55,30 +55,12 @@ export const CLAUDE_THINKING_MAP = piThinkingMap(CLAUDE_EFFORT_LEVELS);
 /** Catalog map for Claude models that reject disabled thinking. */
 export const CLAUDE_THINKING_MAP_NO_OFF = piThinkingMap(CLAUDE_EFFORT_NO_OFF);
 
-/**
- * Pi model id → Claude Code `--model` value.
- *
- * Listed ids are versioned (`opus-4-8`, `opus-5-5`, `sonnet-5-5`, `haiku-5-5`)
- * and pin the first-party id (`claude-opus-4-8`, `claude-opus-5-5`, …).
- * Unversioned aliases (`opus`, `sonnet`, `haiku`) and dotted ids (`opus-4.8`,
- * `opus-5.5`, `sonnet-5.5`) are rejected. Unknown ids are passed through so a
- * future Claude id does not need a relay release to reach `--model`.
- */
-export const CLAUDE_MODEL_MAP: Readonly<Record<string, string>> = {
-  "opus-4-8": "claude-opus-4-8",
-  "opus-5-5": "claude-opus-5-5",
-  "sonnet-5-5": "claude-sonnet-5-5",
-  "haiku-5-5": "claude-haiku-5-5",
-};
-
-/** Retired Pi ids. Rejected so they cannot fall through to `--model` passthrough. */
-const RETIRED_CLAUDE_IDS: ReadonlySet<string> = new Set([
-  "opus",
-  "opus-4.8",
-  "opus-5.5",
-  "sonnet",
-  "sonnet-5.5",
-  "haiku",
+/** Exact Claude Code ids relay sends. Anything else fails. */
+const CLAUDE_MODEL_IDS: ReadonlySet<string> = new Set([
+  "claude-opus-4-8",
+  "claude-opus-5-5",
+  "claude-sonnet-5-5",
+  "claude-haiku-5-5",
 ]);
 
 /** Backend ids whose model card sets `rejects_disabled_thinking`. */
@@ -98,16 +80,24 @@ export function claudeSupportedLevels(backendId: string): readonly PiThinkingLev
   return undefined;
 }
 
-/** Resolve a pi model id to the Claude Code `--model` value (strips provider/thinking). */
+function unsupportedClaudeModel(piId: string): Error {
+  return new Error(
+    `relay-claude: \`${piId}\` is not a supported relay-claude model. ` +
+      `Use the exact Claude model id. Unversioned aliases and partial ids are not relay models.`,
+  );
+}
+
+/**
+ * Resolve a pi model id to the Claude Code `--model` value.
+ *
+ * Strips a provider prefix and thinking suffix, then sends the bare id only
+ * when it is one of the catalog ids. Never prefixes or otherwise constructs an
+ * id. `claude-opus` and `claude-foo` fail.
+ */
 export function resolveClaudeModel(piId: string): string {
   const id = parseModelThinking(piId).bareId;
-  if (RETIRED_CLAUDE_IDS.has(id)) {
-    throw new Error(
-      `relay-claude: \`${piId}\` is not a supported relay-claude model. ` +
-        `Use one of: opus-4-8, opus-5-5, sonnet-5-5, haiku-5-5.`,
-    );
-  }
-  return CLAUDE_MODEL_MAP[id] ?? id;
+  if (!CLAUDE_MODEL_IDS.has(id)) throw unsupportedClaudeModel(piId);
+  return id;
 }
 
 /**
@@ -118,7 +108,7 @@ export function resolveClaudeModel(piId: string): string {
 export interface DriverInvocation {
   /** The task / final user message text handed to the external agent. */
   readonly task: string;
-  /** External model id parsed from the pi model id (e.g. `relay-claude/opus-5-5` → `opus-5-5`). */
+  /** External model id parsed from the pi model id (e.g. `relay-claude/claude-opus-5-5`). */
   readonly model: string;
   /**
    * Pi thinking level for this run (`off`…`max`). When omitted, the driver
