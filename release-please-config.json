@@ -5,6 +5,7 @@
   "include-component-in-tag": true,
   "include-v-in-tag": true,
   "bump-minor-pre-major": true,
+  "last-release-sha": "7127029560846680432006937250541aad8ce658",
   "packages": {
     "packages/1password": {
       "release-type": "node",
