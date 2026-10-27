@@ -1,5 +1,16 @@
 # Changelog
 
+## [5.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v4.1.0...prompt-enhancer/v5.0.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **relay:** relay-claude and relay-cursor no longer accept opus, sonnet, haiku, composer-2-5, or other partial ids. Those calls fail.
+
+### Bug Fixes
+
+* **relay:** require exact Claude and Cursor model ids ([#352](https://github.com/jmcombs/pi-extensions/issues/352)) ([170cf50](https://github.com/jmcombs/pi-extensions/commit/170cf50b115dcd0ea012cc7d4f62c494d4f9cc1e))
+
 ## [4.1.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v4.0.0...prompt-enhancer/v4.1.0) (2026-10-25)
 
 
