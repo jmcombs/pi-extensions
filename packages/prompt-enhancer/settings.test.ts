@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -102,7 +102,10 @@ describe("promptEnhancerModel settings.json", () => {
   });
 
   it("clears a stale directory lock instead of hanging", async () => {
-    await mkdir(join(dir, "settings.json.lock"));
+    const lockDir = join(dir, "settings.json.lock");
+    await mkdir(lockDir);
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(lockDir, stale, stale);
     const started = Date.now();
     await writePromptEnhancerModel("anthropic/claude-sonnet-5");
     expect(Date.now() - started).toBeLessThan(8000);

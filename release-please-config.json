@@ -66,6 +66,12 @@
       "component": "steward",
       "package-name": "@jmcombs/pi-steward",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/agent-files": {
+      "release-type": "node",
+      "component": "agent-files",
+      "package-name": "@jmcombs/pi-agent-files",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

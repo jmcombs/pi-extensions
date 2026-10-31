@@ -136,6 +136,18 @@ integration guide: [`INTEGRATION.md`](../../docs/1p-credential-api/INTEGRATION.m
 This package lives in the [pi-extensions monorepo](https://github.com/jmcombs/pi-extensions).
 See `CONTRIBUTING.md` at the repo root for project conventions.
 
+Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls outside the
+APIs Pi provides. If a needed capability has no Pi API, stop and escalate it to the human. Do
+not assume, and do not build a workaround on your own.
+
+Agent `auth.json` / `settings.json` writes use `@jmcombs/pi-agent-files`:
+
+```ts
+import { agentAuthPath, updateAuthJson, updateSettingsJson } from "@jmcombs/pi-agent-files";
+```
+
+Do not write those files with `writeFile`, `rename`, or a hard-coded `homedir()` path.
+
 ```bash
 # From the repo root
 npm ci
