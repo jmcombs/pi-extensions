@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@jmcombs/pi-1password": "^2.4.0",
-    "@jmcombs/pi-agent-files": "^0.0.0"
+    "@jmcombs/pi-agent-files": "^0.0.0 || ^1.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "^1.4.0",

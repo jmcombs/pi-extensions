@@ -1008,7 +1008,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       }
 
       if (writeRes.success) {
-        ctx.ui.notify(`✅ Success! ${finalEnv} added to auth.json (0600).`, "info");
+        ctx.ui.notify(`✅ Success! ${finalEnv} added to auth.json.`, "info");
         const doReload = await confirmInBorderedPopup(ctx, {
           title: "Activate now?",
           message: "Run /reload so the spawn hook starts injecting it this session?",
