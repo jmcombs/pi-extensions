@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none" role="img" aria-label="Agent Files">
+  <path d="M14 10h12l8 8v16a4 4 0 0 1-4 4H14a4 4 0 0 1-4-4V14a4 4 0 0 1 4-4z" stroke="#eff1f5" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M26 10v8h8" stroke="#eff1f5" stroke-width="3.2" stroke-linejoin="round"/>
+  <rect x="22" y="24" width="16" height="13" rx="3" fill="#eff1f5"/>
+  <path d="M27 24v-3.2a3 3 0 0 1 6 0V24" stroke="#eff1f5" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="30" cy="30.2" r="1.5" fill="#1e1e2e"/>
+</svg>
