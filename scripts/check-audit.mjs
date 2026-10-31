@@ -21,7 +21,15 @@ import { spawnSync } from "node:child_process";
 import { isExpired } from "./exception-expiry.mjs";
 
 /** @type {{id: string, package: string, reason: string, expires: string}[]} */
-const ALLOWLIST = [];
+const ALLOWLIST = [
+  {
+    id: "GHSA-g3hv-75wg-m249",
+    package: "minimatch",
+    reason:
+      "minimatch 10.2.6 is pinned inside @earendil-works/pi-coding-agent; npm audit fix cannot bump it, and 11.0.1 is the fixed release",
+    expires: "2026-11-14",
+  },
+];
 
 const result = spawnSync("npm", ["audit", "--omit=dev", "--json"], {
   encoding: "utf8",
