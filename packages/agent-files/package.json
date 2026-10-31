@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-agent-files",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Locked writers for the Pi coding agent's auth.json and settings.json. Preserves symlinks, top-level strings, and existing file modes.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/agent-files",
   "repository": {

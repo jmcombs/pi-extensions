@@ -9,5 +9,5 @@
   "packages/headroom": "2.0.1",
   "packages/relay": "3.0.0",
   "packages/steward": "1.1.0",
-  "packages/agent-files": "0.0.0"
+  "packages/agent-files": "1.0.0"
 }
