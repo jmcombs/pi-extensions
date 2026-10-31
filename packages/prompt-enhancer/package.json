@@ -42,6 +42,9 @@
   "engines": {
     "node": ">=22.19.0"
   },
+  "dependencies": {
+    "@jmcombs/pi-agent-files": "^0.0.0 || ^1.0.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "^1.4.0",

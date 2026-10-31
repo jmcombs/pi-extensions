@@ -51,6 +51,9 @@ breaking.
    `tavily-search/v1.2.0`), publishes a GitHub Release, and triggers the npm publish job for
    that package.
 5. The publish job uses npm's Trusted Publishing (OIDC). No long-lived `NPM_TOKEN` is stored.
+   That job cannot create a brand-new package name. Before merging a package's first
+   Release Please PR, the `0.0.0` bootstrap publish from `main` and the Trusted Publisher
+   setup in `CONTRIBUTING.md` must already be done.
 
 ## Tagging Convention
 

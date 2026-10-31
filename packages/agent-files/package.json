@@ -1,0 +1,34 @@
+{
+  "name": "@jmcombs/pi-agent-files",
+  "version": "0.0.0",
+  "description": "Locked writers for the Pi coding agent's auth.json and settings.json. Preserves symlinks, top-level strings, and existing file modes.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/agent-files",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/agent-files"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "proper-lockfile.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "proper-lockfile": "4.1.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.4.0"
+  }
+}

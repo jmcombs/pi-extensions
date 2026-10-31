@@ -6,9 +6,8 @@
  * picker cannot clear.
  */
 
-import { chmod, mkdir, open, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readFile } from "node:fs/promises";
+import { agentSettingsPath, updateSettingsJson } from "@jmcombs/pi-agent-files";
 
 export const PROMPT_ENHANCER_MODEL_KEY = "promptEnhancerModel";
 export const PROMPT_ENHANCER_THINKING_KEY = "promptEnhancerThinking";
@@ -46,7 +45,7 @@ export function interpretPromptEnhancerModel(
 }
 
 function settingsPath(): string {
-  return join(getAgentDir(), "settings.json");
+  return agentSettingsPath();
 }
 
 async function readJsonObject(path: string): Promise<Record<string, unknown> | undefined> {
@@ -61,80 +60,6 @@ async function readJsonObject(path: string): Promise<Record<string, unknown> | u
   return undefined;
 }
 
-async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
-  const timeoutMs = 5000;
-  const start = Date.now();
-  for (;;) {
-    try {
-      const handle = await open(lockPath, "wx");
-      await handle.close();
-      return async (): Promise<void> => {
-        try {
-          await unlink(lockPath);
-        } catch {
-          // Already gone.
-        }
-      };
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw error;
-      if (Date.now() - start > timeoutMs) {
-        // Pi's proper-lockfile can leave a directory. unlink() does not remove it.
-        await rm(lockPath, { recursive: true, force: true });
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-  }
-}
-
-async function readSettingsForMutation(path: string): Promise<Record<string, unknown>> {
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw error;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`settings.json is not valid JSON: ${detail}`);
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("settings.json is not a JSON object");
-  }
-  return parsed as Record<string, unknown>;
-}
-
-async function mutateSettings(
-  mutator: (current: Record<string, unknown>) => Record<string, unknown>,
-): Promise<void> {
-  const path = settingsPath();
-  await mkdir(getAgentDir(), { recursive: true });
-  const release = await acquireLock(`${path}.lock`);
-  try {
-    const current = await readSettingsForMutation(path);
-    const next = mutator(current);
-    const tmpPath = `${path}.tmp.${String(process.pid)}`;
-    try {
-      await writeFile(tmpPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-      await chmod(tmpPath, 0o600);
-      await rename(tmpPath, path);
-    } catch (error) {
-      try {
-        await unlink(tmpPath);
-      } catch {
-        // Temp may not exist.
-      }
-      throw error;
-    }
-  } finally {
-    await release();
-  }
-}
-
 export async function readPromptEnhancerModel(): Promise<StoredEnhancerModel> {
   const parsed = await readJsonObject(settingsPath());
   if (!parsed || !Object.hasOwn(parsed, PROMPT_ENHANCER_MODEL_KEY)) return { kind: "inherit" };
@@ -142,7 +67,10 @@ export async function readPromptEnhancerModel(): Promise<StoredEnhancerModel> {
 }
 
 export async function writePromptEnhancerModel(id: string): Promise<void> {
-  await mutateSettings((current) => ({ ...current, [PROMPT_ENHANCER_MODEL_KEY]: id }));
+  await updateSettingsJson((current) => ({
+    ...(current ?? {}),
+    [PROMPT_ENHANCER_MODEL_KEY]: id,
+  }));
 }
 
 export async function clearPromptEnhancerModel(): Promise<void> {
@@ -167,7 +95,10 @@ export async function readPromptEnhancerThinking(): Promise<StoredEnhancerModel>
 }
 
 export async function writePromptEnhancerThinking(level: EnhancerThinkingLevel): Promise<void> {
-  await mutateSettings((current) => ({ ...current, [PROMPT_ENHANCER_THINKING_KEY]: level }));
+  await updateSettingsJson((current) => ({
+    ...(current ?? {}),
+    [PROMPT_ENHANCER_THINKING_KEY]: level,
+  }));
 }
 
 export async function clearPromptEnhancerThinking(): Promise<void> {
@@ -175,8 +106,8 @@ export async function clearPromptEnhancerThinking(): Promise<void> {
 }
 
 async function clearSettingsKey(key: string): Promise<void> {
-  await mutateSettings((current) => {
-    if (!Object.hasOwn(current, key)) return current;
+  await updateSettingsJson((current) => {
+    if (!current || !Object.hasOwn(current, key)) return undefined;
     const next = { ...current };
     delete next[key];
     return next;

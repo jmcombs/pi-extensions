@@ -65,6 +65,9 @@ examples.
 
 Conventions:
 
+- Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls
+  outside the APIs Pi provides. If a needed capability has no Pi API, stop and
+  escalate it to the human. Do not assume, and do not build a workaround on your own.
 - TypeBox schemas for tool parameters; `Static<typeof schema>` for the input
   type. Export the input type if other extensions might want to type a
   `tool_call` event for your tool.
@@ -76,6 +79,15 @@ Conventions:
   `onboardSecret` (see the `README.md` template and `packages/context7/` for the
   reference implementation). Never copy-and-own an `auth.ts` helper. `1password`
   goes in `dependencies` (a peer would not be installed under pi's `--omit=peer`).
+- Agent `auth.json` and `settings.json` writes go through
+  [`@jmcombs/pi-agent-files`](https://github.com/jmcombs/pi-extensions/tree/main/packages/agent-files).
+  Import `updateAuthJson` / `updateSettingsJson` (and `agentAuthPath` /
+  `agentSettingsPath` for the paths). Do not write those files yourself, and do
+  not hard-code a `homedir()` auth path.
+
+  ```ts
+  import { updateAuthJson, updateSettingsJson } from "@jmcombs/pi-agent-files";
+  ```
 - Pi-runtime packages (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`,
   `@earendil-works/pi-agent-core`, `@earendil-works/pi-tui`, `typebox`) go in
   `peerDependencies` with `"*"`. **Do not bundle them.**
@@ -211,5 +223,9 @@ Use a Conventional Commit title scoped to your package, for example:
 feat(EXTENSION_NAME): initial release
 ```
 
-After merge, Release Please will open a release PR for the package. Merging
-that release PR tags `EXTENSION_NAME/v1.0.0` and triggers the npm publish.
+After merge, the `0.0.0` package is on `main`. Release Please will open a
+release PR for `1.0.0`. Before you merge that release PR, bootstrap-publish
+`0.0.0` from `main` and configure the npm Trusted Publisher, as in
+`CONTRIBUTING.md` → "One-time: bootstrap publish". OIDC cannot create the
+package. Merging the release PR then tags `EXTENSION_NAME/v1.0.0` and triggers
+the npm publish.

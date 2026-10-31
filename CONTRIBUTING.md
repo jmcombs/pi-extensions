@@ -299,11 +299,12 @@ the PR and the numbers can be read for what they are.
    to `0.0.0`. The first releasable commit will then trigger a `1.0.0` release
    (Release Please's default for the first release of a `release-type: node`
    package; see `VERSIONING.md`).
-6. Do the one-time bootstrap publish and configure npm Trusted Publishing for the
-   new npm package (see below) — OIDC cannot create the package on its own.
-7. Run `npm run check`. It must pass.
-8. Open a PR using a Conventional Commits title scoped to the new package, e.g.
-   `feat(my-extension): initial release`.
+6. Run `npm run check`. It must pass.
+7. Open a PR using a Conventional Commits title scoped to the new package, e.g.
+   `feat(my-extension): initial release`. Merge it so the `0.0.0` package is on `main`.
+8. Do the one-time bootstrap publish from `main` and configure npm Trusted Publishing
+   (see below) before merging that package's Release Please release PR. OIDC cannot
+   create the package on its own.
 
 ### One-time: bootstrap publish + configure npm Trusted Publishing
 
@@ -313,14 +314,21 @@ and npm will not let you attach a Trusted Publisher to a package name that does
 not exist yet — so a new package needs a one-time **manual bootstrap publish**
 before OIDC can take over:
 
-1. **Bootstrap publish (manual, once).** With the package at `version: 0.0.0` and
-   `private` removed, publish the placeholder from `main` using your own npm
-   auth (interactive `npm login` or an automation token) to create the package
-   and claim the name under the `@jmcombs` scope:
+1. **Bootstrap publish (manual, once).** After the feature PR is merged, the
+   package is on `main` at `version: 0.0.0` with `private` removed. Publish that
+   placeholder from `main` using your own npm auth (interactive `npm login` or an
+   automation token) to create the package and claim the name under the `@jmcombs`
+   scope. Do not publish it from the feature branch.
 
    ```bash
+   git checkout main
+   git pull --ff-only
+   npm whoami
    npm publish --workspace=packages/<name> --access public
    ```
+
+   `npm whoami` must print your npm user before the publish. Check the result with
+   `npm view @jmcombs/pi-<name> version`. It must print `0.0.0`.
 
    This `0.0.0` is throwaway — Release Please's first managed release (`1.0.0`)
    supersedes it.

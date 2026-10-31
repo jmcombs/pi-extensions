@@ -14,7 +14,7 @@
  */
 
 import { exec } from "node:child_process";
-import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,9 +26,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // hard ESM link error that would take this whole module (and every consumer that
 // imports it, e.g. via `resolveSecret`/`onboardSecret`) down on that runtime.
 import * as piRuntime from "@earendil-works/pi-coding-agent";
-// `createBashTool` + `getAgentDir` are always present on the pi runtime (and on
-// oh-my-pi's legacy-pi compat shim), so they stay as static named imports.
-import { createBashTool, getAgentDir } from "@earendil-works/pi-coding-agent";
+// `createBashTool` is always present on the pi runtime (and on oh-my-pi's
+// legacy-pi compat shim), so it stays as a static named import.
+import { createBashTool } from "@earendil-works/pi-coding-agent";
+import { agentAuthPath, updateAuthJson } from "@jmcombs/pi-agent-files";
 import { type Static, Type } from "typebox";
 
 import { mergeShellEnv, userBashOperationsResult } from "./bash-env.js";
@@ -361,50 +362,32 @@ async function loadCuratedPlugins(): Promise<CuratedPlugin[]> {
 }
 
 /**
- * Safely add (or overwrite) a top-level KEY: "!op read 'op://...'" entry
- * to the agent's auth.json using Pi's recommended agent directory.
- * Uses 0600 permissions. Supports optional overwrite.
+ * Add (or overwrite) a top-level KEY: "!op read 'op://...'" entry in auth.json.
+ * The value stays a string. A new auth.json is mode 0600; an existing file keeps
+ * its mode. Supports optional overwrite.
  */
 async function addAuthEntry(
   envVar: string,
   opRef: string,
   options: { overwrite?: boolean } = {},
 ): Promise<{ success: boolean; message: string; path: string }> {
-  const authDir = getAgentDir();
-  const authPath = join(authDir, "auth.json");
-
-  await mkdir(authDir, { recursive: true });
-
-  const existing = new Map<string, unknown>();
-  try {
-    const raw = await readFile(authPath, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-        existing.set(k, v);
-      }
+  const authPath = agentAuthPath();
+  let skipped = false;
+  await updateAuthJson((current) => {
+    const existing = current ?? {};
+    if (Object.hasOwn(existing, envVar) && !options.overwrite) {
+      skipped = true;
+      return undefined;
     }
-  } catch {
-    // File missing or invalid JSON → start fresh
-  }
-
-  const alreadyExists = existing.has(envVar);
-
-  if (alreadyExists && !options.overwrite) {
+    return { ...existing, [envVar]: `!op read '${opRef}'` };
+  });
+  if (skipped) {
     return {
       success: false,
       message: `Key "${envVar}" already exists in auth.json. Pick a different env var name or remove the old entry first.`,
       path: authPath,
     };
   }
-
-  // Convention: single quotes around the op:// ref
-  existing.set(envVar, `!op read '${opRef}'`);
-
-  const content = `${JSON.stringify(Object.fromEntries(existing), null, 2)}\n`;
-  await writeFile(authPath, content, "utf8");
-  await chmod(authPath, 0o600);
-
   return { success: true, message: "Entry added.", path: authPath };
 }
 
@@ -412,7 +395,7 @@ async function addAuthEntry(
 
 /** Absolute path to the agent's auth.json (honors PI_CODING_AGENT_DIR). */
 function getAuthFilePath(): string {
-  return join(getAgentDir(), "auth.json");
+  return agentAuthPath();
 }
 
 /**
@@ -441,94 +424,8 @@ export interface ProviderWriteResult {
 }
 
 /**
- * Acquire an exclusive advisory lock via an `O_EXCL` lockfile next to auth.json.
- * Retries with jittered backoff; force-clears a lock older than the timeout
- * (treated as stale). Returns a release function that removes the lockfile.
- */
-async function acquireAuthLock(lockPath: string): Promise<() => Promise<void>> {
-  const timeoutMs = 5000;
-  const start = Date.now();
-  for (;;) {
-    try {
-      // "wx" = O_CREAT | O_EXCL | O_WRONLY — fails if the lockfile already exists.
-      const handle = await open(lockPath, "wx");
-      await handle.close();
-      return async (): Promise<void> => {
-        try {
-          await unlink(lockPath);
-        } catch {
-          // Already gone — nothing to release.
-        }
-      };
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw e;
-      if (Date.now() - start > timeoutMs) {
-        // Presumed stale (holder crashed); clear it and retry.
-        try {
-          await unlink(lockPath);
-        } catch {
-          // Someone else cleared it first.
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25 + Math.floor(Math.random() * 25)));
-    }
-  }
-}
-
-/**
- * Read-modify-write auth.json under an exclusive lock, then commit atomically via
- * temp-write + rename. `mutator` returns the next object to persist, or `null` to
- * abort with no write. Every intermediate file is chmod 0600.
- */
-async function mutateAuthFileLocked(
-  mutator: (current: Record<string, unknown>) => Record<string, unknown> | null,
-): Promise<{ changed: boolean }> {
-  const authDir = getAgentDir();
-  const authPath = join(authDir, "auth.json");
-  const lockPath = `${authPath}.lock`;
-
-  await mkdir(authDir, { recursive: true });
-  const release = await acquireAuthLock(lockPath);
-  try {
-    let current: Record<string, unknown> = {};
-    try {
-      const raw = await readFile(authPath, "utf8");
-      const parsed: unknown = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        current = parsed as Record<string, unknown>;
-      }
-    } catch {
-      // Missing or invalid JSON → start fresh.
-    }
-
-    const next = mutator(current);
-    if (next === null) return { changed: false };
-
-    const content = `${JSON.stringify(next, null, 2)}\n`;
-    const tmpPath = `${authPath}.tmp.${process.pid}.${Math.random().toString(36).slice(2)}`;
-    try {
-      await writeFile(tmpPath, content, { encoding: "utf8", mode: 0o600 });
-      await chmod(tmpPath, 0o600);
-      await rename(tmpPath, authPath);
-      await chmod(authPath, 0o600);
-    } catch (e) {
-      try {
-        await unlink(tmpPath);
-      } catch {
-        // Temp file may not exist — ignore.
-      }
-      throw e;
-    }
-    return { changed: true };
-  } finally {
-    await release();
-  }
-}
-
-/**
  * Write a provider-shaped entry `{[name]:{type:"api_key",key}}` to auth.json under
- * the lock (D4). `key` is either a `!op read '<ref>'` command (vault) or a literal
+ * the shared lock. `key` is either a `!op read '<ref>'` command (vault) or a literal
  * secret (manual). Refuses to clobber an existing key unless `overwrite` is set.
  */
 export async function writeProviderAuthEntry(
@@ -537,12 +434,17 @@ export async function writeProviderAuthEntry(
   options: { overwrite?: boolean } = {},
 ): Promise<ProviderWriteResult> {
   let alreadyExists = false;
-  const { changed } = await mutateAuthFileLocked((current) => {
-    alreadyExists = Object.hasOwn(current, name);
-    if (alreadyExists && !options.overwrite) return null;
-    return { ...current, [name]: { type: "api_key", key } };
+  let skipped = false;
+  await updateAuthJson((current) => {
+    const existing = current ?? {};
+    alreadyExists = Object.hasOwn(existing, name);
+    if (alreadyExists && !options.overwrite) {
+      skipped = true;
+      return undefined;
+    }
+    return { ...existing, [name]: { type: "api_key", key } };
   });
-  if (!changed) {
+  if (skipped) {
     return {
       success: false,
       alreadyExists: true,
@@ -558,13 +460,14 @@ export async function writeProviderAuthEntry(
  */
 export async function deleteAuthEntry(name: string): Promise<{ ok: boolean }> {
   let existed = false;
-  await mutateAuthFileLocked((current) => {
-    if (!Object.hasOwn(current, name)) {
+  await updateAuthJson((current) => {
+    const existing = current ?? {};
+    if (!Object.hasOwn(existing, name)) {
       existed = false;
-      return null;
+      return undefined;
     }
     existed = true;
-    const next = { ...current };
+    const next = { ...existing };
     delete next[name];
     return next;
   });
@@ -927,7 +830,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     description:
       "Guided setup: pick from supported tools or enter a custom op:// reference, write '!op read ...' entry to ~/.pi/agent/auth.json for transparent injection.",
     handler: async (_args, ctx) => {
-      const authPath = join(homedir() || "/tmp", ".pi", "agent", "auth.json");
+      const authPath = agentAuthPath();
 
       ctx.ui.notify("1Password Onboard — transparent env injection setup", "info");
 
@@ -1105,7 +1008,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
       }
 
       if (writeRes.success) {
-        ctx.ui.notify(`✅ Success! ${finalEnv} added to auth.json (0600).`, "info");
+        ctx.ui.notify(`✅ Success! ${finalEnv} added to auth.json.`, "info");
         const doReload = await confirmInBorderedPopup(ctx, {
           title: "Activate now?",
           message: "Run /reload so the spawn hook starts injecting it this session?",

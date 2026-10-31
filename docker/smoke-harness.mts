@@ -6,8 +6,10 @@
  *
  *   1. AUTO-DISCOVERS every extension by reading each `packages/*\/package.json`
  *      and ITERATING its `pi.extensions` array (never hardcoding `./index.ts`).
- *   2. Excludes `private: true` packages and LOGS every skip (visible, enumerated
- *      — not a silent miss). Today that drops only `packages/_template`.
+ *   2. Excludes `private: true` packages and the enumerated library package
+ *      `agent-files` (no `pi.extensions`) and LOGS every skip (visible,
+ *      enumerated — not a silent miss). Today that drops `packages/_template`
+ *      and `packages/agent-files`.
  *   3. Drives every in-scope extension through the host's OWN real loader (pi's
  *      `discoverAndLoadExtensions` / omp's `loadExtensions`) with `op` absent and
  *      asserts each package's expected, PLATFORM-AWARE surface (`EXPECTED` below).
@@ -15,7 +17,7 @@
  * Failure semantics: any in-scope package that fails to load, is missing an
  * expected surface member, exposes a surface that should be platform-absent, or
  * has no `EXPECTED` entry ⇒ FAILURE (non-zero). Only the enumerated `private`
- * set is ever skipped.
+ * set and the enumerated `agent-files` library are ever skipped.
  *
  * Provider-only packages (relay) register nothing in the loader's
  * commands/tools/handlers maps — the loader result has no `providers` field — so
@@ -211,6 +213,12 @@ export function discoverPackages(repoRoot: string): {
     const name = pj.name ?? dir;
     if (pj.private) {
       skipped.push({ dir, name, reason: "private:true" });
+      continue;
+    }
+    // Published library, not an extension. Enumerated so a new non-extension
+    // package still fails this gate until it is added here on purpose.
+    if (dir === "agent-files") {
+      skipped.push({ dir, name, reason: "library (no pi.extensions)" });
       continue;
     }
     const exts = pj.pi?.extensions ?? [];

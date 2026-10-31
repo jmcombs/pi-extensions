@@ -17,6 +17,9 @@
  *   - Verifies each package.json has: name, version (semver), description,
  *     license=MIT, author, engines.node (>=22.19.0), the `pi-package` keyword, and a `pi`
  *     manifest with at least one `extensions` entry.
+ *   - `packages/agent-files` is the only package that may omit the `pi-package` keyword
+ *     and `pi.extensions`. It still needs name, version, description, MIT, author,
+ *     engines.node, and Release Please registration. No other package may omit those.
  *   - Verifies the package's name+version is registered in
  *     `.release-please-manifest.json` and `release-please-config.json`.
  *   - Verifies the local source file referenced by `pi.extensions[0]` exists.
@@ -43,6 +46,10 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/;
 // looser advertises a range pi itself will not install on. Raise this only when
 // pi raises its own engines.
 const REQUIRED_NODE_ENGINE = ">=22.19.0";
+
+// Published library, not a Pi extension. The exemption is this directory only —
+// every other package must still declare the gallery keyword and pi.extensions.
+const LIBRARY_WITHOUT_PI_EXTENSION = "agent-files";
 
 // ── Discovery ──────────────────────────────────────────────────────
 
@@ -105,29 +112,31 @@ function validatePackage(pkgName, manifest, rpConfig) {
       `engines.node must be ${JSON.stringify(REQUIRED_NODE_ENGINE)} (got ${JSON.stringify(node)})`,
     );
 
-  // Keywords + pi-package
-  const keywords = Array.isArray(pkg.keywords) ? pkg.keywords : [];
-  if (!keywords.includes("pi-package"))
-    issues.push('keywords must include "pi-package" (required for the pi.dev gallery)');
+  // Keywords + pi manifest. agent-files is a library and may omit both.
+  // Every other package still has to declare them.
+  if (pkgName !== LIBRARY_WITHOUT_PI_EXTENSION) {
+    const keywords = Array.isArray(pkg.keywords) ? pkg.keywords : [];
+    if (!keywords.includes("pi-package"))
+      issues.push('keywords must include "pi-package" (required for the pi.dev gallery)');
 
-  // pi manifest
-  if (!pkg.pi || typeof pkg.pi !== "object") {
-    issues.push("pi manifest missing (expected `pi.extensions`)");
-  } else {
-    const exts = pkg.pi.extensions;
-    if (!Array.isArray(exts) || exts.length === 0)
-      issues.push("pi.extensions must be a non-empty array");
-    else {
-      for (const ext of exts) {
-        if (typeof ext !== "string") {
-          issues.push(`pi.extensions entry not a string: ${JSON.stringify(ext)}`);
-          continue;
+    if (!pkg.pi || typeof pkg.pi !== "object") {
+      issues.push("pi manifest missing (expected `pi.extensions`)");
+    } else {
+      const exts = pkg.pi.extensions;
+      if (!Array.isArray(exts) || exts.length === 0)
+        issues.push("pi.extensions must be a non-empty array");
+      else {
+        for (const ext of exts) {
+          if (typeof ext !== "string") {
+            issues.push(`pi.extensions entry not a string: ${JSON.stringify(ext)}`);
+            continue;
+          }
+          // Skip glob patterns and node_modules paths; only verify literal local paths
+          if (ext.includes("*") || ext.startsWith("node_modules/")) continue;
+          const resolved = path.join(dir, ext);
+          if (!fs.existsSync(resolved))
+            issues.push(`pi.extensions entry "${ext}" does not exist on disk`);
         }
-        // Skip glob patterns and node_modules paths; only verify literal local paths
-        if (ext.includes("*") || ext.startsWith("node_modules/")) continue;
-        const resolved = path.join(dir, ext);
-        if (!fs.existsSync(resolved))
-          issues.push(`pi.extensions entry "${ext}" does not exist on disk`);
       }
     }
   }

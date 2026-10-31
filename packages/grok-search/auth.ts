@@ -11,10 +11,9 @@
  * to the existing `xai` oauth entry — never converting it to `api_key`.
  */
 
-import { chmod, mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { readFile } from "node:fs/promises";
 import { readAuthJson, resolveSecret } from "@jmcombs/pi-1password";
+import { agentSettingsPath, updateAuthJson, updateSettingsJson } from "@jmcombs/pi-agent-files";
 
 export type CredentialSource = "oauth" | "api_key";
 
@@ -36,12 +35,8 @@ const XAI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828";
 const DEFAULT_TOKEN_LIFETIME_SECONDS = 3600;
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 
-function authPath(): string {
-  return join(getAgentDir(), "auth.json");
-}
-
 function settingsPath(): string {
-  return join(getAgentDir(), "settings.json");
+  return agentSettingsPath();
 }
 
 export function isXaiOAuthEntry(entry: unknown): entry is XaiOAuthCredential {
@@ -75,69 +70,6 @@ async function readJsonObject(path: string): Promise<Record<string, unknown>> {
   return {};
 }
 
-async function acquireLock(lockPath: string): Promise<() => Promise<void>> {
-  const timeoutMs = 5000;
-  const start = Date.now();
-  for (;;) {
-    try {
-      const handle = await open(lockPath, "wx");
-      await handle.close();
-      return async (): Promise<void> => {
-        try {
-          await unlink(lockPath);
-        } catch {
-          // Already gone.
-        }
-      };
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (code !== "EEXIST") throw e;
-      if (Date.now() - start > timeoutMs) {
-        try {
-          await unlink(lockPath);
-        } catch {
-          // Someone else cleared it.
-        }
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25 + Math.floor(Math.random() * 25)));
-    }
-  }
-}
-
-async function mutateJsonFile(
-  path: string,
-  mutator: (current: Record<string, unknown>) => Record<string, unknown>,
-  options: { mode?: number } = {},
-): Promise<void> {
-  const dir = getAgentDir();
-  await mkdir(dir, { recursive: true });
-  const release = await acquireLock(`${path}.lock`);
-  try {
-    const current = await readJsonObject(path);
-    const next = mutator(current);
-    const content = `${JSON.stringify(next, null, 2)}\n`;
-    const tmpPath = `${path}.tmp.${String(process.pid)}.${Math.random().toString(36).slice(2)}`;
-    try {
-      await writeFile(tmpPath, content, {
-        encoding: "utf8",
-        ...(options.mode !== undefined ? { mode: options.mode } : {}),
-      });
-      if (options.mode !== undefined) await chmod(tmpPath, options.mode);
-      await rename(tmpPath, path);
-      if (options.mode !== undefined) await chmod(path, options.mode);
-    } catch (e) {
-      try {
-        await unlink(tmpPath);
-      } catch {
-        // Temp may not exist.
-      }
-      throw e;
-    }
-  } finally {
-    await release();
-  }
-}
-
 export async function readCredentialPreference(): Promise<CredentialSource | undefined> {
   const parsed = await readJsonObject(settingsPath());
   const grokSearch = parsed[SETTINGS_KEY];
@@ -150,14 +82,15 @@ export async function readCredentialPreference(): Promise<CredentialSource | und
 }
 
 export async function writeCredentialPreference(source: CredentialSource): Promise<void> {
-  await mutateJsonFile(settingsPath(), (current) => {
+  await updateSettingsJson((current) => {
+    const base = current ?? {};
     const existing =
-      current[SETTINGS_KEY] &&
-      typeof current[SETTINGS_KEY] === "object" &&
-      !Array.isArray(current[SETTINGS_KEY])
-        ? (current[SETTINGS_KEY] as Record<string, unknown>)
+      base[SETTINGS_KEY] &&
+      typeof base[SETTINGS_KEY] === "object" &&
+      !Array.isArray(base[SETTINGS_KEY])
+        ? (base[SETTINGS_KEY] as Record<string, unknown>)
         : {};
-    return { ...current, [SETTINGS_KEY]: { ...existing, credential: source } };
+    return { ...base, [SETTINGS_KEY]: { ...existing, credential: source } };
   });
 }
 
@@ -167,14 +100,10 @@ export async function hasXaiOAuth(): Promise<boolean> {
 }
 
 async function persistOAuthCredential(next: XaiOAuthCredential): Promise<void> {
-  await mutateJsonFile(
-    authPath(),
-    (current) => ({
-      ...current,
-      xai: next,
-    }),
-    { mode: 0o600 },
-  );
+  await updateAuthJson((current) => ({
+    ...(current ?? {}),
+    xai: next,
+  }));
 }
 
 function credentialsFromTokenResponse(
