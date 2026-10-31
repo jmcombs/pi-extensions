@@ -44,6 +44,9 @@ npm via OIDC Trusted Publishing.
 - Each package's `package.json` must include: `keywords: ["pi-package"]`, a `pi` manifest
   with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=22.19.0"`,
   and an `image` URL for the gallery card.
+- Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls outside
+  the APIs Pi provides. If a needed capability has no Pi API, stop and escalate it to the
+  human. Do not assume, and do not build a workaround on your own.
 
 ## When Adding a New Extension
 

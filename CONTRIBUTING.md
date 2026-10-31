@@ -117,6 +117,12 @@ Do not weaken the ruleset, add bypass actors, or alter `.github/CODEOWNERS`
 without maintainer discussion. Update this section in the same PR as any
 intentional change so the doc and the ruleset stay in sync.
 
+## Pi APIs
+
+Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls outside the
+APIs Pi provides. If a needed capability has no Pi API, stop and escalate it to the human. Do
+not assume, and do not build a workaround on your own.
+
 ## Testing Philosophy
 
 - Only meaningful tests. No tests written purely to inflate coverage.
