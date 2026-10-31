@@ -55,33 +55,51 @@ The writers do not run Pi's settings migration, do not reject top-level strings 
 
 ## Publishing
 
-Release Please cannot create this package on npm. OIDC cannot create a brand-new package, and npm will not attach a Trusted Publisher to a name that does not exist yet.
+Release Please cannot create this package on npm. The `0.0.0` publish is from `main`, after the feature PR is merged, and before the Release Please release PR is merged. Do not publish from `feat/pi-agent-files`.
 
-`CONTRIBUTING.md` → Adding a New Extension puts the one-time work in this order:
+1. Confirm the package is the throwaway placeholder. `version` is `0.0.0` and `private` is absent.
 
-6. Bootstrap-publish the `0.0.0` package and configure the npm Trusted Publisher.
-7. `npm run check` must pass.
-8. Open the PR.
+   ```bash
+   node -e "const p=require('./packages/agent-files/package.json'); if (p.version!=='0.0.0'||p.private) process.exit(1)"
+   node -e "const m=require('./.release-please-manifest.json'); if (m['packages/agent-files']!=='0.0.0') process.exit(1)"
+   ```
 
-The bootstrap subsection in that same section says to publish the placeholder from `main`. It does not say to publish from the feature branch, and it does not say to wait until after the PR merges. Those two instructions do not line up for a package that exists only on a feature branch. This README does not add a checkout sequence the docs do not give.
+2. Merge the feature PR so that placeholder is on `main`. Do not bootstrap-publish before that merge.
 
-The command the docs do give, with the package at `0.0.0` and `private` removed:
+   ```bash
+   git fetch origin main
+   git show origin/main:packages/agent-files/package.json
+   ```
 
-```bash
-npm whoami
-npm publish --workspace=packages/agent-files --access public
-```
+   The shown `version` must be `0.0.0`.
 
-`npm whoami` must print your npm user. If it does not, run `npm login` and publish again. This `0.0.0` is throwaway. Release Please's first managed release (`1.0.0`) supersedes it.
+3. Publish `0.0.0` from `main`. This is the checkout in commit `7c0e68c` and the "from `main`" sentence in `CONTRIBUTING.md`.
 
-After that publish, sign in to npmjs.com as the package owner, open `@jmcombs/pi-agent-files` → **Settings → Publishing access → Trusted Publishers**, and add a GitHub Actions publisher:
+   ```bash
+   git checkout main
+   git pull --ff-only
+   npm whoami
+   npm publish --workspace=packages/agent-files --access public
+   npm view @jmcombs/pi-agent-files version
+   ```
 
-- **Organization or user:** `jmcombs`
-- **Repository:** `pi-extensions`
-- **Workflow filename:** `release-please.yml`
-- **Environment:** leave blank
+   `npm whoami` must print your npm user. If it does not, run `npm login` and publish again. `npm view` must print `0.0.0`.
 
-`VERSIONING.md` starts later. It says merge a Conventional Commits PR to `main`, then Release Please opens a release PR, and merging that release PR publishes `1.0.0` with OIDC. It does not mention the `0.0.0` bootstrap or which git ref to publish it from. No `NPM_TOKEN` is stored in GitHub.
+4. Configure the Trusted Publisher now that the package exists. Sign in to npmjs.com as the package owner, open `@jmcombs/pi-agent-files` → **Settings → Publishing access → Trusted Publishers**, and add a GitHub Actions publisher:
+   - **Organization or user:** `jmcombs`
+   - **Repository:** `pi-extensions`
+   - **Workflow filename:** `release-please.yml`
+   - **Environment:** leave blank
+
+   There is no repo command for this. The check is that the Trusted Publishers page lists that GitHub Actions publisher.
+
+5. Only after step 4, merge the Release Please release PR. That publishes `1.0.0` with OIDC and tags `agent-files/v1.0.0`. Do not merge it before step 4. OIDC cannot create the package name.
+
+   ```bash
+   git ls-remote --tags origin 'refs/tags/agent-files/v1.0.0'
+   ```
+
+   The tag appears only after that release PR is merged. No `NPM_TOKEN` is stored in GitHub.
 
 ## License
 

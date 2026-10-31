@@ -223,5 +223,9 @@ Use a Conventional Commit title scoped to your package, for example:
 feat(EXTENSION_NAME): initial release
 ```
 
-After merge, Release Please will open a release PR for the package. Merging
-that release PR tags `EXTENSION_NAME/v1.0.0` and triggers the npm publish.
+After merge, the `0.0.0` package is on `main`. Release Please will open a
+release PR for `1.0.0`. Before you merge that release PR, bootstrap-publish
+`0.0.0` from `main` and configure the npm Trusted Publisher, as in
+`CONTRIBUTING.md` → "One-time: bootstrap publish". OIDC cannot create the
+package. Merging the release PR then tags `EXTENSION_NAME/v1.0.0` and triggers
+the npm publish.
