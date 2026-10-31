@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.2.0...grok-search/v2.3.0) (2026-10-31)
+
+
+### Features
+
+* **agent-files:** write auth.json and settings.json in place ([#358](https://github.com/jmcombs/pi-extensions/issues/358)) ([b5d9577](https://github.com/jmcombs/pi-extensions/commit/b5d9577af71e9017bb25c62adae0a0a27babc7fd))
+
 ## [2.2.0](https://github.com/jmcombs/pi-extensions/compare/grok-search/v2.1.1...grok-search/v2.2.0) (2026-10-03)
 
 
