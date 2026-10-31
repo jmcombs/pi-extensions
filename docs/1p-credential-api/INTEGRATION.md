@@ -30,6 +30,10 @@ monorepo. Instead of reaching into pi internals —
 **imports** its functions. The dependency auto-installs with your extension, so
 the API is always importable at runtime.
 
+Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls
+outside the APIs Pi provides. If a needed capability has no Pi API, stop and
+escalate it to the human. Do not assume, and do not build a workaround on your own.
+
 Two functions carry the whole adoption path:
 
 | Function                              | You call it…                                         | It does…                                                                                                                                      |

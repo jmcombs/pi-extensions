@@ -30,6 +30,8 @@ Every package here is a Pi extension you can install individually from npm. Pack
 
 They share the same bar: TypeScript, real smoke tests (no mocked external APIs), Conventional Commits, and a full quality gate on every PR. Secrets never reach the model — extensions that need credentials go through the shared [`@jmcombs/pi-1password`](./packages/1password) credential API.
 
+Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls outside the APIs Pi provides. If a needed capability has no Pi API, stop and escalate it to the human. Do not assume, and do not build a workaround on your own.
+
 ## Quick start
 
 ```bash
