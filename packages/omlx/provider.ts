@@ -1,20 +1,28 @@
 import type {
+  AnyModel,
   ApiKeyCredential,
   AuthContext,
   Model,
   Provider,
   ProviderStreamOptions,
+  RefreshModelsContext,
 } from "@earendil-works/pi-ai";
+import { isModelType } from "@earendil-works/pi-ai";
 import { stream, streamSimple } from "@earendil-works/pi-ai/compat";
-import { OmlxClient } from "./client.js";
+import { chatModelsFromStatus } from "./catalog.js";
+import { OmlxClient, type OmlxListedModel, type OmlxModelStatus } from "./client.js";
 import { DEFAULT_OMLX_SERVER_URL, normalizeOmlxServerUrl, omlxInferenceUrl } from "./url.js";
 
 export const OMLX_PROVIDER_ID = "omlx";
 
 export interface OmlxProviderController {
   provider: Provider<"openai-completions">;
-  /** Phase 1 keeps the catalog empty. Later phases map omlx rows into it. */
-  setCatalog: () => void;
+  /** Replace the in-memory chat catalog. No network. */
+  setCatalog: (
+    status: OmlxModelStatus,
+    listed: readonly OmlxListedModel[],
+    serverUrl?: string,
+  ) => void;
 }
 
 function credentialServerUrl(credential: ApiKeyCredential | undefined): string | undefined {
@@ -41,10 +49,31 @@ async function resolveServerUrl(
   return configured ? normalizeOmlxServerUrl(configured) : undefined;
 }
 
+function isOmlxChatModel(model: AnyModel): model is Model<"openai-completions"> {
+  return (
+    model.provider === OMLX_PROVIDER_ID &&
+    isModelType(model, "chat") &&
+    model.api === "openai-completions"
+  );
+}
+
+function cachedContextWindows(stored: readonly AnyModel[]): Map<string, number> {
+  const cached = new Map<string, number>();
+  for (const model of stored) {
+    if (model.provider !== OMLX_PROVIDER_ID || !("contextWindow" in model)) continue;
+    if (typeof model.contextWindow === "number") cached.set(model.id, model.contextWindow);
+  }
+  return cached;
+}
+
 export function createOmlxProvider(): OmlxProviderController {
   let models: Model<"openai-completions">[] = [];
-  const setCatalog = (): void => {
-    models = [];
+  const setCatalog = (
+    status: OmlxModelStatus,
+    listed: readonly OmlxListedModel[],
+    serverUrl: string = DEFAULT_OMLX_SERVER_URL,
+  ): void => {
+    models = chatModelsFromStatus(status.models, listed, serverUrl);
   };
   const provider: Provider<"openai-completions"> = {
     id: OMLX_PROVIDER_ID,
@@ -99,6 +128,43 @@ export function createOmlxProvider(): OmlxProviderController {
     },
     getModels: () => models,
     getAllModels: () => models,
+    refreshModels: async (context: RefreshModelsContext): Promise<void> => {
+      const cached = context.stored ? cachedContextWindows(context.stored.models) : undefined;
+      if (context.stored) {
+        const restored = context.stored.models.filter(isOmlxChatModel);
+        if (
+          !(await context.publish({
+            update: () => {
+              models = restored;
+            },
+          }))
+        ) {
+          return;
+        }
+      }
+      if (
+        !context.allowNetwork ||
+        context.signal.aborted ||
+        context.credential?.type !== "api_key"
+      ) {
+        return;
+      }
+      const serverUrl = credentialServerUrl(context.credential);
+      if (!serverUrl) return;
+      const client = new OmlxClient(serverUrl, context.credential.key);
+      const status = await client.listStatus(context.signal);
+      if (context.signal.aborted) return;
+      const listed = await client.listModels(context.signal);
+      if (context.signal.aborted) return;
+      const refreshed = chatModelsFromStatus(status.models, listed, serverUrl, cached);
+      if (context.signal.aborted) return;
+      await context.publish({
+        persist: { models: refreshed, checkedAt: Date.now() },
+        update: () => {
+          models = refreshed;
+        },
+      });
+    },
     stream: (model, context, options) => stream(model, context, compatStreamOptions(options)),
     streamSimple: (model, context, options) => streamSimple(model, context, options),
   };

@@ -348,8 +348,9 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate              | Deferred at | Needs     | Discharge by | Status     |
-| ----------------- | ----------- | --------- | ------------ | ---------- |
-| Interactive login | Phase 1     | tui-human | human        | DISCHARGED |
+| Gate                | Deferred at | Needs     | Discharge by | Status       |
+| ------------------- | ----------- | --------- | ------------ | ------------ |
+| Interactive login   | Phase 1     | tui-human | human        | DISCHARGED   |
+| `/model` in real pi | Phase 2     | tui-human | human        | HUMAN-VERIFY |
 
 Human out-of-band discharge of Interactive login (Phase 1): prompt `API key (required)`; blank key `Error: Failed to save API key for omlx: API key required` (stores nothing); wrong key `Error: Failed to save API key for omlx: Invalid API key` (stores nothing); real key `Saved API key for omlx. Credentials saved to /Users/jmcombs/.pi/agent/auth.json`.
