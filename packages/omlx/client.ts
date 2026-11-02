@@ -1,6 +1,12 @@
 import { normalizeOmlxServerUrl } from "./url.js";
 
 const REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * `POST /v1/models/{id}/load` blocks until the model is loaded. A 27B MLX
+ * load outlives the 15s management timeout, so this call waits longer. Every
+ * other request keeps the 15s timeout.
+ */
+const LOAD_TIMEOUT_MS = 30 * 60 * 1000;
 const UNLOAD_POLL_MS = 100;
 
 /** One row from `GET /v1/models` after the id check. Extra fields are preserved. */
@@ -187,11 +193,15 @@ export class OmlxClient {
     this.apiKey = apiKey;
   }
 
-  private async request(path: string, init: RequestInit = {}): Promise<unknown> {
+  private async request(
+    path: string,
+    init: RequestInit = {},
+    timeoutMs: number = REQUEST_TIMEOUT_MS,
+  ): Promise<unknown> {
     const headers = new Headers(init.headers);
     if (init.body !== undefined) headers.set("Content-Type", "application/json");
     if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`);
-    const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(timeoutMs);
     const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
     const response = await fetch(`${this.serverUrl}${path}`, { ...init, headers, signal });
     let payload: unknown;
@@ -217,12 +227,23 @@ export class OmlxClient {
     return parseModelStatus(payload);
   }
 
-  /** Block until omlx has the model in memory. Already-loaded is success. */
+  /**
+   * Block until omlx has the model in memory. Already-loaded is success.
+   *
+   * The request timeout is 30 minutes because the route does not return until
+   * loading finishes. Callers that only need to stop waiting must not abort
+   * this signal: omlx has no load-cancel route, and dropping the request is
+   * not a supported cancel.
+   */
   async load(id: string, signal?: AbortSignal): Promise<void> {
-    await this.request(modelActionPath(id, "load"), {
-      method: "POST",
-      ...(signal === undefined ? {} : { signal }),
-    });
+    await this.request(
+      modelActionPath(id, "load"),
+      {
+        method: "POST",
+        ...(signal === undefined ? {} : { signal }),
+      },
+      LOAD_TIMEOUT_MS,
+    );
   }
 
   /**
