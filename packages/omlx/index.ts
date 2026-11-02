@@ -179,12 +179,10 @@ function cachedContextWindows(ctx: ExtensionCommandContext): Map<string, number>
 
 async function restoreLoaded(
   ctx: ExtensionCommandContext,
-  ui: { showStatus(title: string, message: string): void },
   client: OmlxClient,
   loaded: readonly OmlxStatusRow[],
 ): Promise<void> {
   ctx.ui.notify("Restoring previously loaded models");
-  ui.showStatus("Restoring models", "Restoring previously loaded models");
   for (const model of loaded) {
     await loadUntilLoaded(client, model.id, new AbortController().signal);
   }
@@ -225,14 +223,14 @@ async function loadModel(
     });
     if (result.cancelled) {
       ctx.ui.notify(`Stopped waiting for ${target.id}. omlx finishes the load in the background.`);
-      if (replace) await restoreLoaded(ctx, ui, client, loaded);
+      if (replace) await restoreLoaded(ctx, client, loaded);
       return;
     }
     ctx.ui.notify(`Loaded ${target.id}`);
   } catch (error) {
     if (replace) {
       try {
-        await restoreLoaded(ctx, ui, client, loaded);
+        await restoreLoaded(ctx, client, loaded);
       } catch {
         // Preserve the original load error.
       }
@@ -249,6 +247,7 @@ async function unloadModel(
 ): Promise<void> {
   if (!(await ui.confirm("Unload model?", model.id))) return;
   await client.unloadAndWait(model.id);
+  await refreshCatalog(ctx, AbortSignal.timeout(15_000));
   ctx.ui.notify(`Unloaded ${model.id}`);
 }
 
