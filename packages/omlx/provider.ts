@@ -2,6 +2,7 @@ import type {
   AnyModel,
   ApiKeyCredential,
   AuthContext,
+  ClassifierModel,
   Model,
   Provider,
   ProviderStreamOptions,
@@ -9,7 +10,8 @@ import type {
 } from "@earendil-works/pi-ai";
 import { isModelType } from "@earendil-works/pi-ai";
 import { stream, streamSimple } from "@earendil-works/pi-ai/compat";
-import { chatModelsFromStatus } from "./catalog.js";
+import { chatModelsFromStatus, classifierModelsFromStatus } from "./catalog.js";
+import { createOmlxClassify } from "./classify.js";
 import { OmlxClient, type OmlxListedModel, type OmlxModelStatus } from "./client.js";
 import { DEFAULT_OMLX_SERVER_URL, normalizeOmlxServerUrl, omlxInferenceUrl } from "./url.js";
 
@@ -17,7 +19,7 @@ export const OMLX_PROVIDER_ID = "omlx";
 
 export interface OmlxProviderController {
   provider: Provider<"openai-completions">;
-  /** Replace the in-memory chat catalog. No network. */
+  /** Replace the in-memory chat and classifier catalogs. No network. */
   setCatalog: (
     status: OmlxModelStatus,
     listed: readonly OmlxListedModel[],
@@ -57,6 +59,14 @@ function isOmlxChatModel(model: AnyModel): model is Model<"openai-completions"> 
   );
 }
 
+function isOmlxClassifierModel(model: AnyModel): model is ClassifierModel<"typesafe-system-one"> {
+  return (
+    model.provider === OMLX_PROVIDER_ID &&
+    isModelType(model, "classifier") &&
+    model.api === "typesafe-system-one"
+  );
+}
+
 function cachedContextWindows(stored: readonly AnyModel[]): Map<string, number> {
   const cached = new Map<string, number>();
   for (const model of stored) {
@@ -68,12 +78,15 @@ function cachedContextWindows(stored: readonly AnyModel[]): Map<string, number> 
 
 export function createOmlxProvider(): OmlxProviderController {
   let models: Model<"openai-completions">[] = [];
+  let classifiers: ClassifierModel<"typesafe-system-one">[] = [];
+  const classify = createOmlxClassify();
   const setCatalog = (
     status: OmlxModelStatus,
     listed: readonly OmlxListedModel[],
     serverUrl: string = DEFAULT_OMLX_SERVER_URL,
   ): void => {
     models = chatModelsFromStatus(status.models, listed, serverUrl);
+    classifiers = classifierModelsFromStatus(status.models, listed, serverUrl);
   };
   const provider: Provider<"openai-completions"> = {
     id: OMLX_PROVIDER_ID,
@@ -127,15 +140,17 @@ export function createOmlxProvider(): OmlxProviderController {
       },
     },
     getModels: () => models,
-    getAllModels: () => models,
+    getAllModels: () => [...models, ...classifiers],
     refreshModels: async (context: RefreshModelsContext): Promise<void> => {
       const cached = context.stored ? cachedContextWindows(context.stored.models) : undefined;
       if (context.stored) {
         const restored = context.stored.models.filter(isOmlxChatModel);
+        const restoredClassifiers = context.stored.models.filter(isOmlxClassifierModel);
         if (
           !(await context.publish({
             update: () => {
               models = restored;
+              classifiers = restoredClassifiers;
             },
           }))
         ) {
@@ -157,16 +172,24 @@ export function createOmlxProvider(): OmlxProviderController {
       const listed = await client.listModels(context.signal);
       if (context.signal.aborted) return;
       const refreshed = chatModelsFromStatus(status.models, listed, serverUrl, cached);
+      const refreshedClassifiers = classifierModelsFromStatus(
+        status.models,
+        listed,
+        serverUrl,
+        cached,
+      );
       if (context.signal.aborted) return;
       await context.publish({
-        persist: { models: refreshed, checkedAt: Date.now() },
+        persist: { models: [...refreshed, ...refreshedClassifiers], checkedAt: Date.now() },
         update: () => {
           models = refreshed;
+          classifiers = refreshedClassifiers;
         },
       });
     },
     stream: (model, context, options) => stream(model, context, compatStreamOptions(options)),
     streamSimple: (model, context, options) => streamSimple(model, context, options),
+    classify,
   };
   return { provider, setCatalog };
 }

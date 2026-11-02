@@ -3,14 +3,17 @@ import type { Model } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import {
   chatModelsFromStatus,
+  classifierModelsFromStatus,
   contextWindowOf,
   displayIdOf,
   isChatRow,
   isDecisionRow,
   isGgufRow,
   isSelectableChatRow,
+  isSelectableClassifierRow,
   supportsThinking,
   toPiChatModel,
+  toPiClassifierModel,
 } from "./catalog.js";
 import { type OmlxListedModel, type OmlxStatusRow, parseModelStatus } from "./client.js";
 import { createOmlxProvider } from "./provider.js";
@@ -339,6 +342,93 @@ describe("setCatalog", () => {
     const { provider, setCatalog } = createOmlxProvider();
     setCatalog(status, listed, SERVER_URL);
     expect(provider.getModels()).toEqual(chatModels);
-    expect(provider.getAllModels?.()).toEqual(chatModels);
+    const chatOnly = provider.getAllModels?.().filter((model) => model.type !== "classifier");
+    expect(chatOnly).toEqual(chatModels);
+  });
+
+  it("publishes the loaded decision row as a classifier only, and omits GGUF", () => {
+    const { provider, setCatalog } = createOmlxProvider();
+    setCatalog(status, listed, SERVER_URL);
+    const all = provider.getAllModels?.() ?? [];
+    const decision = all.find((model) => model.id === LOADED_DECISION);
+    expect(decision).toMatchObject({
+      type: "classifier",
+      api: "typesafe-system-one",
+      id: LOADED_DECISION,
+      name: LOADED_DECISION,
+      provider: "omlx",
+      baseUrl: "http://127.0.0.1:8000/v1",
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 262144,
+    });
+    expect(provider.getModels().some((model) => model.id === LOADED_DECISION)).toBe(false);
+    expect(provider.getModels().some((model) => model.id === GGUF)).toBe(false);
+    expect(all.some((model) => model.id === GGUF)).toBe(false);
+
+    const classifiers = all.filter((model) => model.type === "classifier");
+    expect(classifiers.map((model) => model.id)).toEqual([
+      LOADED_LLM_ALIAS,
+      LOADED_VLM,
+      LOADED_DECISION,
+    ]);
+    expect(classifiers.find((model) => model.id === LOADED_VLM)).toMatchObject({
+      input: ["text"],
+      contextWindow: 131072,
+      api: "typesafe-system-one",
+    });
+    expect(classifiers.find((model) => model.id === LOADED_LLM_ALIAS)?.contextWindow).toBe(32768);
+  });
+});
+
+describe("classifier row selection", () => {
+  it("keeps loaded decision rows and drops unloaded or GGUF decision rows", () => {
+    const kept = loadedLlmRow({
+      id: "inline-decision",
+      model_type: "decision",
+      engine_type: "decision",
+    });
+    const unloaded = loadedLlmRow({
+      id: "inline-unloaded-decision",
+      model_type: "decision",
+      engine_type: "decision",
+      loaded: false,
+    });
+    const gguf = loadedLlmRow({
+      id: "inline-gguf-decision",
+      model_type: "decision",
+      engine_type: "decision",
+      model_format: "gguf",
+    });
+    expect(isSelectableClassifierRow(kept)).toBe(true);
+    expect(isSelectableClassifierRow(unloaded)).toBe(false);
+    expect(isSelectableClassifierRow(gguf)).toBe(false);
+    expect(isSelectableClassifierRow(row(GGUF))).toBe(false);
+    expect(
+      classifierModelsFromStatus([kept, unloaded, gguf], [], SERVER_URL).map((model) => model.id),
+    ).toEqual(["inline-decision"]);
+
+    const nullLength = loadedLlmRow({
+      id: "inline-null-decision",
+      model_type: "decision",
+      engine_type: "decision",
+      model_context_length: null,
+    });
+    expect(
+      toPiClassifierModel(nullLength, nullLength.id, SERVER_URL, undefined, undefined)
+        .contextWindow,
+    ).toBe(128000);
+    expect(
+      toPiClassifierModel(nullLength, "published", SERVER_URL, undefined, 424242),
+    ).toMatchObject({
+      id: "published",
+      contextWindow: 424242,
+      type: "classifier",
+      api: "typesafe-system-one",
+      input: ["text"],
+    });
+    expect(
+      toPiClassifierModel(nullLength, "published", SERVER_URL, 1111, 424242).contextWindow,
+    ).toBe(1111);
   });
 });

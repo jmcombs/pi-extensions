@@ -1,6 +1,7 @@
 import type {
   ApiKeyCredential,
   AuthContext,
+  ClassifierModel,
   Model,
   Provider,
   RefreshModelsContext,
@@ -124,6 +125,24 @@ const OTHER_PROVIDER: Model<"openai-completions"> = {
   provider: "other",
 };
 
+const STORED_CLASSIFIER: ClassifierModel<"typesafe-system-one"> = {
+  type: "classifier",
+  id: "cached-decision",
+  name: "cached-decision",
+  api: "typesafe-system-one",
+  provider: "omlx",
+  baseUrl: "http://10.0.0.8:9000/v1",
+  input: ["text"],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 2000,
+};
+
+const FOREIGN_CLASSIFIER: ClassifierModel<"typesafe-system-one"> = {
+  ...STORED_CLASSIFIER,
+  id: "foreign-classifier",
+  provider: "other",
+};
+
 function refreshContext(
   overrides: Partial<RefreshModelsContext> & Pick<RefreshModelsContext, "publish">,
 ): RefreshModelsContext {
@@ -147,7 +166,7 @@ describe("omlx refreshModels", () => {
     if (!method) throw new Error("omlx provider is missing refreshModels");
     await method(
       refreshContext({
-        stored: { models: [OTHER_PROVIDER, STORED_CHAT] },
+        stored: { models: [OTHER_PROVIDER, FOREIGN_CLASSIFIER, STORED_CLASSIFIER, STORED_CHAT] },
         allowNetwork: false,
         publish: (publication) => {
           publication.update?.();
@@ -156,6 +175,7 @@ describe("omlx refreshModels", () => {
       }),
     );
     expect(provider.getModels()).toEqual([STORED_CHAT]);
+    expect(provider.getAllModels?.()).toEqual([STORED_CHAT, STORED_CLASSIFIER]);
   });
 
   it("returns without fetching when publish rejects the restore", async () => {
