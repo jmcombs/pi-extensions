@@ -177,15 +177,50 @@ function cachedContextWindows(ctx: ExtensionCommandContext): Map<string, number>
   return cached;
 }
 
+/**
+ * Notice after Esc confirms "Stop loading?".
+ *
+ * Pi replaces the previous info status on the next info notify. A following
+ * "Restoring previously loaded models" line hides this sentence, so restore
+ * shares this one notice instead of sending its own.
+ */
+export function stopWaitingNotice(modelId: string, restoring: boolean): string {
+  const stopped = `Stopped waiting for ${modelId}. omlx finishes the load in the background.`;
+  if (!restoring) return stopped;
+  return `${stopped}\nRestoring previously loaded models.`;
+}
+
+/**
+ * Stop waiting, tell the user omlx finishes the load, then restore when
+ * unload-all already ran. `restore` must not notify: another info notify
+ * would replace the stop-waiting notice.
+ */
+export async function finishStoppedLoad(options: {
+  notify: (message: string) => void;
+  modelId: string;
+  restoring: boolean;
+  restore: () => Promise<void>;
+}): Promise<void> {
+  options.notify(stopWaitingNotice(options.modelId, options.restoring));
+  if (options.restoring) await options.restore();
+}
+
+async function reloadPreviouslyLoaded(
+  client: OmlxClient,
+  loaded: readonly OmlxStatusRow[],
+): Promise<void> {
+  for (const model of loaded) {
+    await loadUntilLoaded(client, model.id, new AbortController().signal);
+  }
+}
+
 async function restoreLoaded(
   ctx: ExtensionCommandContext,
   client: OmlxClient,
   loaded: readonly OmlxStatusRow[],
 ): Promise<void> {
   ctx.ui.notify("Restoring previously loaded models");
-  for (const model of loaded) {
-    await loadUntilLoaded(client, model.id, new AbortController().signal);
-  }
+  await reloadPreviouslyLoaded(client, loaded);
 }
 
 async function loadModel(
@@ -222,8 +257,14 @@ async function loadModel(
       cancel: () => Promise.resolve(),
     });
     if (result.cancelled) {
-      ctx.ui.notify(`Stopped waiting for ${target.id}. omlx finishes the load in the background.`);
-      if (replace) await restoreLoaded(ctx, client, loaded);
+      await finishStoppedLoad({
+        notify: (message) => {
+          ctx.ui.notify(message);
+        },
+        modelId: target.id,
+        restoring: replace,
+        restore: () => reloadPreviouslyLoaded(client, loaded),
+      });
       return;
     }
     ctx.ui.notify(`Loaded ${target.id}`);

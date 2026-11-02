@@ -7,7 +7,7 @@
 import type { Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory from "./index.js";
+import factory, { finishStoppedLoad, stopWaitingNotice } from "./index.js";
 
 interface RegisteredCommandCall {
   name: string;
@@ -106,5 +106,59 @@ describe("@jmcombs/pi-omlx", () => {
       message: "/omlx is available in interactive mode",
       type: "warning",
     });
+  });
+});
+
+describe("stop waiting", () => {
+  const modelId = "Qwen3.8-27B-oQ8e-mtp";
+  const stopped = `Stopped waiting for ${modelId}. omlx finishes the load in the background.`;
+
+  it("notifies that omlx finishes the load in the background", () => {
+    expect(stopWaitingNotice(modelId, false)).toBe(stopped);
+  });
+
+  it("keeps the background-load sentence when unload-all restore starts", () => {
+    const notice = stopWaitingNotice(modelId, true);
+    expect(notice.startsWith(stopped)).toBe(true);
+    expect(notice).toContain("Restoring previously loaded models.");
+    expect(notice).not.toBe("Restoring previously loaded models");
+  });
+
+  it("shows the stop notice once, then restores, without a restore-only notice", async () => {
+    const notices: string[] = [];
+    let restored = false;
+    await finishStoppedLoad({
+      notify: (message) => {
+        notices.push(message);
+      },
+      modelId,
+      restoring: true,
+      restore: () => {
+        expect(notices).toEqual([stopWaitingNotice(modelId, true)]);
+        restored = true;
+        return Promise.resolve();
+      },
+    });
+    expect(restored).toBe(true);
+    expect(notices).toEqual([stopWaitingNotice(modelId, true)]);
+    expect(notices[0]).toContain("omlx finishes the load in the background");
+  });
+
+  it("does not restore when unload-all has not started", async () => {
+    const notices: string[] = [];
+    let restored = false;
+    await finishStoppedLoad({
+      notify: (message) => {
+        notices.push(message);
+      },
+      modelId,
+      restoring: false,
+      restore: () => {
+        restored = true;
+        return Promise.resolve();
+      },
+    });
+    expect(restored).toBe(false);
+    expect(notices).toEqual([stopped]);
   });
 });
