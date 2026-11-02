@@ -45,7 +45,7 @@
   },
   "dependencies": {
     "@jmcombs/pi-1password": "^2.4.0",
-    "headroom-ai": "^0.41.0"
+    "headroom-ai": "^0.42.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "^1.4.0",
