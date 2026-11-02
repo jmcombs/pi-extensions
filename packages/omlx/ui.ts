@@ -64,7 +64,6 @@ export interface OmlxUi {
   select(title: string, options: string[]): Promise<string | undefined>;
   confirm(title: string, message: string): Promise<boolean>;
   connectionError(serverUrl: string, message: string): Promise<"retry" | "close">;
-  showStatus(title: string, message: string): void;
   progress(state: ProgressState): Promise<void>;
   updateProgress(state: ProgressState): void;
 }
@@ -305,15 +304,6 @@ class OmlxView implements Component {
       "Close",
     ]);
     return choice === "Retry" ? "retry" : "close";
-  }
-
-  showStatus(title: string, message: string): void {
-    this.setContent(
-      frame(this.parts, this.theme, title, [
-        new Spacer(1),
-        new Text(this.theme.fg("muted", message), 1, 0),
-      ]),
-    );
   }
 
   progress(state: ProgressState): Promise<void> {
