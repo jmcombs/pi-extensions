@@ -41,6 +41,14 @@ async function resolveServerUrl(
   return configured ? normalizeOmlxServerUrl(configured) : undefined;
 }
 
+/**
+ * omlx's missing-key 401 on `GET /v1/models` (`error.message`).
+ * A rejected key is `"Invalid API key"` and must not match.
+ */
+function isMissingApiKeyProbe(error: unknown): boolean {
+  return error instanceof Error && error.message === "API key required";
+}
+
 export function createOmlxProvider(): OmlxProviderController {
   let models: Model<"openai-completions">[] = [];
   const setCatalog = (): void => {
@@ -68,7 +76,14 @@ export function createOmlxProvider(): OmlxProviderController {
               message: "API key (optional)",
             })
           ).trim();
-          await new OmlxClient(serverUrl, apiKey || undefined).listModels(interaction.signal);
+          try {
+            await new OmlxClient(serverUrl, apiKey || undefined).listModels(interaction.signal);
+          } catch (error) {
+            // Row 4: a blank key is stored as no key. On a keyed server the
+            // keyless probe still reaches omlx and returns "API key required".
+            // That is not a rejected key. A present key fails on any probe error.
+            if (apiKey !== "" || !isMissingApiKeyProbe(error)) throw error;
+          }
           return {
             type: "api_key",
             key: apiKey || undefined,
