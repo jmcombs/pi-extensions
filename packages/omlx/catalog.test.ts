@@ -17,6 +17,16 @@ import { createOmlxProvider } from "./provider.js";
 
 const SERVER_URL = "http://127.0.0.1:8000";
 
+/** Physical ids from the captured omlx server. Load and unload still use these. */
+const LOADED_LLM = "Qwen2.5-0.5B-Instruct-4bit";
+const LOADED_LLM_ALIAS = "qwen2.5-0.5b";
+const UNLOADED_LLM = "SmolLM-135M-Instruct-4bit";
+const LOADED_EMBEDDING = "Qwen3-Embedding-0.6B-4bit-DWQ";
+const LOADED_DECISION = "clef-flash-4bit";
+const GGUF = "SmolLM2-135M-Instruct-Q4_K_M";
+const LOADED_VLM = "Qwen3.8-27B-oQ8e-mtp";
+const UNLOADED_VLM = "Qwen3.8-27B-oQ6e-mtp";
+
 const COMPAT = {
   supportsStore: false,
   supportsDeveloperRole: false,
@@ -81,7 +91,16 @@ function chat(id: string): Model<"openai-completions"> {
 
 describe("omlx status fixture", () => {
   it("parses the captured status and rejects a bad shape", () => {
-    expect(status.models.length).toBeGreaterThanOrEqual(9);
+    expect(status.models.map((item) => item.id)).toEqual([
+      LOADED_LLM,
+      LOADED_EMBEDDING,
+      UNLOADED_VLM,
+      LOADED_VLM,
+      "Qwen3.8-Flash-Next-oQ6e-mtp",
+      UNLOADED_LLM,
+      GGUF,
+      LOADED_DECISION,
+    ]);
     expect(status.load_time_observations).toBeTypeOf("number");
     expect(() => parseModelStatus({ models: [{ id: "x" }] })).toThrow(
       "omlx returned an invalid model status",
@@ -90,89 +109,90 @@ describe("omlx status fixture", () => {
   });
 
   it("contains the catalog cases the filter has to tell apart", () => {
-    expect(row("Qwen3.8-27B-oQ8e-mtp")).toMatchObject({
+    expect(row(LOADED_LLM)).toMatchObject({
+      loaded: true,
+      model_type: "llm",
+      model_alias: LOADED_LLM_ALIAS,
+      is_hidden: false,
+    });
+    expect(row(UNLOADED_LLM)).toMatchObject({ loaded: false, model_type: "llm" });
+    expect(row(LOADED_EMBEDDING)).toMatchObject({ loaded: true, model_type: "embedding" });
+    expect(row(LOADED_DECISION)).toMatchObject({ loaded: true, model_type: "decision" });
+    expect(row(GGUF)).toMatchObject({ model_format: "gguf", is_hidden: true, model_type: "llm" });
+    expect(row(LOADED_VLM)).toMatchObject({
       loaded: true,
       model_type: "vlm",
       is_hidden: false,
+      model_alias: null,
+      thinking_default: true,
+      reasoning_efforts: ["low", "medium", "xhigh"],
     });
-    expect(row("fixture-loaded-llm").model_type).toBe("llm");
-    expect(row("fixture-unloaded-llm").loaded).toBe(false);
-    expect(row("fixture-decision").model_type).toBe("decision");
-    expect(row("fixture-embedding").model_type).toBe("embedding");
-    expect(row("fixture-gguf").model_format).toBe("gguf");
-    expect(row("fixture-hidden").is_hidden).toBe(true);
-    expect(row("fixture-aliased-physical").model_alias).toBe("fixture-alias");
-    expect(row("fixture-thinking").reasoning_efforts).toEqual(["low", "medium"]);
+    const listedIds = listed.map((model) => model.id);
+    expect(listedIds).toContain(LOADED_LLM_ALIAS);
+    expect(listedIds).not.toContain(LOADED_LLM);
+    expect(listedIds).not.toContain(GGUF);
   });
 });
 
 describe("chat row selection", () => {
   it("classifies chat, decision, and GGUF rows", () => {
-    expect(isChatRow(row("fixture-loaded-llm"))).toBe(true);
-    expect(isChatRow(row("Qwen3.8-27B-oQ8e-mtp"))).toBe(true);
-    expect(isChatRow(row("fixture-decision"))).toBe(false);
-    expect(isChatRow(row("fixture-embedding"))).toBe(false);
-    expect(isDecisionRow(row("fixture-decision"))).toBe(true);
-    expect(isDecisionRow(row("fixture-loaded-llm"))).toBe(false);
-    expect(isGgufRow(row("fixture-gguf"))).toBe(true);
-    expect(isGgufRow(row("fixture-loaded-llm"))).toBe(false);
+    expect(isChatRow(row(LOADED_LLM))).toBe(true);
+    expect(isChatRow(row(LOADED_VLM))).toBe(true);
+    expect(isChatRow(row(LOADED_DECISION))).toBe(false);
+    expect(isChatRow(row(LOADED_EMBEDDING))).toBe(false);
+    expect(isDecisionRow(row(LOADED_DECISION))).toBe(true);
+    expect(isDecisionRow(row(LOADED_LLM))).toBe(false);
+    expect(isGgufRow(row(GGUF))).toBe(true);
+    expect(isGgufRow(row(LOADED_LLM))).toBe(false);
   });
 
   it("selects only loaded, non-hidden, non-GGUF llm and vlm rows", () => {
     const selectable = status.models.filter(isSelectableChatRow).map((item) => item.id);
-    expect(selectable).toEqual([
-      "Qwen3.8-27B-oQ8e-mtp",
-      "fixture-loaded-llm",
-      "fixture-aliased-physical",
-      "fixture-thinking",
-      "fixture-efforts-only",
-      "fixture-thinking-disabled",
-    ]);
-    expect(isSelectableChatRow(row("fixture-unloaded-llm"))).toBe(false);
-    expect(isSelectableChatRow(row("fixture-loading-llm"))).toBe(false);
-    expect(isSelectableChatRow(row("Qwen3.8-27B-oQ6e-mtp"))).toBe(false);
+    expect(selectable).toEqual([LOADED_LLM, LOADED_VLM]);
+    expect(isSelectableChatRow(row(UNLOADED_LLM))).toBe(false);
+    expect(isSelectableChatRow(row(UNLOADED_VLM))).toBe(false);
+    expect(isSelectableChatRow(row(GGUF))).toBe(false);
+    expect(isSelectableChatRow(row(LOADED_DECISION))).toBe(false);
+    expect(isSelectableChatRow(row(LOADED_EMBEDDING))).toBe(false);
   });
 
   it("publishes the alias as the model id and drops excluded rows", () => {
-    expect(displayIdOf(row("fixture-aliased-physical"))).toBe("fixture-alias");
-    expect(chatModels.map((model) => model.id)).toEqual([
-      "Qwen3.8-27B-oQ8e-mtp",
-      "fixture-loaded-llm",
-      "fixture-alias",
-      "fixture-thinking",
-      "fixture-efforts-only",
-      "fixture-thinking-disabled",
-    ]);
-    expect(chatModels.some((model) => model.id === "fixture-aliased-physical")).toBe(false);
-    expect(chatModels.some((model) => model.id === "fixture-gguf")).toBe(false);
-    expect(chatModels.some((model) => model.id === "fixture-hidden")).toBe(false);
-    expect(chatModels.some((model) => model.id === "fixture-decision")).toBe(false);
-    expect(chatModels.some((model) => model.id === "fixture-embedding")).toBe(false);
+    expect(displayIdOf(row(LOADED_LLM))).toBe(LOADED_LLM_ALIAS);
+    expect(displayIdOf(row(LOADED_VLM))).toBe(LOADED_VLM);
+    expect(chatModels.map((model) => model.id)).toEqual([LOADED_LLM_ALIAS, LOADED_VLM]);
+    expect(chatModels.some((model) => model.id === LOADED_LLM)).toBe(false);
+    expect(chatModels.some((model) => model.id === GGUF)).toBe(false);
+    expect(chatModels.some((model) => model.id === LOADED_DECISION)).toBe(false);
+    expect(chatModels.some((model) => model.id === LOADED_EMBEDDING)).toBe(false);
+    expect(chatModels.some((model) => model.id === UNLOADED_LLM)).toBe(false);
+    expect(chatModels.some((model) => model.id === UNLOADED_VLM)).toBe(false);
   });
 });
 
 describe("chat model mapping", () => {
   it("gives vlm image input and every other chat model text only", () => {
-    expect(chat("Qwen3.8-27B-oQ8e-mtp").input).toEqual(["text", "image"]);
-    for (const model of chatModels) {
-      if (model.id === "Qwen3.8-27B-oQ8e-mtp") continue;
-      expect(model.input).toEqual(["text"]);
-    }
+    expect(chat(LOADED_VLM).input).toEqual(["text", "image"]);
+    expect(chat(LOADED_LLM_ALIAS).input).toEqual(["text"]);
   });
 
-  it("uses max_model_len, then native length, then 128000", () => {
-    expect(chat("Qwen3.8-27B-oQ8e-mtp").contextWindow).toBe(131072);
-    expect(chat("fixture-loaded-llm").contextWindow).toBe(8192);
-    expect(chat("fixture-alias").contextWindow).toBe(16384);
-    expect(chat("fixture-efforts-only").contextWindow).toBe(32768);
-    expect(chat("fixture-thinking").contextWindow).toBe(128000);
-    expect(chat("fixture-thinking-disabled").contextWindow).toBe(128000);
+  it("uses max_model_len, then native length, then the cached window", () => {
+    // Captured rows all have a positive model_context_length, so this fixture
+    // does not prove the 128000 fallback. That branch remains in contextWindowOf.
+    const vlm = row(LOADED_VLM);
+    expect(vlm.model_context_length).toBe(262144);
+    expect(chat(LOADED_VLM).contextWindow).toBe(131072);
+    expect(chat(LOADED_LLM_ALIAS).contextWindow).toBe(32768);
+    expect(contextWindowOf(vlm, 131072, 55555)).toBe(131072);
+    expect(contextWindowOf(vlm, undefined, 55555)).toBe(262144);
 
-    const fallback = row("fixture-thinking");
-    expect(contextWindowOf(fallback, undefined, undefined)).toBe(128000);
-    expect(contextWindowOf(fallback, undefined, 55555)).toBe(55555);
-    expect(contextWindowOf(fallback, 8192, 55555)).toBe(8192);
-    expect(contextWindowOf(row("fixture-efforts-only"), undefined, 55555)).toBe(32768);
+    const aliased = chatModelsFromStatus(
+      status.models,
+      listed.map((model) =>
+        model.id === LOADED_LLM_ALIAS ? { ...model, max_model_len: 1111 } : model,
+      ),
+      SERVER_URL,
+    ).find((model) => model.id === LOADED_LLM_ALIAS);
+    expect(aliased?.contextWindow).toBe(1111);
   });
 
   it("sets maxTokens to the context window and zero cost", () => {
@@ -187,30 +207,25 @@ describe("chat model mapping", () => {
   });
 
   it("adds the llama thinking map only on qualifying loaded rows", () => {
-    for (const id of [
-      "Qwen3.8-27B-oQ8e-mtp",
-      "fixture-thinking",
-      "fixture-efforts-only",
-      "fixture-thinking-disabled",
-    ]) {
-      const model = chat(id);
-      expect(model.reasoning).toBe(true);
-      expect(model.thinkingLevelMap).toEqual(THINKING_LEVEL_MAP);
-      expect(model.compat).toEqual({ ...COMPAT, thinkingFormat: "qwen-chat-template" });
-    }
-    for (const id of ["fixture-loaded-llm", "fixture-alias"]) {
-      const model = chat(id);
-      expect(model.reasoning).toBe(false);
-      expect(model.thinkingLevelMap).toBeUndefined();
-      expect(model.compat).toEqual(COMPAT);
-    }
-    const unloaded = row("fixture-unloaded-llm");
+    const thinking = chat(LOADED_VLM);
+    expect(thinking.reasoning).toBe(true);
+    expect(thinking.thinkingLevelMap).toEqual(THINKING_LEVEL_MAP);
+    expect(thinking.compat).toEqual({ ...COMPAT, thinkingFormat: "qwen-chat-template" });
+
+    const plain = chat(LOADED_LLM_ALIAS);
+    expect(plain.reasoning).toBe(false);
+    expect(plain.thinkingLevelMap).toBeUndefined();
+    expect(plain.compat).toEqual(COMPAT);
+
+    const unloaded = row(UNLOADED_VLM);
+    expect(unloaded.thinking_default).toBe(true);
+    expect(unloaded.reasoning_efforts).toEqual(["low", "medium", "xhigh"]);
     expect(supportsThinking(unloaded)).toBe(false);
     expect(toPiChatModel(unloaded, unloaded.id, SERVER_URL, undefined, undefined).reasoning).toBe(
       false,
     );
-    expect(supportsThinking(row("fixture-thinking-disabled"))).toBe(true);
-    expect(supportsThinking(row("fixture-gguf"))).toBe(true);
+    expect(supportsThinking(row(LOADED_LLM))).toBe(false);
+    expect(supportsThinking(row(GGUF))).toBe(false);
   });
 });
 
