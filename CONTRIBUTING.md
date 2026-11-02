@@ -128,6 +128,10 @@ not assume, and do not build a workaround on your own.
 - Only meaningful tests. No tests written purely to inflate coverage.
 - **Do not mock external APIs.** If a test would require mocking a real network service, prefer
   a smoke test that verifies the extension loads and registers its tools/commands instead.
+- **`packages/omlx` is the exception.** Tests that exercise omlx require a live omlx server
+  (`OMLX_LIVE=1`, `OMLX_BASE_URL`, `OMLX_API_KEY`, `OMLX_TEST_MODEL`). Do not stand in a local
+  HTTP server, mock `fetch`, or invent an omlx response. This requirement is only for
+  `packages/omlx`. Other packages keep the smoke-test rule and do not need a live omlx server.
 - Each package should have at least one smoke test that imports the extension's default factory
   and verifies it registers the expected resources against a minimal `ExtensionAPI` stub built
   from real types.

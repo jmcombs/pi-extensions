@@ -93,6 +93,9 @@ conventions; `secretlint` finds no secret hits; and `npm audit` finds no known
 runtime, tool, or command behavior; that `op`-backed credential resolution works;
 anything about **dev**-dependency vulnerabilities (audit runs `--omit=dev`); or
 anything at all about a **direct push to `main`**, which never triggers this workflow.
+It also does not run a live omlx server. Tests that exercise omlx require that server
+and are skipped unless `OMLX_LIVE=1`. That requirement is only for `packages/omlx`;
+no other package needs a live omlx server, and CI must not be read as imposing one.
 
 ## Commit Messages
 

@@ -41,6 +41,9 @@ npm via OIDC Trusted Publishing.
   security audit + secretlint).
 - **No mocking external APIs in tests.** Smoke tests that load the extension and verify
   registration are the preferred shape.
+- **`packages/omlx` tests that exercise omlx require a live omlx server.** Do not substitute a
+  local HTTP server. That requirement applies only to `packages/omlx`; do not impose a live
+  omlx server on any other package.
 - Each package's `package.json` must include: `keywords: ["pi-package"]`, a `pi` manifest
   with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=22.19.0"`,
   and an `image` URL for the gallery card.

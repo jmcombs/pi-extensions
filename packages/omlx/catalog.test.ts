@@ -111,6 +111,30 @@ function nullLengthRow(): OmlxStatusRow {
   };
 }
 
+/**
+ * Loaded MLX `llm` row. Callers override one field. Not a capture: the fixture's
+ * only GGUF row is also unloaded and hidden, and no captured row is loading.
+ */
+function loadedLlmRow(
+  overrides: Partial<OmlxStatusRow> & Pick<OmlxStatusRow, "id">,
+): OmlxStatusRow {
+  return {
+    loaded: true,
+    is_loading: false,
+    model_type: "llm",
+    engine_type: "batched",
+    model_format: null,
+    model_context_length: 4096,
+    thinking_default: null,
+    reasoning_efforts: null,
+    is_hidden: false,
+    model_alias: null,
+    estimated_size: null,
+    loading_started_at: null,
+    ...overrides,
+  };
+}
+
 describe("omlx status fixture", () => {
   it("parses the captured status and rejects a bad shape", () => {
     expect(status.models.map((item) => item.id)).toEqual([
@@ -176,6 +200,19 @@ describe("chat row selection", () => {
     expect(isSelectableChatRow(row(GGUF))).toBe(false);
     expect(isSelectableChatRow(row(LOADED_DECISION))).toBe(false);
     expect(isSelectableChatRow(row(LOADED_EMBEDDING))).toBe(false);
+
+    // Each exclusion is loaded, so `loaded` cannot hide it. The capture has no such row.
+    const gguf = loadedLlmRow({ id: "inline-gguf", model_format: "gguf" });
+    const hidden = loadedLlmRow({ id: "inline-hidden", is_hidden: true });
+    const loading = loadedLlmRow({ id: "inline-loading", is_loading: true });
+    const kept = loadedLlmRow({ id: "inline-kept" });
+    expect(isSelectableChatRow(gguf)).toBe(false);
+    expect(isSelectableChatRow(hidden)).toBe(false);
+    expect(isSelectableChatRow(loading)).toBe(false);
+    expect(isSelectableChatRow(kept)).toBe(true);
+    expect(
+      chatModelsFromStatus([gguf, hidden, loading, kept], [], SERVER_URL).map((model) => model.id),
+    ).toEqual(["inline-kept"]);
   });
 
   it("publishes the alias as the model id and drops excluded rows", () => {
@@ -198,9 +235,8 @@ describe("chat model mapping", () => {
   });
 
   it("prefers max_model_len, then native length", () => {
-    // Captured rows all have a positive model_context_length, so this fixture
-    // does not prove the cached window or the 128000 fallback. The fixture-driven
-    // 128000 assertion stays dropped. The cached window is proven on an inline row.
+    // Captured rows all have a positive model_context_length. The 128000 fallback
+    // and the cached window are proven on inline rows, not on the fixture.
     const vlm = row(LOADED_VLM);
     expect(vlm.model_context_length).toBe(262144);
     expect(chat(LOADED_VLM).contextWindow).toBe(131072);
@@ -226,6 +262,7 @@ describe("chat model mapping", () => {
     expect(contextWindowOf({ ...probe, model_context_length: 8192 }, undefined, 424242)).toBe(8192);
     // Fails if the cached step is removed: the only remaining value is 128000.
     expect(contextWindowOf(probe, undefined, 424242)).toBe(424242);
+    expect(contextWindowOf(nullLengthRow(), undefined, undefined)).toBe(128000);
 
     const aliased: OmlxStatusRow = {
       ...probe,
@@ -274,6 +311,26 @@ describe("chat model mapping", () => {
     );
     expect(supportsThinking(row(LOADED_LLM))).toBe(false);
     expect(supportsThinking(row(GGUF))).toBe(false);
+
+    // Captured thinking rows also have thinking_default: true, so efforts never decide.
+    const effortsOnly = loadedLlmRow({
+      id: "inline-efforts",
+      thinking_default: null,
+      reasoning_efforts: ["medium"],
+    });
+    expect(supportsThinking(effortsOnly)).toBe(true);
+    const mapped = toPiChatModel(effortsOnly, effortsOnly.id, SERVER_URL, undefined, undefined);
+    expect(mapped.reasoning).toBe(true);
+    expect(mapped.thinkingLevelMap).toEqual(THINKING_LEVEL_MAP);
+    expect(mapped.compat).toEqual({ ...COMPAT, thinkingFormat: "qwen-chat-template" });
+    expect(chatModelsFromStatus([effortsOnly], [], SERVER_URL)).toMatchObject([
+      {
+        id: "inline-efforts",
+        reasoning: true,
+        thinkingLevelMap: THINKING_LEVEL_MAP,
+        compat: { ...COMPAT, thinkingFormat: "qwen-chat-template" },
+      },
+    ]);
   });
 });
 
