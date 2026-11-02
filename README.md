@@ -28,7 +28,7 @@
 
 Every package here is a Pi extension you can install individually from npm. Packages are tagged with the `pi-package` keyword so they appear in the [pi.dev gallery](https://pi.dev/packages).
 
-They share the same bar: TypeScript, real smoke tests (no mocked external APIs), Conventional Commits, and a full quality gate on every PR. Secrets never reach the model — extensions that need credentials go through the shared [`@jmcombs/pi-1password`](./packages/1password) credential API.
+They share the same bar: TypeScript, real smoke tests (no mocked external APIs), Conventional Commits, and a full quality gate on every PR. Secrets never reach the model — extensions that need credentials go through the shared [`@jmcombs/pi-1password`](./packages/1password) credential API. `packages/omlx` is the exception to the smoke-test preference: tests that exercise omlx require a live omlx server and must not use a local stand-in. That requirement is only for `packages/omlx`; other packages do not need a live omlx server.
 
 Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls outside the APIs Pi provides. If a needed capability has no Pi API, stop and escalate it to the human. Do not assume, and do not build a workaround on your own.
 

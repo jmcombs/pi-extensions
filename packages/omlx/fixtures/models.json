@@ -1,0 +1,54 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "qwen2.5-0.5b",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 32768
+    },
+    {
+      "id": "Qwen3-Embedding-0.6B-4bit-DWQ",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 32768
+    },
+    {
+      "id": "Qwen3.8-27B-oQ6e-mtp",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 131072
+    },
+    {
+      "id": "Qwen3.8-27B-oQ8e-mtp",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 131072
+    },
+    {
+      "id": "Qwen3.8-Flash-Next-oQ6e-mtp",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 262144
+    },
+    {
+      "id": "SmolLM-135M-Instruct-4bit",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 2048
+    },
+    {
+      "id": "clef-flash-4bit",
+      "object": "model",
+      "created": 1793641136,
+      "owned_by": "omlx",
+      "max_model_len": 262144
+    }
+  ]
+}

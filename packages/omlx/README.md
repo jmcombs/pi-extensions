@@ -155,6 +155,15 @@ npm run check       # full quality gate
 npm run test        # this package's smoke test
 ```
 
+Testing this package against omlx requires a live omlx server. Do not stand in a
+local HTTP server. This requirement is only for `packages/omlx`; other packages
+do not need a live omlx server.
+
+```bash
+OMLX_LIVE=1 OMLX_BASE_URL=http://127.0.0.1:8000 OMLX_API_KEY=... OMLX_TEST_MODEL=... \
+  npx vitest run packages/omlx/live.test.ts
+```
+
 To try local changes against a real Pi session:
 
 ```bash

@@ -164,6 +164,11 @@ If your extension does end-to-end work that you want to test against the real
 service, prefer a manual `pi -e` workflow over network mocks. Coverage theater
 is explicitly discouraged (see `CONTRIBUTING.md` → Testing Philosophy).
 
+`packages/omlx` is the exception: tests that exercise omlx require a live omlx
+server and must not use a local HTTP stand-in. That requirement is only for
+`packages/omlx`. A new package follows the smoke-test rule above and does not
+need a live omlx server.
+
 ## 5. Add an asset for the gallery
 
 Assets live at **the repo root** under `assets/<slug>/`, not inside the
