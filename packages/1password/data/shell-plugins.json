@@ -286,6 +286,13 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/huggingface"
   },
   {
+    "name": "IBM Cloud",
+    "slug": "ibmcloud",
+    "envVars": ["IBMCLOUD_API_KEY"],
+    "primaryEnvVar": "IBMCLOUD_API_KEY",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/ibmcloud"
+  },
+  {
     "name": "InfluxDB",
     "slug": "influxdb",
     "envVars": ["INFLUX_HOST", "INFLUX_ORG", "INFLUX_TOKEN"],
