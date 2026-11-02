@@ -1,0 +1,49 @@
+{
+  "name": "@jmcombs/pi-omlx",
+  "version": "0.0.0",
+  "private": true,
+  "description": "omlx provider for Pi: run local MLX models through omlx with the same experience as Pi's llama.cpp provider. GGUF models are not supported.",
+  "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/omlx",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jmcombs/pi-extensions.git",
+    "directory": "packages/omlx"
+  },
+  "bugs": {
+    "url": "https://github.com/jmcombs/pi-extensions/issues"
+  },
+  "license": "MIT",
+  "author": "Jeremy Combs",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "*.ts",
+    "!*.test.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "omlx",
+    "mlx",
+    "local-models",
+    "provider"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "image": "https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "^1.4.3"
+  }
+}

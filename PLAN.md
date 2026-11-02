@@ -348,5 +348,6 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate | Deferred at | Needs | Discharge by | Status |
-| ---- | ----------- | ----- | ------------ | ------ |
+| Gate                      | Deferred at   | Needs     | Discharge by                                                                                                                                                                                                            | Status       |
+| ------------------------- | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| Phase 1 interactive login | Phase 1 build | tui-human | A person runs `pi -ne -e ./packages/omlx`, then `/login omlx`, accepts the default URL, and enters the key. Prompts appear in order (URL, then API key); login succeeds; a wrong key shows an error and stores nothing. | HUMAN-VERIFY |
