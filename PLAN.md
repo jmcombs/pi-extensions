@@ -173,12 +173,12 @@ Parity rows 55–60. List classifiers and answer `choice`/`bool`/`score` through
 
 ### Actionable TODOs
 
-- [ ] `packages/omlx/catalog.ts` — add `toPiClassifierModel(row, displayId, serverUrl, maxModelLen, cached)`.
-- [ ] `packages/omlx/classify.ts` — exports `validateClassifierLimits(context)`, `applyTemperature(answers, context, temperature)`, `peakConfidence(probabilities)`, and `createOmlxClassify()` that composes limits, delegation, and post-processing per the constraints.
-- [ ] `packages/omlx/provider.ts` — publish classifiers alongside chat models in `refreshModels`/`setCatalog`; `getAllModels` returns both; `classify` uses `createOmlxClassify()`.
-- [ ] `packages/omlx/catalog.test.ts` — add: after `setCatalog` with `fixtures/status.json` + `fixtures/models.json`, the loaded `decision` row's id is in `provider.getAllModels()` (type `classifier`, api `typesafe-system-one`) and not in `provider.getModels()`; GGUF rows are in neither.
-- [ ] `packages/omlx/classify.test.ts` — pure tests: limit errors at 1 and 63 choices, 1 and 11 levels; temperature 1 is identity; temperature > 1 flattens without changing argmax; bool scaling; confidence formula; non-positive temperature error; score temperature and expected-level recomputation over a raw omlx score answer with `"probabilities" {"0":…, "1":…}`.
-- [ ] `packages/omlx/live.test.ts` — add a classifier case: calls `provider.classify` against the real server with one `bool`, one `choice`, one `score` question on `OMLX_TEST_MODEL`; asserts `stopReason === "stop"` and answer types; for the `choice` answer, `probabilities` sum to 1 ± 0.01; the `bool` answer's `probability` and the `score` answer's `score` and `confidence` are finite numbers in range.
+- [x] `packages/omlx/catalog.ts` — add `toPiClassifierModel(row, displayId, serverUrl, maxModelLen, cached)`.
+- [x] `packages/omlx/classify.ts` — exports `validateClassifierLimits(context)`, `applyTemperature(answers, context, temperature)`, `peakConfidence(probabilities)`, and `createOmlxClassify()` that composes limits, delegation, and post-processing per the constraints.
+- [x] `packages/omlx/provider.ts` — publish classifiers alongside chat models in `refreshModels`/`setCatalog`; `getAllModels` returns both; `classify` uses `createOmlxClassify()`.
+- [x] `packages/omlx/catalog.test.ts` — add: after `setCatalog` with `fixtures/status.json` + `fixtures/models.json`, the loaded `decision` row's id is in `provider.getAllModels()` (type `classifier`, api `typesafe-system-one`) and not in `provider.getModels()`; GGUF rows are in neither.
+- [x] `packages/omlx/classify.test.ts` — pure tests: limit errors at 1 and 63 choices, 1 and 11 levels; temperature 1 is identity; temperature > 1 flattens without changing argmax; bool scaling; confidence formula; non-positive temperature error; score temperature and expected-level recomputation over a raw omlx score answer with `"probabilities" {"0":…, "1":…}`.
+- [x] `packages/omlx/live.test.ts` — add a classifier case: calls `provider.classify` against the real server with one `bool`, one `choice`, one `score` question on `OMLX_TEST_MODEL`; asserts `stopReason === "stop"` and answer types; for the `choice` answer, `probabilities` sum to 1 ± 0.01; the `bool` answer's `probability` and the `score` answer's `score` and `confidence` are finite numbers in range.
 
 ### Testing Gates
 
@@ -331,7 +331,7 @@ Document the package, register it for the two-host load check and Release Please
 
 - [x] Phase 1 — Package scaffold, client, provider registration, auth
 - [x] Phase 2 — Catalog refresh, chat models, context, thinking, GGUF exclusion
-- [ ] Phase 3 — Classifiers
+- [x] Phase 3 — Classifiers
 - [ ] Phase 4 — `/omlx` manager: list, load, unload, progress, restore
 - [ ] Phase 5 — `/omlx` downloads (MLX only)
 - [ ] Phase 6 — Docs, extension-load harness, Release Please registration
