@@ -24,7 +24,7 @@ updates:
     # SHORT_EXCEPTIONS_EXPIRE). Enforced by scripts/check-dependabot-ignores.mjs.
     # Once the date passes, the gate fails until the ignore is renewed or removed.
     ignore:
-      # expires: 2026-11-01
+      # expires: 2027-01-30
       # @types/node tracks the Node major it describes, so the types must not
       # run ahead of the runtime we support. pi (@earendil-works/pi-coding-agent)
       # requires >=22.19.0, tests only on Node 22, and builds its release
