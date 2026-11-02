@@ -7,7 +7,7 @@
 import type { Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import factory, { finishStoppedLoad, stopWaitingNotice } from "./index.js";
+import factory, { finishStoppedLoad, settleModelLoad, stopWaitingNotice } from "./index.js";
 
 interface RegisteredCommandCall {
   name: string;
@@ -160,5 +160,48 @@ describe("stop waiting", () => {
     });
     expect(restored).toBe(false);
     expect(notices).toEqual([stopped]);
+  });
+
+  it("keeps the stop-waiting notice when restore rejects", async () => {
+    const notices: string[] = [];
+    let restores = 0;
+    await settleModelLoad({
+      notify: (message) => {
+        notices.push(message);
+      },
+      modelId,
+      replace: true,
+      run: () => Promise.resolve({ cancelled: true }),
+      restore: () => {
+        restores += 1;
+        return Promise.reject(new Error("The operation was aborted due to timeout"));
+      },
+    });
+    expect(restores).toBe(1);
+    expect(notices).toEqual([stopWaitingNotice(modelId, true)]);
+    expect(notices).not.toContain("Restoring previously loaded models");
+    expect(notices[0]).toContain("omlx finishes the load in the background");
+    expect(notices[0]?.startsWith(stopped)).toBe(true);
+  });
+
+  it("still restores after a failed unload-all load", async () => {
+    const notices: string[] = [];
+    let restores = 0;
+    await expect(
+      settleModelLoad({
+        notify: (message) => {
+          notices.push(message);
+        },
+        modelId,
+        replace: true,
+        run: () => Promise.reject(new Error("omlx returned HTTP 507")),
+        restore: () => {
+          restores += 1;
+          return Promise.resolve();
+        },
+      }),
+    ).rejects.toThrow("omlx returned HTTP 507");
+    expect(restores).toBe(1);
+    expect(notices).toContain("Restoring previously loaded models");
   });
 });

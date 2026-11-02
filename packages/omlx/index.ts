@@ -205,6 +205,50 @@ export async function finishStoppedLoad(options: {
   if (options.restoring) await options.restore();
 }
 
+/**
+ * Apply one load attempt.
+ *
+ * The cancelled branch contains a restore failure. Letting it reach the
+ * catch restores a second time and notifies "Restoring previously loaded
+ * models", which replaces the stop-waiting notice. The 15 s client timeout
+ * is unchanged.
+ */
+export async function settleModelLoad(options: {
+  notify: (message: string) => void;
+  modelId: string;
+  replace: boolean;
+  run: () => Promise<{ cancelled: boolean }>;
+  restore: () => Promise<void>;
+}): Promise<void> {
+  try {
+    const result = await options.run();
+    if (result.cancelled) {
+      try {
+        await finishStoppedLoad({
+          notify: options.notify,
+          modelId: options.modelId,
+          restoring: options.replace,
+          restore: options.restore,
+        });
+      } catch {
+        // Keep the stop-waiting notice. Do not restore again.
+      }
+      return;
+    }
+    options.notify(`Loaded ${options.modelId}`);
+  } catch (error) {
+    if (options.replace) {
+      try {
+        options.notify("Restoring previously loaded models");
+        await options.restore();
+      } catch {
+        // Preserve the original load error.
+      }
+    }
+    throw error;
+  }
+}
+
 async function reloadPreviouslyLoaded(
   client: OmlxClient,
   loaded: readonly OmlxStatusRow[],
@@ -212,15 +256,6 @@ async function reloadPreviouslyLoaded(
   for (const model of loaded) {
     await loadUntilLoaded(client, model.id, new AbortController().signal);
   }
-}
-
-async function restoreLoaded(
-  ctx: ExtensionCommandContext,
-  client: OmlxClient,
-  loaded: readonly OmlxStatusRow[],
-): Promise<void> {
-  ctx.ui.notify("Restoring previously loaded models");
-  await reloadPreviouslyLoaded(client, loaded);
 }
 
 async function loadModel(
@@ -245,39 +280,25 @@ async function loadModel(
   if (replace) {
     for (const model of loaded) await client.unloadAndWait(model.id);
   }
-  try {
-    const result = await runWithProgress(ui, {
-      title: "Loading model",
-      model: target.id,
-      initialMessage: "Loading model",
-      cancelTitle: "Stop loading?",
-      cancelMessage: target.id,
-      run: (signal, update) => loadUntilLoaded(client, target.id, signal, update),
-      // Unload returns 409 while is_loading, and there is no load-cancel route.
-      cancel: () => Promise.resolve(),
-    });
-    if (result.cancelled) {
-      await finishStoppedLoad({
-        notify: (message) => {
-          ctx.ui.notify(message);
-        },
-        modelId: target.id,
-        restoring: replace,
-        restore: () => reloadPreviouslyLoaded(client, loaded),
-      });
-      return;
-    }
-    ctx.ui.notify(`Loaded ${target.id}`);
-  } catch (error) {
-    if (replace) {
-      try {
-        await restoreLoaded(ctx, client, loaded);
-      } catch {
-        // Preserve the original load error.
-      }
-    }
-    throw error;
-  }
+  await settleModelLoad({
+    notify: (message) => {
+      ctx.ui.notify(message);
+    },
+    modelId: target.id,
+    replace,
+    run: () =>
+      runWithProgress(ui, {
+        title: "Loading model",
+        model: target.id,
+        initialMessage: "Loading model",
+        cancelTitle: "Stop loading?",
+        cancelMessage: target.id,
+        run: (signal, update) => loadUntilLoaded(client, target.id, signal, update),
+        // Unload returns 409 while is_loading, and there is no load-cancel route.
+        cancel: () => Promise.resolve(),
+      }),
+    restore: () => reloadPreviouslyLoaded(client, loaded),
+  });
 }
 
 async function unloadModel(
