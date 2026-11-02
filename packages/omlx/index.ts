@@ -1,8 +1,8 @@
 /**
  * @jmcombs/pi-omlx — omlx provider for Pi.
  *
- * Registers native provider `omlx` and refreshes its MLX chat catalog.
- * Classifiers and `/omlx` arrive in later phases. GGUF models are not supported.
+ * Registers native provider `omlx` and refreshes its MLX chat and classifier
+ * catalogs. `/omlx` arrives in a later phase. GGUF models are not supported.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

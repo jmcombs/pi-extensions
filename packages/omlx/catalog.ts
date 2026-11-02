@@ -1,4 +1,4 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { ClassifierModel, Model } from "@earendil-works/pi-ai";
 import type { OmlxListedModel, OmlxStatusRow } from "./client.js";
 import { omlxInferenceUrl } from "./url.js";
 
@@ -42,6 +42,16 @@ export function isGgufRow(row: OmlxStatusRow): boolean {
  */
 export function isSelectableChatRow(row: OmlxStatusRow): boolean {
   return isChatRow(row) && row.loaded && !row.is_loading && !row.is_hidden && !isGgufRow(row);
+}
+
+/**
+ * Classifiers are every selectable chat row, plus loaded decision rows.
+ * GGUF is excluded from both. Decision rows are classifier-only.
+ */
+export function isSelectableClassifierRow(row: OmlxStatusRow): boolean {
+  if (isGgufRow(row)) return false;
+  if (isSelectableChatRow(row)) return true;
+  return isDecisionRow(row) && row.loaded;
 }
 
 /** Pi model id: the `/v1/models` alias when `model_alias` is set, else the pool id. */
@@ -124,6 +134,32 @@ export function toPiChatModel(
 }
 
 /**
+ * Map one status row to a Pi classifier.
+ *
+ * Same id as the chat model when the row is also a chat model. Text only,
+ * even for `vlm`. Context window uses the chat chain. No `maxTokens`.
+ */
+export function toPiClassifierModel(
+  row: OmlxStatusRow,
+  displayId: string,
+  serverUrl: string,
+  maxModelLen: number | undefined,
+  cached: number | undefined,
+): ClassifierModel<"typesafe-system-one"> {
+  return {
+    type: "classifier",
+    id: displayId,
+    name: displayId,
+    api: "typesafe-system-one",
+    provider: OMLX_PROVIDER,
+    baseUrl: omlxInferenceUrl(serverUrl),
+    input: ["text"],
+    cost: { ...ZERO_COST },
+    contextWindow: contextWindowOf(row, maxModelLen, cached),
+  };
+}
+
+/**
  * Selectable chat models for one status payload.
  *
  * `cached` is keyed by the Pi model id (the alias when one is published).
@@ -137,6 +173,29 @@ export function chatModelsFromStatus(
   return rows.filter(isSelectableChatRow).map((row) => {
     const displayId = displayIdOf(row);
     return toPiChatModel(
+      row,
+      displayId,
+      serverUrl,
+      listedMaxModelLen(listed, displayId),
+      cached?.get(displayId),
+    );
+  });
+}
+
+/**
+ * Classifier models for one status payload.
+ *
+ * `cached` is keyed by the Pi model id (the alias when one is published).
+ */
+export function classifierModelsFromStatus(
+  rows: readonly OmlxStatusRow[],
+  listed: readonly OmlxListedModel[],
+  serverUrl: string,
+  cached?: ReadonlyMap<string, number>,
+): ClassifierModel<"typesafe-system-one">[] {
+  return rows.filter(isSelectableClassifierRow).map((row) => {
+    const displayId = displayIdOf(row);
+    return toPiClassifierModel(
       row,
       displayId,
       serverUrl,

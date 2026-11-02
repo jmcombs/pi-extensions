@@ -15,7 +15,7 @@ import type {
   Model,
   Tool,
 } from "@earendil-works/pi-ai";
-import { normalizeContext, Type } from "@earendil-works/pi-ai";
+import { isModelType, normalizeContext, Type } from "@earendil-works/pi-ai";
 import { afterAll, describe, expect, it } from "vitest";
 import { OmlxClient } from "./client.js";
 import { createOmlxProvider } from "./provider.js";
@@ -354,6 +354,86 @@ describe.skipIf(!LIVE)("omlx live catalog and chat", () => {
       }
       const aborted = await abortedStream.result();
       expect(aborted.stopReason).toBe("aborted");
+    },
+    LIVE_TIMEOUT_MS,
+  );
+
+  it(
+    "classifies bool, choice, and score on the live server",
+    async () => {
+      requireLiveEnv();
+      const refresh = provider.refreshModels;
+      if (!refresh) throw new Error("omlx provider is missing refreshModels");
+      if (!provider.classify) throw new Error("omlx provider is missing classify");
+      await client.load(TEST_MODEL);
+      await refresh({
+        credential: {
+          type: "api_key",
+          key: API_KEY,
+          env: { OMLX_BASE_URL: SERVER_URL },
+        },
+        allowNetwork: true,
+        signal: AbortSignal.timeout(30_000),
+        publish: (publication) => {
+          publication.update?.();
+          return Promise.resolve(true);
+        },
+      });
+      const classifier = provider
+        .getAllModels?.()
+        .find((model) => model.id === TEST_MODEL && isModelType(model, "classifier"));
+      if (!classifier || !isModelType(classifier, "classifier")) {
+        throw new Error(`${TEST_MODEL} was not published as a classifier`);
+      }
+      expect(provider.getModels().some((model) => model.id === TEST_MODEL)).toBe(true);
+
+      const result = await provider.classify(
+        classifier,
+        {
+          state: { note: "The sky is blue and the grass is green." },
+          questions: {
+            blue: {
+              type: "bool",
+              instructions: "Is the sky blue?",
+              criteria: { true: "The sky is blue.", false: "The sky is not blue." },
+            },
+            color: {
+              type: "choice",
+              instructions: "What color is the sky?",
+              criteria: { blue: "The sky is blue.", green: "The sky is green." },
+            },
+            brightness: {
+              type: "score",
+              instructions: "How bright is the sky?",
+              criteria: ["dark", "dim", "bright"],
+            },
+          },
+        },
+        { apiKey: API_KEY },
+      );
+      if (result.stopReason !== "stop") {
+        throw new Error(`classify ${result.stopReason}: ${result.errorMessage ?? ""}`);
+      }
+      const blue = result.answers.blue;
+      const color = result.answers.color;
+      const brightness = result.answers.brightness;
+      expect(blue?.type).toBe("bool");
+      expect(color?.type).toBe("choice");
+      expect(brightness?.type).toBe("score");
+      if (blue?.type !== "bool" || color?.type !== "choice" || brightness?.type !== "score") {
+        throw new Error("classifier answers did not match the question types");
+      }
+      expect(Number.isFinite(blue.probability)).toBe(true);
+      expect(blue.probability).toBeGreaterThanOrEqual(0);
+      expect(blue.probability).toBeLessThanOrEqual(1);
+      const sum = Object.values(color.probabilities).reduce((total, value) => total + value, 0);
+      expect(Math.abs(sum - 1)).toBeLessThanOrEqual(0.01);
+      expect(Number.isFinite(brightness.score)).toBe(true);
+      expect(brightness.score).toBeGreaterThanOrEqual(0);
+      expect(brightness.score).toBeLessThanOrEqual(2);
+      expect(Number.isFinite(brightness.confidence)).toBe(true);
+      expect(brightness.confidence).toBeGreaterThanOrEqual(0);
+      expect(brightness.confidence).toBeLessThanOrEqual(1);
     },
     LIVE_TIMEOUT_MS,
   );
