@@ -1,4 +1,6 @@
+import { createServer, type Server } from "node:http";
 import type {
+  AnyModel,
   ApiKeyCredential,
   AuthContext,
   Model,
@@ -226,4 +228,126 @@ describe("omlx refreshModels", () => {
       ),
     ).resolves.toBeUndefined();
   });
+
+  it("applies a stored context window when status length is null", async () => {
+    // Ephemeral stand-in for the two GETs refreshModels already makes. Not a fetch
+    // mock and not a fixture file: this row exists only here so a null status length
+    // can let the stored window win.
+    const publishedId = "inline-published";
+    const cachedWindow = 424242;
+    const server = createServer((req, res) => {
+      const path = req.url ?? "";
+      if (path === "/v1/models/status") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            models: [
+              {
+                id: "inline-physical",
+                loaded: true,
+                is_loading: false,
+                model_type: "llm",
+                engine_type: "batched",
+                model_format: null,
+                model_context_length: null,
+                thinking_default: null,
+                reasoning_efforts: null,
+                is_hidden: false,
+                model_alias: publishedId,
+                estimated_size: null,
+                loading_started_at: null,
+              },
+            ],
+            load_seconds_per_gb_estimate: null,
+            load_time_observations: 0,
+          }),
+        );
+        return;
+      }
+      if (path === "/v1/models") {
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ data: [{ id: publishedId }] }));
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    try {
+      const url = await listen(server);
+      const { provider } = createOmlxProvider();
+      const method = provider.refreshModels;
+      if (!method) throw new Error("omlx provider is missing refreshModels");
+      const stored: Model<"openai-completions"> = {
+        ...STORED_CHAT,
+        id: publishedId,
+        name: "stale-name",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: cachedWindow,
+        maxTokens: 999,
+      };
+      const foreignSameId: Model<"openai-completions"> = {
+        ...stored,
+        provider: "other",
+        contextWindow: 111,
+        maxTokens: 111,
+      };
+      const persisted: AnyModel[] = [];
+      await method(
+        refreshContext({
+          allowNetwork: true,
+          credential: {
+            type: "api_key",
+            key: "stored-key",
+            env: { OMLX_BASE_URL: url },
+          },
+          stored: { models: [stored, foreignSameId] },
+          publish: (publication) => {
+            publication.update?.();
+            if (publication.persist) persisted.push(...publication.persist.models);
+            return Promise.resolve(true);
+          },
+        }),
+      );
+      // A restore-only publish has no persist payload. Mapping without the cached
+      // step would publish 128000, and copying the stored model would keep its name.
+      expect(persisted).toMatchObject([
+        {
+          id: publishedId,
+          name: publishedId,
+          reasoning: false,
+          input: ["text"],
+          contextWindow: cachedWindow,
+          maxTokens: cachedWindow,
+        },
+      ]);
+      expect(provider.getModels()).toEqual(persisted);
+    } finally {
+      await closeServer(server);
+    }
+  });
 });
+
+function listen(server: Server): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error): void => {
+      reject(error);
+    };
+    server.once("error", onError);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", onError);
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("status stand-in did not bind a port"));
+        return;
+      }
+      resolve(`http://127.0.0.1:${address.port}`);
+    });
+  });
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}

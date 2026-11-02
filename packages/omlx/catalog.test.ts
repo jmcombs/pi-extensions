@@ -89,6 +89,28 @@ function chat(id: string): Model<"openai-completions"> {
   return found;
 }
 
+/**
+ * Inline row, not a capture. `model_context_length: null` is how the client
+ * represents a null or absent status length. Do not copy this into the fixtures.
+ */
+function nullLengthRow(): OmlxStatusRow {
+  return {
+    id: "inline-cache-probe",
+    loaded: true,
+    is_loading: false,
+    model_type: "llm",
+    engine_type: "batched",
+    model_format: null,
+    model_context_length: null,
+    thinking_default: null,
+    reasoning_efforts: null,
+    is_hidden: false,
+    model_alias: null,
+    estimated_size: null,
+    loading_started_at: null,
+  };
+}
+
 describe("omlx status fixture", () => {
   it("parses the captured status and rejects a bad shape", () => {
     expect(status.models.map((item) => item.id)).toEqual([
@@ -175,9 +197,10 @@ describe("chat model mapping", () => {
     expect(chat(LOADED_LLM_ALIAS).input).toEqual(["text"]);
   });
 
-  it("uses max_model_len, then native length, then the cached window", () => {
+  it("prefers max_model_len, then native length", () => {
     // Captured rows all have a positive model_context_length, so this fixture
-    // does not prove the 128000 fallback. That branch remains in contextWindowOf.
+    // does not prove the cached window or the 128000 fallback. The fixture-driven
+    // 128000 assertion stays dropped. The cached window is proven on an inline row.
     const vlm = row(LOADED_VLM);
     expect(vlm.model_context_length).toBe(262144);
     expect(chat(LOADED_VLM).contextWindow).toBe(131072);
@@ -193,6 +216,31 @@ describe("chat model mapping", () => {
       SERVER_URL,
     ).find((model) => model.id === LOADED_LLM_ALIAS);
     expect(aliased?.contextWindow).toBe(1111);
+  });
+
+  it("uses the cached window when status length is null", () => {
+    const probe = nullLengthRow();
+    expect(probe.model_context_length).toBeNull();
+    // Earlier steps still win. Removing them would let 424242 through.
+    expect(contextWindowOf(probe, 131072, 424242)).toBe(131072);
+    expect(contextWindowOf({ ...probe, model_context_length: 8192 }, undefined, 424242)).toBe(8192);
+    // Fails if the cached step is removed: the only remaining value is 128000.
+    expect(contextWindowOf(probe, undefined, 424242)).toBe(424242);
+
+    const aliased: OmlxStatusRow = {
+      ...probe,
+      id: "inline-physical",
+      model_alias: "inline-published",
+    };
+    const published = chatModelsFromStatus(
+      [aliased],
+      [{ id: "inline-published" }],
+      SERVER_URL,
+      new Map([["inline-published", 424242]]),
+    );
+    expect(published).toMatchObject([
+      { id: "inline-published", contextWindow: 424242, maxTokens: 424242 },
+    ]);
   });
 
   it("sets maxTokens to the context window and zero cost", () => {
