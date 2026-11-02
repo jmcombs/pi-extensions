@@ -70,26 +70,35 @@ async function keyedOmlxReachable(serverUrl: string): Promise<boolean> {
 const live = await keyedOmlxReachable(SERVER_URL);
 
 describe("omlx login", () => {
-  it("does not store a blank key when the server cannot be probed", async () => {
+  it("rejects a blank key and stores nothing", async () => {
     const session = scripted(["http://127.0.0.1:9", ""]);
+    await expect(login()(session.interaction)).rejects.toThrow("API key required");
+    expect(session.prompts).toEqual(["omlx server URL", "API key (required)"]);
+  });
+
+  it("rejects a whitespace-only key and stores nothing", async () => {
+    const session = scripted(["http://127.0.0.1:9", "   "]);
+    await expect(login()(session.interaction)).rejects.toThrow("API key required");
+    expect(session.prompts).toEqual(["omlx server URL", "API key (required)"]);
+  });
+
+  it("does not store a key when the server cannot be probed", async () => {
+    const session = scripted(["http://127.0.0.1:9", "present-key"]);
     await expect(login()(session.interaction)).rejects.toThrow(/fetch failed|ECONNREFUSED/i);
-    expect(session.prompts).toEqual(["omlx server URL", "API key (optional)"]);
+    expect(session.prompts).toEqual(["omlx server URL", "API key (required)"]);
   });
 
   describe.skipIf(!live)("keyed omlx server", () => {
-    it("stores a blank key as undefined", async () => {
+    it("rejects a blank key and stores nothing", async () => {
       const session = scripted(["", ""]);
-      const credential = await login()(session.interaction);
-      expect(session.prompts).toEqual(["omlx server URL", "API key (optional)"]);
-      expect(credential.type).toBe("api_key");
-      expect(credential.key).toBeUndefined();
-      expect(credential.env).toEqual({ OMLX_BASE_URL: SERVER_URL });
+      await expect(login()(session.interaction)).rejects.toThrow("API key required");
+      expect(session.prompts).toEqual(["omlx server URL", "API key (required)"]);
     }, 20_000);
 
     it("rejects a wrong key and returns no credential", async () => {
       const session = scripted(["", "wrong-key"]);
       await expect(login()(session.interaction)).rejects.toThrow("Invalid API key");
-      expect(session.prompts).toEqual(["omlx server URL", "API key (optional)"]);
+      expect(session.prompts).toEqual(["omlx server URL", "API key (required)"]);
     }, 20_000);
 
     it.skipIf(REAL_KEY === "")(
@@ -97,10 +106,12 @@ describe("omlx login", () => {
       async () => {
         const session = scripted(["", REAL_KEY]);
         const credential = await login()(session.interaction);
+        expect(session.prompts).toEqual(["omlx server URL", "API key (required)"]);
         if (credential.key !== REAL_KEY) {
           throw new Error("login did not return the accepted API key");
         }
         expect(credential.type).toBe("api_key");
+        expect(credential.key).toBe(REAL_KEY);
         expect(credential.env).toEqual({ OMLX_BASE_URL: SERVER_URL });
       },
       20_000,

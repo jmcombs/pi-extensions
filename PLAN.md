@@ -74,7 +74,7 @@ Parity rows 1–8 and 10. Copy the template, implement URL handling, the omlx HT
 - Default server URL `http://127.0.0.1:8000`; inference base URL is `<server>/v1` (row 2).
 - URL normalization matches llama's `normalizeLlamaServerUrl`: http/https only, strip hash, search, trailing slashes, and a trailing `/v1`.
 - Env vars `OMLX_BASE_URL`, `OMLX_API_KEY` (row 5). Stored credential URL wins over `OMLX_BASE_URL` (row 6).
-- `login`: prompt `"omlx server URL"` (placeholder env or default), then secret `"API key (optional)"`; probe `GET /v1/models` with the key; blank key stored as `undefined` (rows 2–4). Store `{ type: "api_key", key, env: { OMLX_BASE_URL } }`.
+- `login`: prompt `"omlx server URL"` (placeholder env or default), then secret `"API key (required)"`. The API key is required, a blank key is rejected at login and is not stored, and the prompt says the key is required. Probe `GET /v1/models` with the key. Store `{ type: "api_key", key, env: { OMLX_BASE_URL } }` only when the probe accepts the key.
 - `check` performs no HTTP (row 8).
 - `resolve`: `apiKey = credential?.key ?? ctx.env("OMLX_API_KEY") ?? "local"` (row 7); `auth.baseUrl` is the `/v1` URL; `env.OMLX_BASE_URL` is the normalized server URL.
 - Management calls strip `/v1` and use the server root. Every request sends `Authorization: Bearer <key>` when the key is truthy, with a 15 s timeout combined with the caller signal.
@@ -348,6 +348,5 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate                      | Deferred at   | Needs     | Discharge by                                                                                                                                                                                                            | Status       |
-| ------------------------- | ------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
-| Phase 1 interactive login | Phase 1 build | tui-human | A person runs `pi -ne -e ./packages/omlx`, then `/login omlx`, accepts the default URL, and enters the key. Prompts appear in order (URL, then API key); login succeeds; a wrong key shows an error and stores nothing. | HUMAN-VERIFY |
+| Gate | Deferred at | Needs | Discharge by | Status |
+| ---- | ----------- | ----- | ------------ | ------ |
