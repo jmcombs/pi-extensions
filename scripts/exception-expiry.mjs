@@ -18,7 +18,7 @@
  */
 
 /** Longer-lived policy exceptions. */
-export const EXCEPTIONS_EXPIRE = "2026-11-01";
+export const EXCEPTIONS_EXPIRE = "2027-01-30";
 
 /** Short holds (≈30 days from 2026-08-09). */
 export const SHORT_EXCEPTIONS_EXPIRE = "2026-09-08";
