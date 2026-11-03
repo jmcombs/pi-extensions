@@ -15,7 +15,8 @@ import type {
   Model,
   Tool,
 } from "@earendil-works/pi-ai";
-import { isModelType, normalizeContext, Type } from "@earendil-works/pi-ai";
+import { isModelType, normalizeContext } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterAll, describe, expect, it } from "vitest";
 import { OmlxClient } from "./client.js";
 import { createOmlxProvider } from "./provider.js";
