@@ -17,6 +17,8 @@ import * as piRuntime from "@earendil-works/pi-coding-agent";
 import type { Component, Keybinding } from "@earendil-works/pi-tui";
 import {
   Container,
+  fuzzyFilter,
+  Input,
   SelectList,
   Spacer,
   Text,
@@ -31,6 +33,10 @@ const DOWNLOAD_VALUE = "\0download";
 
 export const DOWNLOAD_ITEM_LABEL = "Download model…";
 export const DOWNLOAD_ITEM_DESCRIPTION = "Hugging Face owner/repository (MLX only)";
+export const SEARCH_HINT = "Model name or owner/repository (MLX only)";
+
+const SEARCH_DEBOUNCE_MS = 500;
+const EXACT_REPO_INPUT = /^[^/\s]+\/[^:\s]+(?::[^\s:]+)?$/u;
 
 export interface ManagerItem {
   value: string;
@@ -54,6 +60,11 @@ interface ProgressState extends OmlxProgress {
   model: string;
 }
 
+export interface OmlxSearchHit {
+  id: string;
+  downloads: number;
+}
+
 export interface OmlxUi {
   showModels(
     serverUrl: string,
@@ -64,6 +75,12 @@ export interface OmlxUi {
   select(title: string, options: string[]): Promise<string | undefined>;
   confirm(title: string, message: string): Promise<boolean>;
   connectionError(serverUrl: string, message: string): Promise<"retry" | "close">;
+  /** Exact `owner/repo` or a picked search row. Cancel resolves `undefined`. */
+  searchModels(
+    search: (query: string, signal: AbortSignal) => Promise<readonly OmlxSearchHit[]>,
+  ): Promise<string | undefined>;
+  showStatus(title: string, message: string): void;
+  /** Shared load and download progress view. Ratio and detail are optional. */
   progress(state: ProgressState): Promise<void>;
   updateProgress(state: ProgressState): void;
 }
@@ -185,7 +202,199 @@ function hint(parts: UiParts, keybinding: Keybinding, description: string): stri
   return parts.keyHint(keybinding, description);
 }
 
+function compactCount(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  return String(value);
+}
+
+/**
+ * Download search. Same interaction as llama.cpp: 2+ characters, 500 ms
+ * debounce, lowercased cache, fuzzy filter, and `<n> downloads`. The hint
+ * says MLX only because this extension does not offer `:quant`.
+ */
+class OmlxModelSearch extends Container {
+  private readonly input = new Input();
+  private readonly resultsContainer = new Container();
+  private results: readonly OmlxSearchHit[] = [];
+  private filteredResults: readonly OmlxSearchHit[] = [];
+  private selectedIndex = 0;
+  private query = "";
+  private status = "Type at least 2 characters";
+  private debounce: ReturnType<typeof setTimeout> | undefined;
+  private request: AbortController | undefined;
+  private closed = false;
+  private focusedState = false;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly theme: Theme,
+    private readonly keybindings: KeybindingsManager,
+    private readonly search: (
+      query: string,
+      signal: AbortSignal,
+    ) => Promise<readonly OmlxSearchHit[]>,
+    private readonly cache: Map<string, readonly OmlxSearchHit[]>,
+    private readonly onSelectModel: (model: string | undefined) => void,
+  ) {
+    super();
+    this.addChild(new Text(theme.fg("dim", SEARCH_HINT), 1, 0));
+    this.addChild(this.input);
+    this.addChild(new Spacer(1));
+    this.addChild(this.resultsContainer);
+    this.updateResults();
+  }
+
+  get focused(): boolean {
+    return this.focusedState;
+  }
+
+  set focused(value: boolean) {
+    this.focusedState = value;
+    this.input.focused = value;
+  }
+
+  private updateResults(): void {
+    this.resultsContainer.clear();
+    const maxVisible = 10;
+    const start = Math.max(
+      0,
+      Math.min(
+        this.selectedIndex - Math.floor(maxVisible / 2),
+        this.filteredResults.length - maxVisible,
+      ),
+    );
+    const end = Math.min(start + maxVisible, this.filteredResults.length);
+    for (let index = start; index < end; index += 1) {
+      const model = this.filteredResults[index];
+      if (!model) continue;
+      const prefix = index === this.selectedIndex ? "→ " : "  ";
+      const details = `${compactCount(model.downloads)} downloads`;
+      const line =
+        index === this.selectedIndex
+          ? this.theme.fg("accent", `${prefix}${model.id}  ${details}`)
+          : `${prefix}${model.id}${this.theme.fg("muted", `  ${details}`)}`;
+      this.resultsContainer.addChild(new Text(line, 0, 0));
+    }
+    if (start > 0 || end < this.filteredResults.length) {
+      this.resultsContainer.addChild(
+        new Text(
+          this.theme.fg("dim", `  (${this.selectedIndex + 1}/${this.filteredResults.length})`),
+          0,
+          0,
+        ),
+      );
+    }
+    if (this.filteredResults.length === 0) {
+      this.resultsContainer.addChild(new Text(this.theme.fg("dim", `  ${this.status}`), 0, 0));
+    } else if (this.status === "Searching Hugging Face…") {
+      this.resultsContainer.addChild(new Text(this.theme.fg("dim", `  ${this.status}`), 0, 0));
+    }
+    this.tui.requestRender();
+  }
+
+  private filterResults(): void {
+    if (this.query) {
+      const matches = new Set(
+        fuzzyFilter([...this.results], this.query, (model) => model.id).map((model) => model.id),
+      );
+      this.filteredResults = this.results.filter((model) => matches.has(model.id));
+    } else {
+      this.filteredResults = this.results;
+    }
+    this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredResults.length - 1));
+    this.updateResults();
+  }
+
+  private scheduleSearch(): void {
+    if (this.debounce) clearTimeout(this.debounce);
+    this.request?.abort();
+    this.request = undefined;
+    if (this.query.length < 2) {
+      this.status = "Type at least 2 characters";
+      this.filterResults();
+      return;
+    }
+    const cached = this.cache.get(this.query.toLowerCase());
+    if (cached) {
+      this.results = cached;
+      this.status = cached.length === 0 ? "No MLX models found" : "";
+      this.filterResults();
+      return;
+    }
+    this.status = "Searching Hugging Face…";
+    this.filterResults();
+    this.debounce = setTimeout(() => {
+      void this.runSearch(this.query);
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  private async runSearch(query: string): Promise<void> {
+    const request = new AbortController();
+    this.request = request;
+    try {
+      const results = await this.search(query, request.signal);
+      this.cache.set(query.toLowerCase(), results);
+      if (this.closed || request.signal.aborted || this.query !== query) return;
+      this.results = results;
+      this.selectedIndex = 0;
+      this.status = results.length === 0 ? "No MLX models found" : "";
+      this.filterResults();
+    } catch (error) {
+      if (this.closed || request.signal.aborted || this.query !== query) return;
+      this.results = [];
+      this.status = error instanceof Error ? error.message : String(error);
+      this.filterResults();
+    } finally {
+      if (this.request === request) this.request = undefined;
+    }
+  }
+
+  private close(model: string | undefined): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.debounce) clearTimeout(this.debounce);
+    this.request?.abort();
+    this.onSelectModel(model);
+  }
+
+  handleInput(data: string): void {
+    if (this.keybindings.matches(data, "tui.select.up")) {
+      if (this.filteredResults.length > 0) {
+        this.selectedIndex =
+          this.selectedIndex === 0 ? this.filteredResults.length - 1 : this.selectedIndex - 1;
+        this.updateResults();
+      }
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.down")) {
+      if (this.filteredResults.length > 0) {
+        this.selectedIndex =
+          this.selectedIndex === this.filteredResults.length - 1 ? 0 : this.selectedIndex + 1;
+        this.updateResults();
+      }
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.confirm")) {
+      const exact = EXACT_REPO_INPUT.test(this.query) ? this.query : undefined;
+      const selected = exact ?? this.filteredResults[this.selectedIndex]?.id;
+      if (selected) this.close(selected);
+      return;
+    }
+    if (this.keybindings.matches(data, "tui.select.cancel")) {
+      this.close(undefined);
+      return;
+    }
+    this.input.handleInput(data);
+    const query = this.input.getValue().trim();
+    if (query === this.query) return;
+    this.query = query;
+    this.scheduleSearch();
+  }
+}
+
 class OmlxView implements Component {
+  private readonly searchCache = new Map<string, readonly OmlxSearchHit[]>();
   private content: Container;
   private inputHandler: FocusTarget | undefined;
   private inputTarget: FocusTarget | undefined;
@@ -304,6 +513,41 @@ class OmlxView implements Component {
       "Close",
     ]);
     return choice === "Retry" ? "retry" : "close";
+  }
+
+  searchModels(
+    search: (query: string, signal: AbortSignal) => Promise<readonly OmlxSearchHit[]>,
+  ): Promise<string | undefined> {
+    return new Promise((resolve) => {
+      const component = new OmlxModelSearch(
+        this.tui,
+        this.theme,
+        this.keybindings,
+        search,
+        this.searchCache,
+        resolve,
+      );
+      this.setContent(
+        frame(
+          this.parts,
+          this.theme,
+          "Download model",
+          [new Spacer(1), component],
+          `${hint(this.parts, "tui.select.confirm", "select")} • ${hint(this.parts, "tui.select.cancel", "back")}`,
+        ),
+        component,
+        component,
+      );
+    });
+  }
+
+  showStatus(title: string, message: string): void {
+    this.setContent(
+      frame(this.parts, this.theme, title, [
+        new Spacer(1),
+        new Text(this.theme.fg("muted", message), 1, 0),
+      ]),
+    );
   }
 
   progress(state: ProgressState): Promise<void> {

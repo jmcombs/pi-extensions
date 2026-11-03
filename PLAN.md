@@ -256,11 +256,11 @@ Parity rows 46–54 and the GGUF download rule.
 
 ### Actionable TODOs
 
-- [ ] `packages/omlx/client.ts` — add `hfSearch(q, signal)`, `hfModelInfo(repoId, hfToken, signal)` (sends `X-HF-Token` when `hfToken` is set), `hfDownload(repoId, hfToken, signal)` (sends `hf_token` as a string, `""` when absent, never `null`), `hfTasks(signal)`, `hfCancel(taskId, signal)`.
-- [ ] `packages/omlx/huggingface.ts` — `findHuggingFaceToken(env)`, `fetchGated(repoId, token, signal)`, `formatBytes(bytes)`, `parseDownloadInput(value)` returning `{ repoId }` or the MLX-only error for `:quant`.
-- [ ] `packages/omlx/ui.ts` — add the search view and download progress view.
-- [ ] `packages/omlx/index.ts` — wire "Download model…".
-- [ ] `packages/omlx/huggingface.test.ts` — token order with temp files (real filesystem), whitespace skipping, `formatBytes` cases, `parseDownloadInput` accepts `owner/repo`, rejects `owner/repo:Q4_K_M`.
+- [x] `packages/omlx/client.ts` — add `hfSearch(q, signal)`, `hfModelInfo(repoId, hfToken, signal)` (sends `X-HF-Token` when `hfToken` is set), `hfDownload(repoId, hfToken, signal)` (sends `hf_token` as a string, `""` when absent, never `null`), `hfTasks(signal)`, `hfCancel(taskId, signal)`.
+- [x] `packages/omlx/huggingface.ts` — `findHuggingFaceToken(env)`, `fetchGated(repoId, token, signal)`, `formatBytes(bytes)`, `parseDownloadInput(value)` returning `{ repoId }` or the MLX-only error for `:quant`.
+- [x] `packages/omlx/ui.ts` — add the search view and download progress view.
+- [x] `packages/omlx/index.ts` — wire "Download model…".
+- [x] `packages/omlx/huggingface.test.ts` — token order with temp files (real filesystem), whitespace skipping, `formatBytes` cases, `parseDownloadInput` accepts `owner/repo`, rejects `owner/repo:Q4_K_M`.
 
 ### Testing Gates
 
@@ -333,7 +333,7 @@ Document the package, register it for the two-host load check and Release Please
 - [x] Phase 2 — Catalog refresh, chat models, context, thinking, GGUF exclusion
 - [x] Phase 3 — Classifiers
 - [x] Phase 4 — `/omlx` manager: list, load, unload, progress, restore
-- [ ] Phase 5 — `/omlx` downloads (MLX only)
+- [x] Phase 5 — `/omlx` downloads (MLX only)
 - [ ] Phase 6 — Docs, extension-load harness, Release Please registration
 
 ## Appendix D — Definition of Done
@@ -348,13 +348,15 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate                | Deferred at | Needs     | Discharge by | Status     |
-| ------------------- | ----------- | --------- | ------------ | ---------- |
-| Interactive login   | Phase 1     | tui-human | human        | DISCHARGED |
-| /model in real pi   | Phase 2     | tui-human | human        | DISCHARGED |
-| Load and unload     | Phase 4     | tui-human | human        | DISCHARGED |
-| Replace and restore | Phase 4     | tui-human | human        | DISCHARGED |
-| Server down         | Phase 4     | tui-human | human        | DISCHARGED |
+| Gate                | Deferred at | Needs      | Discharge by | Status     |
+| ------------------- | ----------- | ---------- | ------------ | ---------- |
+| Interactive login   | Phase 1     | tui-human  | human        | DISCHARGED |
+| /model in real pi   | Phase 2     | tui-human  | human        | DISCHARGED |
+| Load and unload     | Phase 4     | tui-human  | human        | DISCHARGED |
+| Replace and restore | Phase 4     | tui-human  | human        | DISCHARGED |
+| Server down         | Phase 4     | tui-human  | human        | DISCHARGED |
+| GGUF rejected       | Phase 5     | tui-human  | human        | DISCHARGED |
+| Real MLX download   | Phase 5     | hf-network | human        | DISCHARGED |
 
 Human out-of-band discharge of Interactive login (Phase 1): prompt `API key (required)`; blank key `Error: Failed to save API key for omlx: API key required` (stores nothing); wrong key `Error: Failed to save API key for omlx: Invalid API key` (stores nothing); real key `Saved API key for omlx. Credentials saved to /Users/jmcombs/.pi/agent/auth.json`.
 
@@ -365,3 +367,7 @@ Human out-of-band discharge of Load and unload (Phase 4), at commit 7a2ec36: pro
 Human out-of-band discharge of Replace and restore (Phase 4), at commit 7a2ec36: notice was "Stopped waiting for Qwen3.8-27B-oQ8e-mtp. omlx finishes the load in the background." Model A remained loaded. Model B finished in the background.
 
 Human out-of-band discharge of Server down (Phase 4), at commit 7a2ec36: screen showed "omlx unavailable" with Retry and Close; Retry after restart showed the model list.
+
+Human out-of-band discharge of GGUF rejected (Phase 5): typed unsloth/Qwen3-8B-GGUF:Q4_K_M; error was "This extension supports MLX models only. GGUF quantizations are not supported."; GET /admin/api/hf/tasks grep for Qwen3-8B-GGUF returned 0.
+
+Human out-of-band discharge of Real MLX download (Phase 5): Downloaded mlx-community/Llama-3.2-1B-Instruct-4bit; Llama-3.2-1B-Instruct-4bit appeared in the /omlx list.
