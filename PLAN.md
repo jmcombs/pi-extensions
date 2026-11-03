@@ -214,13 +214,13 @@ Parity rows 31–45 (download row is Phase 5) and rows 16–17 in the manager.
 
 ### Actionable TODOs
 
-- [ ] `packages/omlx/client.ts` — reuse `load`/`unload`/`unloadAndWait` from Phase 2; no new methods unless a constraint needs one.
-- [ ] `packages/omlx/progress.ts` — pure `loadRatio(row, status, now)` per the constraint; returns `undefined` when under two observations.
-- [ ] `packages/omlx/ui.ts` — `showOmlxUi(ctx, run)`, `runWithProgress(ui, options)` and the list/select/confirm/connection-error/progress views per the constraints.
-- [ ] `packages/omlx/index.ts` — register command `omlx` with the handler wiring list, load, unload, restore, and catalog refresh.
-- [ ] `packages/omlx/progress.test.ts` — ratio undefined under two observations, capped below 1, 3 s floor.
-- [ ] `packages/omlx/manager.test.ts` — pure list-building tests over `fixtures/status.json`: GGUF and non-chat/non-decision rows excluded, sort order, descriptions; the last item is `Download model…` with description `Hugging Face owner/repository (MLX only)`.
-- [ ] `packages/omlx/index.test.ts` — assert command `omlx` is registered alongside provider `omlx`; run its handler with a recording ctx (`mode: "print"`) and assert the interactive-mode warning.
+- [x] `packages/omlx/client.ts` — reuse `load`/`unload`/`unloadAndWait` from Phase 2; no new methods unless a constraint needs one.
+- [x] `packages/omlx/progress.ts` — pure `loadRatio(row, status, now)` per the constraint; returns `undefined` when under two observations.
+- [x] `packages/omlx/ui.ts` — `showOmlxUi(ctx, run)`, `runWithProgress(ui, options)` and the list/select/confirm/connection-error/progress views per the constraints.
+- [x] `packages/omlx/index.ts` — register command `omlx` with the handler wiring list, load, unload, restore, and catalog refresh.
+- [x] `packages/omlx/progress.test.ts` — ratio undefined under two observations, capped below 1, 3 s floor.
+- [x] `packages/omlx/manager.test.ts` — pure list-building tests over `fixtures/status.json`: GGUF and non-chat/non-decision rows excluded, sort order, descriptions; the last item is `Download model…` with description `Hugging Face owner/repository (MLX only)`.
+- [x] `packages/omlx/index.test.ts` — assert command `omlx` is registered alongside provider `omlx`; run its handler with a recording ctx (`mode: "print"`) and assert the interactive-mode warning.
 
 ### Testing Gates
 
@@ -332,7 +332,7 @@ Document the package, register it for the two-host load check and Release Please
 - [x] Phase 1 — Package scaffold, client, provider registration, auth
 - [x] Phase 2 — Catalog refresh, chat models, context, thinking, GGUF exclusion
 - [x] Phase 3 — Classifiers
-- [ ] Phase 4 — `/omlx` manager: list, load, unload, progress, restore
+- [x] Phase 4 — `/omlx` manager: list, load, unload, progress, restore
 - [ ] Phase 5 — `/omlx` downloads (MLX only)
 - [ ] Phase 6 — Docs, extension-load harness, Release Please registration
 
@@ -348,11 +348,20 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate              | Deferred at | Needs     | Discharge by | Status     |
-| ----------------- | ----------- | --------- | ------------ | ---------- |
-| Interactive login | Phase 1     | tui-human | human        | DISCHARGED |
-| /model in real pi | Phase 2     | tui-human | human        | DISCHARGED |
+| Gate                | Deferred at | Needs     | Discharge by | Status     |
+| ------------------- | ----------- | --------- | ------------ | ---------- |
+| Interactive login   | Phase 1     | tui-human | human        | DISCHARGED |
+| /model in real pi   | Phase 2     | tui-human | human        | DISCHARGED |
+| Load and unload     | Phase 4     | tui-human | human        | DISCHARGED |
+| Replace and restore | Phase 4     | tui-human | human        | DISCHARGED |
+| Server down         | Phase 4     | tui-human | human        | DISCHARGED |
 
 Human out-of-band discharge of Interactive login (Phase 1): prompt `API key (required)`; blank key `Error: Failed to save API key for omlx: API key required` (stores nothing); wrong key `Error: Failed to save API key for omlx: Invalid API key` (stores nothing); real key `Saved API key for omlx. Credentials saved to /Users/jmcombs/.pi/agent/auth.json`.
 
 Human out-of-band discharge of /model in real pi (Phase 2), at commit 5ae6b50ef047a168134963740553bdc2ef113010, model Qwen3.8-27B-oQ8e-mtp: unload before the first view `unload:200`; first `/model` view did not list `Qwen3.8-27B-oQ8e-mtp`; load between the two views, without restarting pi, `load:200`; second `/model` view listed `Qwen3.8-27B-oQ8e-mtp [omlx]`; reply to "Reply with exactly: OK" contained `OK`.
+
+Human out-of-band discharge of Load and unload (Phase 4), at commit 7a2ec36: progress view Loading model; Loaded notice; model appeared in /model; after unload the id was gone and status loaded was false.
+
+Human out-of-band discharge of Replace and restore (Phase 4), at commit 7a2ec36: notice was "Stopped waiting for Qwen3.8-27B-oQ8e-mtp. omlx finishes the load in the background." Model A remained loaded. Model B finished in the background.
+
+Human out-of-band discharge of Server down (Phase 4), at commit 7a2ec36: screen showed "omlx unavailable" with Retry and Close; Retry after restart showed the model list.
