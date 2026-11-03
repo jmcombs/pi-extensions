@@ -155,6 +155,39 @@ function abortError(signal: AbortSignal | undefined): Error {
   return reason instanceof Error ? reason : new Error("Cancelled");
 }
 
+/** HTTP failure from omlx. `status` lets callers tell a sub-key 401 from other errors. */
+export class OmlxHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "OmlxHttpError";
+    this.status = status;
+  }
+}
+
+/** One row from `GET /admin/api/hf/search`. */
+export interface OmlxHfSearchHit {
+  repo_id: string;
+  downloads: number;
+}
+
+/** Fields from `GET /admin/api/hf/model-info` the download flow reads. */
+export interface OmlxHfModelInfo {
+  repo_id: string;
+  layout: string;
+}
+
+/** One download task from `POST /admin/api/hf/download` or `GET /admin/api/hf/tasks`. */
+export interface OmlxHfTask {
+  task_id: string;
+  repo_id: string;
+  status: string;
+  total_size: number;
+  downloaded_size: number;
+  error: string;
+}
+
 function wait(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
@@ -200,7 +233,8 @@ export class OmlxClient {
     } catch {
       payload = undefined;
     }
-    if (!response.ok) throw new Error(errorMessage(payload, response.status));
+    if (!response.ok)
+      throw new OmlxHttpError(response.status, errorMessage(payload, response.status));
     return payload;
   }
 
@@ -247,4 +281,121 @@ export class OmlxClient {
       await wait(UNLOAD_POLL_MS, signal);
     }
   }
+
+  /** `GET /admin/api/hf/search?q=&sort=downloads&limit=20&model_format=mlx`. */
+  async hfSearch(q: string, signal?: AbortSignal): Promise<readonly OmlxHfSearchHit[]> {
+    const params = new URLSearchParams({
+      q,
+      sort: "downloads",
+      limit: "20",
+      model_format: "mlx",
+    });
+    const payload = await this.request(
+      `/admin/api/hf/search?${params}`,
+      signal === undefined ? {} : { signal },
+    );
+    return parseHfSearch(payload);
+  }
+
+  /** `GET /admin/api/hf/model-info`. Sends `X-HF-Token` only when a token is set. */
+  async hfModelInfo(
+    repoId: string,
+    hfToken: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<OmlxHfModelInfo> {
+    const params = new URLSearchParams({ repo_id: repoId });
+    const headers = new Headers();
+    if (hfToken) headers.set("X-HF-Token", hfToken);
+    const payload = await this.request(`/admin/api/hf/model-info?${params}`, {
+      headers,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    return parseHfModelInfo(payload);
+  }
+
+  /**
+   * `POST /admin/api/hf/download`. `hf_token` is always a string: `""` when
+   * absent, never `null`.
+   */
+  async hfDownload(
+    repoId: string,
+    hfToken: string | undefined,
+    signal?: AbortSignal,
+  ): Promise<OmlxHfTask> {
+    const payload = await this.request("/admin/api/hf/download", {
+      method: "POST",
+      body: JSON.stringify({ repo_id: repoId, hf_token: hfToken ?? "" }),
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!isRecord(payload)) throw new Error("omlx returned an invalid download task");
+    return parseHfTask(payload.task);
+  }
+
+  /** `GET /admin/api/hf/tasks`. */
+  async hfTasks(signal?: AbortSignal): Promise<readonly OmlxHfTask[]> {
+    const payload = await this.request(
+      "/admin/api/hf/tasks",
+      signal === undefined ? {} : { signal },
+    );
+    if (!isRecord(payload) || !Array.isArray(payload.tasks)) {
+      throw new Error("omlx returned an invalid download task list");
+    }
+    return payload.tasks.map((task) => parseHfTask(task));
+  }
+
+  /** `POST /admin/api/hf/cancel/{task_id}`. */
+  async hfCancel(taskId: string, signal?: AbortSignal): Promise<void> {
+    await this.request(`/admin/api/hf/cancel/${encodeURIComponent(taskId)}`, {
+      method: "POST",
+      ...(signal === undefined ? {} : { signal }),
+    });
+  }
+}
+
+function parseHfSearch(payload: unknown): readonly OmlxHfSearchHit[] {
+  if (!isRecord(payload) || !Array.isArray(payload.models)) {
+    throw new Error("omlx returned an invalid Hugging Face search");
+  }
+  return payload.models.map((value) => {
+    if (!isRecord(value) || typeof value.repo_id !== "string") {
+      throw new Error("omlx returned an invalid Hugging Face search");
+    }
+    const downloads = value.downloads;
+    return {
+      repo_id: value.repo_id,
+      downloads: typeof downloads === "number" && Number.isFinite(downloads) ? downloads : 0,
+    };
+  });
+}
+
+function parseHfModelInfo(payload: unknown): OmlxHfModelInfo {
+  if (
+    !isRecord(payload) ||
+    typeof payload.repo_id !== "string" ||
+    typeof payload.layout !== "string"
+  ) {
+    throw new Error("omlx returned invalid model info");
+  }
+  return { repo_id: payload.repo_id, layout: payload.layout };
+}
+
+function parseHfTask(value: unknown): OmlxHfTask {
+  if (!isRecord(value) || typeof value.task_id !== "string" || typeof value.repo_id !== "string") {
+    throw new Error("omlx returned an invalid download task");
+  }
+  if (typeof value.status !== "string") throw new Error("omlx returned an invalid download task");
+  const total = readNumberOrNull(value.total_size);
+  const downloaded = readNumberOrNull(value.downloaded_size);
+  if (total === undefined || total === null || downloaded === undefined || downloaded === null) {
+    throw new Error("omlx returned an invalid download task");
+  }
+  const error = value.error;
+  return {
+    task_id: value.task_id,
+    repo_id: value.repo_id,
+    status: value.status,
+    total_size: total,
+    downloaded_size: downloaded,
+    error: typeof error === "string" ? error : "",
+  };
 }

@@ -6,7 +6,20 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { OmlxClient, type OmlxModelStatus, type OmlxStatusRow } from "./client.js";
+import {
+  OmlxClient,
+  type OmlxHfTask,
+  OmlxHttpError,
+  type OmlxModelStatus,
+  type OmlxStatusRow,
+} from "./client.js";
+import {
+  fetchGated,
+  findHuggingFaceToken,
+  formatBytes,
+  MLX_ONLY_ERROR,
+  parseDownloadInput,
+} from "./huggingface.js";
 import { loadRatio } from "./progress.js";
 import { createOmlxProvider, OMLX_PROVIDER_ID } from "./provider.js";
 import { managerRows, type OmlxProgress, type OmlxUi, runWithProgress, showOmlxUi } from "./ui.js";
@@ -14,6 +27,8 @@ import { normalizeOmlxServerUrl } from "./url.js";
 
 const CATALOG_REFRESH_TIMEOUT_MS = 15_000;
 const LOAD_POLL_MS = 250;
+const DOWNLOAD_POLL_MS = 500;
+const MAIN_KEY_DOWNLOAD_ERROR = "Downloads need omlx's main API key.";
 
 interface CatalogSnapshot {
   status: OmlxModelStatus;
@@ -249,6 +264,100 @@ export async function settleModelLoad(options: {
   }
 }
 
+function downloadAuthError(error: unknown): Error {
+  if (error instanceof OmlxHttpError && error.status === 401) {
+    return new Error(MAIN_KEY_DOWNLOAD_ERROR);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function downloadProgress(task: OmlxHfTask): OmlxProgress {
+  if (task.total_size <= 0) return { message: "Downloading model" };
+  return {
+    message: "Downloading model",
+    ratio: task.downloaded_size / task.total_size,
+    detail: `${formatBytes(task.downloaded_size)} / ${formatBytes(task.total_size)}`,
+  };
+}
+
+async function downloadAndWait(
+  client: OmlxClient,
+  repoId: string,
+  hfToken: string | undefined,
+  signal: AbortSignal,
+  update: (progress: OmlxProgress) => void,
+  onTask: (taskId: string) => void,
+): Promise<void> {
+  const started = await client.hfDownload(repoId, hfToken, signal);
+  onTask(started.task_id);
+  let task = started;
+  for (;;) {
+    if (signal.aborted) throw abortError(signal);
+    if (task.status === "completed") return;
+    if (task.status === "failed") throw new Error(task.error || "Download failed");
+    if (task.status === "cancelled") throw new Error(task.error || "Cancelled");
+    update(downloadProgress(task));
+    await wait(DOWNLOAD_POLL_MS, signal);
+    const tasks = await client.hfTasks(signal);
+    const next = tasks.find((item) => item.task_id === started.task_id);
+    if (next) task = next;
+  }
+}
+
+async function downloadModel(
+  ctx: ExtensionCommandContext,
+  ui: OmlxUi,
+  client: OmlxClient,
+): Promise<void> {
+  const hfToken = await findHuggingFaceToken();
+  const selected = await ui.searchModels(async (query, signal) => {
+    try {
+      const hits = await client.hfSearch(query, signal);
+      return hits.map((hit) => ({ id: hit.repo_id, downloads: hit.downloads }));
+    } catch (error) {
+      throw downloadAuthError(error);
+    }
+  });
+  if (!selected) return;
+  const parsed = parseDownloadInput(selected);
+  if ("error" in parsed) throw new Error(parsed.error);
+  try {
+    ui.showStatus("Loading model details", parsed.repoId);
+    const gated = await fetchGated(parsed.repoId, hfToken);
+    if (gated.gated) {
+      const approval =
+        gated.gated === "manual" ? "Manual approval is required" : "Accept the access terms";
+      const choice = await ui.select(
+        `Hugging Face access required\n${gated.id}\n\n${approval} at:\nhttps://huggingface.co/${gated.id}\n\nThe omlx server needs HF_TOKEN with access.`,
+        ["Continue", "Back"],
+      );
+      if (choice !== "Continue") return;
+      ui.showStatus("Loading model details", gated.id);
+    }
+    const repoId = gated.id || parsed.repoId;
+    const info = await client.hfModelInfo(repoId, hfToken);
+    if (info.layout === "gguf") throw new Error(MLX_ONLY_ERROR);
+    let taskId: string | undefined;
+    const result = await runWithProgress(ui, {
+      title: "Downloading model",
+      model: repoId,
+      initialMessage: "Starting…",
+      cancelTitle: "Stop download?",
+      cancelMessage: repoId,
+      run: (signal, update) =>
+        downloadAndWait(client, repoId, hfToken, signal, update, (id) => {
+          taskId = id;
+        }),
+      cancel: () => (taskId ? client.hfCancel(taskId) : Promise.resolve()),
+    });
+    if (result.cancelled) return;
+    await refreshCatalog(ctx, AbortSignal.timeout(CATALOG_REFRESH_TIMEOUT_MS));
+    ctx.ui.notify(`Downloaded ${repoId}`);
+  } catch (error) {
+    throw downloadAuthError(error);
+  }
+}
+
 async function reloadPreviouslyLoaded(
   client: OmlxClient,
   loaded: readonly OmlxStatusRow[],
@@ -356,7 +465,7 @@ export default function (pi: ExtensionAPI): void {
           let actionError: unknown;
           try {
             if (action.type === "download") {
-              // Phase 5 wires the download. The row is listed so the manager matches /llama.
+              await downloadModel(ctx, ui, client);
             } else if (action.model.is_loading) {
               ctx.ui.notify(`${action.model.id} is loading`, "warning");
             } else if (action.model.loaded) {
