@@ -3,8 +3,8 @@
  * No Hugging Face and no omlx calls.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -15,8 +15,15 @@ import {
 } from "./huggingface.js";
 
 const directories: string[] = [];
+const originalHome = process.env.HOME;
+
+function restoreHome(): void {
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+}
 
 afterEach(async () => {
+  restoreHome();
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -31,15 +38,6 @@ async function writeToken(dir: string, relative: string, contents: string): Prom
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, contents);
   return path;
-}
-
-async function tokenAt(path: string): Promise<string | undefined> {
-  try {
-    const token = (await readFile(path, "utf8")).trim();
-    return token || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 describe("findHuggingFaceToken", () => {
@@ -101,13 +99,20 @@ describe("findHuggingFaceToken", () => {
   it("falls through to ~/.cache/huggingface/token when earlier sources are blank", async () => {
     const dir = await tempDir();
     const tokenPath = await writeToken(dir, "blank", " ");
-    const token = await findHuggingFaceToken({
-      HF_TOKEN: " ",
-      HF_TOKEN_PATH: tokenPath,
-      HF_HOME: dir,
-      XDG_CACHE_HOME: dir,
-    });
-    expect(token).toBe(await tokenAt(join(homedir(), ".cache", "huggingface", "token")));
+    const home = await tempDir();
+    await writeToken(home, ".cache/huggingface/token", "from-home\n");
+    process.env.HOME = home;
+    try {
+      const token = await findHuggingFaceToken({
+        HF_TOKEN: " ",
+        HF_TOKEN_PATH: tokenPath,
+        HF_HOME: dir,
+        XDG_CACHE_HOME: dir,
+      });
+      expect(token).toBe("from-home");
+    } finally {
+      restoreHome();
+    }
   });
 });
 
