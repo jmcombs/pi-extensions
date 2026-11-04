@@ -131,7 +131,7 @@ describe("@jmcombs/pi-tavily-search", () => {
     expect(unionMemberKeys(tool?.outputSchema)).toEqual([["error"], ["body", "status"], ["raw"]]);
   });
 
-  it("declares a TypeBox schema requiring a non-empty query string", () => {
+  it("declares a query string schema requiring a non-empty query", () => {
     const { api, tools } = createApiStub();
     factory(api);
 

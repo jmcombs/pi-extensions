@@ -397,8 +397,9 @@ Each package must have:
 - `pi.extensions`: array of paths to extension entry points
 - `image` and/or `video`: raw GitHub URLs from `packages/<name>/assets/` (or root `assets/<name>/`)
   for the pi.dev gallery preview card
-- `peerDependencies` for `@earendil-works/pi-coding-agent`, `typebox`, etc. (do not bundle
-  Pi-provided runtime packages)
+- `peerDependencies` for `@earendil-works/pi-coding-agent` and the other Pi-provided
+  runtime packages (do not bundle them). `@earendil-works/pi-schema` is a normal
+  dependency when the package builds schemas.
 
 `scripts/sync-versions.mjs` validates these conventions; it runs as part of `npm run check`.
 

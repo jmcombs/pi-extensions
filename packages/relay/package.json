@@ -46,7 +46,6 @@
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "^1.5.0",
-    "@earendil-works/pi-tui": "*",
-    "typebox": "^1.4.3"
+    "@earendil-works/pi-tui": "*"
   }
 }

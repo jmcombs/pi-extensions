@@ -16,19 +16,22 @@
 
 import type { JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "typebox";
+import { type Static, obj, str } from "@earendil-works/pi-schema";
 
 // ── Tool parameter schemas ─────────────────────────────────────────────
 //
-// TypeBox schemas double as runtime validators (used by Pi) and TypeScript
-// types (via `Static<typeof ...>`). Export the inferred type when other
-// extensions might want to type a `tool_call` event for this tool.
+// pi-schema builders are the JSON Schema Pi validates, and `Static` is the
+// TypeScript type. Export the inferred type when other extensions might want
+// to type a `tool_call` event for this tool.
 
-const exampleToolSchema = Type.Object({
-  message: Type.String({
-    description: "The message to echo back.",
-  }),
-});
+const exampleToolSchema = obj(
+  {
+    message: str({
+      description: "The message to echo back.",
+    }),
+  },
+  { open: true },
+);
 
 export type ExampleToolInput = Static<typeof exampleToolSchema>;
 
@@ -47,7 +50,7 @@ export default function (pi: ExtensionAPI): void {
     // Real tools almost always do async work (`fetch`, file I/O, etc.) and
     // should be `async`. The skeleton returns synchronously to keep the
     // example minimal; replace this body with your actual implementation.
-    execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    execute(_toolCallId, params: ExampleToolInput, _signal, _onUpdate, _ctx) {
       // Details must be JSON-compatible: no unknown, any,
       // Record<string, unknown>, or [key: string]: unknown, and no explicit undefined.
       return Promise.resolve({

@@ -18,8 +18,8 @@
 
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { num, obj, opt, type Static, str, union, unknown } from "@earendil-works/pi-schema";
 import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
-import { type Static, Type } from "typebox";
 
 const CONTEXT7_API_BASE = "https://context7.com/api/v2";
 
@@ -36,61 +36,46 @@ interface InfoSnippet {
 
 // -- Tool parameter schemas
 
-const context7SearchSchema = Type.Object({
-  libraryName: Type.String({
-    description: "The name of the library (e.g., 'next.js', 'supabase').",
-  }),
-  query: Type.Optional(
-    Type.String({
-      description: "A specific question/topic to refine search results.",
+const context7SearchSchema = obj(
+  {
+    libraryName: str({
+      description: "The name of the library (e.g., 'next.js', 'supabase').",
     }),
-  ),
-});
+    query: opt(
+      str({
+        description: "A specific question/topic to refine search results.",
+      }),
+    ),
+  },
+  { open: true },
+);
 export type Context7SearchInput = Static<typeof context7SearchSchema>;
 
-const context7GetDocsSchema = Type.Object({
-  libraryId: Type.String({
-    description: "The Context7 Library ID (e.g., '/vercel/next.js').",
-  }),
-  query: Type.String({
-    description: "The specific technical question or implementation pattern requested.",
-  }),
-});
+const context7GetDocsSchema = obj(
+  {
+    libraryId: str({
+      description: "The Context7 Library ID (e.g., '/vercel/next.js').",
+    }),
+    query: str({
+      description: "The specific technical question or implementation pattern requested.",
+    }),
+  },
+  { open: true },
+);
 export type Context7GetDocsInput = Static<typeof context7GetDocsSchema>;
 
-const context7SearchOutputSchema = Type.Union([
-  Type.Object({
-    error: Type.String(),
-  }),
-  Type.Object({
-    status: Type.Number(),
-  }),
-  Type.Object({
-    status: Type.Number(),
-    body: Type.String(),
-  }),
-  Type.Object({
-    libraryName: Type.String(),
-    raw: Type.Unknown(),
-  }),
+const context7SearchOutputSchema = union([
+  obj({ error: str() }, { open: true }),
+  obj({ status: num() }, { open: true }),
+  obj({ status: num(), body: str() }, { open: true }),
+  obj({ libraryName: str(), raw: unknown() }, { open: true }),
 ]);
 
-const context7GetDocsOutputSchema = Type.Union([
-  Type.Object({
-    error: Type.String(),
-  }),
-  Type.Object({
-    status: Type.Number(),
-  }),
-  Type.Object({
-    status: Type.Number(),
-    body: Type.String(),
-  }),
-  Type.Object({
-    libraryId: Type.String(),
-    query: Type.String(),
-    raw: Type.Unknown(),
-  }),
+const context7GetDocsOutputSchema = union([
+  obj({ error: str() }, { open: true }),
+  obj({ status: num() }, { open: true }),
+  obj({ status: num(), body: str() }, { open: true }),
+  obj({ libraryId: str(), query: str(), raw: unknown() }, { open: true }),
 ]);
 
 // -- Helpers
@@ -206,7 +191,7 @@ export default function (pi: ExtensionAPI): void {
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     namespace: { name: "context7" },
     outputSchema: context7SearchOutputSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: Context7SearchInput, signal, _onUpdate, ctx) {
       let apiKey = await resolveSecret("context7");
       if (!apiKey) {
         const r = await onboardSecret(ctx, { name: "context7", label: "Context7" });
@@ -368,7 +353,7 @@ export default function (pi: ExtensionAPI): void {
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     namespace: { name: "context7" },
     outputSchema: context7GetDocsOutputSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: Context7GetDocsInput, signal, _onUpdate, ctx) {
       let apiKey = await resolveSecret("context7");
       if (!apiKey) {
         const r = await onboardSecret(ctx, { name: "context7", label: "Context7" });

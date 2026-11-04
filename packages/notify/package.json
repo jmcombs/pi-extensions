@@ -42,7 +42,6 @@
     "node": ">=22.19.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.5.0",
-    "typebox": "^1.4.3"
+    "@earendil-works/pi-coding-agent": "^1.5.0"
   }
 }

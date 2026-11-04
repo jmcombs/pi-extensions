@@ -18,33 +18,29 @@
 
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { num, obj, type Static, str, union, unknown } from "@earendil-works/pi-schema";
 import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
-import { type Static, Type } from "typebox";
 
 const TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search";
 
 // ── Tool parameter schema ──────────────────────────────────────────────
 
-const tavilySearchSchema = Type.Object({
-  query: Type.String({
-    description: "The search query to perform.",
-    minLength: 1,
-  }),
-});
+const tavilySearchSchema = obj(
+  {
+    query: str({
+      description: "The search query to perform.",
+      minLength: 1,
+    }),
+  },
+  { open: true },
+);
 
 export type TavilySearchInput = Static<typeof tavilySearchSchema>;
 
-const tavilySearchOutputSchema = Type.Union([
-  Type.Object({
-    error: Type.String(),
-  }),
-  Type.Object({
-    status: Type.Number(),
-    body: Type.String(),
-  }),
-  Type.Object({
-    raw: Type.Unknown(),
-  }),
+const tavilySearchOutputSchema = union([
+  obj({ error: str() }, { open: true }),
+  obj({ status: num(), body: str() }, { open: true }),
+  obj({ raw: unknown() }, { open: true }),
 ]);
 
 // ── Tavily API response types ──────────────────────────────────────────
@@ -160,7 +156,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: tavilySearchSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     outputSchema: tavilySearchOutputSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: TavilySearchInput, signal, _onUpdate, ctx) {
       let apiKey = (await resolveSecret("tavily")) ?? process.env.TAVILY_API_KEY;
 
       // Auto-onboard: run the availability-branched onboarding flow if no key is
