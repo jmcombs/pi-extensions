@@ -1,6 +1,6 @@
 {
   "name": "@jmcombs/pi-EXTENSION_NAME",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "TODO: One-sentence description of what this extension does.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/EXTENSION_NAME",
@@ -39,8 +39,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-schema": "^1.5.0",
-    "@jmcombs/pi-1password": "^2.4.0",
-    "@jmcombs/pi-agent-files": "^0.0.0 || ^1.0.0"
+    "@jmcombs/pi-1password": "^2.4.0 || ^3.0.0",
+    "@jmcombs/pi-agent-files": "^1.0.0 || ^2.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "^1.5.0",
