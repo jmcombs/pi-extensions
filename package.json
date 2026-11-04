@@ -55,7 +55,7 @@
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@earendil-works/pi-ai": "^1.4.0",
-    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
     "@earendil-works/pi-tui": "^1.4.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.1.0",
     "@types/node": "^22.20.5",

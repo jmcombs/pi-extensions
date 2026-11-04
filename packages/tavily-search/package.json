@@ -42,7 +42,7 @@
     "@jmcombs/pi-1password": "^2.4.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
     "typebox": "^1.4.3"
   }
 }
