@@ -47,10 +47,10 @@
  */
 
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { obj, opt, type Static, str } from "@earendil-works/pi-schema";
 import { type Component, Container, Text } from "@earendil-works/pi-tui";
 import { onboardSecret } from "@jmcombs/pi-1password";
 import { HeadroomClient, type OpenAIMessage, type RetrieveResult, simulate } from "headroom-ai";
-import { type Static, Type } from "typebox";
 import { augmentWithAutoRetrieve } from "./autoretrieve.js";
 import { getClient, isHealthy, type ResolveKey, resetClient, resolveConfig } from "./client.js";
 import { compressMessages } from "./compress.js";
@@ -450,17 +450,20 @@ export function formatSimulationReport(sim: SimulationSummary, blobChars: number
 /** Tool name the model calls; matches the proxy's CCR retrieval tool. */
 const RETRIEVE_TOOL_NAME = "headroom_retrieve";
 
-const retrieveSchema = Type.Object({
-  hash: Type.String({
-    description: "The CCR hash from a Headroom compression marker (the value after `hash=`).",
-  }),
-  query: Type.Optional(
-    Type.String({
-      description:
-        "A few words describing the specific detail or line you need (e.g. an id, hostname, error, or filename). The tool returns the matching line(s) from the recovered original instead of the whole thing — strongly recommended for large outputs. Omit to get the full original.",
+const retrieveSchema = obj(
+  {
+    hash: str({
+      description: "The CCR hash from a Headroom compression marker (the value after `hash=`).",
     }),
-  ),
-});
+    query: opt(
+      str({
+        description:
+          "A few words describing the specific detail or line you need (e.g. an id, hostname, error, or filename). The tool returns the matching line(s) from the recovered original instead of the whole thing — strongly recommended for large outputs. Omit to get the full original.",
+      }),
+    ),
+  },
+  { open: true },
+);
 type RetrieveInput = Static<typeof retrieveSchema>;
 
 interface RetrieveDetails {
@@ -735,8 +738,8 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Recover original content that Headroom's lossy compression elided. When a tool result shows a marker naming this tool with a `hash=<hash>`, call this with that hash. Pass a `query` describing the specific detail you need (an id, hostname, error, filename, …) to get back just the matching line(s) instead of the whole original — recommended for large outputs.",
     parameters: retrieveSchema,
-    execute: (_toolCallId, params) => retrieveExecute(params),
-    renderCall: (args, theme) => renderRetrieveCall(args, theme),
+    execute: (_toolCallId, params: RetrieveInput) => retrieveExecute(params),
+    renderCall: (args: RetrieveInput, theme) => renderRetrieveCall(args, theme),
     renderResult: (result, options, theme, context) =>
       renderRetrieveResult(result, context.isError, options.expanded, theme),
   });

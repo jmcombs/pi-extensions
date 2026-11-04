@@ -29,8 +29,8 @@ import * as piRuntime from "@earendil-works/pi-coding-agent";
 // `createBashTool` is always present on the pi runtime (and on oh-my-pi's
 // legacy-pi compat shim), so it stays as a static named import.
 import { createBashTool } from "@earendil-works/pi-coding-agent";
+import { obj, type Static } from "@earendil-works/pi-schema";
 import { agentAuthPath, updateAuthJson } from "@jmcombs/pi-agent-files";
-import { type Static, Type } from "typebox";
 
 import { mergeShellEnv, userBashOperationsResult } from "./bash-env.js";
 import type { UiContext } from "./credential-api.js";
@@ -668,7 +668,7 @@ function isCredentialField(field: { label: string; type?: string }): boolean {
 
 // ── Tool schemas ───────────────────────────────────────────────────────
 
-const diagnoseSchema = Type.Object({});
+const diagnoseSchema = obj({}, { open: true });
 export type DiagnoseInput = Static<typeof diagnoseSchema>;
 
 // ── Extension factory ──────────────────────────────────────────────────

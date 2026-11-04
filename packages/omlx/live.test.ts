@@ -16,7 +16,7 @@ import type {
   Tool,
 } from "@earendil-works/pi-ai";
 import { isModelType, normalizeContext } from "@earendil-works/pi-ai";
-import { Type } from "typebox";
+import { obj } from "@earendil-works/pi-schema";
 import { afterAll, describe, expect, it } from "vitest";
 import { OmlxClient } from "./client.js";
 import { createOmlxProvider } from "./provider.js";
@@ -43,7 +43,7 @@ const CONTEXT_KEYS = [
 const getTime = {
   name: "get_time",
   description: "Return the current time",
-  parameters: Type.Object({}),
+  parameters: obj({}, { open: true }),
 } satisfies Tool;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -23,8 +23,8 @@
 
 import type { JsonObject, JsonValue } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { lit, num, obj, type Static, str, union, unknown } from "@earendil-works/pi-schema";
 import { onboardSecret } from "@jmcombs/pi-1password";
-import { type Static, Type } from "typebox";
 import { readCredentialPreference, resolveGrokAuth } from "./auth.js";
 import { runGrokSetup } from "./setup.js";
 
@@ -32,38 +32,26 @@ const XAI_RESPONSES_ENDPOINT = "https://api.x.ai/v1/responses";
 
 // ── Tool parameter schema ──────────────────────────────────────────────
 
-const grokSearchSchema = Type.Object({
-  query: Type.String({
-    description: "The search query to perform.",
-    minLength: 1,
-  }),
-});
+const grokSearchSchema = obj(
+  {
+    query: str({
+      description: "The search query to perform.",
+      minLength: 1,
+    }),
+  },
+  { open: true },
+);
 
 export type GrokSearchInput = Static<typeof grokSearchSchema>;
 
-const grokCredentialSourceSchema = Type.Union([Type.Literal("oauth"), Type.Literal("api_key")]);
+const grokCredentialSourceSchema = union([lit("oauth"), lit("api_key")]);
 
-const grokSearchOutputSchema = Type.Union([
-  Type.Object({
-    error: Type.String(),
-  }),
-  Type.Object({
-    status: Type.Number(),
-    source: grokCredentialSourceSchema,
-  }),
-  Type.Object({
-    status: Type.Number(),
-    body: Type.String(),
-    source: grokCredentialSourceSchema,
-  }),
-  Type.Object({
-    error: Type.String(),
-    source: grokCredentialSourceSchema,
-  }),
-  Type.Object({
-    raw: Type.Unknown(),
-    source: grokCredentialSourceSchema,
-  }),
+const grokSearchOutputSchema = union([
+  obj({ error: str() }, { open: true }),
+  obj({ status: num(), source: grokCredentialSourceSchema }, { open: true }),
+  obj({ status: num(), body: str(), source: grokCredentialSourceSchema }, { open: true }),
+  obj({ error: str(), source: grokCredentialSourceSchema }, { open: true }),
+  obj({ raw: unknown(), source: grokCredentialSourceSchema }, { open: true }),
 ]);
 
 export function isJsonValue(value: unknown): value is JsonValue {
@@ -162,7 +150,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: grokSearchSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     outputSchema: grokSearchOutputSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: GrokSearchInput, signal, _onUpdate, ctx) {
       let auth = await resolveGrokAuth(signal);
 
       if (!auth) {

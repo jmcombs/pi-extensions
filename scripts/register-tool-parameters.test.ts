@@ -76,7 +76,7 @@ const cases: {
 
 describe("registerTool object parameter schemas", () => {
   for (const entry of cases) {
-    it(`Type.Object parameters: ${entry.dir}`, async () => {
+    it(`object parameters: ${entry.dir}`, async () => {
       const tools = await loadFactory(entry.factory);
       expect(tools.map((tool) => tool.name)).toEqual(entry.names);
       for (const tool of tools) {
@@ -85,7 +85,7 @@ describe("registerTool object parameter schemas", () => {
     });
   }
 
-  it("Type.Object parameters: 1password", async () => {
+  it("object parameters: 1password", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "1p-schema-"));
     const savedHome = process.env.HOME;
     const savedAgentDir = process.env.PI_CODING_AGENT_DIR;
