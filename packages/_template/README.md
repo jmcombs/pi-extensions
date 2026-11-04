@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-EXTENSION_NAME
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 > TODO: One-paragraph description of what this extension does and who it is
 > for. Mention the tools and/or commands it provides.
 

@@ -140,8 +140,10 @@ not assume, and do not build a workaround on your own.
 
 These extensions must load on **two** hosts: [pi](https://github.com/earendil-works/pi-coding-agent)
 (`@earendil-works/pi-coding-agent`) and **oh-my-pi** (`@oh-my-pi/pi-coding-agent`, a
-Bun-targeted fork). A single command checks that every shipped extension still **loads
-and registers** its declared surface on both:
+Bun-targeted fork), unless [`extension-host-exceptions.json`](extension-host-exceptions.json)
+declares that package incompatible with exactly one of those hosts. A package that is not
+listed is compatible with both. An exception is not a way to turn a red load check green,
+and it is not a substitute for gotcha 2 below.
 
 ```bash
 npm run validate:extension-load
@@ -149,46 +151,67 @@ npm run validate:extension-load
 
 It builds an isolated container with **no `op` binary** and no access to your real
 `~/.pi`, then drives each host's **own** real extension loader over every non-private
-`packages/*` extension and asserts that each one **loads without error** and
-**registers exactly its expected surface** on pi and stock oh-my-pi. Running through
-Docker is deliberate: your machine may have the 1Password CLI (`op`) installed, and this
-check must prove the extensions load when `op` is absent — the container guarantees that
+`packages/*` extension that is compatible with that host and asserts that each one
+**loads without error** and **registers exactly its expected surface**. A declared
+incompatible pair is skipped before load, and logged. Running through Docker is
+deliberate: your machine may have the 1Password CLI (`op`) installed, and this check
+must prove the extensions load when `op` is absent — the container guarantees that
 regardless of your host. An **advisory** (informational, non-blocking) GitHub Actions job
 runs the same two loaders runner-native on every pull request.
 
-A package marked `private: true` (e.g. the extension template) is **excluded and logged**
-— it is never silently skipped. Any unexpected failure to load, or a missing/extra part of
-a package's surface, fails the check loudly (non-zero exit).
+A package marked `private: true` (e.g. the extension template) is **excluded and logged**.
+`agent-files` is excluded and logged as a library. A host exception is excluded and logged
+only on the named host. None of those skips is silent. Any unexpected failure to load, or
+a missing/extra part of a package's surface, fails the check loudly (non-zero exit).
+`npm run check` includes `check:host-compat`, which fails if the exception file, a package
+README host mark, or the root host table disagree. That check does not load extensions.
 
-**What a green run does and does not prove.** A pass here means every extension **loads
-and registers** its declared surface with `op` absent — it does **not** exercise
-`op`-backed credential resolution (fetching a real secret from 1Password and using it).
-That remains a separate, manual check run against a live `op` session.
+**What a green run does and does not prove.** A pass here means every extension that is
+compatible with a host **loads and registers** its declared surface on that host with `op`
+absent — it does **not** exercise `op`-backed credential resolution (fetching a real
+secret from 1Password and using it). That remains a separate, manual check run against a
+live `op` session.
+
+### Adding a host exception
+
+1. Feature-detect first if the missing symbol is optional (gotcha 2).
+2. If the package's purpose requires an API the other host does not provide, stop for
+   maintainer approval. Name the API and the pinned host version checked.
+3. Add one object to `extension-host-exceptions.json`. `incompatible` names exactly one of
+   `pi` or `oh-my-pi`. `reason` names that host and the missing API. Both hosts is rejected:
+   that would drop the package from every run while `fail === 0` still printed `RESULT: PASS`.
+4. Update that package README and the root README host table.
+5. Keep the `EXPECTED` entry for every host that remains compatible. Do not mark the
+   package `private` to skip the check.
+6. The load check must log `SKIP: packages/<dir> ... incompatible with <host>` and still
+   pass the package on every compatible host.
 
 ### Expected surface per extension
 
 This is the **complete** registered surface of each extension — the validation is
-exact-set, so anything **missing or extra** fails. The only per-host difference is
-`1password`'s `user_bash` handler (pi-only; see gotcha 2).
+exact-set, so anything **missing or extra** fails. Among packages loaded on both hosts,
+the only per-host surface difference is `1password`'s `user_bash` handler (pi-only; see
+gotcha 2). `omlx` is declared incompatible with oh-my-pi in `extension-host-exceptions.json`,
+and the check skips it on that host rather than loading it.
 
 Provider ids are not on the loader result. Capture is not provider-only: the stub
 records `registerProvider` (a string name, or `Provider.id`) and records
 `registerCommand` instead of rejecting it. Relay still registers providers only.
 omlx registers command `omlx` on the loader and provider `omlx` through that stub.
 
-| Extension         | Tools                                  | Commands                                                                                 | Handlers                                                                                 | Shortcuts / Providers                                                                                                         |
-| ----------------- | -------------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `1password`       | `bash`, `1p_diagnose`                  | `1password_diagnose`, `1password_setup`                                                  | `session_start`; `user_bash` **on pi only**                                              | —                                                                                                                             |
-| `blue-psl-10k`    | —                                      | `blue-psl-restore-footer`                                                                | `session_start`, `model_select`, `turn_end`, `thinking_level_select`                     | —                                                                                                                             |
-| `context7`        | `context7_search`, `context7_get_docs` | `context7_setup`                                                                         | —                                                                                        | —                                                                                                                             |
-| `grok-search`     | `grok_search`                          | `grok_setup`                                                                             | —                                                                                        | —                                                                                                                             |
-| `headroom`        | `headroom_retrieve`                    | `headroom-status`, `headroom_setup`, `headroom-stats`, `headroom-simulate`               | `context`, `session_start`                                                               | —                                                                                                                             |
-| `notify`          | —                                      | `notify`                                                                                 | `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled` | —                                                                                                                             |
-| `omlx`            | —                                      | `omlx`                                                                                   | —                                                                                        | provider `omlx` (stub `registerProvider`; the command is on the loader result)                                                |
-| `prompt-enhancer` | —                                      | `prompt_enhance`, `prompt_enhance_model`, `prompt_enhance_revert`, `prompt_enhance_auto` | `session_start`, `session_shutdown`, `model_select`, `input`                             | shortcuts `ctrl+shift+e`, `ctrl+shift+z`                                                                                      |
-| `relay`           | —                                      | —                                                                                        | —                                                                                        | providers `relay-claude`, `relay-grok`, `relay-cursor` (via a stub host API — providers are not exposed by the loader result) |
-| `steward`         | —                                      | `steward`, `steward-stop`                                                                | `session_shutdown`                                                                       | —                                                                                                                             |
-| `tavily-search`   | `tavily_search`                        | `tavily_setup`                                                                           | —                                                                                        | —                                                                                                                             |
+| Extension         | Tools                                  | Commands                                                                                                            | Handlers                                                                                 | Shortcuts / Providers                                                                                                         |
+| ----------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `1password`       | `bash`, `1p_diagnose`                  | `1password_diagnose`, `1password_setup`                                                                             | `session_start`; `user_bash` **on pi only**                                              | —                                                                                                                             |
+| `blue-psl-10k`    | —                                      | `blue-psl-restore-footer`                                                                                           | `session_start`, `model_select`, `turn_end`, `thinking_level_select`                     | —                                                                                                                             |
+| `context7`        | `context7_search`, `context7_get_docs` | `context7_setup`                                                                                                    | —                                                                                        | —                                                                                                                             |
+| `grok-search`     | `grok_search`                          | `grok_setup`                                                                                                        | —                                                                                        | —                                                                                                                             |
+| `headroom`        | `headroom_retrieve`                    | `headroom-status`, `headroom_setup`, `headroom-stats`, `headroom-simulate`                                          | `context`, `session_start`                                                               | —                                                                                                                             |
+| `notify`          | —                                      | `notify`                                                                                                            | `agent_start`, `turn_end`, `tool_execution_start`, `tool_execution_end`, `agent_settled` | —                                                                                                                             |
+| `omlx`            | —                                      | `omlx`                                                                                                              | —                                                                                        | provider `omlx` (stub `registerProvider`; the command is on the loader result)                                                |
+| `prompt-enhancer` | —                                      | `prompt_enhance`, `prompt_enhance_model`, `prompt_enhance_thinking`, `prompt_enhance_revert`, `prompt_enhance_auto` | `session_start`, `session_shutdown`, `model_select`, `thinking_level_select`, `input`    | shortcuts `ctrl+shift+e`, `ctrl+shift+z`                                                                                      |
+| `relay`           | —                                      | —                                                                                                                   | —                                                                                        | providers `relay-claude`, `relay-grok`, `relay-cursor` (via a stub host API — providers are not exposed by the loader result) |
+| `steward`         | —                                      | `steward_start`, `steward_dashboard`, `steward_stop`, `steward_initialize`                                          | `session_start`, `turn_start`, `turn_end`, `session_shutdown`                            | —                                                                                                                             |
+| `tavily-search`   | `tavily_search`                        | `tavily_setup`                                                                                                      | —                                                                                        | —                                                                                                                             |
 
 The table lives in the harness (`docker/smoke-harness.mts`) as the data it validates
 against; keep it in sync when you add or change a package's surface — because the check

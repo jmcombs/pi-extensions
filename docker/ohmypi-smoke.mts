@@ -4,17 +4,21 @@
  * Thin wrapper over the package-agnostic harness (`smoke-harness.mts`). Drives
  * omp's OWN extension loader (`loadExtensions` from
  * `@oh-my-pi/pi-coding-agent/.../extensibility/extensions`, path passed in
- * `OMP_LOADER`) over every auto-discovered `packages/*` extension (private packages
- * excluded + logged) and asserts each package's expected, platform-aware surface.
+ * `OMP_LOADER`) over every auto-discovered `packages/*` extension that is
+ * compatible with oh-my-pi (private packages, `agent-files`, and a declared host
+ * exception are excluded + logged before load) and asserts each remaining package's
+ * expected, platform-aware surface. omlx is skipped here: it is declared
+ * incompatible with oh-my-pi in `extension-host-exceptions.json`.
  * Provider ids are captured by invoking the factory against a stub `ExtensionAPI`
  * that records `registerProvider` (string name or `Provider.id`) and records
- * `registerCommand` instead of rejecting it. Relay stays provider-only; omlx
- * registers command `omlx` and provider `omlx`.
+ * `registerCommand` instead of rejecting it. Relay stays provider-only. omlx is
+ * not imported on this host.
  *
- * This works on STOCK omp because extensions feature-detect optional pi host APIs
- * (namespace import + runtime check) instead of statically importing them — so they
- * link under omp's compat shim, which omits some exports. Consequently
- * `@jmcombs/pi-1password`'s `user_bash` hook is asserted ABSENT here (pi-only),
+ * Packages that remain in the oh-my-pi run work on STOCK omp because they
+ * feature-detect optional pi host APIs (namespace import + runtime check) instead
+ * of statically importing them — so they link under omp's compat shim, which omits
+ * some exports. Consequently `@jmcombs/pi-1password`'s `user_bash` hook is asserted
+ * ABSENT here (pi-only),
  * while its agent-bash tool + `1p_diagnose` are present.
  *
  * Prints one machine-checkable `OHMYPI-SMOKE:` summary line; exits non-zero on any

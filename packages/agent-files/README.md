@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-agent-files
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 Locked writers for the Pi coding agent's `auth.json` and `settings.json`. This is a library, not a Pi extension. It does not register tools or commands, and it is not listed on the pi.dev gallery.
 
 Other packages in this repo depend on it so they can save their own keys without replacing a symlink or chmod'ing a file that already exists.

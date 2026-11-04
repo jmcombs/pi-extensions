@@ -44,6 +44,12 @@ npm via OIDC Trusted Publishing.
 - **`packages/omlx` tests that exercise omlx require a live omlx server.** Do not substitute a
   local HTTP server. That requirement applies only to `packages/omlx`; do not impose a live
   omlx server on any other package.
+- Extensions must load on pi and oh-my-pi unless `extension-host-exceptions.json` names
+  exactly one incompatible host. Do not add an entry to make a red load check green.
+  Feature-detect optional host APIs first. An exception needs maintainer approval, a reason
+  that names the missing API and the pinned host version, and matching README host marks.
+  The load check skips that pair and still validates the other host. Do not mark the package
+  `private` to skip the check.
 - Each package's `package.json` must include: `keywords: ["pi-package"]`, a `pi` manifest
   with `extensions`, `license: "MIT"`, `author: "Jeremy Combs"`, `engines.node: ">=22.19.0"`,
   and an `image` URL for the gallery card.

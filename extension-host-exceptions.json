@@ -1,0 +1,10 @@
+{
+  "hosts": ["pi", "oh-my-pi"],
+  "exceptions": [
+    {
+      "package": "omlx",
+      "incompatible": ["oh-my-pi"],
+      "reason": "oh-my-pi 17.0.5 remaps @earendil-works/pi-ai onto @oh-my-pi/pi-ai. That package has no root isModelType export, no ./compat, and no ./api/typesafe-system-one.lazy. omlx statically imports isModelType and @earendil-works/pi-ai/compat, and registers with Pi's object-form registerProvider(Provider). omp registerProvider is (name, ProviderConfig) only. omp ProviderConfig has no refreshModels or classifier field, and its apiKey is a string, not Pi's auth.apiKey login/check/resolve object; its only dynamic-model hook is fetchDynamicModels(apiKey)."
+    }
+  ]
+}

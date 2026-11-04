@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-omlx
 
+**Hosts:** pi ✓ · oh-my-pi ✗
+
 > omlx provider for Pi: run local MLX models through omlx with the same experience as Pi's llama.cpp provider.
 
 **MLX models only.** omlx has limited GGUF support, but this extension does not work with GGUF. GGUF is not supported. If you need GGUF, use Pi's built-in llama.cpp provider.

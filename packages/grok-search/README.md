@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-grok-search
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 > Real-time web search for the [Pi coding agent](https://pi.dev) via the
 > [xAI Grok Agent Tools API](https://docs.x.ai/docs/guides/tools/overview).
 > Registers `grok_search` for the model and `/grok_setup` for credentials.

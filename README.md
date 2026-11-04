@@ -78,6 +78,25 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 | [`@jmcombs/pi-omlx`](./packages/omlx) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-omlx.svg)](https://www.npmjs.com/package/@jmcombs/pi-omlx)                                 | Run local MLX models through omlx, with the same experience as Pi's llama.cpp provider. GGUF models are not supported.                                      |
 | [`@jmcombs/pi-blue-psl-10k`](./packages/blue-psl-10k) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-blue-psl-10k.svg)](https://www.npmjs.com/package/@jmcombs/pi-blue-psl-10k) | Powerline-styled status footer (Blue PSL 10K theme) — git, context usage, token counts, and cost.                                                           |
 
+## Host compatibility
+
+A check means the extension-load check validates that host. A cross means `extension-host-exceptions.json` declares that pair incompatible, and the check skips it instead of loading it. A package with no entry is compatible with both hosts.
+
+| Package                             | pi  | oh-my-pi |
+| ----------------------------------- | --- | -------- |
+| `@jmcombs/pi-1password`             | ✓   | ✓        |
+| `@jmcombs/pi-agent-files` (library) | ✓   | ✓        |
+| `@jmcombs/pi-blue-psl-10k`          | ✓   | ✓        |
+| `@jmcombs/pi-context7`              | ✓   | ✓        |
+| `@jmcombs/pi-grok-search`           | ✓   | ✓        |
+| `@jmcombs/pi-headroom`              | ✓   | ✓        |
+| `@jmcombs/pi-notify`                | ✓   | ✓        |
+| `@jmcombs/pi-omlx`                  | ✓   | ✗        |
+| `@jmcombs/pi-prompt-enhancer`       | ✓   | ✓        |
+| `@jmcombs/pi-relay`                 | ✓   | ✓        |
+| `@jmcombs/pi-steward`               | ✓   | ✓        |
+| `@jmcombs/pi-tavily-search`         | ✓   | ✓        |
+
 ## 1Password credential API
 
 Extensions that need a user-provided secret resolve it through the shared

@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-blue-psl-10k
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 Replaces Pi's default footer with a two-line Powerline status bar and bundles the matching **Blue PSL 10K** color theme.
 
 ## Quick Start

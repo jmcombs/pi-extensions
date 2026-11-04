@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-context7
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 Real-time documentation for the Pi coding agent via [Context7](https://context7.com). Gives the agent access to up-to-date, version-aware docs and code examples without polluting context with outdated information.
 
 ## Breaking changes in v2.0.0

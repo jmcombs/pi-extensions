@@ -10,14 +10,19 @@
  *      `agent-files` (no `pi.extensions`) and LOGS every skip (visible,
  *      enumerated — not a silent miss). Today that drops `packages/_template`
  *      and `packages/agent-files`.
- *   3. Drives every in-scope extension through the host's OWN real loader (pi's
+ *   3. Reads `extension-host-exceptions.json` and, before `loadExtensions` and
+ *      before provider capture, drops a package only on a host that file marks
+ *      incompatible. That skip is logged. The other host still validates it.
+ *   4. Drives every remaining extension through the host's OWN real loader (pi's
  *      `discoverAndLoadExtensions` / omp's `loadExtensions`) with `op` absent and
  *      asserts each package's expected, PLATFORM-AWARE surface (`EXPECTED` below).
  *
- * Failure semantics: any in-scope package that fails to load, is missing an
- * expected surface member, exposes a surface that should be platform-absent, or
- * has no `EXPECTED` entry ⇒ FAILURE (non-zero). Only the enumerated `private`
- * set and the enumerated `agent-files` library are ever skipped.
+ * Failure semantics: any package still in scope for this host that fails to load,
+ * is missing an expected surface member, exposes a surface that should be
+ * platform-absent, or has no `EXPECTED` entry ⇒ FAILURE (non-zero). A missing or
+ * invalid exception file also fails. An empty host run fails. The enumerated
+ * `private` set, the enumerated `agent-files` library, and a declared host
+ * exception are the only skips, and each is logged.
  *
  * The loader result has no `providers` field, so provider ids are captured by
  * invoking the extension factory against a stub `ExtensionAPI` that records
@@ -31,6 +36,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { loadHostCompat, partitionForHost, validateHostRun } from "../scripts/host-compat.mjs";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -80,14 +86,17 @@ export interface Expected {
 // ── Per-package expected-surface table (data-driven, platform-aware, STRICT) ──
 //
 // Keyed by package directory name. The COMPLETE registered surface of each
-// non-private package, verified against a REAL load on BOTH pi and stock oh-my-pi
-// before being encoded. Because the assertion is exact-set (extras fail too), every
-// entry must be complete: a package with no entry, a missing member, OR an
-// undeclared extra member all FAIL. Categories a package registers nothing for are
-// omitted (they must then be actually empty).
+// non-private package that is validated on a host. A package declared incompatible
+// with one host in extension-host-exceptions.json is not loaded on that host; its
+// entry is still required for every host that remains compatible. Because the
+// assertion is exact-set (extras fail too), every entry must be complete: a package
+// with no entry, a missing member, OR an undeclared extra member all FAIL.
+// Categories a package registers nothing for are omitted (they must then be actually
+// empty).
 //
-// The only pi-vs-omp difference across all eleven packages is 1password's `user_bash`
-// handler (pi-only, feature-detected on `createLocalBashOperations`).
+// Among packages loaded on both hosts, the only pi-vs-omp surface difference is
+// 1password's `user_bash` handler (pi-only, feature-detected on
+// `createLocalBashOperations`). omlx is not loaded on oh-my-pi.
 //
 // | package         | tools                             | commands                                                   | handlers                                                 | shortcuts / providers                 |
 // | --------------- | --------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- |
@@ -432,7 +441,22 @@ export async function runHarness(opts: RunOptions): Promise<number> {
     console.log(`SKIP: packages/${s.dir} (${s.name}) — ${s.reason}`);
   }
 
-  const allPaths = inScope.flatMap((p) => p.paths);
+  const compat = loadHostCompat(repoRoot);
+  if (!compat.ok) {
+    for (const error of compat.errors) console.error(`FAIL: ${error}`);
+    return 1;
+  }
+  const { run, hostSkipped } = partitionForHost(inScope, platform, compat.exceptions);
+  for (const s of hostSkipped) {
+    console.log(`SKIP: packages/${s.dir} (${s.name}) — incompatible with ${s.host}: ${s.reason}`);
+  }
+  const hostRun = validateHostRun(run);
+  if (!hostRun.ok) {
+    console.error(`FAIL: ${hostRun.error}`);
+    return 1;
+  }
+
+  const allPaths = run.flatMap((p) => p.paths);
   const result = await opts.loadExtensions(allPaths, cwd);
   if (result.errors.length > 0) {
     for (const e of result.errors) {
@@ -445,7 +469,7 @@ export async function runHarness(opts: RunOptions): Promise<number> {
   let pass = 0;
   let fail = 0;
 
-  for (const pkg of inScope) {
+  for (const pkg of run) {
     const expected = EXPECTED[pkg.dir];
     const ext = matchExt(result.extensions, pkg.dir);
 
@@ -493,7 +517,7 @@ export async function runHarness(opts: RunOptions): Promise<number> {
         .join(" ")}`
     : "";
   console.log(
-    `${summaryPrefix} platform=${platform}${extra} packages=${inScope.length} pass=${pass} fail=${fail} skipped=${skipped.length}`,
+    `${summaryPrefix} platform=${platform}${extra} packages=${run.length} pass=${pass} fail=${fail} skipped=${skipped.length} hostSkipped=${hostSkipped.length}`,
   );
   const ok = fail === 0;
   console.log(`RESULT: ${ok ? "PASS" : "FAILED"}`);

@@ -34,13 +34,14 @@
     "check:versions": "node scripts/sync-versions.mjs --check",
     "migrate:biome": "biome migrate --write",
     "check:biome-config": "node scripts/check-biome-config.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run check:versions && npm run check:biome-config && npm run check:dependabot && npm run security",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run check:versions && npm run check:biome-config && npm run check:dependabot && npm run check:host-compat && npm run security",
     "update:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts",
     "check:1p-plugins": "tsx scripts/update-1p-shell-plugins.ts --check",
     "validate:extension-load": "bash scripts/validate-extension-load.sh",
     "dev:steward": "tsx packages/steward/scripts/dev.ts",
     "prepare": "husky",
     "check:dependabot": "node scripts/check-dependabot-ignores.mjs",
+    "check:host-compat": "node scripts/check-host-compat.mjs",
     "check:acceptance-artifact": "tsx scripts/check-acceptance-artifact.mjs"
   },
   "engines": {

@@ -9,6 +9,8 @@
 
 # @jmcombs/pi-relay
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 > **Relay roles** for the [Pi coding agent](https://pi.dev): run any Pi **subagent**
 > on an **external coding agent** instead of a local model — just by setting its
 > `model`. Relay registers pi **providers** (`relay-claude`, `relay-grok`,
