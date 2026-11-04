@@ -1,5 +1,5 @@
 {
-  "packages/1password": "2.7.0",
+  "packages/1password": "3.0.0",
   "packages/tavily-search": "4.0.0",
   "packages/prompt-enhancer": "5.0.0",
   "packages/notify": "3.0.0",

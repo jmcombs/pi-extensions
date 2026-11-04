@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/1password/v2.7.0...1password/v3.0.0) (2026-11-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* packages no longer accept @earendil-works/pi-coding-agent 1.4.
+
+### Features
+
+* **omlx:** document the package and register it for release ([#382](https://github.com/jmcombs/pi-extensions/issues/382)) ([eb7f0c4](https://github.com/jmcombs/pi-extensions/commit/eb7f0c4e81f467527a05ebe91571ba4d960bbd31))
+* require Pi 1.5 ([2b249bd](https://github.com/jmcombs/pi-extensions/commit/2b249bd2888222022693d99be1ae7d0055689e40))
+
 ## [2.7.0](https://github.com/jmcombs/pi-extensions/compare/1password/v2.6.0...1password/v2.7.0) (2026-11-02)
 
 
