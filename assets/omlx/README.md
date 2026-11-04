@@ -7,16 +7,15 @@ Netservant system), never oMLX's own logo or styling.
 
 ## Kept
 
-- `preview.png` — the 1024×1024 README and npm gallery card. `packages/omlx`
-  `pi.image` and the package README both point at
+- `preview-transparent.svg` — the gallery source. Transparent background.
+- `preview.png` — that SVG rendered at 1024×1024 for the README and npm gallery
+  card. `packages/omlx` `pi.image` and the package README both point at
   `https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png`.
   The gallery gate requires this file.
 
 ## Not kept
 
 The design handoff also included mark, lockup, favicon, and app-icon files, plus
-SVG and transparent preview variants (`logo/`, `preview.svg`,
-`preview-transparent.png`, `preview-transparent.svg`). Those are for a website,
-a browser tab, or an app icon. This package ships none of those surfaces. The
-gallery and both READMEs use `preview.png` only, so the unused files are not in
-the repo.
+the opaque preview variants (`logo/`, `preview.svg`, `preview-transparent.png`).
+Those are for a website, a browser tab, or an app icon. This package ships none
+of those surfaces.
