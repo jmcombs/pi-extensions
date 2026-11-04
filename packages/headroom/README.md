@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-headroom
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 > Context-compression for the [Pi coding agent](https://pi.dev). It compresses the
 > **whole conversation** before each LLM call through a local
 > [Headroom](https://www.npmjs.com/package/headroom-ai) proxy, lets the model

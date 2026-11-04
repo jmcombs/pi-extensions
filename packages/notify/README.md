@@ -1,5 +1,7 @@
 # @jmcombs/pi-notify
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 A [Pi coding agent](https://pi.dev) extension that sends a notification via your
 terminal emulator's native system (OSC 777/9/99) when Pi is idle **or**
 blocks on interactive input (e.g. `ask_user`) — so you can switch away while Pi

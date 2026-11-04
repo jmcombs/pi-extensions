@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-1password
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 1Password integration for the Pi coding agent — with a focus on **secure, transparent credential injection** so bare `gh`, `aws`, `heroku`, and other 1P-protected CLIs "just work" inside Pi without the LLM ever seeing tokens.
 
 ## Breaking changes in v2.0.0

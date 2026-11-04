@@ -1,7 +1,6 @@
 {
   "name": "@jmcombs/pi-omlx",
   "version": "0.0.0",
-  "private": true,
   "description": "omlx provider for Pi: run local MLX models through omlx with the same experience as Pi's llama.cpp provider. GGUF models are not supported.",
   "homepage": "https://github.com/jmcombs/pi-extensions/tree/main/packages/omlx",
   "repository": {

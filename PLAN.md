@@ -79,7 +79,7 @@ Parity rows 1–8 and 10. Copy the template, implement URL handling, the omlx HT
 - `resolve`: `apiKey = credential?.key ?? ctx.env("OMLX_API_KEY") ?? "local"` (row 7); `auth.baseUrl` is the `/v1` URL; `env.OMLX_BASE_URL` is the normalized server URL.
 - Management calls strip `/v1` and use the server root. Every request sends `Authorization: Bearer <key>` when the key is truthy, with a 15 s timeout combined with the caller signal.
 - Pi-runtime packages are peers (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`, `typebox`). No 1Password dependency: the API key goes through Pi's own `/login` credential store.
-- If oh-my-pi cannot load the package (object-form `registerProvider` or `@earendil-works/pi-ai/*` resolution), that is a deviation: stop and escalate; it surfaces at the Phase 6 two-host gate.
+- oh-my-pi 17.0.5 cannot load this package. That is a declared exception in `extension-host-exceptions.json` (`omlx` incompatible with `oh-my-pi`), not a deviation to escalate. The extension-load check skips omlx on oh-my-pi and still requires it to load on pi.
 - Reach `@earendil-works/pi-coding-agent` runtime symbols that oh-my-pi may lack through a namespace import plus a runtime check (CONTRIBUTING.md gotcha 2).
 
 ### Actionable TODOs
@@ -282,7 +282,7 @@ Parity rows 46–54 and the GGUF download rule.
 
 Document the package, register it for the two-host load check and Release Please.
 
-**Out:** publishing to npm (human, `CONTRIBUTING.md` → bootstrap publish), editing workflows or CODEOWNERS.
+**Out:** publishing to npm (human, `CONTRIBUTING.md` → bootstrap publish), editing `ci.yml`, `release-please.yml`, or CODEOWNERS. Comment-only edits to `extension-load.yml` are in scope when they stop claiming every package loads on both hosts. The advisory job name stays.
 
 ### Architectural Constraints
 
@@ -305,14 +305,14 @@ Document the package, register it for the two-host load check and Release Please
 
 ### Testing Gates
 
-| Criterion                            | Command                                                                                                                   | Expected                                                                        |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Version conventions                  | `npm run check:versions`                                                                                                  | exit 0                                                                          |
-| Full quality gate                    | `npm run check`                                                                                                           | exit 0                                                                          |
-| Two-host load check `needs: docker`  | `npm run validate:extension-load`                                                                                         | exit 0; `omlx` line shows command `omlx` and provider `omlx` on pi and oh-my-pi |
-| GGUF statement present               | `grep -n "GGUF" packages/omlx/README.md`                                                                                  | lines stating MLX only and that GGUF is not supported                           |
-| Differences documented               | `grep -cE "post-login\|-builtin\|sleeping\|evict\|Keep loaded\|Stop loading\|GGUF\|main API key" packages/omlx/README.md` | ≥ 8                                                                             |
-| Gallery asset `needs: gallery-asset` | `ls assets/omlx/preview.png`                                                                                              | file exists                                                                     |
+| Criterion                            | Command                                                                                                                   | Expected                                                                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Version conventions                  | `npm run check:versions`                                                                                                  | exit 0                                                                                                                                                    |
+| Full quality gate                    | `npm run check`                                                                                                           | exit 0                                                                                                                                                    |
+| Two-host load check `needs: docker`  | `npm run validate:extension-load`                                                                                         | exit 0; pi shows command `omlx` and provider `omlx`; oh-my-pi logs `SKIP: packages/omlx` naming the exception reason, and does not show an omlx PASS line |
+| GGUF statement present               | `grep -n "GGUF" packages/omlx/README.md`                                                                                  | lines stating MLX only and that GGUF is not supported                                                                                                     |
+| Differences documented               | `grep -cE "post-login\|-builtin\|sleeping\|evict\|Keep loaded\|Stop loading\|GGUF\|main API key" packages/omlx/README.md` | ≥ 8                                                                                                                                                       |
+| Gallery asset `needs: gallery-asset` | `ls assets/omlx/preview.png`                                                                                              | file exists                                                                                                                                               |
 
 ## Appendix A — Asset/source map
 

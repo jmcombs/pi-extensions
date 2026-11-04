@@ -3,9 +3,10 @@
 # Extension load check — the Docker path.
 #
 # Builds the op-less interactive-onboarding image and runs the non-interactive
-# extension-load smokes inside it, proving that EVERY non-private packages/*
-# extension loads and registers its expected, platform-aware surface on BOTH real
-# pi AND stock oh-my-pi with the 1Password CLI (`op`) absent.
+# extension-load smokes inside it, proving that every non-private packages/*
+# extension loads and registers its expected, platform-aware surface on each host
+# it is not declared incompatible with, on real pi and stock oh-my-pi, with the
+# 1Password CLI (`op`) absent. A declared host exception is skipped, not loaded.
 #
 # The Docker path is used deliberately: a contributor machine may have `op`
 # installed, but the container has NO `op` binary and NO access to the host
@@ -42,4 +43,4 @@ if [ "$RUN_EXIT" -ne 0 ]; then
   exit 1
 fi
 
-echo "PASS: every non-private extension loads + registers its expected surface on pi and stock oh-my-pi (op absent)."
+echo "PASS: every compatible non-private extension loads + registers its expected surface on pi and stock oh-my-pi (op absent)."

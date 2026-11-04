@@ -48,7 +48,9 @@ LC_ALL=C find packages/EXTENSION_NAME -type f \
 After the rewrite, also resolve every `TODO:` comment in:
 
 - `package.json` — `description`, `keywords`, optional `pi.video`
-- `README.md` — top description, tool/command bullets, requirements section,
+- `README.md` — keep the `**Hosts:**` line under the title unless an approved exception
+  in `extension-host-exceptions.json` changes it; top description, tool/command bullets,
+  requirements section,
   Configuration section (delete entirely if your extension needs no secrets)
 - `index.ts` — replace the `example_echo` tool and `example-hello` command with
   your real implementation

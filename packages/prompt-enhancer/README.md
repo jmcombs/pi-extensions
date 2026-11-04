@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-prompt-enhancer
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 > Codebase-aware prompt rewriting for the [Pi coding agent](https://pi.dev).
 > It turns a rough request into a precise one, then puts that rewrite back in
 > the editor for you to review. Nothing is submitted until you say so.

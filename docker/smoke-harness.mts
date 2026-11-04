@@ -10,25 +10,33 @@
  *      `agent-files` (no `pi.extensions`) and LOGS every skip (visible,
  *      enumerated — not a silent miss). Today that drops `packages/_template`
  *      and `packages/agent-files`.
- *   3. Drives every in-scope extension through the host's OWN real loader (pi's
+ *   3. Reads `extension-host-exceptions.json` and, before `loadExtensions` and
+ *      before provider capture, drops a package only on a host that file marks
+ *      incompatible. That skip is logged. The other host still validates it.
+ *   4. Drives every remaining extension through the host's OWN real loader (pi's
  *      `discoverAndLoadExtensions` / omp's `loadExtensions`) with `op` absent and
  *      asserts each package's expected, PLATFORM-AWARE surface (`EXPECTED` below).
  *
- * Failure semantics: any in-scope package that fails to load, is missing an
- * expected surface member, exposes a surface that should be platform-absent, or
- * has no `EXPECTED` entry ⇒ FAILURE (non-zero). Only the enumerated `private`
- * set and the enumerated `agent-files` library are ever skipped.
+ * Failure semantics: any package still in scope for this host that fails to load,
+ * is missing an expected surface member, exposes a surface that should be
+ * platform-absent, or has no `EXPECTED` entry ⇒ FAILURE (non-zero). A missing or
+ * invalid exception file also fails. An empty host run fails. The enumerated
+ * `private` set, the enumerated `agent-files` library, and a declared host
+ * exception are the only skips, and each is logged.
  *
- * Provider-only packages (relay) register nothing in the loader's
- * commands/tools/handlers maps — the loader result has no `providers` field — so
- * their surface is captured by invoking the extension factory against a stub
- * `ExtensionAPI` that records `registerProvider` calls (mirrors
- * `packages/relay/index.test.ts`).
+ * The loader result has no `providers` field, so provider ids are captured by
+ * invoking the extension factory against a stub `ExtensionAPI` that records
+ * `registerProvider` (a string name, or `Provider.id` on the Pi 1.4.0 object
+ * overload). The stub also records `registerCommand` instead of rejecting it,
+ * so a package that registers both a provider and a command (omlx) can finish
+ * capture. Commands are still asserted from the host loader. Relay stays
+ * provider-only; every other stub guard is unchanged.
  */
 
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
+import { loadHostCompat, partitionForHost, validateHostRun } from "../scripts/host-compat.mjs";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -78,14 +86,17 @@ export interface Expected {
 // ── Per-package expected-surface table (data-driven, platform-aware, STRICT) ──
 //
 // Keyed by package directory name. The COMPLETE registered surface of each
-// non-private package, verified against a REAL load on BOTH pi and stock oh-my-pi
-// before being encoded. Because the assertion is exact-set (extras fail too), every
-// entry must be complete: a package with no entry, a missing member, OR an
-// undeclared extra member all FAIL. Categories a package registers nothing for are
-// omitted (they must then be actually empty).
+// non-private package that is validated on a host. A package declared incompatible
+// with one host in extension-host-exceptions.json is not loaded on that host; its
+// entry is still required for every host that remains compatible. Because the
+// assertion is exact-set (extras fail too), every entry must be complete: a package
+// with no entry, a missing member, OR an undeclared extra member all FAIL.
+// Categories a package registers nothing for are omitted (they must then be actually
+// empty).
 //
-// The only pi-vs-omp difference across all ten packages is 1password's `user_bash`
-// handler (pi-only, feature-detected on `createLocalBashOperations`).
+// Among packages loaded on both hosts, the only pi-vs-omp surface difference is
+// 1password's `user_bash` handler (pi-only, feature-detected on
+// `createLocalBashOperations`). omlx is not loaded on oh-my-pi.
 //
 // | package         | tools                             | commands                                                   | handlers                                                 | shortcuts / providers                 |
 // | --------------- | --------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- |
@@ -95,6 +106,7 @@ export interface Expected {
 // | grok-search     | grok_search                       | grok_setup                                                 | —                                                        | —                                     |
 // | headroom        | headroom_retrieve                 | headroom-status, headroom_setup, headroom-stats, headroom-simulate | context, session_start                          | —                                     |
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_start, tool_execution_end, agent_settled | —                   |
+// | omlx            | —                                 | omlx                                                       | —                                                        | provider omlx (stub registerProvider id; registerCommand recorded) |
 // | prompt-enhancer | —                                 | prompt_enhance, prompt_enhance_model, prompt_enhance_thinking, prompt_enhance_revert, prompt_enhance_auto | session_start, session_shutdown, model_select, thinking_level_select, input | shortcuts ctrl+shift+e, ctrl+shift+z  |
 // | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok, relay-cursor (via stub) |
 // | steward         | —                                 | steward_start, steward_dashboard, steward_stop, steward_initialize | session_start, turn_start, turn_end, session_shutdown | —                                     |
@@ -138,6 +150,11 @@ export const EXPECTED: Record<string, Expected> = {
       "agent_settled",
     ],
     note: "lifecycle handlers + notify command (ask_user wait via tool_execution_start)",
+  },
+  omlx: {
+    commands: ["omlx"],
+    providers: ["omlx"],
+    note: "command omlx; provider omlx via stub registerProvider(Provider).id",
   },
   "prompt-enhancer": {
     commands: [
@@ -235,22 +252,33 @@ type Factory = (api: unknown) => unknown | Promise<unknown>;
 
 /**
  * Invoke an extension factory against a stub `ExtensionAPI` that records
- * `registerProvider` calls, returning the registered provider names. Every other
- * method throws — a provider-only package that touches them exposes an
- * unexpected surface and fails loudly. Mirrors `packages/relay/index.test.ts`.
+ * `registerProvider` calls, returning the registered provider names.
+ *
+ * Pi 1.4.0 overloads `registerProvider(provider: Provider)` as well as the
+ * string-name form relay uses (`core/extensions/types.d.ts:1358`). The recorded
+ * id is `typeof arg === "string" ? arg : arg.id`.
+ *
+ * `registerCommand` is recorded rather than thrown, so omlx can register its
+ * command and its provider in one factory call. The host loader, not this stub,
+ * asserts commands. Every other method still throws. The relay entry is
+ * unchanged: it never calls `registerCommand`, and the other stub guards stay
+ * as they were.
  */
 export async function captureProviders(factory: Factory): Promise<string[]> {
   const providers: string[] = [];
+  const commands: string[] = [];
   const notImplemented = (method: string) => () => {
     throw new Error(`ExtensionAPI.${method} not expected for a provider-only package`);
   };
   const api = {
-    registerProvider: (name: string) => {
-      providers.push(name);
+    registerProvider: (arg: string | { id: string }): void => {
+      providers.push(typeof arg === "string" ? arg : arg.id);
     },
     unregisterProvider: notImplemented("unregisterProvider"),
     registerTool: notImplemented("registerTool"),
-    registerCommand: notImplemented("registerCommand"),
+    registerCommand: (name: string): void => {
+      commands.push(name);
+    },
     registerShortcut: notImplemented("registerShortcut"),
     on: notImplemented("on"),
     events: { emit: notImplemented("events.emit") },
@@ -411,7 +439,22 @@ export async function runHarness(opts: RunOptions): Promise<number> {
     console.log(`SKIP: packages/${s.dir} (${s.name}) — ${s.reason}`);
   }
 
-  const allPaths = inScope.flatMap((p) => p.paths);
+  const compat = loadHostCompat(repoRoot);
+  if (!compat.ok) {
+    for (const error of compat.errors) console.error(`FAIL: ${error}`);
+    return 1;
+  }
+  const { run, hostSkipped } = partitionForHost(inScope, platform, compat.exceptions);
+  for (const s of hostSkipped) {
+    console.log(`SKIP: packages/${s.dir} (${s.name}) — incompatible with ${s.host}: ${s.reason}`);
+  }
+  const hostRun = validateHostRun(run);
+  if (!hostRun.ok) {
+    console.error(`FAIL: ${hostRun.error}`);
+    return 1;
+  }
+
+  const allPaths = run.flatMap((p) => p.paths);
   const result = await opts.loadExtensions(allPaths, cwd);
   if (result.errors.length > 0) {
     for (const e of result.errors) {
@@ -424,7 +467,7 @@ export async function runHarness(opts: RunOptions): Promise<number> {
   let pass = 0;
   let fail = 0;
 
-  for (const pkg of inScope) {
+  for (const pkg of run) {
     const expected = EXPECTED[pkg.dir];
     const ext = matchExt(result.extensions, pkg.dir);
 
@@ -472,7 +515,7 @@ export async function runHarness(opts: RunOptions): Promise<number> {
         .join(" ")}`
     : "";
   console.log(
-    `${summaryPrefix} platform=${platform}${extra} packages=${inScope.length} pass=${pass} fail=${fail} skipped=${skipped.length}`,
+    `${summaryPrefix} platform=${platform}${extra} packages=${run.length} pass=${pass} fail=${fail} skipped=${skipped.length} hostSkipped=${hostSkipped.length}`,
   );
   const ok = fail === 0;
   console.log(`RESULT: ${ok ? "PASS" : "FAILED"}`);
