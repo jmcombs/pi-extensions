@@ -10,5 +10,5 @@
   "packages/relay": "4.0.0",
   "packages/steward": "2.0.0",
   "packages/agent-files": "2.0.0",
-  "packages/omlx": "0.0.0"
+  "packages/omlx": "1.0.0"
 }
