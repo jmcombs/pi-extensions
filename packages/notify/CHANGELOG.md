@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/notify/v2.0.0...notify/v3.0.0) (2026-11-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* packages no longer accept @earendil-works/pi-coding-agent 1.4.
+
+### Features
+
+* **omlx:** document the package and register it for release ([#382](https://github.com/jmcombs/pi-extensions/issues/382)) ([eb7f0c4](https://github.com/jmcombs/pi-extensions/commit/eb7f0c4e81f467527a05ebe91571ba4d960bbd31))
+* require Pi 1.5 ([2b249bd](https://github.com/jmcombs/pi-extensions/commit/2b249bd2888222022693d99be1ae7d0055689e40))
+
 ## [2.0.0](https://github.com/jmcombs/pi-extensions/compare/notify/v1.2.0...notify/v2.0.0) (2026-10-03)
 
 
