@@ -11,6 +11,8 @@
 
 # @jmcombs/pi-steward
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 > **Steward — the llama.cpp control panel for [Pi](https://pi.dev).** _How may we serve your models?_
 
 A single-page operator dashboard for the local `llama-server` behind Pi's llama.cpp provider, plus a

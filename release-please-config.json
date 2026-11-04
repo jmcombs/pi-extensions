@@ -72,6 +72,12 @@
       "component": "agent-files",
       "package-name": "@jmcombs/pi-agent-files",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/omlx": {
+      "release-type": "node",
+      "component": "omlx",
+      "package-name": "@jmcombs/pi-omlx",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

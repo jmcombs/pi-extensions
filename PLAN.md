@@ -79,7 +79,7 @@ Parity rows 1–8 and 10. Copy the template, implement URL handling, the omlx HT
 - `resolve`: `apiKey = credential?.key ?? ctx.env("OMLX_API_KEY") ?? "local"` (row 7); `auth.baseUrl` is the `/v1` URL; `env.OMLX_BASE_URL` is the normalized server URL.
 - Management calls strip `/v1` and use the server root. Every request sends `Authorization: Bearer <key>` when the key is truthy, with a 15 s timeout combined with the caller signal.
 - Pi-runtime packages are peers (`@earendil-works/pi-coding-agent`, `@earendil-works/pi-ai`, `@earendil-works/pi-tui`, `typebox`). No 1Password dependency: the API key goes through Pi's own `/login` credential store.
-- If oh-my-pi cannot load the package (object-form `registerProvider` or `@earendil-works/pi-ai/*` resolution), that is a deviation: stop and escalate; it surfaces at the Phase 6 two-host gate.
+- oh-my-pi 17.0.5 cannot load this package. That is a declared exception in `extension-host-exceptions.json` (`omlx` incompatible with `oh-my-pi`), not a deviation to escalate. The extension-load check skips omlx on oh-my-pi and still requires it to load on pi.
 - Reach `@earendil-works/pi-coding-agent` runtime symbols that oh-my-pi may lack through a namespace import plus a runtime check (CONTRIBUTING.md gotcha 2).
 
 ### Actionable TODOs
@@ -282,7 +282,7 @@ Parity rows 46–54 and the GGUF download rule.
 
 Document the package, register it for the two-host load check and Release Please.
 
-**Out:** publishing to npm (human, `CONTRIBUTING.md` → bootstrap publish), editing workflows or CODEOWNERS.
+**Out:** publishing to npm (human, `CONTRIBUTING.md` → bootstrap publish), editing `ci.yml`, `release-please.yml`, or CODEOWNERS. Comment-only edits to `extension-load.yml` are in scope when they stop claiming every package loads on both hosts. The advisory job name stays.
 
 ### Architectural Constraints
 
@@ -293,26 +293,26 @@ Document the package, register it for the two-host load check and Release Please
 
 ### Actionable TODOs
 
-- [ ] `packages/omlx/README.md` — content per the constraints.
-- [ ] `packages/omlx/package.json` — remove `private: true`; `pi.image` `https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png`.
-- [ ] `assets/omlx/preview.png` — gallery image supplied by the human.
-- [ ] `release-please-config.json` — add `packages/omlx` entry (`release-type` `node`, `component` `omlx`, `package-name` `@jmcombs/pi-omlx`, `changelog-path` `CHANGELOG.md`).
-- [ ] `.release-please-manifest.json` — add `"packages/omlx": "0.0.0"`.
-- [ ] `docker/smoke-harness.mts` — add `omlx` to `EXPECTED` with command `omlx` and provider `omlx`.
-- [ ] `docker/smoke-harness.mts` — `captureProviders` records `typeof arg === "string" ? arg : arg.id` for `registerProvider` (Pi 1.4.0 `registerProvider(provider: Provider)` overload, `core/extensions/types.d.ts:1358`) and records, rather than throws on, `registerCommand`; the relay entry and every other stub guard stay unchanged; update the doc comment and the `CONTRIBUTING.md` "Expected surface per extension" text that calls provider capture provider-only.
-- [ ] `CONTRIBUTING.md` — add the `omlx` row to "Expected surface per extension".
-- [ ] `README.md` — add `@jmcombs/pi-omlx` to the package list.
+- [x] `packages/omlx/README.md` — content per the constraints.
+- [x] `packages/omlx/package.json` — remove `private: true`; `pi.image` `https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png`.
+- [x] `assets/omlx/preview.png` — gallery image supplied by the human.
+- [x] `release-please-config.json` — add `packages/omlx` entry (`release-type` `node`, `component` `omlx`, `package-name` `@jmcombs/pi-omlx`, `changelog-path` `CHANGELOG.md`).
+- [x] `.release-please-manifest.json` — add `"packages/omlx": "0.0.0"`.
+- [x] `docker/smoke-harness.mts` — add `omlx` to `EXPECTED` with command `omlx` and provider `omlx`.
+- [x] `docker/smoke-harness.mts` — `captureProviders` records `typeof arg === "string" ? arg : arg.id` for `registerProvider` (Pi 1.4.0 `registerProvider(provider: Provider)` overload, `core/extensions/types.d.ts:1358`) and records, rather than throws on, `registerCommand`; the relay entry and every other stub guard stay unchanged; update the doc comment and the `CONTRIBUTING.md` "Expected surface per extension" text that calls provider capture provider-only.
+- [x] `CONTRIBUTING.md` — add the `omlx` row to "Expected surface per extension".
+- [x] `README.md` — add `@jmcombs/pi-omlx` to the package list.
 
 ### Testing Gates
 
-| Criterion                            | Command                                                                                                                   | Expected                                                                        |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Version conventions                  | `npm run check:versions`                                                                                                  | exit 0                                                                          |
-| Full quality gate                    | `npm run check`                                                                                                           | exit 0                                                                          |
-| Two-host load check `needs: docker`  | `npm run validate:extension-load`                                                                                         | exit 0; `omlx` line shows command `omlx` and provider `omlx` on pi and oh-my-pi |
-| GGUF statement present               | `grep -n "GGUF" packages/omlx/README.md`                                                                                  | lines stating MLX only and that GGUF is not supported                           |
-| Differences documented               | `grep -cE "post-login\|-builtin\|sleeping\|evict\|Keep loaded\|Stop loading\|GGUF\|main API key" packages/omlx/README.md` | ≥ 8                                                                             |
-| Gallery asset `needs: gallery-asset` | `ls assets/omlx/preview.png`                                                                                              | file exists                                                                     |
+| Criterion                            | Command                                                                                                                   | Expected                                                                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Version conventions                  | `npm run check:versions`                                                                                                  | exit 0                                                                                                                                                    |
+| Full quality gate                    | `npm run check`                                                                                                           | exit 0                                                                                                                                                    |
+| Two-host load check `needs: docker`  | `npm run validate:extension-load`                                                                                         | exit 0; pi shows command `omlx` and provider `omlx`; oh-my-pi logs `SKIP: packages/omlx` naming the exception reason, and does not show an omlx PASS line |
+| GGUF statement present               | `grep -n "GGUF" packages/omlx/README.md`                                                                                  | lines stating MLX only and that GGUF is not supported                                                                                                     |
+| Differences documented               | `grep -cE "post-login\|-builtin\|sleeping\|evict\|Keep loaded\|Stop loading\|GGUF\|main API key" packages/omlx/README.md` | ≥ 8                                                                                                                                                       |
+| Gallery asset `needs: gallery-asset` | `ls assets/omlx/preview.png`                                                                                              | file exists                                                                                                                                               |
 
 ## Appendix A — Asset/source map
 
@@ -334,7 +334,7 @@ Document the package, register it for the two-host load check and Release Please
 - [x] Phase 3 — Classifiers
 - [x] Phase 4 — `/omlx` manager: list, load, unload, progress, restore
 - [x] Phase 5 — `/omlx` downloads (MLX only)
-- [ ] Phase 6 — Docs, extension-load harness, Release Please registration
+- [x] Phase 6 — Docs, extension-load harness, Release Please registration
 
 ## Appendix D — Definition of Done
 
@@ -348,15 +348,16 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate                | Deferred at | Needs      | Discharge by | Status     |
-| ------------------- | ----------- | ---------- | ------------ | ---------- |
-| Interactive login   | Phase 1     | tui-human  | human        | DISCHARGED |
-| /model in real pi   | Phase 2     | tui-human  | human        | DISCHARGED |
-| Load and unload     | Phase 4     | tui-human  | human        | DISCHARGED |
-| Replace and restore | Phase 4     | tui-human  | human        | DISCHARGED |
-| Server down         | Phase 4     | tui-human  | human        | DISCHARGED |
-| GGUF rejected       | Phase 5     | tui-human  | human        | DISCHARGED |
-| Real MLX download   | Phase 5     | hf-network | human        | DISCHARGED |
+| Gate                | Deferred at | Needs         | Discharge by | Status     |
+| ------------------- | ----------- | ------------- | ------------ | ---------- |
+| Interactive login   | Phase 1     | tui-human     | human        | DISCHARGED |
+| /model in real pi   | Phase 2     | tui-human     | human        | DISCHARGED |
+| Load and unload     | Phase 4     | tui-human     | human        | DISCHARGED |
+| Replace and restore | Phase 4     | tui-human     | human        | DISCHARGED |
+| Server down         | Phase 4     | tui-human     | human        | DISCHARGED |
+| GGUF rejected       | Phase 5     | tui-human     | human        | DISCHARGED |
+| Real MLX download   | Phase 5     | hf-network    | human        | DISCHARGED |
+| Gallery asset       | Phase 6     | gallery-asset | human        | DISCHARGED |
 
 Human out-of-band discharge of Interactive login (Phase 1): prompt `API key (required)`; blank key `Error: Failed to save API key for omlx: API key required` (stores nothing); wrong key `Error: Failed to save API key for omlx: Invalid API key` (stores nothing); real key `Saved API key for omlx. Credentials saved to /Users/jmcombs/.pi/agent/auth.json`.
 
@@ -371,3 +372,5 @@ Human out-of-band discharge of Server down (Phase 4), at commit 7a2ec36: screen 
 Human out-of-band discharge of GGUF rejected (Phase 5): typed unsloth/Qwen3-8B-GGUF:Q4_K_M; error was "This extension supports MLX models only. GGUF quantizations are not supported."; GET /admin/api/hf/tasks grep for Qwen3-8B-GGUF returned 0.
 
 Human out-of-band discharge of Real MLX download (Phase 5): Downloaded mlx-community/Llama-3.2-1B-Instruct-4bit; Llama-3.2-1B-Instruct-4bit appeared in the /omlx list.
+
+Human out-of-band discharge of Gallery asset (Phase 6), committed as 8b31f8b: assets/omlx/preview.png is the 1024x1024 transparent render of preview-transparent.svg.

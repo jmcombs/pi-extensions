@@ -18,7 +18,8 @@ Three things run automatically, and they are not interchangeable:
   check. Runs on **pull requests into `main`**. This is the gate branch protection
   enforces; a red here blocks the merge.
 - **Extension Load Check** (advisory) — proves the shipped extensions still load and
-  register their declared surface on both host runtimes. Runs on pull requests into
+  register their declared surface on each host runtime they are not declared incompatible
+  with in `extension-host-exceptions.json`. Runs on pull requests into
   `main` **and** into the `feat/1password-credential-api` integration branch. It is
   **informational only and never blocks a merge**.
 - **Release Please** (post-merge automation) — after a merge to `main`, it opens
@@ -33,14 +34,14 @@ direct push.
 
 ## At a glance
 
-| Workflow                        | File                                                                              | Trigger                                            | Required?                                                    | A green proves…                                                                                                                          |
-| ------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Quality Gate                    | [`ci.yml`](../.github/workflows/ci.yml)                                           | PR → `main`                                        | **Yes** — `Quality Gate (Node 22)`, `Quality Gate (Node 24)` | the whole tree lints/formats/typechecks/tests clean on the pinned Node matrix, versions conform, no secret hits, no known prod-dep vulns |
-| Commit Messages                 | [`ci.yml`](../.github/workflows/ci.yml)                                           | PR → `main`                                        | **Yes** — `Commit Messages`                                  | every commit in the PR range matches Conventional Commits                                                                                |
-| Extension Load Check            | [`extension-load.yml`](../.github/workflows/extension-load.yml)                   | PR → `main` **or** `feat/1password-credential-api` | No — **advisory**                                            | every non-private extension loads + registers exactly its declared surface on pi and oh-my-pi with `op` absent                           |
-| Release Please                  | [`release-please.yml`](../.github/workflows/release-please.yml)                   | push → `main` (on `packages/**` etc.)              | n/a — post-merge automation                                  | only that the release _mechanics_ ran; **not** that any code is valid                                                                    |
-| 1Password shell-plugins updater | [`update-1p-shell-plugins.yml`](../.github/workflows/update-1p-shell-plugins.yml) | weekly schedule + manual dispatch                  | n/a — opens a PR                                             | nothing directly; the PR it opens is gated like any other                                                                                |
-| Dependabot                      | [`dependabot.yml`](../.github/dependabot.yml)                                     | weekly schedule                                    | n/a — opens PRs                                              | nothing directly; each PR it opens runs the full gate                                                                                    |
+| Workflow                        | File                                                                              | Trigger                                            | Required?                                                    | A green proves…                                                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quality Gate                    | [`ci.yml`](../.github/workflows/ci.yml)                                           | PR → `main`                                        | **Yes** — `Quality Gate (Node 22)`, `Quality Gate (Node 24)` | the whole tree lints/formats/typechecks/tests clean on the pinned Node matrix, versions conform, no secret hits, no known prod-dep vulns       |
+| Commit Messages                 | [`ci.yml`](../.github/workflows/ci.yml)                                           | PR → `main`                                        | **Yes** — `Commit Messages`                                  | every commit in the PR range matches Conventional Commits                                                                                      |
+| Extension Load Check            | [`extension-load.yml`](../.github/workflows/extension-load.yml)                   | PR → `main` **or** `feat/1password-credential-api` | No — **advisory**                                            | every non-private extension loads + registers exactly its declared surface on each host it is not declared incompatible with, with `op` absent |
+| Release Please                  | [`release-please.yml`](../.github/workflows/release-please.yml)                   | push → `main` (on `packages/**` etc.)              | n/a — post-merge automation                                  | only that the release _mechanics_ ran; **not** that any code is valid                                                                          |
+| 1Password shell-plugins updater | [`update-1p-shell-plugins.yml`](../.github/workflows/update-1p-shell-plugins.yml) | weekly schedule + manual dispatch                  | n/a — opens a PR                                             | nothing directly; the PR it opens is gated like any other                                                                                      |
+| Dependabot                      | [`dependabot.yml`](../.github/dependabot.yml)                                     | weekly schedule                                    | n/a — opens PRs                                              | nothing directly; each PR it opens runs the full gate                                                                                          |
 
 ## Quality Gate
 
@@ -142,11 +143,14 @@ The harness ([`docker/smoke-harness.mts`](../docker/smoke-harness.mts), driven b
 `docker/pi-smoke.mts` and `docker/ohmypi-smoke.mts`):
 
 1. **Discovers** every `packages/*` extension by reading each `package.json` and
-   iterating its `pi.extensions` array; packages marked `private: true` are **skipped
-   and logged** (never silently dropped).
+   iterating its `pi.extensions` array; packages marked `private: true`, the `agent-files`
+   library, and a host named in [`extension-host-exceptions.json`](../extension-host-exceptions.json)
+   are **skipped and logged** (never silently dropped). A host exception is skipped only
+   on that host, before `loadExtensions` and before provider capture.
 2. **Loads on real pi** via `discoverAndLoadExtensions` (the exact loader pi uses at
-   startup).
+   startup). Packages declared incompatible with pi are not in that path list.
 3. **Loads on stock oh-my-pi** via that fork's own `loadExtensions`, running under Bun.
+   Packages declared incompatible with oh-my-pi, including `omlx`, are not in that path list.
 4. **Compares each surface STRICTLY (exact-set):** for every category (tools, commands,
    handlers, shortcuts, providers) the registered members must _equal_ the expected set —
    anything **missing** and anything **extra** both fail. Platform-aware differences are
@@ -167,7 +171,7 @@ sequenceDiagram
     participant Omp as stock oh-my-pi loader (Bun)
     PR->>GH: pull_request event
     GH->>Job: start runner-native job (assert op absent)
-    Job->>Job: discover packages/* (skip + log private)
+    Job->>Job: discover packages/* (skip + log private, library, host exceptions)
     Job->>Pi: discoverAndLoadExtensions(paths) via pi-smoke
     Pi-->>Job: registered surface (user_bash PRESENT on pi)
     Job->>Omp: loadExtensions(paths) via ohmypi-smoke
@@ -176,9 +180,11 @@ sequenceDiagram
     Job-->>GH: advisory status — never blocks the merge
 ```
 
-**A green here PROVES:** every non-private shipped extension links, loads, and registers
-_exactly_ its declared, platform-aware surface on both pi and stock oh-my-pi, with `op`
-**absent** — so nothing is missing and nothing rogue was registered.
+**A green here PROVES:** every non-private shipped extension that is compatible with a
+host links, loads, and registers _exactly_ its declared, platform-aware surface on that
+host, with `op` **absent** — so nothing is missing and nothing rogue was registered. A
+declared incompatible pair is skipped and logged, not loaded. `npm run check` separately
+fails if the exception file and the README host marks disagree.
 
 **It does NOT prove:** that `op`-backed credential **resolution** works (fetching a real
 secret and using it); any tool or command **runtime behavior**; or onboarding/setup UX —

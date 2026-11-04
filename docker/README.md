@@ -51,20 +51,24 @@ docker run --rm pi-ext-interactive:latest        # or: npm run validate:extensio
 # SKIP: packages/_template (@jmcombs/pi-EXTENSION_NAME) — private:true
 # PASS pi 1password: tools[bash,1p_diagnose] handlers[session_start,user_bash]
 # PASS pi context7: tools[context7_search,context7_get_docs] commands[context7_setup]
-# … (one PASS line per non-private package) …
+# … (one PASS line per package compatible with pi) …
 # PASS pi relay: providers[relay-claude,relay-grok,relay-cursor]
-# PI-SMOKE: platform=pi packages=10 pass=10 fail=0 skipped=1
+# PI-SMOKE: platform=pi packages=11 pass=11 fail=0 skipped=2 hostSkipped=0
 # == oh-my-pi extension load check (op absent) ==
+# SKIP: packages/omlx (@jmcombs/pi-omlx) — incompatible with oh-my-pi: <reason>
 # PASS oh-my-pi 1password: tools[bash,1p_diagnose] handlers[session_start,!user_bash]
 # … (user_bash is pi-only: asserted ABSENT on oh-my-pi, shown as !user_bash) …
-# OHMYPI-SMOKE: platform=oh-my-pi omp-version=omp/17.0.5 packages=10 pass=10 fail=0 skipped=1
+# OHMYPI-SMOKE: platform=oh-my-pi omp-version=omp/17.0.5 packages=10 pass=10 fail=0 skipped=2 hostSkipped=1
 ```
 
 Each smoke drives that agent's **own** real extension loader (not a stub) and both
-are gates: they prove real pi and **stock** oh-my-pi load **every** non-private
-`packages/*` extension (+ their LOCAL `@jmcombs/pi-1password`) with `op` absent and
-register each package's expected, platform-aware surface from the workspace copies.
-Discovery + the expected-surface table live in `docker/smoke-harness.mts`.
+are gates: they prove real pi and **stock** oh-my-pi load every non-private
+`packages/*` extension that is compatible with that host (+ their LOCAL
+`@jmcombs/pi-1password`) with `op` absent and register each remaining package's
+expected, platform-aware surface from the workspace copies. A pair listed in
+`extension-host-exceptions.json` is skipped before load and counted in `hostSkipped`,
+not in `pass` or `fail`. Discovery + the expected-surface table live in
+`docker/smoke-harness.mts`.
 
 > **Registration ≠ TUI routing.** These smokes prove the commands _register_; they
 > do not prove the running TUI _surfaces and routes_ them. That is the interactive

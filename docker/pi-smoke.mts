@@ -4,10 +4,13 @@
  * Thin wrapper over the package-agnostic harness (`smoke-harness.mts`). Drives
  * pi's OWN public extension loader — `discoverAndLoadExtensions` from
  * `@earendil-works/pi-coding-agent`, the exact function pi's startup uses — over
- * every auto-discovered `packages/*` extension (private packages excluded + logged)
- * and asserts each package's expected, platform-aware surface. Provider-only
- * packages (relay) are captured by invoking the factory against a stub
- * `ExtensionAPI` that records `registerProvider`.
+ * every auto-discovered `packages/*` extension that is compatible with pi
+ * (private packages, `agent-files`, and a declared host exception are excluded +
+ * logged) and asserts each package's expected, platform-aware surface. Provider ids are
+ * not on the loader result, so they are captured by invoking the factory against
+ * a stub `ExtensionAPI` that records `registerProvider` (string name or
+ * `Provider.id`) and records `registerCommand` instead of rejecting it. Relay
+ * stays provider-only; omlx registers command `omlx` and provider `omlx`.
  *
  * On pi the `user_bash` handler and the `createLocalBashOperations` host API are
  * present, so `@jmcombs/pi-1password`'s pi-only `user_bash` hook is asserted PRESENT.

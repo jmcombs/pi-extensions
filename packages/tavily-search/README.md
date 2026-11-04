@@ -1,5 +1,7 @@
 # @jmcombs/pi-tavily-search
 
+**Hosts:** pi ✓ · oh-my-pi ✓
+
 A [Pi coding agent](https://pi.dev) extension that adds real-time web search via the
 [Tavily API](https://tavily.com).
 
