@@ -1,5 +1,18 @@
 # Changelog
 
+## [5.0.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v4.2.0...prompt-enhancer/v5.0.0) (2026-11-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* packages no longer accept @earendil-works/pi-coding-agent 1.4.
+
+### Features
+
+* drop the stale minimatch audit allowlist ([d803338](https://github.com/jmcombs/pi-extensions/commit/d803338ca18d9b93d651bc3a8b9c5a7adda5c835))
+* **omlx:** document the package and register it for release ([#382](https://github.com/jmcombs/pi-extensions/issues/382)) ([eb7f0c4](https://github.com/jmcombs/pi-extensions/commit/eb7f0c4e81f467527a05ebe91571ba4d960bbd31))
+* require Pi 1.5 ([2b249bd](https://github.com/jmcombs/pi-extensions/commit/2b249bd2888222022693d99be1ae7d0055689e40))
+
 ## [4.2.0](https://github.com/jmcombs/pi-extensions/compare/prompt-enhancer/v4.1.0...prompt-enhancer/v4.2.0) (2026-10-31)
 
 
