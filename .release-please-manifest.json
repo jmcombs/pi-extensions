@@ -8,7 +8,7 @@
   "packages/blue-psl-10k": "1.2.0",
   "packages/headroom": "2.0.1",
   "packages/relay": "3.0.0",
-  "packages/steward": "1.1.0",
+  "packages/steward": "2.0.0",
   "packages/agent-files": "1.0.0",
   "packages/omlx": "1.0.0"
 }
