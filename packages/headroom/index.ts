@@ -739,7 +739,13 @@ export default function (pi: ExtensionAPI): void {
       "Recover original content that Headroom's lossy compression elided. When a tool result shows a marker naming this tool with a `hash=<hash>`, call this with that hash. Pass a `query` describing the specific detail you need (an id, hostname, error, filename, …) to get back just the matching line(s) instead of the whole original — recommended for large outputs.",
     parameters: retrieveSchema,
     execute: (_toolCallId, params: RetrieveInput) => retrieveExecute(params),
-    renderCall: (args: RetrieveInput, theme) => renderRetrieveCall(args, theme),
+    renderCall: (args, theme) => {
+      const record = typeof args === "object" && args !== null ? args : {};
+      const hash = "hash" in record && typeof record.hash === "string" ? record.hash : "";
+      const query =
+        "query" in record && typeof record.query === "string" ? record.query : undefined;
+      return renderRetrieveCall(query === undefined ? { hash } : { hash, query }, theme);
+    },
     renderResult: (result, options, theme, context) =>
       renderRetrieveResult(result, context.isError, options.expanded, theme),
   });
