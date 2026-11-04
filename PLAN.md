@@ -293,15 +293,15 @@ Document the package, register it for the two-host load check and Release Please
 
 ### Actionable TODOs
 
-- [ ] `packages/omlx/README.md` — content per the constraints.
-- [ ] `packages/omlx/package.json` — remove `private: true`; `pi.image` `https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png`.
-- [ ] `assets/omlx/preview.png` — gallery image supplied by the human.
-- [ ] `release-please-config.json` — add `packages/omlx` entry (`release-type` `node`, `component` `omlx`, `package-name` `@jmcombs/pi-omlx`, `changelog-path` `CHANGELOG.md`).
-- [ ] `.release-please-manifest.json` — add `"packages/omlx": "0.0.0"`.
-- [ ] `docker/smoke-harness.mts` — add `omlx` to `EXPECTED` with command `omlx` and provider `omlx`.
-- [ ] `docker/smoke-harness.mts` — `captureProviders` records `typeof arg === "string" ? arg : arg.id` for `registerProvider` (Pi 1.4.0 `registerProvider(provider: Provider)` overload, `core/extensions/types.d.ts:1358`) and records, rather than throws on, `registerCommand`; the relay entry and every other stub guard stay unchanged; update the doc comment and the `CONTRIBUTING.md` "Expected surface per extension" text that calls provider capture provider-only.
-- [ ] `CONTRIBUTING.md` — add the `omlx` row to "Expected surface per extension".
-- [ ] `README.md` — add `@jmcombs/pi-omlx` to the package list.
+- [x] `packages/omlx/README.md` — content per the constraints.
+- [x] `packages/omlx/package.json` — remove `private: true`; `pi.image` `https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png`.
+- [x] `assets/omlx/preview.png` — gallery image supplied by the human.
+- [x] `release-please-config.json` — add `packages/omlx` entry (`release-type` `node`, `component` `omlx`, `package-name` `@jmcombs/pi-omlx`, `changelog-path` `CHANGELOG.md`).
+- [x] `.release-please-manifest.json` — add `"packages/omlx": "0.0.0"`.
+- [x] `docker/smoke-harness.mts` — add `omlx` to `EXPECTED` with command `omlx` and provider `omlx`.
+- [x] `docker/smoke-harness.mts` — `captureProviders` records `typeof arg === "string" ? arg : arg.id` for `registerProvider` (Pi 1.4.0 `registerProvider(provider: Provider)` overload, `core/extensions/types.d.ts:1358`) and records, rather than throws on, `registerCommand`; the relay entry and every other stub guard stay unchanged; update the doc comment and the `CONTRIBUTING.md` "Expected surface per extension" text that calls provider capture provider-only.
+- [x] `CONTRIBUTING.md` — add the `omlx` row to "Expected surface per extension".
+- [x] `README.md` — add `@jmcombs/pi-omlx` to the package list.
 
 ### Testing Gates
 
@@ -334,7 +334,7 @@ Document the package, register it for the two-host load check and Release Please
 - [x] Phase 3 — Classifiers
 - [x] Phase 4 — `/omlx` manager: list, load, unload, progress, restore
 - [x] Phase 5 — `/omlx` downloads (MLX only)
-- [ ] Phase 6 — Docs, extension-load harness, Release Please registration
+- [x] Phase 6 — Docs, extension-load harness, Release Please registration
 
 ## Appendix D — Definition of Done
 
@@ -348,15 +348,16 @@ Document the package, register it for the two-host load check and Release Please
 
 ## Appendix E — Deferred-gate ledger
 
-| Gate                | Deferred at | Needs      | Discharge by | Status     |
-| ------------------- | ----------- | ---------- | ------------ | ---------- |
-| Interactive login   | Phase 1     | tui-human  | human        | DISCHARGED |
-| /model in real pi   | Phase 2     | tui-human  | human        | DISCHARGED |
-| Load and unload     | Phase 4     | tui-human  | human        | DISCHARGED |
-| Replace and restore | Phase 4     | tui-human  | human        | DISCHARGED |
-| Server down         | Phase 4     | tui-human  | human        | DISCHARGED |
-| GGUF rejected       | Phase 5     | tui-human  | human        | DISCHARGED |
-| Real MLX download   | Phase 5     | hf-network | human        | DISCHARGED |
+| Gate                | Deferred at | Needs         | Discharge by | Status     |
+| ------------------- | ----------- | ------------- | ------------ | ---------- |
+| Interactive login   | Phase 1     | tui-human     | human        | DISCHARGED |
+| /model in real pi   | Phase 2     | tui-human     | human        | DISCHARGED |
+| Load and unload     | Phase 4     | tui-human     | human        | DISCHARGED |
+| Replace and restore | Phase 4     | tui-human     | human        | DISCHARGED |
+| Server down         | Phase 4     | tui-human     | human        | DISCHARGED |
+| GGUF rejected       | Phase 5     | tui-human     | human        | DISCHARGED |
+| Real MLX download   | Phase 5     | hf-network    | human        | DISCHARGED |
+| Gallery asset       | Phase 6     | gallery-asset | human        | DISCHARGED |
 
 Human out-of-band discharge of Interactive login (Phase 1): prompt `API key (required)`; blank key `Error: Failed to save API key for omlx: API key required` (stores nothing); wrong key `Error: Failed to save API key for omlx: Invalid API key` (stores nothing); real key `Saved API key for omlx. Credentials saved to /Users/jmcombs/.pi/agent/auth.json`.
 
@@ -371,3 +372,5 @@ Human out-of-band discharge of Server down (Phase 4), at commit 7a2ec36: screen 
 Human out-of-band discharge of GGUF rejected (Phase 5): typed unsloth/Qwen3-8B-GGUF:Q4_K_M; error was "This extension supports MLX models only. GGUF quantizations are not supported."; GET /admin/api/hf/tasks grep for Qwen3-8B-GGUF returned 0.
 
 Human out-of-band discharge of Real MLX download (Phase 5): Downloaded mlx-community/Llama-3.2-1B-Instruct-4bit; Llama-3.2-1B-Instruct-4bit appeared in the /omlx list.
+
+Human out-of-band discharge of Gallery asset (Phase 6), committed as 8b31f8b: assets/omlx/preview.png is the 1024x1024 transparent render of preview-transparent.svg.
