@@ -6,8 +6,10 @@
  * `@oh-my-pi/pi-coding-agent/.../extensibility/extensions`, path passed in
  * `OMP_LOADER`) over every auto-discovered `packages/*` extension (private packages
  * excluded + logged) and asserts each package's expected, platform-aware surface.
- * Provider-only packages (relay) are captured by invoking the factory against a
- * stub `ExtensionAPI` that records `registerProvider`.
+ * Provider ids are captured by invoking the factory against a stub `ExtensionAPI`
+ * that records `registerProvider` (string name or `Provider.id`) and records
+ * `registerCommand` instead of rejecting it. Relay stays provider-only; omlx
+ * registers command `omlx` and provider `omlx`.
  *
  * This works on STOCK omp because extensions feature-detect optional pi host APIs
  * (namespace import + runtime check) instead of statically importing them — so they

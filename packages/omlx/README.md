@@ -11,125 +11,75 @@
 
 # @jmcombs/pi-omlx
 
-> TODO: One-paragraph description of what this extension does and who it is
-> for. Mention the tools and/or commands it provides.
+> omlx provider for Pi: run local MLX models through omlx with the same experience as Pi's llama.cpp provider.
 
-## Quick Start
+**MLX models only.** omlx has limited GGUF support, but this extension does not work with GGUF. GGUF is not supported. If you need GGUF, use Pi's built-in llama.cpp provider.
 
-Get the extension in under a minute:
+This extension is unofficial and is not affiliated with or endorsed by oMLX.
 
-1. Install:
+## Quick start
 
-   ```bash
-   pi install npm:@jmcombs/pi-omlx
-   ```
+```bash
+pi install npm:@jmcombs/pi-omlx
+```
 
-2. (Optional) Try without installing:
+Then, in Pi:
 
-   ```bash
-   pi -e ./packages/omlx
-   ```
+```text
+/login omlx
+/omlx
+/model
+```
+
+`/login omlx` asks for the server URL, then a required API key. The default URL is `http://127.0.0.1:8000`. A blank key is not stored.
+
+Without `/login`, point Pi at the server with `OMLX_BASE_URL` and `OMLX_API_KEY`. A stored URL wins over `OMLX_BASE_URL`. When no key is stored, Pi uses `OMLX_API_KEY`, then the placeholder `local` for a keyless server.
 
 See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local path, project-scoped install, and filtering options.
 
-## What It Adds
+To try this checkout without installing:
 
-See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
-path, project-scoped install, and filtering options.
+```bash
+pi -e ./packages/omlx
+```
 
-## What It Adds
+## What it adds
 
-- **Tool**: `example_echo` — TODO: describe the tool, its parameters, and what
-  the LLM uses it for.
-- **Command**: `/example-hello [name]` — TODO: describe the command and any
-  arguments.
+- **Provider** `omlx` — local MLX chat through an omlx server, with the same experience as Pi's llama.cpp provider.
+- **Command** `/omlx` — list, load, unload, and download models. Interactive mode only.
+- **`/model`** — lists loaded MLX chat models. Load one with `/omlx` before selecting it.
+- **Classifiers** — loaded chat models and decision models are `typesafe-system-one` classifiers. Decision models are classifiers only; they do not appear in `/model`.
+
+## Differences from Pi's llama.cpp provider
+
+- **Generic post-login message.** After `/login omlx`, Pi shows its generic post-login message. It does not tell you to load a model. Run `/omlx`, then `/model`.
+- **No `-builtin` switch.** External packages cannot use `-builtin:`. Remove this package to disable it; `-builtin:omlx` does not apply.
+- **No sleeping models.** omlx has no sleeping status. Sleeping models do not appear, and nothing wakes on use.
+- **Chat can evict.** A chat request can evict an LRU model. Pi's llama.cpp provider does not unload other models during chat.
+- **Keep loaded is best-effort.** Selecting an unloaded model while others are loaded still offers `Unload all and load`, `Keep loaded and load`, and `Cancel`. Keep loaded is honored only when memory fits. When it does not, omlx can evict an LRU non-pinned model to admit the load.
+- **Stop loading only stops waiting.** Esc during a load still asks `Stop loading?`. There is no load-cancel route. Confirming it only stops waiting; the server finishes the load in the background.
+- **No GGUF exact entry.** `owner/repo` downloads an MLX repo. A GGUF repo, or any `:quant` suffix, is rejected. This extension supports MLX models only. GGUF is not supported.
+- **No quantization picker.** Each MLX repo is already one quantization, so there is no picker and no GGUF quant list.
+- **Downloads need the main API key.** omlx downloads are admin routes. A sub key fails. Use the server's main API key.
 
 ## Configuration
 
-<!-- Delete this section — and drop the `@jmcombs/pi-1password` dependency from
-     package.json — if your extension needs no secrets. -->
+| Name            | Role                                                                   |
+| --------------- | ---------------------------------------------------------------------- |
+| `/login omlx`   | Store the server URL and API key. Default URL `http://127.0.0.1:8000`. |
+| `OMLX_BASE_URL` | Server root when no URL is stored.                                     |
+| `OMLX_API_KEY`  | API key when none is stored.                                           |
+| `/omlx`         | Load, unload, and download MLX models.                                 |
+| `/model`        | Select a loaded MLX chat model.                                        |
+| Classifiers     | Loaded chat models and decision models, via `typesafe-system-one`.     |
 
-### API Keys / Secrets
-
-If this extension calls a third-party service, handle its credential through the
-[`@jmcombs/pi-1password`](https://www.npmjs.com/package/@jmcombs/pi-1password)
-credential API. **Never** hard-code API keys or commit them to source control,
-and never surface a key (entered or resolved) in LLM-visible text.
-
-`@jmcombs/pi-1password` exports a small, stateless credential surface —
-`resolveSecret` reads `~/.pi/agent/auth.json` and resolves the stored entry
-(either a literal key or an `!op read 'op://…'` reference) fresh on every call;
-`onboardSecret` runs the setup flow, which **branches on 1Password availability**
-(a live vault → item → field picker when the `op` CLI is configured, secure
-masked manual entry otherwise). Existing `auth.json` keys — literals and
-`!op read` references alike — keep resolving unchanged.
-
-This is the same pattern the shipped extensions use;
-`packages/context7/index.ts` is the reference implementation.
-
-#### 1. Declare the dependency
-
-Install it as a regular dependency (this records the current version for you):
-
-```bash
-npm install @jmcombs/pi-1password
-```
-
-It is a hard `dependencies` entry (never a peer): pi installs extensions with
-`--omit=peer`, so a peer would not be installed and the import would fail. The
-dependency auto-installs, so the credential API is always importable.
-
-#### 2. Register a `<slug>_setup` command
-
-By convention the credential-setup command is named
-`{brand-slug}_setup` and delegates to `onboardSecret`:
-
-```ts
-import { onboardSecret, resolveSecret } from "@jmcombs/pi-1password";
-
-pi.registerCommand("example_setup", {
-  description: "Set up or update your Example API key (never shown to the agent).",
-  handler: async (_args, ctx) => {
-    const result = await onboardSecret(ctx, { name: "example", label: "Example" });
-    ctx.ui.notify(result.message, result.ok ? "info" : "warning");
-  },
-});
-```
-
-#### 3. Resolve on use, with auto-onboard on a miss
-
-Inside a tool's `execute()`, resolve the key; if it is missing, run onboarding
-once and re-resolve. This preserves the "prompt on first use" experience without
-ever leaking the key to the model:
-
-```ts
-async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-  let apiKey = await resolveSecret("example");
-  if (!apiKey) {
-    const r = await onboardSecret(ctx, { name: "example", label: "Example" });
-    if (r.ok) {
-      apiKey = await resolveSecret("example");
-    }
-  }
-  if (!apiKey) {
-    return {
-      content: [{ type: "text", text: "Cancelled: no Example API key provided." }],
-      details: { error: "missing_api_key" },
-    };
-  }
-
-  // …use `apiKey` to call the third-party service…
-}
-```
-
-For the full walkthrough — architecture, the onboarding availability branch, the
-resolve sequence, and a worked context7 example with diagrams — see the developer
-integration guide: [`INTEGRATION.md`](../../docs/1p-credential-api/INTEGRATION.md).
+Downloads through `/omlx` need the main API key, not a sub key.
 
 ## Requirements
 
-- Pi `>= TODO: minimum tested pi version`
-- Node `>= 20.6.0`
+- Pi `>= 1.4.0`
+- Node `>= 22.19.0`
+- A local omlx server. The default URL is `http://127.0.0.1:8000`.
 
 ## Development
 
@@ -140,19 +90,10 @@ Use Pi APIs everywhere. Do not reinvent a way of integrating with Pi that falls 
 APIs Pi provides. If a needed capability has no Pi API, stop and escalate it to the human. Do
 not assume, and do not build a workaround on your own.
 
-Agent `auth.json` / `settings.json` writes use `@jmcombs/pi-agent-files`:
-
-```ts
-import { agentAuthPath, updateAuthJson, updateSettingsJson } from "@jmcombs/pi-agent-files";
-```
-
-Do not write those files with `writeFile`, `rename`, or a hard-coded `homedir()` path.
-
 ```bash
 # From the repo root
 npm ci
-npm run check       # full quality gate
-npm run test        # this package's smoke test
+npm run check
 ```
 
 Testing this package against omlx requires a live omlx server. Do not stand in a
@@ -162,12 +103,6 @@ do not need a live omlx server.
 ```bash
 OMLX_LIVE=1 OMLX_BASE_URL=http://127.0.0.1:8000 OMLX_API_KEY=... OMLX_TEST_MODEL=... \
   npx vitest run packages/omlx/live.test.ts
-```
-
-To try local changes against a real Pi session:
-
-```bash
-pi -e ./packages/omlx
 ```
 
 ## License

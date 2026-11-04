@@ -19,11 +19,13 @@
  * has no `EXPECTED` entry ⇒ FAILURE (non-zero). Only the enumerated `private`
  * set and the enumerated `agent-files` library are ever skipped.
  *
- * Provider-only packages (relay) register nothing in the loader's
- * commands/tools/handlers maps — the loader result has no `providers` field — so
- * their surface is captured by invoking the extension factory against a stub
- * `ExtensionAPI` that records `registerProvider` calls (mirrors
- * `packages/relay/index.test.ts`).
+ * The loader result has no `providers` field, so provider ids are captured by
+ * invoking the extension factory against a stub `ExtensionAPI` that records
+ * `registerProvider` (a string name, or `Provider.id` on the Pi 1.4.0 object
+ * overload). The stub also records `registerCommand` instead of rejecting it,
+ * so a package that registers both a provider and a command (omlx) can finish
+ * capture. Commands are still asserted from the host loader. Relay stays
+ * provider-only; every other stub guard is unchanged.
  */
 
 import { execSync } from "node:child_process";
@@ -84,7 +86,7 @@ export interface Expected {
 // undeclared extra member all FAIL. Categories a package registers nothing for are
 // omitted (they must then be actually empty).
 //
-// The only pi-vs-omp difference across all ten packages is 1password's `user_bash`
+// The only pi-vs-omp difference across all eleven packages is 1password's `user_bash`
 // handler (pi-only, feature-detected on `createLocalBashOperations`).
 //
 // | package         | tools                             | commands                                                   | handlers                                                 | shortcuts / providers                 |
@@ -95,6 +97,7 @@ export interface Expected {
 // | grok-search     | grok_search                       | grok_setup                                                 | —                                                        | —                                     |
 // | headroom        | headroom_retrieve                 | headroom-status, headroom_setup, headroom-stats, headroom-simulate | context, session_start                          | —                                     |
 // | notify          | —                                 | notify                                                     | agent_start, turn_end, tool_execution_start, tool_execution_end, agent_settled | —                   |
+// | omlx            | —                                 | omlx                                                       | —                                                        | provider omlx (stub registerProvider id; registerCommand recorded) |
 // | prompt-enhancer | —                                 | prompt_enhance, prompt_enhance_model, prompt_enhance_thinking, prompt_enhance_revert, prompt_enhance_auto | session_start, session_shutdown, model_select, thinking_level_select, input | shortcuts ctrl+shift+e, ctrl+shift+z  |
 // | relay           | —                                 | —                                                          | —                                                        | providers relay-claude, relay-grok, relay-cursor (via stub) |
 // | steward         | —                                 | steward_start, steward_dashboard, steward_stop, steward_initialize | session_start, turn_start, turn_end, session_shutdown | —                                     |
@@ -138,6 +141,11 @@ export const EXPECTED: Record<string, Expected> = {
       "agent_settled",
     ],
     note: "lifecycle handlers + notify command (ask_user wait via tool_execution_start)",
+  },
+  omlx: {
+    commands: ["omlx"],
+    providers: ["omlx"],
+    note: "command omlx; provider omlx via stub registerProvider(Provider).id",
   },
   "prompt-enhancer": {
     commands: [
@@ -235,27 +243,40 @@ type Factory = (api: unknown) => unknown | Promise<unknown>;
 
 /**
  * Invoke an extension factory against a stub `ExtensionAPI` that records
- * `registerProvider` calls, returning the registered provider names. Every other
- * method throws — a provider-only package that touches them exposes an
- * unexpected surface and fails loudly. Mirrors `packages/relay/index.test.ts`.
+ * `registerProvider` calls, returning the registered provider names.
+ *
+ * Pi 1.4.0 overloads `registerProvider(provider: Provider)` as well as the
+ * string-name form relay uses (`core/extensions/types.d.ts:1358`). The recorded
+ * id is `typeof arg === "string" ? arg : arg.id`.
+ *
+ * `registerCommand` is recorded rather than thrown, so omlx can register its
+ * command and its provider in one factory call. The host loader, not this stub,
+ * asserts commands. Every other method still throws. The relay entry is
+ * unchanged: it never calls `registerCommand`, and the other stub guards stay
+ * as they were.
  */
 export async function captureProviders(factory: Factory): Promise<string[]> {
   const providers: string[] = [];
+  const commands: string[] = [];
   const notImplemented = (method: string) => () => {
     throw new Error(`ExtensionAPI.${method} not expected for a provider-only package`);
   };
   const api = {
-    registerProvider: (name: string) => {
-      providers.push(name);
+    registerProvider: (arg: string | { id: string }): void => {
+      providers.push(typeof arg === "string" ? arg : arg.id);
     },
     unregisterProvider: notImplemented("unregisterProvider"),
     registerTool: notImplemented("registerTool"),
-    registerCommand: notImplemented("registerCommand"),
+    registerCommand: (name: string): void => {
+      commands.push(name);
+    },
     registerShortcut: notImplemented("registerShortcut"),
     on: notImplemented("on"),
     events: { emit: notImplemented("events.emit") },
   };
   await factory(api);
+  // Recorded so a provider+command factory can finish. The loader asserts commands.
+  void commands.length;
   return providers;
 }
 

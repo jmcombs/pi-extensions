@@ -6,6 +6,7 @@
     <a href="./packages/grok-search"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/grok-search/preview.png" width="72" height="72" alt="grok-search"></a>
     <a href="./packages/headroom"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/headroom/preview.png" width="72" height="72" alt="headroom"></a>
     <a href="./packages/notify"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/notify/preview.png" width="72" height="72" alt="notify"></a>
+    <a href="./packages/omlx"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/omlx/preview.png" width="72" height="72" alt="omlx"></a>
     <a href="./packages/prompt-enhancer"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/prompt-enhancer/preview.png" width="72" height="72" alt="prompt-enhancer"></a>
     <a href="./packages/relay"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/relay/preview.png" width="72" height="72" alt="relay"></a>
     <a href="./packages/steward"><img src="https://raw.githubusercontent.com/jmcombs/pi-extensions/main/assets/steward/preview.png" width="72" height="72" alt="steward"></a>
@@ -74,6 +75,7 @@ See the [Pi packages documentation](https://pi.dev/docs/packages) for git, local
 | [`@jmcombs/pi-headroom`](./packages/headroom) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-headroom.svg)](https://www.npmjs.com/package/@jmcombs/pi-headroom)                 | Whole-conversation context compression via a local [Headroom](https://www.npmjs.com/package/headroom-ai) proxy, with graceful passthrough when unreachable. |
 | [`@jmcombs/pi-relay`](./packages/relay) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-relay.svg)](https://www.npmjs.com/package/@jmcombs/pi-relay)                             | Run any Pi subagent on an external coding agent (headless Claude / Grok) by setting its `model` — provider seam, no local model required.                   |
 | [`@jmcombs/pi-steward`](./packages/steward) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-steward.svg)](https://www.npmjs.com/package/@jmcombs/pi-steward)                     | The llama.cpp control panel for Pi — local browser dashboard for service control, resident models, host health, and streamed logs.                          |
+| [`@jmcombs/pi-omlx`](./packages/omlx) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-omlx.svg)](https://www.npmjs.com/package/@jmcombs/pi-omlx)                                 | Run local MLX models through omlx, with the same experience as Pi's llama.cpp provider. GGUF models are not supported.                                      |
 | [`@jmcombs/pi-blue-psl-10k`](./packages/blue-psl-10k) [![npm](https://img.shields.io/npm/v/@jmcombs/pi-blue-psl-10k.svg)](https://www.npmjs.com/package/@jmcombs/pi-blue-psl-10k) | Powerline-styled status footer (Blue PSL 10K theme) — git, context usage, token counts, and cost.                                                           |
 
 ## 1Password credential API
