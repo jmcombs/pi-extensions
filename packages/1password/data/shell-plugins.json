@@ -398,6 +398,13 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/ngrok"
   },
   {
+    "name": "Notion",
+    "slug": "notion",
+    "envVars": ["NOTION_API_TOKEN"],
+    "primaryEnvVar": "NOTION_API_TOKEN",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/notion"
+  },
+  {
     "name": "npm",
     "slug": "npm",
     "envVars": ["NODE_AUTH_TOKEN", "NPM_TOKEN", "PNPM_CONFIG__AUTH"],
