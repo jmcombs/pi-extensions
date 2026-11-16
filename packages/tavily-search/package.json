@@ -39,7 +39,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@earendil-works/pi-schema": "^1.5.0",
+    "@earendil-works/pi-schema": "^1.5.2",
     "@jmcombs/pi-1password": "^2.4.0 || ^3.0.0"
   },
   "peerDependencies": {
