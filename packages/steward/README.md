@@ -103,7 +103,6 @@ needs a person.
 It refreshes while the dashboard is up, and reads the same data the dashboard does — no extra
 connection to your server.
 
-
 ## Configuration
 
 Run `/steward_initialize` and let your clanker set me up. It reviews the local environment, captures
@@ -114,7 +113,6 @@ It writes `~/.config/steward/steward.json` at mode `0600` — the collector, the
 URL, the service commands, and a consent hash for every command Steward may run. Steward ignores
 that file if it is not owned by you or is world-writable, because it is a code-execution surface.
 
-
 ### Environment variables
 
 | Variable           | Default                          | Purpose                                                                                                            |
@@ -123,7 +121,6 @@ that file if it is not owned by you or is world-writable, because it is a code-e
 | `STEWARD_PORT`     | `8788`                           | Dashboard port. `0` asks the OS for any free port; a port already taken costs an ephemeral one, not the dashboard. |
 | `STEWARD_LOG_FILE` | —                                | Overrides the recorded `log.path` for the log console.                                                             |
 | `STEWARD_GLYPH`    | `󰢍`                              | The status bar's mark. `""` drops it; any other value replaces it.                                                 |
-
 
 ## Development
 

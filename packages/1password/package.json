@@ -44,15 +44,15 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@earendil-works/pi-schema": "^1.5.0",
-    "@jmcombs/pi-agent-files": "^1.0.0 || ^2.0.0"
+    "@earendil-works/pi-schema": "^1.5.2",
+    "@jmcombs/pi-agent-files": "^2.0.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-tui": "^1.5.2"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.5.0",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-tui": "^1.5.2"
   }
 }
