@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0](https://github.com/jmcombs/pi-extensions/compare/1password/v3.0.0...1password/v3.1.0) (2026-11-18)
+
+
+### Features
+
+* **1password:** update curated shell plugins list from upstream source ([#401](https://github.com/jmcombs/pi-extensions/issues/401)) ([12e7828](https://github.com/jmcombs/pi-extensions/commit/12e7828d8e15aff97a7451b983f0ef0ba36c9fdd))
+
 ## [3.0.0](https://github.com/jmcombs/pi-extensions/compare/1password/v2.7.0...1password/v3.0.0) (2026-11-04)
 
 
