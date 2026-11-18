@@ -7,6 +7,7 @@ Path Blue and Manrope.
 ## Files
 
 **Vector (use these wherever possible — infinitely scalable)**
+
 - `headroom-mark.svg` — mark only, Path Blue, transparent background
 - `headroom-mark-white.svg` — mark only, white (for dark backgrounds)
 - `headroom-icon.svg` — app icon: white mark on a Path Blue rounded tile
@@ -15,6 +16,7 @@ Path Blue and Manrope.
 - `headroom-lockup-white.svg` — mark + wordmark, white, for dark backgrounds
 
 **Raster (PNG, for places SVG isn't accepted)**
+
 - `headroom-icon-512.png` — app icon, 512×512
 - `headroom-icon-180.png` — Apple touch icon, 180×180
 - `favicon-32.png`, `favicon-16.png` — browser favicons
