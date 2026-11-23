@@ -216,6 +216,13 @@
     "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/gitea"
   },
   {
+    "name": "Gitea",
+    "slug": "gt",
+    "envVars": ["GITEA_INSTANCE_URL", "GITEA_TOKEN"],
+    "primaryEnvVar": "GITEA_TOKEN",
+    "pageUrl": "https://github.com/1Password/shell-plugins/tree/main/plugins/gt"
+  },
+  {
     "name": "GitHub",
     "slug": "github",
     "envVars": [
