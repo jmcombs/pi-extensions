@@ -54,8 +54,8 @@
     "@biomejs/biome": "^2.6.8",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
-    "@earendil-works/pi-ai": "^1.5.2",
-    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-ai": "^1.6.0",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
     "@earendil-works/pi-schema": "^1.5.2",
     "@earendil-works/pi-tui": "^1.5.2",
     "@secretlint/secretlint-rule-preset-recommend": "^13.1.0",
@@ -64,6 +64,6 @@
     "secretlint": "^13.1.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
