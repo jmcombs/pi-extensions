@@ -44,7 +44,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@earendil-works/pi-schema": "^1.5.2",
+    "@earendil-works/pi-schema": "^1.6.0",
     "@jmcombs/pi-agent-files": "^2.0.0"
   },
   "peerDependencies": {
