@@ -48,11 +48,11 @@
     "@jmcombs/pi-agent-files": "^2.0.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
     "@earendil-works/pi-tui": "^1.5.2"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^1.5.2",
+    "@earendil-works/pi-coding-agent": "^1.6.0",
     "@earendil-works/pi-tui": "^1.5.2"
   }
 }
